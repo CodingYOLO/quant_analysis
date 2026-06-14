@@ -27,9 +27,14 @@ def _build_report(state: PipelineState) -> str:
     regime = state.market_regime
     meta = state.meta
 
+    # 将 YYYYMMDD 格式化为 YYYY-MM-DD 便于阅读
+    td = state.trade_date
+    td_display = f"{td[:4]}-{td[4:6]}-{td[6:]}"
+
     lines = [
-        f"# A股每日选股简报 — {state.trade_date}",
-        f"> 生成时间：{now}  |  定位：信息聚合+量化初筛，不构成投资建议",
+        f"# A股每日选股简报",
+        f"> 📅 **数据交易日：{td_display}**　|　报告生成：{now}",
+        f"> ⚠️ 定位：信息聚合+量化初筛，不构成投资建议",
         "",
     ]
 
@@ -40,7 +45,17 @@ def _build_report(state: PipelineState) -> str:
     _append_sector_section(lines, state)
 
     # ---- 第三部分：候选股总览表 ----
-    lines += ["", "## 三、候选股票池"]
+    can_open = regime.can_open
+    if not can_open:
+        lines += [
+            "",
+            "## 三、候选股票池（观察模式）",
+            f"> 🔴 当前市场状态【{regime.label}】，仓位建议 **0%，不实际买入**。",
+            "> 以下为量化筛选的潜力股观察池，供市场好转后参考。",
+        ]
+    else:
+        lines += ["", "## 三、候选股票池"]
+
     if state.candidates:
         _append_candidates_table(lines, state.candidates)
         lines.append("")
@@ -55,7 +70,7 @@ def _build_report(state: PipelineState) -> str:
         for i, c in enumerate(state.candidates, 1):
             _append_stock_detail(lines, i, c, regime.label)
     else:
-        lines.append("_（今日无候选股通过量化筛选，建议空仓观望）_")
+        lines.append("_（今日无股票通过量化筛选）_")
 
     # ---- 元信息 ----
     lines += [
@@ -188,24 +203,29 @@ def _append_sector_section(lines: list, state: PipelineState) -> None:
                 f"| {s.nextday_risk_penalty:.0f} |"
             )
 
-    # ---- LLM新闻主题（Phase 2 已接入）----
+    # ---- LLM新闻主题（Phase 2 已接入，含龙头股）----
     if state.themes:
         lines += ["", "### 📰 LLM新闻主题催化"]
-        lines += [
-            "",
-            "| 主题 | 热度 | 阶段 | 关联行业 | 证据 |",
-            "|---|---|---|---|---|",
-        ]
         for t in sorted(state.themes, key=lambda x: x.heat, reverse=True)[:8]:
-            industries = "、".join(t.concept_codes[:2]) or "—"
-            evidence = t.evidence[0] if t.evidence else "—"
-            lines.append(
-                f"| **{t.name}** | {t.heat:.1f} | {t.phase} "
-                f"| {industries} | {evidence} |"
-            )
+            phase_emoji = {"事件驱动↑": "⚡", "升温": "🔥", "趋势": "↗", "退潮": "📉"}.get(t.phase, "—")
+            industries = "、".join(t.concept_codes[:3]) or "—"
+            evidence = " / ".join(t.evidence[:2]) if t.evidence else "—"
+            lines += [
+                "",
+                f"**{phase_emoji} {t.name}**　热度 {t.heat:.1f}/10　{t.phase}　关联行业：{industries}",
+                f"> {evidence}",
+            ]
+            # 龙头股
+            if t.leaders:
+                leader_cells = []
+                for l in t.leaders:
+                    flag = "🚀" if l.is_limit_up else ("📈" if l.pct_change > 0 else "📉")
+                    flow_str = f"主力{l.fund_flow/10000:+.1f}亿" if abs(l.fund_flow) > 1000 else ""
+                    leader_cells.append(f"{flag} **{l.name}**({l.code[:6]}) {l.pct_change:+.1f}% RPS{l.rps50:.0f} {flow_str}")
+                lines.append("　".join(leader_cells))
     else:
         lines.append("")
-        lines.append("_（今日无财联社新闻或LLM主题分析不可用）_")
+        lines.append("_（今日无新闻数据或LLM主题分析不可用）_")
 
 
 def _append_candidates_table(lines: list, candidates: list[Candidate]) -> None:
@@ -264,6 +284,22 @@ def _append_stock_detail(lines: list, idx: int, c: Candidate, market_label: str)
         f"| 🎯 止盈2 | {p.take_profit_2:.2f} | +8% 继续减仓 |",
         f"| 建议仓位 | {p.position_pct:.0%} | 基于{market_label}市场状态 |",
     ]
+
+    # 多空辩论结果
+    if c.debate:
+        lines.append("")
+        verdict_emoji = "✅" if c.debate.verdict == "通过" else "❌"
+        lines.append(f"**{verdict_emoji} 风控裁决：{c.debate.verdict}** — {c.debate.verdict_reason}")
+        if c.debate.bull_points:
+            lines.append("")
+            lines.append("**📈 多头论点：**")
+            for pt in c.debate.bull_points:
+                lines.append(f"- {pt}")
+        if c.debate.bear_points:
+            lines.append("")
+            lines.append("**📉 空头风险：**")
+            for pt in c.debate.bear_points:
+                lines.append(f"- {pt}")
 
     # 次日观察清单
     if p.execution_checklist:

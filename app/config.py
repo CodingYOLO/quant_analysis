@@ -44,6 +44,9 @@ class Settings(BaseSettings):
     email_password: str = Field("")
     email_to: str = Field("")
 
+    # ---------- 财联社（可选，填入Cookie后自动启用高质量新闻）----------
+    cls_cookie: str = Field("", description="财联社登录Cookie（从Chrome开发者工具复制）")
+
     # ---------- 路径 ----------
     cache_dir: Path = Field(Path("data_cache"))
     report_dir: Path = Field(Path("reports"))

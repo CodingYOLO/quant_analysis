@@ -19,9 +19,10 @@ import pandas as pd
 
 from app.data.composite_provider import CompositeProvider
 from app.data.history_loader import load_price_matrix
+from app.factors import calc_rps
 from app.llm.client import LLMClient
 from app.sector_analyzer import calc_sector_stats
-from app.state import PipelineState, Theme
+from app.state import PipelineState, Theme, ThemeLeader
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +63,7 @@ _THEME_TO_INDUSTRY_KEYWORDS: dict[str, list[str]] = {
 
 
 def node_theme_analysis(state: PipelineState) -> PipelineState:
-    """板块热度评分 + 新闻主题分析双流水线。"""
+    """板块热度评分 + 新闻主题分析 + 主题龙头股关联 三流水线。"""
     logger.info("[节点B] 板块热度评分 + LLM新闻主题分析（Phase 2）")
 
     provider = CompositeProvider()
@@ -81,8 +82,13 @@ def node_theme_analysis(state: PipelineState) -> PipelineState:
         logger.warning("[节点B] 价格矩阵加载失败，跳过量化板块热度")
 
     # ---- 子流水线2：LLM新闻主题分析 ----
-    state.themes = _run_news_theme_pipeline(state.trade_date, provider, state.sector_stats)
+    themes = _run_news_theme_pipeline(state.trade_date, provider, state.sector_stats)
 
+    # ---- 子流水线3：主题龙头股关联（步骤10）----
+    if themes and close_m is not None:
+        themes = _attach_theme_leaders(themes, state.trade_date, provider, close_m)
+
+    state.themes = themes
     return state
 
 
@@ -159,17 +165,17 @@ def _run_news_theme_pipeline(
 
 def _fetch_news(trade_date: str, provider: CompositeProvider) -> list[dict]:
     """
-    拉取财联社新闻，返回 [{title, content, time}] 列表。
-    接口不可用时静默返回空列表。
+    拉取财联社电报 + 东方财富财经要闻，返回 [{text, time}] 列表。
+    优先使用缓存；接口不可用时静默返回空列表。
     """
     try:
         df = provider.get_cls_news(trade_date)
         if df is None or df.empty:
             return []
 
-        # 适配 akshare 返回的列名（可能变化）
-        title_col = _find_col(df, ["标题", "title", "内容", "content"])
-        time_col = _find_col(df, ["发布时间", "时间", "time", "date"])
+        # 东方财富字段：标题 / 摘要 / 发布时间
+        title_col = _find_col(df, ["标题", "摘要", "新闻标题", "title", "内容", "content"])
+        time_col = _find_col(df, ["发布时间", "时间", "发布日期", "time", "date"])
 
         if title_col is None:
             logger.debug("财联社新闻字段无法识别，列名: %s", list(df.columns))
@@ -215,7 +221,8 @@ def _batch_score_news(news_items: list[dict]) -> list[dict]:
         numbered = "\n".join(
             f"{i+1}. {item['text']}" for i, item in enumerate(batch)
         )
-        prompt = prompt_template.format(items=numbered)
+        # 用 replace 而非 format，避免 prompt 中的 JSON {} 被误当占位符
+        prompt = prompt_template.replace("{items}", numbered)
 
         try:
             raw = llm.chat(
@@ -236,7 +243,10 @@ def _batch_score_news(news_items: list[dict]) -> list[dict]:
 
 
 def _parse_llm_json(raw: str) -> list[dict]:
-    """从 LLM 输出中提取并解析 JSON 数组，容忍 markdown 代码块包裹。"""
+    """
+    从 LLM 输出中提取并解析 JSON 数组。
+    容忍：markdown 代码块包裹、key 含换行/引号、非标准格式。
+    """
     # 去掉 markdown 代码块
     text = re.sub(r"```(?:json)?\s*", "", raw).strip().rstrip("```").strip()
 
@@ -247,10 +257,19 @@ def _parse_llm_json(raw: str) -> list[dict]:
         return []
 
     try:
-        return json.loads(text[start: end + 1])
+        items = json.loads(text[start: end + 1])
     except json.JSONDecodeError as e:
         logger.debug("JSON解析失败: %s | raw前200字: %s", e, raw[:200])
         return []
+
+    # 规范化：过滤非dict项，清洗 key 中可能含有的换行/多余引号
+    result = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        clean = {k.strip().strip('"'): v for k, v in item.items()}
+        result.append(clean)
+    return result
 
 
 def _aggregate_themes(
@@ -409,9 +428,99 @@ def _get_quant_heat_boost(industries: list[str], sector_heat: dict[str, float]) 
     if not industries:
         return 0.0
     max_quant = max(sector_heat.get(ind, 0) for ind in industries)
-    # 量化热度 > 70 → 加0.5；> 80 → 加1.0
     if max_quant > 80:
         return 1.0
     elif max_quant > 70:
         return 0.5
     return 0.0
+
+
+# ──────────────────────────────────────────────
+# 步骤10：主题龙头股关联
+# ──────────────────────────────────────────────
+
+def _attach_theme_leaders(
+    themes: list[Theme],
+    trade_date: str,
+    provider: CompositeProvider,
+    close_m,
+) -> list[Theme]:
+    """
+    为每个热门主题找出 Top3 龙头股。
+    筛选标准（按优先级）：
+      1. 所属行业在主题关联行业内
+      2. 当日涨幅排名靠前（动量领先）
+      3. 有主力资金净流入
+    """
+    try:
+        daily = provider.get_daily(trade_date)
+        money_flow = provider.get_money_flow(trade_date)
+        stock_basic = provider.get_stock_basic()
+        rps50 = calc_rps(close_m, n=50)
+
+        if daily is None or daily.empty or stock_basic is None:
+            return themes
+
+        # 合并行情 + 行业 + 资金流
+        merged = daily[["ts_code", "pct_chg", "amount"]].merge(
+            stock_basic[["ts_code", "name", "industry"]], on="ts_code", how="left"
+        )
+        if money_flow is not None and not money_flow.empty:
+            mf = money_flow[["ts_code", "buy_elg_amount", "sell_elg_amount",
+                             "buy_lg_amount", "sell_lg_amount"]].copy()
+            mf["main_net"] = (
+                (mf["buy_elg_amount"] - mf["sell_elg_amount"]) +
+                (mf["buy_lg_amount"] - mf["sell_lg_amount"])
+            )
+            merged = merged.merge(mf[["ts_code", "main_net"]], on="ts_code", how="left")
+        else:
+            merged["main_net"] = 0.0
+
+        merged["rps50"] = merged["ts_code"].map(rps50).fillna(50)
+        merged["main_net"] = merged["main_net"].fillna(0)
+        merged = merged.dropna(subset=["industry"])
+
+    except Exception as e:
+        logger.warning("[节点B] 主题龙头股数据加载失败: %s", e)
+        return themes
+
+    _LIMIT_UP = 9.5
+    for theme in themes:
+        if theme.heat < 4.0 or not theme.concept_codes:
+            continue
+
+        # 筛选关联行业的股票
+        sector_stocks = merged[merged["industry"].isin(theme.concept_codes)].copy()
+        if sector_stocks.empty:
+            continue
+
+        # 综合评分：涨幅(40%) + RPS(30%) + 主力资金(30%)
+        sector_stocks["score"] = (
+            sector_stocks["pct_chg"].clip(-10, 10) / 10 * 40
+            + sector_stocks["rps50"] / 100 * 30
+            + sector_stocks["main_net"].apply(
+                lambda x: 30 if x > 10000 else (15 if x > 0 else 0)
+            )
+        )
+
+        top3 = sector_stocks.nlargest(3, "score")
+        leaders = []
+        for _, row in top3.iterrows():
+            leaders.append(ThemeLeader(
+                code=row["ts_code"],
+                name=str(row.get("name", "")),
+                pct_change=round(float(row["pct_chg"]), 2),
+                rps50=round(float(row["rps50"]), 0),
+                fund_flow=round(float(row.get("main_net", 0)), 0),
+                is_limit_up=float(row["pct_chg"]) >= _LIMIT_UP,
+            ))
+        theme.leaders = leaders
+
+        if leaders:
+            logger.info(
+                "  主题[%s] 龙头: %s",
+                theme.name,
+                " / ".join(f"{l.name}{l.pct_change:+.1f}%" for l in leaders),
+            )
+
+    return themes

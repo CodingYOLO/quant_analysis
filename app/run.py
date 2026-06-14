@@ -29,7 +29,14 @@ logger = logging.getLogger(__name__)
 
 
 def _resolve_date(date_str: str) -> str:
-    """解析日期参数，支持 'today' / 'yesterday' / 'YYYYMMDD'。"""
+    """
+    解析日期参数。
+    - 'last'（默认）：自动从交易日历找最近的交易日，避免周末/节假日误用
+    - 'today' / 'yesterday'：直接转换，不校验是否为交易日
+    - 'YYYYMMDD'：指定日期
+    """
+    if date_str.lower() in ("last", "latest"):
+        return _get_last_trade_date()
     if date_str.lower() == "today":
         return date.today().strftime("%Y%m%d")
     if date_str.lower() == "yesterday":
@@ -40,14 +47,50 @@ def _resolve_date(date_str: str) -> str:
     return date_str
 
 
+def _get_last_trade_date() -> str:
+    """
+    从 Tushare 交易日历获取距今最近的交易日（含今日）。
+    周末/节假日运行时会自动回退到上一个交易日。
+    """
+    from datetime import timedelta
+    from app.data.tushare_provider import TushareProvider
+
+    today = date.today()
+    # 往前查7天，足够覆盖节假日连休
+    start = (today - timedelta(days=7)).strftime("%Y%m%d")
+    end = today.strftime("%Y%m%d")
+
+    try:
+        provider = TushareProvider()
+        cal = provider.get_trade_cal(start, end)
+        open_days = (
+            cal[cal["is_open"] == 1]["cal_date"]
+            .sort_values(ascending=False)
+            .tolist()
+        )
+        if open_days:
+            last_trade = open_days[0]
+            if last_trade != end:
+                console.print(
+                    f"   [yellow]今日({end})为非交易日，自动使用最近交易日 {last_trade}[/yellow]"
+                )
+            return last_trade
+    except Exception as e:
+        logger.warning("获取交易日历失败，回退到昨日: %s", e)
+
+    # 兜底：回退到昨日
+    from datetime import timedelta
+    return (today - timedelta(days=1)).strftime("%Y%m%d")
+
+
 @click.group()
 def cli() -> None:
     """A股多Agent选股系统 CLI。"""
 
 
 @cli.command("run")
-@click.option("--date", "trade_date", default="yesterday", show_default=True,
-              help="运行日期，格式 YYYYMMDD 或 today/yesterday")
+@click.option("--date", "trade_date", default="last", show_default=True,
+              help="运行日期：YYYYMMDD / today / yesterday / last（默认：自动取最近交易日）")
 @click.option("--no-notify", is_flag=True, default=False, help="跳过推送，只生成本地报告")
 def run_pipeline(trade_date: str, no_notify: bool) -> None:
     """运行完整的选股流水线。"""
@@ -78,6 +121,12 @@ def run_pipeline(trade_date: str, no_notify: bool) -> None:
     # 查询 LLM 费用
     llm_client = LLMClient()
     cost_summary = llm_client.get_daily_cost_summary()
+
+    # 将耗时和费用写回报告（流水线结束后二次写入）
+    final_state.meta.elapsed_seconds = round(elapsed, 1)
+    final_state.meta.total_tokens = cost_summary["input_tokens"] + cost_summary["output_tokens"]
+    final_state.meta.estimated_cost_cny = cost_summary["estimated_cost_cny"]
+    _rewrite_run_info(settings, trade_date, final_state)
 
     console.print(f"\n[bold green]✅ 流水线完成[/bold green]")
     console.print(f"   耗时: {elapsed:.1f}s")
@@ -124,6 +173,15 @@ def _legacy_main(trade_date: str) -> None:
     from click.testing import CliRunner
     runner = CliRunner()
     runner.invoke(run_pipeline, ["--date", trade_date])
+
+
+def _rewrite_run_info(settings, trade_date: str, state: "PipelineState") -> None:
+    """流水线完成后，把真实耗时和费用写入已生成的报告末尾。"""
+    from app.nodes.e_report import _save_report
+    from app.nodes.e_report import _build_report
+    # 重建报告（带真实 meta）
+    report = _build_report(state)
+    _save_report(trade_date, report)
 
 
 if __name__ == "__main__":

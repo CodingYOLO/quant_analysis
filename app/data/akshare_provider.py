@@ -127,16 +127,113 @@ class AkshareProvider(DataProvider):
         return rate_limited_call("ak_stock_comment", ak.stock_comment_em)
 
     def get_cls_news(self, date: str) -> pd.DataFrame:
-        """财联社电报/快讯。"""
+        """
+        财联社电报/快讯（当日实时）+ 东方财富财经要闻（支持历史日期）。
+        优先返回缓存；若当日缓存不存在则实时拉取财联社；
+        同时拉取东方财富历史要闻作为补充。
+        """
         return cached_daily(
             name="ak_cls_news",
             date_key=date,
             fetch_fn=self._fetch_cls_news,
         )
 
-    @_RETRY
     def _fetch_cls_news(self) -> pd.DataFrame:
-        return rate_limited_call("ak_cls_news", ak.stock_info_global_cls)
+        """
+        优先用财联社电报（/api/cache?name=telegraph，需 CLS_COOKIE），
+        降级到东方财富财经快讯。两路合并去重，最多返回 80 条。
+        """
+        from app.config import get_settings
+        frames = []
+
+        # 1. 财联社电报（从 JS bundle 逆向出的真实端点，需 Cookie）
+        cls_cookie = get_settings().cls_cookie
+        if cls_cookie:
+            df_cls = self._fetch_cls_with_cookie(cls_cookie)
+            if df_cls is not None and not df_cls.empty:
+                df_cls["来源"] = "财联社"
+                frames.append(df_cls)
+                logger.info("财联社电报: 获取 %d 条", len(df_cls))
+
+        # 2. 东方财富财经快讯（备用/补充）
+        try:
+            df_em = rate_limited_call("ak_em_global_news", ak.stock_info_global_em)
+            if df_em is not None and not df_em.empty:
+                df_em["来源"] = "东方财富"
+                frames.append(df_em)
+        except Exception as e:
+            logger.debug("东方财富财经快讯获取失败: %s", e)
+
+        if not frames:
+            return pd.DataFrame()
+
+        # 统一 发布时间 为字符串，避免 parquet 序列化时类型冲突
+        for df in frames:
+            if "发布时间" in df.columns:
+                df["发布时间"] = df["发布时间"].astype(str)
+
+        combined = pd.concat(frames, ignore_index=True)
+        if "标题" in combined.columns:
+            combined = combined.drop_duplicates(subset=["标题"], keep="first")
+        return combined.head(80)
+
+    def _fetch_cls_with_cookie(self, cookie: str) -> pd.DataFrame | None:
+        """
+        财联社电报真实 API：/api/cache?name=telegraph（从 telegraph JS bundle 逆向）。
+        不需要 sign 参数，只需登录 Cookie。
+        Cookie 过期/失效时静默降级，不抛异常。
+        """
+        import requests
+        import time
+
+        url = "https://www.cls.cn/api/cache"
+        params = {
+            "rn": 60,
+            "lastTime": int(time.time()),
+            "name": "telegraph",
+        }
+        headers = {
+            "User-Agent": (
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/148.0.0.0 Safari/537.36"
+            ),
+            "Referer": "https://www.cls.cn/telegraph",
+            "Accept": "application/json, text/plain, */*",
+            "Cookie": cookie,
+        }
+        try:
+            resp = requests.get(url, params=params, headers=headers, timeout=8)
+            if resp.status_code != 200:
+                logger.debug("财联社HTTP%d", resp.status_code)
+                return None
+
+            data = resp.json()
+            if data.get("errno", -1) != 0:
+                logger.debug("财联社返回错误errno=%s: %s", data.get("errno"), data.get("msg"))
+                return None
+
+            items = data.get("data", {}).get("roll_data", [])
+            if not items:
+                return None
+
+            rows = []
+            for item in items:
+                title = str(item.get("title", "")).strip()
+                brief = str(item.get("brief", item.get("content", ""))).strip()
+                text = f"{title} {brief}".strip() if brief and brief != title else title
+                ctime = item.get("ctime", 0)
+                try:
+                    ts = pd.to_datetime(ctime, unit="s", utc=True).tz_convert("Asia/Shanghai")
+                except Exception:
+                    ts = pd.NaT
+                rows.append({"标题": text, "发布时间": ts, "等级": item.get("level", "")})
+
+            return pd.DataFrame(rows)
+
+        except Exception as e:
+            logger.debug("财联社Cookie请求失败: %s", e)
+            return None
 
     def get_stock_news(self, ts_code: str) -> pd.DataFrame:
         """个股新闻（不缓存，按需拉取）。"""

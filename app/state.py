@@ -24,13 +24,24 @@ class MarketRegime(BaseModel):
     reason: str = ""                   # 判断理由
 
 
+class ThemeLeader(BaseModel):
+    """主题龙头股（步骤10：主题个股关联）。"""
+    code: str = ""
+    name: str = ""
+    pct_change: float = 0.0     # 当日涨跌幅
+    rps50: float = 0.0          # 近50日相对强弱
+    fund_flow: float = 0.0      # 主力净流入（万元）
+    is_limit_up: bool = False   # 是否涨停
+
+
 class Theme(BaseModel):
     """主题/板块。"""
     name: str = ""
     heat: float = 0.0                  # 热度分 0~10
     phase: str = ""                    # 升温/发酵/退潮
     evidence: list[str] = Field(default_factory=list)   # 支撑证据（新闻摘要）
-    concept_codes: list[str] = Field(default_factory=list)  # 映射到的akshare概念代码
+    concept_codes: list[str] = Field(default_factory=list)  # 关联行业名称列表
+    leaders: list[ThemeLeader] = Field(default_factory=list)  # 主题龙头股（Top3）
 
 
 class StockFactors(BaseModel):
@@ -71,6 +82,7 @@ class Candidate(BaseModel):
     risk_flags: list[str] = Field(default_factory=list)
     trend_summary: str = ""           # 近10日走势摘要（量价形态分析）
     trade_plan: TradePlan = Field(default_factory=TradePlan)  # 交易执行计划
+    debate: "Debate | None" = None    # 多空辩论结果（Phase 3）
 
 
 class SectorStat(BaseModel):

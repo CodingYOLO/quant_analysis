@@ -31,11 +31,7 @@ logger = logging.getLogger(__name__)
 
 
 def node_stock_selection(state: PipelineState) -> PipelineState:
-    """量化选股流水线，市场弱势时直接跳过。"""
-    if not state.market_regime.can_open:
-        logger.info("[节点C] 市场状态=%s，跳过选股", state.market_regime.label)
-        state.candidates = []
-        return state
+    """量化选股流水线，任何市场状态都执行——弱势时仓位建议为0%，但依然输出观察候选股。"""
 
     provider = CompositeProvider()
     settings = get_settings()
