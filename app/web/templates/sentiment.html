@@ -19,6 +19,16 @@
 {% endblock %}
 
 {% block content %}
+<div class="chart-card" style="margin-bottom:16px;display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+  <label class="neu" style="font-size:13px">区间</label>
+  <input type="date" id="d-start" style="background:#0f1117;color:#e8e8e8;border:1px solid #2d3052;border-radius:6px;padding:7px 10px;font-size:13px">
+  <span class="neu">至</span>
+  <input type="date" id="d-end" style="background:#0f1117;color:#e8e8e8;border:1px solid #2d3052;border-radius:6px;padding:7px 10px;font-size:13px">
+  <button id="reload" style="background:linear-gradient(135deg,#3358e0,#5d7cff);color:#fff;border:none;padding:8px 20px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer">🔄 加载区间分析</button>
+  <span id="regime-badge" style="margin-left:auto;font-size:15px;font-weight:700"></span>
+  <span id="regime-reason" class="neu" style="font-size:12px;width:100%"></span>
+</div>
+
 <div id="loading" class="neu" style="font-size:14px;padding:20px">⏳ 正在加载大盘情绪数据（首次约30-60秒）...</div>
 <div id="dash" style="display:none">
   <div class="kpi-row">
@@ -46,18 +56,40 @@ const RED='#f6465d', GREEN='#2ebd85';
 function baseOpt(){ return { backgroundColor:'transparent', grid:GRID, tooltip:{trigger:'axis'},
   legend:{textStyle:{color:'#9ca3af',fontSize:11},top:0}, textStyle:{color:'#9ca3af'} }; }
 
+// 默认区间：最近约30自然日
+(function initDates(){
+  const end = new Date();
+  const start = new Date(); start.setDate(start.getDate()-30);
+  document.getElementById('d-end').value = end.toISOString().slice(0,10);
+  document.getElementById('d-start').value = start.toISOString().slice(0,10);
+})();
+
 async function load(){
+  const loadingEl = document.getElementById('loading');
+  loadingEl.style.display='block';
+  loadingEl.textContent='⏳ 正在加载大盘情绪数据（首次约30-60秒）...';
+  document.getElementById('dash').style.display='none';
+  const start = (document.getElementById('d-start').value||'').replace(/-/g,'');
+  const end = (document.getElementById('d-end').value||'').replace(/-/g,'');
   try{
-    const r = await fetch('/api/sentiment?days=22');
+    const r = await fetch('/api/sentiment?start='+start+'&end='+end);
     const j = await r.json();
-    if(!j.ok){ document.getElementById('loading').textContent='❌ '+j.error; return; }
+    if(!j.ok){ loadingEl.textContent='❌ '+j.error; return; }
     render(j.data);
-    document.getElementById('loading').style.display='none';
+    loadingEl.style.display='none';
     document.getElementById('dash').style.display='block';
-  }catch(e){ document.getElementById('loading').textContent='❌ 请求出错：'+e; }
+  }catch(e){ loadingEl.textContent='❌ 请求出错：'+e; }
 }
+document.getElementById('reload').addEventListener('click', load);
 
 function render(d){
+  // 行情类型徽章
+  if(d.regime){
+    const rb = document.getElementById('regime-badge');
+    const cls = d.regime.color || 'amber';
+    rb.innerHTML = '本区间：<span class="'+cls+'">'+d.regime.label+'</span>';
+    document.getElementById('regime-reason').textContent = '判定依据：'+d.regime.reason;
+  }
   const k = d.kpi;
   // KPI
   document.getElementById('k-temp').textContent = k.temp + '%';

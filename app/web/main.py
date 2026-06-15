@@ -206,12 +206,13 @@ async def sentiment_page(request: Request, _user: str = Depends(require_auth)):
 
 
 @app.get("/api/sentiment")
-async def api_sentiment(days: int = 22, date: str = "", _user: str = Depends(require_auth)):
-    """大盘情绪仪表盘数据。"""
+async def api_sentiment(days: int = 22, start: str = "", end: str = "",
+                        _user: str = Depends(require_auth)):
+    """大盘情绪仪表盘数据。支持自定义区间 start/end（YYYYMMDD）。"""
     try:
         from app.strategy.market_sentiment import build_dashboard
-        end = date or _last_trade_date()
-        data = build_dashboard(end, days=days)
+        end_date = end or _last_trade_date()
+        data = build_dashboard(end_date, days=days, start_date=start)
         return {"ok": True, "data": data}
     except Exception as e:
         logger.exception("大盘情绪数据失败")

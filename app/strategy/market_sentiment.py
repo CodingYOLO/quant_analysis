@@ -43,16 +43,30 @@ _CAP_MICRO = 50      # < 50亿 微盘
 _CAP_LARGE = 300     # > 300亿 大盘；中间为中盘
 
 
-def _cache_path(end_date: str, days: int) -> Path:
+def _cache_path(end_date: str, days: int, start_date: str = "") -> Path:
     settings = get_settings()
     p = settings.cache_dir / "sentiment"
     p.mkdir(parents=True, exist_ok=True)
-    return p / f"{end_date}_{days}.json"
+    tag = f"{start_date}_{end_date}" if start_date else f"{end_date}_{days}"
+    return p / f"{tag}.json"
 
 
-def build_dashboard(end_date: str, days: int = 22, force: bool = False) -> dict:
-    """构建大盘情绪仪表盘数据。结果按 (end_date, days) 缓存。"""
-    path = _cache_path(end_date, days)
+def _trade_dates_between(provider, start_date: str, end_date: str) -> list[str]:
+    """区间内所有交易日（升序），并向前多取6个用于连板回溯。"""
+    import datetime
+    # 向前扩 6 个交易日 ≈ 12 自然日
+    pad_start = (datetime.datetime.strptime(start_date, "%Y%m%d") - datetime.timedelta(days=12)).strftime("%Y%m%d")
+    cal = provider.get_trade_cal(pad_start, end_date)
+    return sorted(cal[cal["is_open"] == 1]["cal_date"].astype(str).tolist())
+
+
+def build_dashboard(end_date: str, days: int = 22, start_date: str = "", force: bool = False) -> dict:
+    """
+    构建大盘情绪仪表盘数据。
+    指定 start_date 则按区间 [start_date, end_date]；否则取 end_date 往前 days 个交易日。
+    结果按缓存键缓存。
+    """
+    path = _cache_path(end_date, days, start_date)
     if path.exists() and not force:
         try:
             return json.loads(path.read_text(encoding="utf-8"))
@@ -60,8 +74,11 @@ def build_dashboard(end_date: str, days: int = 22, force: bool = False) -> dict:
             pass
 
     provider = CompositeProvider()
-    # 取 days + 6 个交易日（多6天用于连板回溯），升序
-    all_dates = _recent_trade_dates(provider, end_date, n=days + 6)
+    if start_date:
+        all_dates = _trade_dates_between(provider, start_date, end_date)
+    else:
+        # 取 days + 6 个交易日（多6天用于连板回溯），升序
+        all_dates = _recent_trade_dates(provider, end_date, n=days + 6)
     if not all_dates:
         raise ValueError(f"{end_date} 无交易日数据")
 
@@ -109,8 +126,12 @@ def build_dashboard(end_date: str, days: int = 22, force: bool = False) -> dict:
     prev = range_dates[-2] if len(range_dates) >= 2 else last
     kpi = _build_kpi(per_day, lianban_series, breadth, last, prev)
 
+    # —— 区间行情类型判断（震荡/牛市/熊市）——
+    regime = _classify_market_regime(indices, breadth, per_day, range_dates)
+
     result = {
         "end_date": end_date,
+        "regime": regime,
         "kpi": kpi,
         "dates": range_dates,
         "amount": [round(per_day[d]["amount_yi"] / 10000, 3) for d in range_dates],  # 万亿
@@ -122,6 +143,34 @@ def build_dashboard(end_date: str, days: int = 22, force: bool = False) -> dict:
     }
     path.write_text(json.dumps(result, ensure_ascii=False), encoding="utf-8")
     return result
+
+
+def _classify_market_regime(indices: dict, breadth: dict, per_day: dict, range_dates: list[str]) -> dict:
+    """
+    判断区间整体行情类型：牛市行情 / 熊市行情 / 震荡行情。
+    依据：上证区间累计涨幅 + 平均市场广度 + 涨跌停净值趋势。
+    """
+    # 上证区间累计涨幅（_index_series 已是相对首日的累计%）
+    sh = indices.get("上证指数") or []
+    sh_cum = sh[-1] if sh and sh[-1] is not None else 0.0
+    # 平均广度
+    bvals = [b for b in breadth.get("all", []) if b is not None]
+    avg_breadth = sum(bvals) / len(bvals) if bvals else 50.0
+    # 区间涨停-跌停净值均值（情绪强弱）
+    net_limit = [per_day[d]["limit_up"] - per_day[d]["limit_down"] for d in range_dates if d in per_day]
+    avg_net = sum(net_limit) / len(net_limit) if net_limit else 0
+
+    if sh_cum >= 5 and avg_breadth >= 50:
+        label, color = "牛市行情", "up"
+        reason = f"上证区间涨{sh_cum:+.1f}%，平均广度{avg_breadth:.0f}%偏高，赚钱效应强"
+    elif sh_cum <= -8 or avg_breadth < 25:
+        label, color = "熊市行情", "down"
+        reason = f"上证区间{sh_cum:+.1f}%，平均广度仅{avg_breadth:.0f}%，赚钱效应弱"
+    else:
+        label, color = "震荡行情", "amber"
+        reason = f"上证区间{sh_cum:+.1f}%、平均广度{avg_breadth:.0f}%，多空胶着无明确趋势"
+    return {"label": label, "color": color, "reason": reason,
+            "sh_cum": round(sh_cum, 1), "avg_breadth": round(avg_breadth, 1), "avg_net_limit": round(avg_net, 0)}
 
 
 def _code2name(provider) -> dict[str, str]:
