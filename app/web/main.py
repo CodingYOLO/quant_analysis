@@ -148,6 +148,30 @@ async def generate_page(request: Request, _user: str = Depends(require_auth)):
     return templates.TemplateResponse(request=request, name="generate.html", context={})
 
 
+@app.post("/api/generate_selection")
+async def api_generate_selection(_user: str = Depends(require_auth)):
+    """按需运行完整选股流水线（吴川三层+量化+风控），返回报告 HTML。耗时约2-3分钟。"""
+    try:
+        import time as _t
+        from app.graph import build_graph
+        from app.state import PipelineState
+        from app.run import _resolve_date
+        settings = get_settings()
+        trade_date = _resolve_date("")
+        initial = PipelineState(trade_date=trade_date)
+        final_dict = build_graph().invoke(initial.model_dump())
+        final = PipelineState(**final_dict)
+        md_path = Path(settings.report_dir) / f"{trade_date}.md"
+        content = md_path.read_text(encoding="utf-8") if md_path.exists() else (final.report_md or "")
+        if not content:
+            return {"ok": False, "error": "选股流水线未产出报告（可能当日数据未就绪或非交易日）"}
+        return {"ok": True, "title": f"完整选股报告 {trade_date}", "name": trade_date,
+                "html": _render_markdown(content)}
+    except Exception as e:
+        logger.exception("选股流水线失败")
+        return {"ok": False, "error": str(e)}
+
+
 @app.post("/api/generate/{session}")
 async def api_generate(session: str, _user: str = Depends(require_auth)):
     """

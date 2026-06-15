@@ -44,8 +44,8 @@ def build_pre_market_summary(state: PipelineState, web_url: str = "") -> tuple[s
         lines.append(f"🌊 北向资金 {sign}{north/10000:.1f}亿 {'净流入' if north >= 0 else '净流出'}")
     lines.append("")
 
-    # 候选股执行清单（最多3只）
-    candidates = [c for c in state.candidates if not c.is_rejected]
+    # 候选股执行清单（最多3只）——state.candidates 经风控后已是通过的
+    candidates = state.candidates
     if candidates:
         lines.append(f"🎯 **今日候选股 {len(candidates)} 只**")
         for c in candidates[:3]:
@@ -122,8 +122,8 @@ def build_post_market_summary(state: PipelineState, web_url: str = "") -> tuple[
         lines.append("🔭 **明日关注方向：**" + " | ".join(s.industry for s in next_hot))
     lines.append("")
 
-    # 明日候选
-    candidates = [c for c in state.candidates if not c.is_rejected]
+    # 明日候选（state.candidates 经风控节点后已是通过的，无需再过滤）
+    candidates = state.candidates
     if candidates:
         lines.append(f"🎯 **明日候选 {len(candidates)} 只** — 完整执行清单见Web")
     else:

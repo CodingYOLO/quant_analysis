@@ -33,7 +33,9 @@
     <button class="genbtn" data-session="pre">🌅 生成盘前快讯</button>
     <button class="genbtn" data-session="mid">☀️ 生成盘中快讯</button>
     <button class="genbtn" data-session="post">🌙 生成盘后复盘</button>
+    <button class="genbtn" id="gen-selection" style="background:#1a3b2a;border-color:#2ebd85">📈 生成完整选股报告</button>
   </div>
+  <p class="neu" style="margin-top:8px;font-size:12px">📈 完整选股报告=吴川三层过滤+量化因子+风控辩论，耗时约2-3分钟、有少量LLM费用；需收盘后17:40资金数据入库。</p>
   <div id="status" style="margin-top:16px;font-size:13px;color:#9ca3af"></div>
 </div>
 
@@ -45,13 +47,16 @@
 <script>
 document.querySelectorAll('.genbtn').forEach(btn => {
   btn.addEventListener('click', async () => {
-    const session = btn.dataset.session;
     const buttons = document.querySelectorAll('.genbtn');
     const statusEl = document.getElementById('status');
+    const isSelection = btn.id === 'gen-selection';
+    const url = isSelection ? '/api/generate_selection' : '/api/generate/' + btn.dataset.session;
     buttons.forEach(b => b.disabled = true);
-    statusEl.textContent = '⏳ 正在拉取最新数据并分析，请稍候（约20-40秒）...';
+    statusEl.textContent = isSelection
+      ? '⏳ 正在运行完整选股流水线（吴川三层+量化+风控），约2-3分钟，请耐心等待...'
+      : '⏳ 正在拉取最新数据并分析，请稍候（约20-40秒）...';
     try {
-      const resp = await fetch('/api/generate/' + session, { method: 'POST' });
+      const resp = await fetch(url, { method: 'POST' });
       const data = await resp.json();
       if (data.ok) {
         document.getElementById('result-card').style.display = 'block';
