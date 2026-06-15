@@ -1,0 +1,127 @@
+{% extends "base.html" %}
+{% block title %}行业资金 — A股Agent{% endblock %}
+
+{% block extra_style %}
+.kpi-row { display:grid; grid-template-columns:repeat(5,1fr); gap:14px; margin-bottom:18px; }
+.kpi { background:#161929; border:1px solid #242842; border-radius:10px; padding:16px 18px; }
+.kpi .label { font-size:12px; color:#9ca3af; margin-bottom:6px; }
+.kpi .big { font-size:26px; font-weight:700; }
+.up { color:#f6465d; } .down { color:#2ebd85; } .amber { color:#f0a020; } .code { color:#7c9ef8; }
+.chart-card { background:#161929; border:1px solid #242842; border-radius:10px; padding:14px; margin-bottom:16px; }
+.chart-card h3 { font-size:14px; color:#c9d2f8; margin-bottom:8px; font-weight:600; }
+#c-flow { width:100%; height:380px; }
+.toolbar { display:flex; gap:12px; align-items:center; flex-wrap:wrap; margin-bottom:16px; }
+.toolbar input { background:#0f1117; color:#e8e8e8; border:1px solid #2d3052; border-radius:6px; padding:7px 10px; font-size:13px; }
+.runbtn { background:linear-gradient(135deg,#3358e0,#5d7cff); color:#fff; border:none; padding:8px 20px; border-radius:6px; font-size:13px; font-weight:600; cursor:pointer; }
+#tbl { width:100%; font-size:13px; }
+#tbl td { white-space:nowrap; }
+#tbl td.lead { white-space:normal; color:#b8c2e8; font-size:12px; }
+@media(max-width:900px){ .kpi-row{grid-template-columns:repeat(2,1fr)} }
+{% endblock %}
+
+{% block content %}
+<div class="toolbar">
+  <label class="neu" style="font-size:13px">交易日</label>
+  <input type="date" id="date">
+  <button class="runbtn" id="reload">🔄 加载</button>
+  <span class="neu" style="font-size:12px">💡 资金流向=板块内个股主力净流入合计；红=流入 绿=流出。点表头排序。</span>
+</div>
+
+<div id="loading" class="neu" style="font-size:14px;padding:20px">⏳ 加载行业资金数据中...</div>
+<div id="dash" style="display:none">
+  <div class="kpi-row">
+    <div class="kpi"><div class="label">总板块数</div><div class="big" id="k-cnt">--</div></div>
+    <div class="kpi"><div class="label">平均涨跌幅</div><div class="big" id="k-pct">--</div></div>
+    <div class="kpi"><div class="label">总上涨家数</div><div class="big up" id="k-up">--</div></div>
+    <div class="kpi"><div class="label">总下跌家数</div><div class="big down" id="k-down">--</div></div>
+    <div class="kpi"><div class="label">全市场主力净流向</div><div class="big" id="k-flow">--</div></div>
+  </div>
+
+  <div class="chart-card">
+    <h3>💰 资金流向分布（Top10 流入 + Top10 流出）</h3>
+    <div id="c-flow"></div>
+  </div>
+
+  <div class="chart-card">
+    <h3>板块资金明细 <span class="neu" id="tbl-cnt" style="font-weight:400;font-size:12px"></span></h3>
+    <div style="overflow-x:auto"><table id="tbl"></table></div>
+  </div>
+</div>
+
+<script src="/static/echarts.min.js"></script>
+<script>
+const RED='#f6465d', GREEN='#2ebd85';
+let rows=[], sortState={key:'main_flow',asc:false};
+
+(function(){ const d=new Date(); document.getElementById('date').value=d.toISOString().slice(0,10); })();
+
+async function load(){
+  const L=document.getElementById('loading'); L.style.display='block'; L.textContent='⏳ 加载行业资金数据中...';
+  document.getElementById('dash').style.display='none';
+  const date=(document.getElementById('date').value||'').replace(/-/g,'');
+  try{
+    const r=await fetch('/api/industry?date='+date); const j=await r.json();
+    if(!j.ok){ L.textContent='❌ '+j.error; return; }
+    renderAll(j.data); L.style.display='none'; document.getElementById('dash').style.display='block';
+  }catch(e){ L.textContent='❌ '+e; }
+}
+document.getElementById('reload').addEventListener('click', load);
+
+function renderAll(d){
+  const k=d.kpi; rows=d.rows;
+  document.getElementById('k-cnt').textContent=k.board_count;
+  document.getElementById('k-pct').innerHTML='<span class="'+(k.avg_pct>=0?'up':'down')+'">'+(k.avg_pct>=0?'+':'')+k.avg_pct+'%</span>';
+  document.getElementById('k-up').textContent=k.total_up;
+  document.getElementById('k-down').textContent=k.total_down;
+  document.getElementById('k-flow').innerHTML='<span class="'+(k.total_flow>=0?'up':'down')+'">'+(k.total_flow>=0?'+':'')+k.total_flow+'亿</span>';
+  renderFlowChart(); renderTable();
+  document.getElementById('tbl-cnt').textContent='· 共 '+rows.length+' 个板块';
+}
+
+function renderFlowChart(){
+  const sorted=rows.slice().sort((a,b)=>b.main_flow-a.main_flow);
+  const top=sorted.slice(0,10), bot=sorted.slice(-10);
+  const data=top.concat(bot);
+  echarts.init(document.getElementById('c-flow')).setOption({
+    backgroundColor:'transparent', grid:{left:56,right:24,top:20,bottom:90},
+    tooltip:{trigger:'axis',axisPointer:{type:'shadow'}},
+    xAxis:{type:'category',data:data.map(r=>r.industry),axisLabel:{color:'#9ca3af',interval:0,rotate:40,fontSize:11},axisLine:{lineStyle:{color:'#3a3f5c'}}},
+    yAxis:{type:'value',name:'亿元',axisLabel:{color:'#9ca3af'},splitLine:{lineStyle:{color:'#1e2138'}}},
+    series:[{type:'bar',data:data.map(r=>({value:r.main_flow,itemStyle:{color:r.main_flow>=0?RED:GREEN}})),barWidth:'60%',
+      label:{show:true,position:'top',color:'#9ca3af',fontSize:10,formatter:p=>p.value.toFixed(0)}}]
+  });
+}
+
+const COLS=[
+  ['industry','板块'],['pct_chg','涨跌幅%'],['main_flow','主力净流入(亿)'],['elg_flow','超大单(亿)'],
+  ['up','上涨'],['down','下跌'],['limit_up','涨停'],['rank','排名'],['rank_change','排名变化'],['lead','领涨股']
+];
+const SIGNED=new Set(['pct_chg','main_flow','elg_flow','rank_change']);
+const TEXT=new Set(['industry','lead']);
+
+function renderTable(){
+  let data=rows.slice();
+  if(sortState.key && !TEXT.has(sortState.key)){
+    data.sort((a,b)=>{let x=a[sortState.key],y=b[sortState.key]; x=typeof x==='number'?x:-1e9; y=typeof y==='number'?y:-1e9; return sortState.asc?x-y:y-x;});
+  }
+  const arrow=k=>sortState.key===k?(sortState.asc?' ▲':' ▼'):'';
+  let h='<thead><tr>'+COLS.map(([k,l])=>{
+    const s=!TEXT.has(k); return '<th data-k="'+k+'" style="'+(s?'cursor:pointer':'')+'">'+l+(s?'<span style="color:#7c9ef8">'+arrow(k)+'</span>':'')+'</th>';
+  }).join('')+'</tr></thead><tbody>';
+  data.slice(0,60).forEach(r=>{
+    h+='<tr>'+COLS.map(([k])=>{
+      let v=r[k];
+      if(SIGNED.has(k) && typeof v==='number'){const c=v>0?'up':(v<0?'down':'');const sg=v>0?'+':'';return '<td class="'+c+'">'+sg+v+'</td>';}
+      if(k==='lead') return '<td class="lead">'+v+'</td>';
+      return '<td>'+v+'</td>';
+    }).join('')+'</tr>';
+  });
+  h+='</tbody>';
+  const t=document.getElementById('tbl'); t.innerHTML=h;
+  t.querySelectorAll('th[data-k]').forEach(th=>{ if(TEXT.has(th.dataset.k))return;
+    th.addEventListener('click',()=>{const k=th.dataset.k; if(sortState.key===k)sortState.asc=!sortState.asc; else{sortState.key=k;sortState.asc=false;} renderTable();});
+  });
+}
+load();
+</script>
+{% endblock %}

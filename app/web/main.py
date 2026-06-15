@@ -219,6 +219,24 @@ async def api_sentiment(days: int = 22, start: str = "", end: str = "",
         return {"ok": False, "error": str(e)}
 
 
+@app.get("/industry", response_class=HTMLResponse)
+async def industry_page(request: Request, _user: str = Depends(require_auth)):
+    """行业资金流仪表盘页面。"""
+    return templates.TemplateResponse(request=request, name="industry.html", context={})
+
+
+@app.get("/api/industry")
+async def api_industry(date: str = "", _user: str = Depends(require_auth)):
+    """行业资金流仪表盘数据。"""
+    try:
+        from app.strategy.industry_flow import build_industry_dashboard
+        d = date or _last_trade_date()
+        return {"ok": True, "data": build_industry_dashboard(d)}
+    except Exception as e:
+        logger.exception("行业数据失败")
+        return {"ok": False, "error": str(e)}
+
+
 @app.get("/screener", response_class=HTMLResponse)
 async def screener_page(request: Request, _user: str = Depends(require_auth)):
     """量化因子选股页面。"""
