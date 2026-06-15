@@ -91,8 +91,8 @@ FACTOR_GROUPS = [
 # 结果表展示列（顺序）
 DISPLAY_COLS = [
     ("ts_code", "代码"), ("name", "名称"), ("industry", "行业"),
-    ("close", "最新价"), ("pct_chg", "涨跌幅%"), ("turnover_rate", "换手%"),
-    ("volume_ratio", "量比"), ("circ_mv_100m", "流通市值(亿)"),
+    ("close", "最新价"), ("pct_chg", "涨跌幅%"), ("amplitude", "振幅%"),
+    ("turnover_rate", "换手%"), ("volume_ratio", "量比"), ("circ_mv_100m", "流通市值(亿)"),
     ("main_net_amount", "主力净流入(亿)"), ("elg_net", "超大单(亿)"),
     ("rps50", "RPS50"), ("rps120", "RPS120"), ("rsi14", "RSI"),
     ("vwap_dev", "VWAP偏离%"), ("comment_score", "千评分"), ("popularity_rank", "人气排名"),
@@ -144,12 +144,19 @@ def build_factor_table(date: str, provider: CompositeProvider | None = None,
 
 def _merge_base(daily, daily_basic, money_flow, stock_basic, comment) -> pd.DataFrame:
     """合并行情/基础/资金/名称/千股千评，得到基础因子列。"""
-    uni = daily[["ts_code", "close", "pct_chg", "vol", "amount"]].copy()
+    uni = daily[["ts_code", "close", "pct_chg", "vol", "amount", "high", "low", "pre_close"]].copy()
     uni["pct_chg"] = pd.to_numeric(uni["pct_chg"], errors="coerce")
     uni["amount_100m"] = pd.to_numeric(uni["amount"], errors="coerce") / 100000  # 千元→亿元
+    # 振幅 = (最高 - 最低) / 昨收 × 100
+    pre = pd.to_numeric(uni["pre_close"], errors="coerce")
+    uni["amplitude"] = (
+        (pd.to_numeric(uni["high"], errors="coerce") - pd.to_numeric(uni["low"], errors="coerce"))
+        / pre.replace(0, pd.NA) * 100
+    )
 
     if daily_basic is not None and not daily_basic.empty:
-        cols = ["ts_code", "circ_mv", "total_mv", "turnover_rate", "volume_ratio", "pe_ttm", "pb"]
+        # 注意：daily_basic.volume_ratio 当日常为空，量比改由成交量矩阵自算（见 _add_technical_factors）
+        cols = ["ts_code", "circ_mv", "total_mv", "turnover_rate", "pe_ttm", "pb"]
         uni = uni.merge(daily_basic[cols], on="ts_code", how="left")
         uni["circ_mv_100m"] = pd.to_numeric(uni["circ_mv"], errors="coerce") / 10000
         uni["total_mv_100m"] = pd.to_numeric(uni["total_mv"], errors="coerce") / 10000
@@ -210,7 +217,7 @@ def _add_technical_factors(df: pd.DataFrame, date: str, provider) -> pd.DataFram
     df["rps_combo"] = df[["rps50", "rps120"]].mean(axis=1)
 
     # MACD金叉 / RSI / VWAP偏离（逐股，受候选量影响，全市场一次性算）
-    macd_gold, rsi14, vwap_dev = {}, {}, {}
+    macd_gold, rsi14, vwap_dev, vol_ratio = {}, {}, {}, {}
     for ts in close_m.columns:
         s = close_m[ts].dropna()
         if len(s) < 35:
@@ -219,6 +226,9 @@ def _add_technical_factors(df: pd.DataFrame, date: str, provider) -> pd.DataFram
             macd_gold[ts] = F.macd_golden_cross(s)
             rsi14[ts] = float(F.rsi(s, 14).iloc[-1])
             v = vol_m[ts].dropna()
+            if len(v) >= 6:
+                # 量比 = 今日量 / 近5日均量（自算，因 daily_basic.volume_ratio 当日常缺失）
+                vol_ratio[ts] = F.volume_ratio(v, n=5)
             if len(v) >= 20:
                 vwap_dev[ts] = F.vwap_position(s.tail(20), v.tail(20), 20) * 100
         except Exception:
@@ -226,6 +236,7 @@ def _add_technical_factors(df: pd.DataFrame, date: str, provider) -> pd.DataFram
     df["macd_gold"] = df["ts_code"].map(macd_gold).fillna(False)
     df["rsi14"] = df["ts_code"].map(rsi14)
     df["vwap_dev"] = df["ts_code"].map(vwap_dev)
+    df["volume_ratio"] = df["ts_code"].map(vol_ratio)
     return df
 
 

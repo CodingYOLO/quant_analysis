@@ -113,6 +113,11 @@ document.getElementById('qPrev').addEventListener('click', () => {
 
 // 需要 红涨绿跌 + 正负号的列
 const SIGNED = new Set(['pct_chg', 'main_net_amount', 'elg_net', 'vwap_dev']);
+// 文本列（不可数值排序）
+const TEXT_COLS = new Set(['ts_code', 'name', 'industry']);
+
+let lastData = null;        // 最近一次结果 {columns, rows}
+let sortState = { key: null, asc: false };
 
 function fmtCell(key, v) {
   if (typeof v === 'number' && SIGNED.has(key)) {
@@ -122,6 +127,43 @@ function fmtCell(key, v) {
   }
   if (key === 'ts_code') return '<td class="code">' + v + '</td>';
   return '<td>' + v + '</td>';
+}
+
+function renderTable() {
+  if (!lastData) return;
+  const { columns, rows } = lastData;
+  // 排序
+  let sorted = rows.slice();
+  if (sortState.key && !TEXT_COLS.has(sortState.key)) {
+    sorted.sort((a, b) => {
+      let x = a[sortState.key], y = b[sortState.key];
+      x = (typeof x === 'number') ? x : -Infinity;
+      y = (typeof y === 'number') ? y : -Infinity;
+      return sortState.asc ? x - y : y - x;
+    });
+  }
+  const arrow = k => sortState.key === k ? (sortState.asc ? ' ▲' : ' ▼') : '';
+  let html = '<thead><tr>' + columns.map(c => {
+    const sortable = !TEXT_COLS.has(c.key);
+    return '<th data-key="' + c.key + '" style="' + (sortable ? 'cursor:pointer;user-select:none' : '') + '">'
+      + c.label + (sortable ? '<span style="color:#7c9ef8">' + arrow(c.key) + '</span>' : '') + '</th>';
+  }).join('') + '</tr></thead><tbody>';
+  sorted.forEach(r => {
+    html += '<tr>' + columns.map(c => fmtCell(c.key, r[c.key])).join('') + '</tr>';
+  });
+  html += '</tbody>';
+  const tbl = document.getElementById('restable');
+  tbl.innerHTML = html;
+  // 绑定表头点击排序
+  tbl.querySelectorAll('th[data-key]').forEach(th => {
+    if (TEXT_COLS.has(th.dataset.key)) return;
+    th.addEventListener('click', () => {
+      const k = th.dataset.key;
+      if (sortState.key === k) sortState.asc = !sortState.asc;
+      else { sortState.key = k; sortState.asc = false; }  // 默认降序
+      renderTable();
+    });
+  });
 }
 
 document.getElementById('run').addEventListener('click', async () => {
@@ -145,14 +187,10 @@ document.getElementById('run').addEventListener('click', async () => {
     });
     const d = await resp.json();
     if (!d.ok) { statusEl.textContent = '❌ ' + d.error; btn.disabled = false; return; }
-    statusEl.textContent = '✅ 命中 ' + d.count + ' 只，展示前 ' + d.shown + ' 只（红涨绿跌）';
-    const tbl = document.getElementById('restable');
-    let html = '<thead><tr>' + d.columns.map(c => '<th>' + c.label + '</th>').join('') + '</tr></thead><tbody>';
-    d.rows.forEach(r => {
-      html += '<tr>' + d.columns.map(c => fmtCell(c.key, r[c.key])).join('') + '</tr>';
-    });
-    html += '</tbody>';
-    tbl.innerHTML = html;
+    statusEl.textContent = '✅ 命中 ' + d.count + ' 只，展示前 ' + d.shown + ' 只（红涨绿跌，点列头排序）';
+    lastData = { columns: d.columns, rows: d.rows };
+    sortState = { key: document.getElementById('sort').value, asc: false };
+    renderTable();
     document.getElementById('rescard').style.display = 'block';
     document.getElementById('rescount').textContent = '· 命中 ' + d.count + ' 只';
   } catch (e) {
