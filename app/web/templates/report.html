@@ -36,16 +36,26 @@
 .md-body hr { border: none; border-top: 1px solid #2d3052; margin: 20px 0; }
 .md-body strong { color: #f3f4f6; }
 .md-body a { color: #7c9ef8; }
-/* 报告内的表格继承全局表格样式 */
-.md-body table th { background: #232640; }
+
+/* 报告表格——深色主题（覆盖全局浅色隔行底色）*/
+.md-body table { width: 100%; border-collapse: collapse; margin: 14px 0; font-size: 13px; }
+.md-body table th {
+  background: #232640; color: #c9d2f8; font-weight: 600;
+  padding: 9px 12px; text-align: left; border-bottom: 2px solid #3358e0;
+  white-space: nowrap;
+}
+.md-body table td {
+  padding: 8px 12px; border-bottom: 1px solid #242842;
+  color: #d1d5db; vertical-align: middle;
+}
+.md-body table tr:nth-child(even) { background: #161929; }   /* 偶数行：深色，不再是白底 */
+.md-body table tr:nth-child(odd)  { background: #1a1d2e; }
+.md-body table tr:hover td { background: #232846; }
 {% endblock %}
 
 {% block content %}
 <div style="display:flex;align-items:center;gap:16px;margin-bottom:20px">
-  <a href="/" style="color:#9ca3af;text-decoration:none;font-size:13px">← 返回列表</a>
-  <h1 style="font-size:20px;color:#e8e8e8">
-    {{ date[:4] }}-{{ date[4:6] }}-{{ date[6:] }} 选股简报
-  </h1>
+  <a href="/" style="color:#7c9ef8;text-decoration:none;font-size:13px">← 返回报告中心</a>
 </div>
 <div class="card md-body">
   {{ html_body | safe }}
