@@ -56,6 +56,17 @@ const RED='#f6465d', GREEN='#2ebd85';
 function baseOpt(){ return { backgroundColor:'transparent', grid:GRID, tooltip:{trigger:'axis'},
   legend:{textStyle:{color:'#9ca3af',fontSize:11},top:0}, textStyle:{color:'#9ca3af'} }; }
 
+// 复用图表实例（避免重复init告警），并支持窗口自适应
+const _charts = {};
+function chart(id, opt){
+  const el = document.getElementById(id);
+  let c = _charts[id];
+  if(!c){ c = echarts.init(el); _charts[id] = c; }
+  c.setOption(opt, true);
+  return c;
+}
+window.addEventListener('resize', ()=>{ Object.values(_charts).forEach(c=>c.resize()); });
+
 // 默认区间：最近约30自然日
 (function initDates(){
   const end = new Date();
@@ -75,9 +86,10 @@ async function load(){
     const r = await fetch('/api/sentiment?start='+start+'&end='+end);
     const j = await r.json();
     if(!j.ok){ loadingEl.textContent='❌ '+j.error; return; }
-    render(j.data);
+    // 先显示容器(获得真实宽度)再渲染图表，否则ECharts按0宽度渲染会挤成一团
     loadingEl.style.display='none';
     document.getElementById('dash').style.display='block';
+    render(j.data);
   }catch(e){ loadingEl.textContent='❌ 请求出错：'+e; }
 }
 document.getElementById('reload').addEventListener('click', load);
@@ -106,7 +118,7 @@ function render(d){
   const dates = d.dates.map(s=>s.slice(4,6)+'-'+s.slice(6));
 
   // 成交额趋势 bar + 平滑线
-  echarts.init(document.getElementById('c-amount')).setOption(Object.assign(baseOpt(),{
+  chart('c-amount',Object.assign(baseOpt(),{
     legend:{show:false}, xAxis:{type:'category',data:dates,...AX}, yAxis:{type:'value',scale:true,...AX},
     series:[
       {type:'bar',data:d.amount,itemStyle:{color:'#3358e0'},barWidth:'55%'},
@@ -116,7 +128,7 @@ function render(d){
 
   // 市场广度多线
   const b=d.breadth;
-  echarts.init(document.getElementById('c-breadth')).setOption(Object.assign(baseOpt(),{
+  chart('c-breadth',Object.assign(baseOpt(),{
     xAxis:{type:'category',data:dates,...AX}, yAxis:{type:'value',max:100,...AX},
     series:[
       {name:'全市场',type:'line',data:b.all,smooth:true,symbol:'circle',symbolSize:4,lineStyle:{color:RED,width:3}},
@@ -128,7 +140,7 @@ function render(d){
 
   // 涨跌停分布：涨停正、跌停负 + 趋势线
   const ldNeg = d.limit_down.map(v=>-v);
-  echarts.init(document.getElementById('c-limit')).setOption(Object.assign(baseOpt(),{
+  chart('c-limit',Object.assign(baseOpt(),{
     xAxis:{type:'category',data:dates,...AX}, yAxis:{type:'value',...AX},
     series:[
       {name:'涨停',type:'bar',stack:'x',data:d.limit_up,itemStyle:{color:RED},barWidth:'45%',label:{show:true,position:'top',color:RED,fontSize:10}},
@@ -140,7 +152,7 @@ function render(d){
 
   // 连板梯队：堆叠柱(3板/4板/5板+) + 最高板线(右轴)
   const lb=d.lianban;
-  echarts.init(document.getElementById('c-lianban')).setOption(Object.assign(baseOpt(),{
+  chart('c-lianban',Object.assign(baseOpt(),{
     xAxis:{type:'category',data:dates,...AX},
     yAxis:[{type:'value',name:'家数',...AX},{type:'value',name:'高度',...AX}],
     series:[
@@ -156,7 +168,7 @@ function render(d){
   const idxSeries = Object.keys(d.indices).map((name,i)=>({
     name, type:'line', data:d.indices[name], smooth:true, symbol:'none', lineStyle:{color:colors[i%colors.length],width:2}
   }));
-  echarts.init(document.getElementById('c-index')).setOption(Object.assign(baseOpt(),{
+  chart('c-index',Object.assign(baseOpt(),{
     xAxis:{type:'category',data:dates,...AX}, yAxis:{type:'value',axisLabel:{formatter:'{value}%',color:'#9ca3af'},...AX},
     series:idxSeries
   }));
