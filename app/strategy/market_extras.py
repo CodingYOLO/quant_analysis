@@ -25,49 +25,47 @@ logger = logging.getLogger(__name__)
 # 营业部席位分类（游资/机构/散户/北向/量化）
 # ──────────────────────────────────────────────
 
-# 知名游资席位 → 江湖称号（关键词匹配，覆盖最知名席位）
+# 知名游资席位 → (江湖称号, 操作风格)。风格为经验性规律，非绝对，仅作参考。
+# 注：游资席位会易主/变迁，此为公开市场长期认知。
+# 关键词用"独特营业部地点"，规避"股份有限公司"等中间词导致的匹配失败
 _FAMOUS_SEATS = [
-    ("中信证券上海溧阳路", "章盟主"),
-    ("中国银河证券绍兴", "赵老哥"),
-    ("银河证券绍兴", "赵老哥"),
-    ("华鑫证券上海宛平南路", "炒股养家"),
-    ("华鑫证券上海分公司", "上海超短帮"),
-    ("国泰海通证券成都北一环路", "成都帮"),
-    ("国泰君安证券成都北一环路", "成都帮"),
-    ("国盛证券宁波桑田路", "宁波敢死队"),
-    ("财通证券杭州上塘路", "浙江帮"),
-    ("华泰证券深圳益田路荣超", "华泰深圳孙哥"),
-    ("中国中投证券深圳福华一路", "深圳系"),
-    ("招商证券深圳蛇口", "深圳系"),
-    ("国信证券深圳泰然九路", "深圳泰然帮"),
-    ("东方财富证券拉萨团结路", "东财散户大军"),
-    ("东方财富证券拉萨东环路", "东财散户大军"),
-    ("东方财富证券拉萨", "东财散户大军"),
-    ("西藏东方财富", "东财散户大军"),
+    ("溧阳路", "章盟主", "大资金抱团做中线龙头，持仓偏久，标的稳定性较好"),
+    ("绍兴", "赵老哥", "顶级打板游资，快准狠，次日易高溢价但需快进快出"),
+    ("宛平南路", "炒股养家", "情绪周期大师，做强势股，看大盘情绪强弱"),
+    ("成都北一环路", "成都帮", "凶悍接力打板，短线高波动"),
+    ("北一环路", "成都帮", "凶悍接力打板，短线高波动"),
+    ("宁波桑田路", "宁波敢死队", "老牌打板游资，接力为主"),
+    ("宁波解放南路", "宁波敢死队", "老牌打板游资，接力为主"),
+    ("杭州上塘路", "浙系游资", "打板接力，浙江帮风格"),
+    ("益田路荣超", "深圳孙哥", "中大资金，做趋势强势股"),
+    ("深圳福华一路", "深圳系", "深圳本地游资，打板接力"),
+    ("深圳蛇口", "深圳系", "深圳本地游资，打板接力"),
+    ("泰然九路", "深圳泰然帮", "老牌深圳游资席位"),
 ]
 
 
-def classify_seat(exalter: str) -> tuple[str, str]:
+def classify_seat(exalter: str) -> tuple[str, str, str]:
     """
     营业部席位分类。
-    返回 (类型, 标签)：类型∈{游资,机构,北向,散户,量化,营业部}
+    返回 (类型, 标签, 风格提示)：类型∈{游资,机构,北向,散户,量化,营业部}
+    风格提示为经验性参考（非绝对，席位会变迁）。
     """
     s = str(exalter or "")
     if "机构专用" in s:
-        return "机构", "🏛️机构"
+        return "机构", "🏛️机构", "价值/趋势资金，持仓久，净买入=中线偏稳信号"
     if "股通专用" in s or "沪股通" in s or "深股通" in s:
-        return "北向", "🌏北向"
+        return "北向", "🌏北向", "外资偏蓝筹价值，相对稳，非短线爆发"
     if "量化" in s:
-        return "量化", "🤖量化"
-    for kw, nick in _FAMOUS_SEATS:
+        return "量化", "🤖量化", "高频不做方向，次日可能有抛压"
+    for kw, nick, style in _FAMOUS_SEATS:
         if kw in s:
-            tag = "散户" if "散户" in nick else "游资"
-            icon = "👥散户" if tag == "散户" else f"🔥游资·{nick}"
-            return tag, icon
-    # 拉萨/西藏系（东财散户聚集）兜底
-    if ("拉萨" in s or "西藏" in s):
-        return "散户", "👥散户(拉萨系)"
-    return "营业部", "💼游资/营业部"
+            return "游资", f"🔥游资·{nick}", style
+    # 拉萨/西藏系（东财散户聚集）
+    if ("拉萨" in s or "西藏" in s) and ("东方财富" in s or "东财" in s):
+        return "散户", "👥散户(东财拉萨系)", "散户跟风大军，人气标志但不稳定，警惕见顶"
+    if "拉萨" in s or "西藏" in s:
+        return "散户", "👥散户(拉萨系)", "散户/跟风资金，持续性弱"
+    return "营业部", "💼游资/营业部", "普通游资/营业部席位"
 
 
 # ──────────────────────────────────────────────
@@ -150,24 +148,36 @@ def get_dragon_tiger(date: str, provider: CompositeProvider | None = None) -> di
     if ti is None or ti.empty:
         return result
 
+    # 各类型主导时的次日风格提示
+    _DOMINANT_HINT = {
+        "机构": "机构主导→中线偏稳，次日溢价温和但持续性好",
+        "北向": "北向主导→外资价值偏好，相对稳健",
+        "游资": "游资主导→短线博弈，次日易高波动，快进快出",
+        "量化": "量化主导→次日或有抛压",
+        "散户": "散户主导→跟风为主，持续性弱，警惕见顶",
+        "营业部": "营业部资金主导→关注次日承接",
+    }
     for ts_code, g in ti.groupby("ts_code"):
         seats = []
         type_net: dict[str, float] = {}
         for _, r in g.iterrows():
-            stype, tag = classify_seat(r.get("exalter", ""))
+            stype, tag, style = classify_seat(r.get("exalter", ""))
             net = (float(r.get("net_buy", 0)) or 0) / 1e8
             seats.append({"seat": str(r.get("exalter", ""))[:20], "tag": tag,
-                          "net_yi": round(net, 2)})
+                          "net_yi": round(net, 2), "style": style})
             type_net[stype] = type_net.get(stype, 0) + net
         seats.sort(key=lambda x: abs(x["net_yi"]), reverse=True)
         total_net = round(sum(s["net_yi"] for s in seats), 2)
         # 主导力量：净买额绝对值最大的类型
         dominant = max(type_net.items(), key=lambda kv: abs(kv[1]))[0] if type_net else "营业部"
+        # 知名游资昵称（若上榜）
+        famous = [s["tag"] for s in seats if "游资·" in s["tag"]][:2]
+        famous_s = "，含" + "、".join(t.replace("🔥游资·", "") for t in famous) if famous else ""
         result[ts_code] = {
             "net_buy_yi": total_net,
             "seats": seats[:4],
             "dominant": dominant,
-            "summary": f"{dominant}主导（净{total_net:+.1f}亿）",
+            "summary": f"{dominant}主导（净{total_net:+.1f}亿{famous_s}）｜{_DOMINANT_HINT.get(dominant, '')}",
         }
     return result
 
