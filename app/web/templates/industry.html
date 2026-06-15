@@ -24,7 +24,12 @@
   <label class="neu" style="font-size:13px">交易日</label>
   <input type="date" id="date">
   <button class="runbtn" id="reload">🔄 加载</button>
-  <span class="neu" style="font-size:12px">💡 资金流向=板块内个股主力净流入合计；红=流入 绿=流出。点表头排序。</span>
+</div>
+<div style="font-size:12px;color:#fbbf24;background:#2a2410;border:1px solid #4a3d15;border-radius:8px;padding:8px 12px;margin-bottom:16px;line-height:1.6">
+  💡 <strong>口径说明</strong>：资金流向 = 板块内个股「主力净流入」合计（主力=超大单+大单，数据源 Tushare 官方）；
+  行业按 <strong>Tushare 行业分类（110个）</strong>聚合。
+  ⚠️ 与<strong>同花顺口径不同</strong>（同花顺用自有行业/概念分类 + DDE主力算法），<strong>绝对数值不可直接对比</strong>；
+  但<strong>资金流入/流出方向与板块相对排名可靠</strong>，适合判断资金轮动。红=流入 绿=流出，点表头排序。
 </div>
 
 <div id="loading" class="neu" style="font-size:14px;padding:20px">⏳ 加载行业资金数据中...</div>
