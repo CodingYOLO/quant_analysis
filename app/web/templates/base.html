@@ -86,6 +86,7 @@
 <body>
 <nav>
   <a class="brand" href="/">📈 A股Agent</a>
+  <a href="/sentiment" {% if page=='sentiment' %}class="active"{% endif %}>🌡️ 大盘情绪</a>
   <a href="/" {% if page=='index' %}class="active"{% endif %}>报告中心</a>
   <a href="/generate" {% if page=='generate' %}class="active"{% endif %}>⚡ 一键生成</a>
   <a href="/screener" {% if page=='screener' %}class="active"{% endif %}>🔍 因子选股</a>

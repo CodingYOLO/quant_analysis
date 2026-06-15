@@ -30,6 +30,12 @@ app = FastAPI(title="A股Agent", docs_url=None, redoc_url=None)
 _TEMPLATES_DIR = Path(__file__).parent / "templates"
 templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
 
+# 静态资源（本地托管 ECharts 等，免 CDN 依赖）
+_STATIC_DIR = Path(__file__).parent / "static"
+_STATIC_DIR.mkdir(exist_ok=True)
+from fastapi.staticfiles import StaticFiles  # noqa: E402
+app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
+
 _security = HTTPBasic()
 
 # 三时段中文名
@@ -191,6 +197,25 @@ def _last_trade_date() -> str:
         return days[-2] if days[-1] == today and len(days) >= 2 else days[-1]
     except Exception:
         return today
+
+
+@app.get("/sentiment", response_class=HTMLResponse)
+async def sentiment_page(request: Request, _user: str = Depends(require_auth)):
+    """大盘情绪仪表盘页面。"""
+    return templates.TemplateResponse(request=request, name="sentiment.html", context={})
+
+
+@app.get("/api/sentiment")
+async def api_sentiment(days: int = 22, date: str = "", _user: str = Depends(require_auth)):
+    """大盘情绪仪表盘数据。"""
+    try:
+        from app.strategy.market_sentiment import build_dashboard
+        end = date or _last_trade_date()
+        data = build_dashboard(end, days=days)
+        return {"ok": True, "data": data}
+    except Exception as e:
+        logger.exception("大盘情绪数据失败")
+        return {"ok": False, "error": str(e)}
 
 
 @app.get("/screener", response_class=HTMLResponse)

@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+{% block title %}大盘情绪 — A股Agent{% endblock %}
+
+{% block extra_style %}
+.kpi-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 18px; }
+.kpi { background: #161929; border: 1px solid #242842; border-radius: 10px; padding: 18px 20px; text-align: center; }
+.kpi .label { font-size: 13px; color: #9ca3af; margin-bottom: 8px; }
+.kpi .big { font-size: 32px; font-weight: 700; line-height: 1.1; }
+.kpi .sub { font-size: 12px; color: #9ca3af; margin-top: 8px; }
+.kpi .tag { display:inline-block; padding:1px 7px; border-radius:10px; font-size:11px; margin:0 2px; }
+.tag-red { background:#3b1a1a; color:#f6465d; } .tag-green { background:#16321f; color:#2ebd85; }
+.up { color:#f6465d; } .down { color:#2ebd85; } .amber { color:#f0a020; }
+.chart-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.chart-card { background:#161929; border:1px solid #242842; border-radius:10px; padding:14px; }
+.chart-card h3 { font-size:14px; color:#c9d2f8; text-align:center; margin-bottom:8px; font-weight:600; }
+.chart { width:100%; height:300px; }
+.chart-full { grid-column: 1 / -1; }
+@media (max-width: 900px){ .kpi-row{grid-template-columns:repeat(2,1fr)} .chart-grid{grid-template-columns:1fr} }
+{% endblock %}
+
+{% block content %}
+<div id="loading" class="neu" style="font-size:14px;padding:20px">⏳ 正在加载大盘情绪数据（首次约30-60秒）...</div>
+<div id="dash" style="display:none">
+  <div class="kpi-row">
+    <div class="kpi"><div class="label">情绪温度</div><div class="big amber" id="k-temp">--</div><div class="sub" id="k-temp-sub"></div></div>
+    <div class="kpi"><div class="label">成交额</div><div class="big" id="k-amt">--</div><div class="sub" id="k-amt-sub"></div></div>
+    <div class="kpi"><div class="label">连板高度</div><div class="big amber" id="k-lb">--</div><div class="sub" id="k-lb-sub"></div></div>
+    <div class="kpi"><div class="label">涨跌比</div><div class="big" id="k-ad">--</div><div class="sub" id="k-ad-sub"></div></div>
+  </div>
+
+  <div class="chart-grid">
+    <div class="chart-card"><h3>大盘成交额趋势（万亿）</h3><div id="c-amount" class="chart"></div></div>
+    <div class="chart-card"><h3>市场广度·站上5日线占比（%）</h3><div id="c-breadth" class="chart"></div></div>
+    <div class="chart-card chart-full"><h3>涨跌停分布对比</h3><div id="c-limit" class="chart"></div></div>
+    <div class="chart-card"><h3>连板梯队结构</h3><div id="c-lianban" class="chart"></div></div>
+    <div class="chart-card"><h3>指数累计涨跌幅（%，区间内）</h3><div id="c-index" class="chart"></div></div>
+  </div>
+</div>
+
+<script src="/static/echarts.min.js"></script>
+<script>
+const AX = { axisLine:{lineStyle:{color:'#3a3f5c'}}, axisLabel:{color:'#9ca3af',fontSize:11}, splitLine:{lineStyle:{color:'#1e2138'}} };
+const GRID = { left:48, right:24, top:36, bottom:30 };
+const RED='#f6465d', GREEN='#2ebd85';
+
+function baseOpt(){ return { backgroundColor:'transparent', grid:GRID, tooltip:{trigger:'axis'},
+  legend:{textStyle:{color:'#9ca3af',fontSize:11},top:0}, textStyle:{color:'#9ca3af'} }; }
+
+async function load(){
+  try{
+    const r = await fetch('/api/sentiment?days=22');
+    const j = await r.json();
+    if(!j.ok){ document.getElementById('loading').textContent='❌ '+j.error; return; }
+    render(j.data);
+    document.getElementById('loading').style.display='none';
+    document.getElementById('dash').style.display='block';
+  }catch(e){ document.getElementById('loading').textContent='❌ 请求出错：'+e; }
+}
+
+function render(d){
+  const k = d.kpi;
+  // KPI
+  document.getElementById('k-temp').textContent = k.temp + '%';
+  document.getElementById('k-temp-sub').textContent = k.temp>=70?'情绪偏热':(k.temp>=45?'情绪中性':'情绪偏冷');
+  document.getElementById('k-amt').textContent = k.amount_wy + '万亿';
+  const chg = k.amount_chg_yi;
+  document.getElementById('k-amt-sub').innerHTML = (chg>=0?'<span class="up">↑'+chg:'<span class="down">↓'+Math.abs(chg))+'亿 vs昨日</span>';
+  document.getElementById('k-lb').textContent = k.lianban_height + '板';
+  document.getElementById('k-lb-sub').innerHTML =
+    '<span class="tag tag-red">涨停'+k.limit_up+'</span><span class="tag tag-green">跌停'+k.limit_down+'</span> 三板'+k.b3+' 四板'+k.b4+' 五板+:'+k.b5p;
+  document.getElementById('k-ad').innerHTML = '<span class="'+(k.ad_ratio>=1?'up':'down')+'">'+k.ad_ratio+'</span>';
+  document.getElementById('k-ad-sub').textContent = '涨'+k.up_count+' / 跌'+k.down_count+'　'+k.date;
+
+  const dates = d.dates.map(s=>s.slice(4,6)+'-'+s.slice(6));
+
+  // 成交额趋势 bar + 平滑线
+  echarts.init(document.getElementById('c-amount')).setOption(Object.assign(baseOpt(),{
+    legend:{show:false}, xAxis:{type:'category',data:dates,...AX}, yAxis:{type:'value',scale:true,...AX},
+    series:[
+      {type:'bar',data:d.amount,itemStyle:{color:'#3358e0'},barWidth:'55%'},
+      {type:'line',data:d.amount,smooth:true,symbol:'none',lineStyle:{color:'#f0a020',width:2}}
+    ]
+  }));
+
+  // 市场广度多线
+  const b=d.breadth;
+  echarts.init(document.getElementById('c-breadth')).setOption(Object.assign(baseOpt(),{
+    xAxis:{type:'category',data:dates,...AX}, yAxis:{type:'value',max:100,...AX},
+    series:[
+      {name:'全市场',type:'line',data:b.all,smooth:true,symbol:'circle',symbolSize:4,lineStyle:{color:RED,width:3}},
+      {name:'微盘股',type:'line',data:b.micro,smooth:true,symbol:'none',lineStyle:{color:'#f0a020',type:'dashed'}},
+      {name:'中盘股',type:'line',data:b.mid,smooth:true,symbol:'none',lineStyle:{color:'#3b9eff',type:'dashed'}},
+      {name:'大盘股',type:'line',data:b.large,smooth:true,symbol:'none',lineStyle:{color:GREEN,type:'dashed'}}
+    ]
+  }));
+
+  // 涨跌停分布：涨停正、跌停负 + 趋势线
+  const ldNeg = d.limit_down.map(v=>-v);
+  echarts.init(document.getElementById('c-limit')).setOption(Object.assign(baseOpt(),{
+    xAxis:{type:'category',data:dates,...AX}, yAxis:{type:'value',...AX},
+    series:[
+      {name:'涨停',type:'bar',stack:'x',data:d.limit_up,itemStyle:{color:RED},barWidth:'45%',label:{show:true,position:'top',color:RED,fontSize:10}},
+      {name:'跌停',type:'bar',stack:'x',data:ldNeg,itemStyle:{color:GREEN},label:{show:true,position:'bottom',color:GREEN,fontSize:10,formatter:p=>Math.abs(p.value)}},
+      {name:'涨停趋势',type:'line',data:d.limit_up,smooth:true,symbol:'none',lineStyle:{color:RED,width:2}},
+      {name:'跌停趋势',type:'line',data:ldNeg,smooth:true,symbol:'none',lineStyle:{color:GREEN,width:2}}
+    ]
+  }));
+
+  // 连板梯队：堆叠柱(3板/4板/5板+) + 最高板线(右轴)
+  const lb=d.lianban;
+  echarts.init(document.getElementById('c-lianban')).setOption(Object.assign(baseOpt(),{
+    xAxis:{type:'category',data:dates,...AX},
+    yAxis:[{type:'value',name:'家数',...AX},{type:'value',name:'高度',...AX}],
+    series:[
+      {name:'3板',type:'bar',stack:'lb',data:lb.b3,itemStyle:{color:GREEN}},
+      {name:'4板',type:'bar',stack:'lb',data:lb.b4,itemStyle:{color:'#f0a020'}},
+      {name:'5板+',type:'bar',stack:'lb',data:lb.b5p,itemStyle:{color:RED}},
+      {name:'最高板',type:'line',yAxisIndex:1,data:lb.height,smooth:true,symbol:'circle',symbolSize:5,lineStyle:{color:'#7c9ef8',width:2}}
+    ]
+  }));
+
+  // 指数涨跌幅多线
+  const colors=['#f6465d','#3b9eff','#e056c1','#f0a020','#2ebd85','#7c9ef8'];
+  const idxSeries = Object.keys(d.indices).map((name,i)=>({
+    name, type:'line', data:d.indices[name], smooth:true, symbol:'none', lineStyle:{color:colors[i%colors.length],width:2}
+  }));
+  echarts.init(document.getElementById('c-index')).setOption(Object.assign(baseOpt(),{
+    xAxis:{type:'category',data:dates,...AX}, yAxis:{type:'value',axisLabel:{formatter:'{value}%',color:'#9ca3af'},...AX},
+    series:idxSeries
+  }));
+}
+load();
+</script>
+{% endblock %}
