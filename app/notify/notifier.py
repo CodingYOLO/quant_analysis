@@ -31,16 +31,57 @@ from app.config import get_settings
 logger = logging.getLogger(__name__)
 
 
+def _normalize_md_tables(md_text: str) -> str:
+    """
+    Python-Markdown 的 tables / 列表扩展都要求块前有空行，否则整段当普通文本。
+    LLM 常把"标题行"和紧跟的表格/列表粘在一起，这里自动补空行。
+
+    处理两类块：
+      - 表格：行以 | 开头，且下一行是分隔行（|---|---|）
+      - 列表：行以 "- " / "* " / "1. " 开头
+    规则：若该块首行前一行非空、且不属于同类块，则插入一个空行。
+    """
+    import re as _re
+
+    lines = md_text.split("\n")
+    result: list[str] = []
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+
+        is_table_header = (
+            stripped.startswith("|")
+            and i + 1 < len(lines)
+            and set(lines[i + 1].strip()) <= set("|-: ")
+            and "-" in lines[i + 1]
+        )
+        is_list_item = bool(_re.match(r"^([-*]\s|\d+\.\s)", stripped))
+
+        prev = result[-1].strip() if result else ""
+        prev_is_table = prev.startswith("|")
+        prev_is_list = bool(_re.match(r"^([-*]\s|\d+\.\s)", prev))
+
+        # 表头前补空行
+        if is_table_header and prev and not prev_is_table:
+            result.append("")
+        # 列表首项前补空行（前一行非空、且不是列表项）
+        elif is_list_item and prev and not prev_is_list:
+            result.append("")
+
+        result.append(line)
+    return "\n".join(result)
+
+
 def _md_to_html(md_text: str) -> str:
     """
     将 Markdown 转为带样式的 HTML，适合邮件客户端展示。
     依赖 markdown 库（pip install markdown）。
     """
+    md_text = _normalize_md_tables(md_text)
     try:
         import markdown as md_lib
         body = md_lib.markdown(
             md_text,
-            extensions=["tables", "fenced_code", "nl2br"],
+            extensions=["tables", "fenced_code"],
         )
     except ImportError:
         # 降级：简单替换换行
@@ -58,8 +99,8 @@ def _md_to_html(md_text: str) -> str:
   h1 {{ font-size: 22px; border-bottom: 2px solid #1a73e8; padding-bottom: 8px; color: #1a73e8; }}
   h2 {{ font-size: 19px; margin-top: 28px; color: #333; border-left: 4px solid #1a73e8; padding-left: 10px; }}
   h3 {{ font-size: 17px; color: #444; margin-top: 18px; }}
-  p {{ font-size: 16px; margin: 10px 0; }}
-  li {{ font-size: 16px; margin: 6px 0; }}
+  p {{ font-size: 16px; margin: 10px 0; line-height: 1.8; }}
+  li {{ font-size: 16px; margin: 8px 0; line-height: 1.7; }}
   table {{ border-collapse: collapse; width: 100%; margin: 14px 0; }}
   th {{ background: #1a73e8; color: #fff; padding: 10px 14px; text-align: left; font-size: 15px; }}
   td {{ padding: 9px 14px; border-bottom: 1px solid #eee; font-size: 15px; }}

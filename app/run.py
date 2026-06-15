@@ -253,11 +253,14 @@ def run_mid(trade_date: str, no_notify: bool) -> None:
 @cli.command("post-quick")
 @click.option("--date", "trade_date", default="", help="交易日 YYYYMMDD，默认今日")
 @click.option("--no-notify", is_flag=True, default=False)
-def run_post_quick(trade_date: str, no_notify: bool) -> None:
+@click.option("--full", is_flag=True, default=False,
+              help="完整版：标题标注'完整版'，用于晚间资金数据入库后的二次推送")
+def run_post_quick(trade_date: str, no_notify: bool, full: bool) -> None:
     """生成盘后复盘快讯（全天新闻驱动复盘+明日预判）。"""
     from app.nodes.quick_report import build_quick_report
     td = trade_date or None
-    filepath, title, content = build_quick_report("post", td)
+    label_suffix = "完整版" if full else "速报"
+    filepath, title, content = build_quick_report("post", td, label_suffix=label_suffix)
     console.print(f"\n[bold green]✅ 盘后快讯已生成[/bold green]  {filepath}\n")
     if not no_notify:
         _push_quick_report(title, content)

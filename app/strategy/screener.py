@@ -1,0 +1,326 @@
+"""
+量化因子选股引擎（收盘后完整因子版）。
+
+职责：
+  - build_factor_table(date)：基于当日收盘全量数据计算每只股票的因子，缓存 parquet
+  - FACTOR_GROUPS：可选因子定义（分组 + 筛选逻辑），供前端渲染按钮
+  - screen(date, selected, custom)：按选中因子组合筛选，返回结果表
+
+设计：
+  - 因子表一天只算一次（重，~30-60s），缓存到 data_cache/factor_table/{date}.parquet
+  - 筛选在缓存表上完成（毫秒级）
+  - 所有数据走 CompositeProvider，禁止直接调 akshare/tushare
+"""
+
+from __future__ import annotations
+
+import logging
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+
+from app import factors as F
+from app.config import get_settings
+from app.data.composite_provider import CompositeProvider
+from app.data.history_loader import load_price_matrix
+
+logger = logging.getLogger(__name__)
+
+
+# ──────────────────────────────────────────────
+# 因子定义（分组）— key 对应因子表里的派生布尔/数值列
+# 每个因子：label 显示名，col 依赖列，op 与 val 构成过滤条件
+# ──────────────────────────────────────────────
+
+FACTOR_GROUPS = [
+    {
+        "group": "估值与市值",
+        "factors": [
+            {"key": "pe_le30", "label": "市盈率≤30", "col": "pe_ttm", "op": "le", "val": 30, "pos": True},
+            {"key": "pb_le3", "label": "市净率≤3", "col": "pb", "op": "le", "val": 3, "pos": True},
+            {"key": "mv_ge500", "label": "总市值≥500亿", "col": "total_mv_100m", "op": "ge", "val": 500},
+            {"key": "mv_50_200", "label": "总市值50-200亿", "col": "total_mv_100m", "op": "between", "val": [50, 200]},
+            {"key": "circ_ge100", "label": "流通市值≥100亿", "col": "circ_mv_100m", "op": "ge", "val": 100},
+            {"key": "circ_le50", "label": "流通市值≤50亿", "col": "circ_mv_100m", "op": "le", "val": 50, "pos": True},
+        ],
+    },
+    {
+        "group": "量能与活跃度",
+        "factors": [
+            {"key": "limit_up", "label": "今日涨停", "col": "is_limit_up", "op": "true"},
+            {"key": "turnover_ge3", "label": "换手率≥3%", "col": "turnover_rate", "op": "ge", "val": 3},
+            {"key": "turnover_lt1", "label": "换手率<1%(低)", "col": "turnover_rate", "op": "lt", "val": 1},
+            {"key": "vol_ratio_ge15", "label": "量比≥1.5", "col": "volume_ratio", "op": "ge", "val": 1.5},
+            {"key": "amount_ge1", "label": "成交额≥1亿", "col": "amount_100m", "op": "ge", "val": 1},
+        ],
+    },
+    {
+        "group": "趋势与均线",
+        "factors": [
+            {"key": "above_ma5", "label": "站上MA5", "col": "above_ma5", "op": "true"},
+            {"key": "above_ma10", "label": "站上MA10", "col": "above_ma10", "op": "true"},
+            {"key": "above_ma20", "label": "站上MA20", "col": "above_ma20", "op": "true"},
+            {"key": "above_ma60", "label": "站上MA60", "col": "above_ma60", "op": "true"},
+            {"key": "rps50_ge70", "label": "RPS50≥70", "col": "rps50", "op": "ge", "val": 70},
+            {"key": "rps120_ge70", "label": "RPS120≥70", "col": "rps120", "op": "ge", "val": 70},
+            {"key": "rps_ge80", "label": "RPS综合≥80", "col": "rps_combo", "op": "ge", "val": 80},
+        ],
+    },
+    {
+        "group": "技术与资金",
+        "factors": [
+            {"key": "macd_gold", "label": "MACD金叉", "col": "macd_gold", "op": "true"},
+            {"key": "rsi_oversold", "label": "RSI超卖(<30)", "col": "rsi14", "op": "lt", "val": 30, "pos": True},
+            {"key": "rsi_strong", "label": "RSI强势(50-70)", "col": "rsi14", "op": "between", "val": [50, 70]},
+            {"key": "main_inflow", "label": "主力净流入>0", "col": "main_net_amount", "op": "gt", "val": 0},
+            {"key": "elg_inflow", "label": "超大单净流入>0", "col": "elg_net", "op": "gt", "val": 0},
+            {"key": "vwap_low", "label": "VWAP低吸回踩(±3%)", "col": "vwap_dev", "op": "between", "val": [-3, 3], "pos": True},
+        ],
+    },
+    {
+        "group": "情绪与人气",
+        "factors": [
+            {"key": "comment_ge80", "label": "千评得分≥80", "col": "comment_score", "op": "ge", "val": 80},
+            {"key": "inst_ge50", "label": "机构参与度≥50%", "col": "institution_pct", "op": "ge", "val": 50},
+            {"key": "popular_top500", "label": "人气排名前500", "col": "popularity_rank", "op": "le", "val": 500, "pos": True},
+        ],
+    },
+]
+
+# 结果表展示列（顺序）
+DISPLAY_COLS = [
+    ("ts_code", "代码"), ("name", "名称"), ("industry", "行业"),
+    ("close", "最新价"), ("pct_chg", "涨跌幅%"), ("turnover_rate", "换手%"),
+    ("volume_ratio", "量比"), ("circ_mv_100m", "流通市值(亿)"),
+    ("main_net_amount", "主力净流入(亿)"), ("elg_net", "超大单(亿)"),
+    ("rps50", "RPS50"), ("rps120", "RPS120"), ("rsi14", "RSI"),
+    ("vwap_dev", "VWAP偏离%"), ("comment_score", "千评分"), ("popularity_rank", "人气排名"),
+]
+
+
+# ──────────────────────────────────────────────
+# 因子表构建（重，按日缓存）
+# ──────────────────────────────────────────────
+
+def _factor_cache_path(date: str) -> Path:
+    settings = get_settings()
+    p = settings.cache_dir / "factor_table"
+    p.mkdir(parents=True, exist_ok=True)
+    return p / f"{date}.parquet"
+
+
+def build_factor_table(date: str, provider: CompositeProvider | None = None,
+                       force: bool = False) -> pd.DataFrame:
+    """
+    计算指定交易日的全市场因子表，缓存到 parquet。
+    force=True 时强制重算。
+    """
+    path = _factor_cache_path(date)
+    if path.exists() and not force:
+        return pd.read_parquet(path)
+
+    provider = provider or CompositeProvider()
+    logger.info("构建因子表 %s ...", date)
+
+    daily = provider.get_daily(date)
+    if daily is None or daily.empty:
+        raise ValueError(f"{date} 日线数据为空（收盘后约15-30分钟入库）")
+    daily_basic = provider.get_daily_basic(date)
+    money_flow = provider.get_money_flow(date)
+    stock_basic = provider.get_stock_basic()
+    try:
+        comment = provider.get_stock_comment(date)
+    except Exception:
+        comment = None
+
+    df = _merge_base(daily, daily_basic, money_flow, stock_basic, comment)
+    df = _add_technical_factors(df, date, provider)
+
+    df.to_parquet(path, index=False)
+    logger.info("因子表完成 %s：%d 只股票", date, len(df))
+    return df
+
+
+def _merge_base(daily, daily_basic, money_flow, stock_basic, comment) -> pd.DataFrame:
+    """合并行情/基础/资金/名称/千股千评，得到基础因子列。"""
+    uni = daily[["ts_code", "close", "pct_chg", "vol", "amount"]].copy()
+    uni["pct_chg"] = pd.to_numeric(uni["pct_chg"], errors="coerce")
+    uni["amount_100m"] = pd.to_numeric(uni["amount"], errors="coerce") / 100000  # 千元→亿元
+
+    if daily_basic is not None and not daily_basic.empty:
+        cols = ["ts_code", "circ_mv", "total_mv", "turnover_rate", "volume_ratio", "pe_ttm", "pb"]
+        uni = uni.merge(daily_basic[cols], on="ts_code", how="left")
+        uni["circ_mv_100m"] = pd.to_numeric(uni["circ_mv"], errors="coerce") / 10000
+        uni["total_mv_100m"] = pd.to_numeric(uni["total_mv"], errors="coerce") / 10000
+
+    if money_flow is not None and not money_flow.empty:
+        mf = money_flow.copy()
+        mf["main_net_amount"] = (
+            (mf["buy_elg_amount"] - mf["sell_elg_amount"]) +
+            (mf["buy_lg_amount"] - mf["sell_lg_amount"])
+        ) / 10000  # 万元→亿元
+        mf["elg_net"] = (mf["buy_elg_amount"] - mf["sell_elg_amount"]) / 10000
+        uni = uni.merge(mf[["ts_code", "main_net_amount", "elg_net"]], on="ts_code", how="left")
+
+    if stock_basic is not None and not stock_basic.empty:
+        uni = uni.merge(stock_basic[["ts_code", "name", "industry"]], on="ts_code", how="left")
+
+    if comment is not None and not comment.empty:
+        cmt = comment.copy()
+        # 千股千评原始列：代码/综合得分/机构参与度/目前排名 → 标准列
+        rename = {"代码": "symbol", "综合得分": "comment_score",
+                  "机构参与度": "institution_pct", "目前排名": "popularity_rank"}
+        cmt = cmt.rename(columns={k: v for k, v in rename.items() if k in cmt.columns})
+        if "symbol" in cmt.columns:
+            cmt["symbol"] = cmt["symbol"].astype(str).str.zfill(6)
+            uni["symbol"] = uni["ts_code"].str[:6]
+            keep = [c for c in ["symbol", "comment_score", "institution_pct", "popularity_rank"] if c in cmt.columns]
+            uni = uni.merge(cmt[keep], on="symbol", how="left")
+            if "institution_pct" in uni.columns:  # 0-1 → 百分比
+                uni["institution_pct"] = pd.to_numeric(uni["institution_pct"], errors="coerce") * 100
+            uni = uni.drop(columns=["symbol"], errors="ignore")
+
+    # 涨停标记（板块感知）
+    from app.nodes.quick_report import _board_limit_pct
+    name_map = dict(zip(uni["ts_code"], uni.get("name", pd.Series("", index=uni.index)).fillna("")))
+    limits = uni["ts_code"].map(lambda c: _board_limit_pct(c, name_map.get(c, "")))
+    uni["is_limit_up"] = uni["pct_chg"] >= (limits - 0.3)
+    return uni
+
+
+def _add_technical_factors(df: pd.DataFrame, date: str, provider) -> pd.DataFrame:
+    """基于历史价格矩阵计算 MA站上/RPS/MACD金叉/RSI/VWAP偏离。"""
+    close_m, open_m, high_m, low_m, vol_m = load_price_matrix(date, provider, n_days=130)
+
+    # 站上各均线（向量化）
+    last_close = close_m.iloc[-1]
+    for n in (5, 10, 20, 60, 90, 144):
+        if len(close_m) >= n:
+            ma_n = close_m.tail(n).mean()
+            df[f"above_ma{n}"] = df["ts_code"].map((last_close > ma_n).to_dict()).fillna(False)
+        else:
+            df[f"above_ma{n}"] = False
+
+    # RPS（向量化）：收益矩阵
+    returns = close_m / close_m.iloc[0]
+    rps50 = F.calc_rps(close_m, 50) if len(close_m) > 50 else pd.Series(dtype=float)
+    rps120 = F.calc_rps(close_m, 120) if len(close_m) > 120 else pd.Series(dtype=float)
+    df["rps50"] = df["ts_code"].map(rps50.to_dict()) if not rps50.empty else np.nan
+    df["rps120"] = df["ts_code"].map(rps120.to_dict()) if not rps120.empty else np.nan
+    df["rps_combo"] = df[["rps50", "rps120"]].mean(axis=1)
+
+    # MACD金叉 / RSI / VWAP偏离（逐股，受候选量影响，全市场一次性算）
+    macd_gold, rsi14, vwap_dev = {}, {}, {}
+    for ts in close_m.columns:
+        s = close_m[ts].dropna()
+        if len(s) < 35:
+            continue
+        try:
+            macd_gold[ts] = F.macd_golden_cross(s)
+            rsi14[ts] = float(F.rsi(s, 14).iloc[-1])
+            v = vol_m[ts].dropna()
+            if len(v) >= 20:
+                vwap_dev[ts] = F.vwap_position(s.tail(20), v.tail(20), 20) * 100
+        except Exception:
+            continue
+    df["macd_gold"] = df["ts_code"].map(macd_gold).fillna(False)
+    df["rsi14"] = df["ts_code"].map(rsi14)
+    df["vwap_dev"] = df["ts_code"].map(vwap_dev)
+    return df
+
+
+# ──────────────────────────────────────────────
+# 筛选
+# ──────────────────────────────────────────────
+
+_FACTOR_INDEX = {f["key"]: f for g in FACTOR_GROUPS for f in g["factors"]}
+
+
+def _apply_condition(df: pd.DataFrame, f: dict) -> pd.Series:
+    """单个因子 → 布尔掩码。"""
+    col, op = f["col"], f["op"]
+    if col not in df.columns:
+        return pd.Series(True, index=df.index)
+    s = df[col]
+    if op == "true":
+        return s.fillna(False).astype(bool)
+    if op == "ge":
+        return s >= f["val"]
+    if op == "gt":
+        return s > f["val"]
+    if op == "le":
+        return s <= f["val"]
+    if op == "lt":
+        return s < f["val"]
+    if op == "between":
+        lo, hi = f["val"]
+        return (s >= lo) & (s <= hi)
+    return pd.Series(True, index=df.index)
+
+
+def screen(date: str, selected_keys: list[str],
+           custom: dict | None = None,
+           sort_by: str = "rps120", limit: int = 100,
+           provider: CompositeProvider | None = None) -> dict:
+    """
+    按选中因子筛选。
+    custom: {"col": "ret_nd", "n": 7, "op": "le", "val": 7}  近N日累计涨幅自定义
+    返回 {"ok", "count", "columns", "rows"}。
+    """
+    df = build_factor_table(date, provider)
+    mask = pd.Series(True, index=df.index)
+
+    for key in selected_keys:
+        f = _FACTOR_INDEX.get(key)
+        if f:
+            mask &= _apply_condition(df, f).fillna(False)
+
+    # 自定义：近N日累计涨跌幅
+    if custom and custom.get("n"):
+        ndf = _add_ndays_return(df, date, int(custom["n"]), provider or CompositeProvider())
+        col = f"ret_{custom['n']}d"
+        if col in ndf.columns:
+            df = ndf
+            cf = {"col": col, "op": custom.get("op", "le"), "val": float(custom.get("val", 0))}
+            mask &= _apply_condition(df, cf).fillna(False)
+
+    result = df[mask].copy()
+    if sort_by in result.columns:
+        result = result.sort_values(sort_by, ascending=False, na_position="last")
+    result = result.head(limit)
+
+    cols = [(c, lbl) for c, lbl in DISPLAY_COLS if c in result.columns]
+    rows = []
+    for _, r in result.iterrows():
+        row = {}
+        for c, _lbl in cols:
+            v = r[c]
+            if isinstance(v, (int, float, np.floating)) and pd.notna(v):
+                row[c] = round(float(v), 2)
+            elif isinstance(v, (bool, np.bool_)):
+                row[c] = bool(v)
+            else:
+                row[c] = "" if pd.isna(v) else str(v)
+        rows.append(row)
+
+    return {
+        "ok": True,
+        "count": int(mask.sum()),
+        "shown": len(rows),
+        "columns": [{"key": c, "label": lbl} for c, lbl in cols],
+        "rows": rows,
+    }
+
+
+def _add_ndays_return(df: pd.DataFrame, date: str, n: int, provider) -> pd.DataFrame:
+    """补充近N日累计涨跌幅列 ret_{n}d。"""
+    try:
+        close_m, *_ = load_price_matrix(date, provider, n_days=n + 5)
+        if len(close_m) > n:
+            ret = (close_m.iloc[-1] / close_m.iloc[-(n + 1)] - 1) * 100
+            df = df.copy()
+            df[f"ret_{n}d"] = df["ts_code"].map(ret.to_dict())
+    except Exception as e:
+        logger.debug("近N日涨幅计算失败: %s", e)
+    return df

@@ -38,6 +38,9 @@ class Settings(BaseSettings):
     serverchan_send_key: str = Field("", description="Server酱 SendKey")
     # Web报告地址（手机简报末尾附链接，本地留空，部署后填写）
     web_base_url: str = Field("", description="Web报告访问地址，如 http://your-server:8000")
+    # Web 登录认证（公网部署必填，留空则不鉴权）
+    web_username: str = Field("admin", description="Web登录用户名")
+    web_password: str = Field("", description="Web登录密码，公网部署务必设置")
 
     # 邮箱配置（163: host=smtp.163.com port=465 use_ssl=true）
     email_smtp_host: str = Field("smtp.163.com", description="SMTP服务器，163用smtp.163.com")

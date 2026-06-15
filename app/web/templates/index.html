@@ -1,40 +1,32 @@
 {% extends "base.html" %}
-{% block title %}报告列表 — A股选股日报{% endblock %}
+{% block title %}报告中心 — A股Agent{% endblock %}
 
 {% block content %}
-<div class="card">
-  <h2>📅 历史报告</h2>
-  {% if reports %}
-  <table>
-    <thead>
-      <tr>
-        <th>日期</th>
-        <th>文件大小</th>
-        <th>操作</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for r in reports %}
-      <tr>
-        <td>
-          <strong>{{ r.display }}</strong>
-          {% if loop.first %}
-          <span class="badge badge-green" style="margin-left:8px">最新</span>
-          {% endif %}
-        </td>
-        <td class="neu">{{ r.size_kb }} KB</td>
-        <td>
-          <a href="/report/{{ r.date }}"
-             style="color:#7c9ef8;text-decoration:none;font-size:13px">
-            查看报告 →
-          </a>
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  {% else %}
-  <p class="neu" style="padding:16px 0">暂无报告，运行 <code>python -m app.run run</code> 生成。</p>
-  {% endif %}
-</div>
+{% if groups %}
+  {% for g in groups %}
+  <div class="card">
+    <h2>{{ g.label }} <span class="neu" style="font-weight:400">· {{ g.reports|length }} 份</span></h2>
+    <table>
+      <thead>
+        <tr><th>交易日</th><th>时段/时间</th><th>操作</th></tr>
+      </thead>
+      <tbody>
+        {% for r in g.reports %}
+        <tr>
+          <td><strong>{{ r.date }}</strong>
+            {% if loop.first %}<span class="badge badge-yellow" style="margin-left:6px">最新</span>{% endif %}
+          </td>
+          <td class="neu">{{ r.time }}</td>
+          <td><a href="/report/{{ r.name }}" style="color:#7c9ef8;text-decoration:none;font-size:13px">查看 →</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endfor %}
+{% else %}
+  <div class="card">
+    <p class="neu" style="padding:16px 0">暂无报告。去 <a href="/generate" style="color:#7c9ef8">⚡ 一键生成</a> 立即生成一份。</p>
+  </div>
+{% endif %}
 {% endblock %}

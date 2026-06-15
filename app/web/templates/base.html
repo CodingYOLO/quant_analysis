@@ -85,8 +85,10 @@
 </head>
 <body>
 <nav>
-  <a class="brand" href="/">📈 A股选股日报</a>
-  <a href="/" {% if page=='index' %}class="active"{% endif %}>报告列表</a>
+  <a class="brand" href="/">📈 A股Agent</a>
+  <a href="/" {% if page=='index' %}class="active"{% endif %}>报告中心</a>
+  <a href="/generate" {% if page=='generate' %}class="active"{% endif %}>⚡ 一键生成</a>
+  <a href="/screener" {% if page=='screener' %}class="active"{% endif %}>🔍 因子选股</a>
   <a href="/strategy" {% if page=='strategy' %}class="active"{% endif %}>📊 策略验证</a>
   <a href="/tracking" {% if page=='tracking' %}class="active"{% endif %}>前向追踪</a>
 </nav>
