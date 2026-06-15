@@ -436,28 +436,51 @@ def _enrich_candidates(
 
     # 负面事件扫描（避雷：立案/减持/问询/退市等）
     neg = _negative_events(today, provider)
+    # 结构化避雷：业绩预亏 + 股东减持 + 龙虎榜席位
+    try:
+        from app.strategy.market_extras import get_forecast_risk, get_holder_reduce, get_dragon_tiger
+        forecast_risk = get_forecast_risk(today, provider)
+        holder_reduce = get_holder_reduce(today, provider)
+        lhb = get_dragon_tiger(today, provider)
+    except Exception as e:
+        logger.warning("[画像] 扩展数据失败: %s", e)
+        forecast_risk, holder_reduce, lhb = {}, {}, {}
 
     # 按超大单净流入排序（主力意图优先），无则按涨幅
     rows.sort(key=lambda x: (x["elg"] if x["elg"] is not None else -999, x["pct"]), reverse=True)
 
-    lines = ["\n========== 个股量化画像（候选池，含拥挤度+负面事件避雷） =========="]
-    lines.append("（字段：涨幅 | 成交 | 换手率 | 量比 | 超大单净流入 | 千评得分 | 机构参与度 | 人气排名 | 拥挤度 | ⚠️负面）")
+    lines = ["\n========== 个股量化画像（候选池：拥挤度+龙虎榜席位+避雷） =========="]
+    lines.append("（字段：涨幅|成交|换手|量比|超大单|千评|机构|人气|拥挤度|龙虎榜席位|🚨避雷）")
     for r in rows[:15]:
+        ts6 = r["ts"].split(".")[0]
         elg_s = f"{r['elg']:+.1f}亿" if r["elg"] is not None else "—"
         score_s = f"{r['score']:.0f}" if r["score"] is not None and pd.notna(r["score"]) else "—"
         inst_s = f"{r['inst']*100:.0f}%" if r["inst"] is not None and pd.notna(r["inst"]) else "—"
         rank_s = f"{int(r['rank'])}" if r["rank"] is not None and pd.notna(r["rank"]) else "—"
-        neg_hit = neg.get(r["ts"].split(".")[0])
-        neg_s = f" | 🚨{neg_hit}" if neg_hit else ""
+        # 龙虎榜席位
+        lh = lhb.get(r["ts"])
+        lh_s = f" | 龙虎榜:{lh['summary']}" if lh else ""
+        # 避雷：公告负面 + 业绩预亏 + 减持
+        warns = []
+        if neg.get(ts6):
+            warns.append(neg[ts6])
+        if forecast_risk.get(r["ts"]):
+            warns.append(f"业绩{forecast_risk[r['ts']]}")
+        if holder_reduce.get(r["ts"]):
+            warns.append(holder_reduce[r["ts"]])
+        warn_s = f" | 🚨{'/'.join(warns)}" if warns else ""
         lines.append(
-            f"  {r['name']}({r['ts'].split('.')[0]}) {r['ind']} | "
+            f"  {r['name']}({ts6}) {r['ind']} | "
             f"涨{r['pct']:+.1f}% 成交{r['amt']:.0f}亿 换手{r['turnover']:.1f}% 量比{r['vol_ratio']:.1f} | "
-            f"超大单{elg_s} | 千评{score_s} 机构{inst_s} 人气{rank_s} | {r['flag']}{neg_s}"
+            f"超大单{elg_s} | 千评{score_s} 机构{inst_s} 人气{rank_s} | {r['flag']}{lh_s}{warn_s}"
         )
-    if neg:
-        flagged = [f"{code2name.get(c + '.SZ', code2name.get(c + '.SH', c))}({c}):{kw}"
-                   for c, kw in list(neg.items())[:10]]
-        lines.append("  【全市场负面事件避雷】" + "；".join(flagged))
+    # 全市场避雷汇总
+    all_warn = []
+    for c, kw in list(neg.items())[:8]:
+        nm = code2name.get(c + ".SZ", code2name.get(c + ".SH", c))
+        all_warn.append(f"{nm}({c}):{kw}")
+    if all_warn:
+        lines.append("  【全市场负面事件避雷】" + "；".join(all_warn))
     return "\n".join(lines)
 
 
@@ -601,6 +624,29 @@ def _market_regime(
                 )
         except Exception as e:
             logger.warning("[环境] 连板高度计算失败: %s", e)
+
+    # —— 3.6 涨停板专项（炸板率/官方连板/封单）+ 两融杠杆情绪 ——
+    try:
+        from app.strategy.market_extras import get_limit_analysis, get_margin_sentiment
+        la = get_limit_analysis(today, provider)
+        if la:
+            seal = la.get("top_seal", [])
+            seal_str = "、".join(f"{s['name']}({s['code']})封{s['fd_yi']:.1f}亿/{s['limit_times']}板" for s in seal[:3])
+            parts.append(
+                f"  涨停板专项：涨停{la.get('limit_up',0)} / 炸板{la.get('zhaban',0)}"
+                f" | 炸板率{la.get('zhaban_rate',0)}%（越高越弱）| 最高{la.get('max_lianban',0)}连板"
+                + (f"\n  封单最强(人气标杆)：{seal_str}" if seal_str else "")
+            )
+        margin = get_margin_sentiment(today, provider)
+        if margin:
+            asof = margin.get("as_of", "")
+            asof_s = f"截至{asof[4:6]}/{asof[6:]}" if asof else ""
+            parts.append(
+                f"  两融杠杆({asof_s})：融资余额{margin['rzye_yi']:.0f}亿"
+                f"（环比{margin['rzye_chg_yi']:+.0f}亿，{margin['trend']}）"
+            )
+    except Exception as e:
+        logger.warning("[环境] 涨停板/两融数据失败: %s", e)
 
     # —— 4. 启发式阶段判断（供LLM参考，最终由LLM结合新闻定）——
     regime, confidence, risk = _classify_regime(limit_up, limit_down, breadth_ma5, breadth_ma20, index_signals)
