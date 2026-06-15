@@ -37,8 +37,8 @@ FACTOR_GROUPS = [
     {
         "group": "估值与市值",
         "factors": [
-            {"key": "pe_le30", "label": "市盈率≤30", "col": "pe_ttm", "op": "le", "val": 30, "pos": True},
-            {"key": "pb_le3", "label": "市净率≤3", "col": "pb", "op": "le", "val": 3, "pos": True},
+            {"key": "pe_le30", "label": "市盈率0~30(剔亏损)", "col": "pe_ttm", "op": "between", "val": [0.01, 30], "pos": True},
+            {"key": "pb_le3", "label": "市净率0~3", "col": "pb", "op": "between", "val": [0.01, 3], "pos": True},
             {"key": "mv_ge500", "label": "总市值≥500亿", "col": "total_mv_100m", "op": "ge", "val": 500},
             {"key": "mv_50_200", "label": "总市值50-200亿", "col": "total_mv_100m", "op": "between", "val": [50, 200]},
             {"key": "circ_ge100", "label": "流通市值≥100亿", "col": "circ_mv_100m", "op": "ge", "val": 100},
@@ -202,8 +202,7 @@ def _add_technical_factors(df: pd.DataFrame, date: str, provider) -> pd.DataFram
         else:
             df[f"above_ma{n}"] = False
 
-    # RPS（向量化）：收益矩阵
-    returns = close_m / close_m.iloc[0]
+    # RPS（向量化）：calc_rps 内部按价格算 N 日涨幅的全市场百分位
     rps50 = F.calc_rps(close_m, 50) if len(close_m) > 50 else pd.Series(dtype=float)
     rps120 = F.calc_rps(close_m, 120) if len(close_m) > 120 else pd.Series(dtype=float)
     df["rps50"] = df["ts_code"].map(rps50.to_dict()) if not rps50.empty else np.nan

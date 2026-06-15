@@ -167,13 +167,42 @@ async def api_generate(session: str, _user: str = Depends(require_auth)):
 # 原有页面/API（加认证）
 # ──────────────────────────────────────────────
 
+def _last_trade_date() -> str:
+    """
+    选股页默认日期：取数据可靠可用的最近交易日。
+    - 当日 18:00 后（资金已入库）→ 用当日（若为交易日）
+    - 否则 → 用上一交易日（保证全量数据已入库，不会报错）
+    失败回退今天。
+    """
+    import datetime
+    now = datetime.datetime.now()
+    today = now.strftime("%Y%m%d")
+    try:
+        from app.data.composite_provider import CompositeProvider
+        provider = CompositeProvider()
+        start = (now - datetime.timedelta(days=20)).strftime("%Y%m%d")
+        cal = provider.get_trade_cal(start, today)
+        days = sorted(cal[cal["is_open"] == 1]["cal_date"].astype(str).tolist())
+        if not days:
+            return today
+        # 最近交易日是今天且已过18点 → 用今天；否则用上一交易日
+        if days[-1] == today and now.hour >= 18:
+            return today
+        return days[-2] if days[-1] == today and len(days) >= 2 else days[-1]
+    except Exception:
+        return today
+
+
 @app.get("/screener", response_class=HTMLResponse)
 async def screener_page(request: Request, _user: str = Depends(require_auth)):
     """量化因子选股页面。"""
     from app.strategy.screener import FACTOR_GROUPS
+    default_date = _last_trade_date()
+    # 转成 input[type=date] 需要的 YYYY-MM-DD
+    iso_date = f"{default_date[:4]}-{default_date[4:6]}-{default_date[6:]}"
     return templates.TemplateResponse(
         request=request, name="screener.html",
-        context={"factor_groups": FACTOR_GROUPS},
+        context={"factor_groups": FACTOR_GROUPS, "default_date": iso_date},
     )
 
 
