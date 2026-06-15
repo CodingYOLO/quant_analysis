@@ -75,23 +75,30 @@ _CATEGORIES = [
 ]
 
 
-def _parse_report_meta(stem: str) -> dict:
+def _parse_report_meta(path: Path) -> dict:
     """
-    解析报告文件名，返回展示元信息 + 分类。
+    解析报告文件，返回展示元信息 + 分类。
     选股报告：YYYYMMDD          → category=select
     快讯：    YYYYMMDD_HHMM_pre  → category=pre/mid/post
+    时间统一用文件实际生成时间(mtime)的 HH:MM，准确反映出具时间。
     """
+    import datetime
+    stem = path.stem
     parts = stem.split("_")
     date = parts[0]
     display_date = f"{date[:4]}-{date[4:6]}-{date[6:]}" if len(date) == 8 else date
+    # 生成时间：用文件 mtime（实际出具时间），统一 HH:MM
+    try:
+        gen_time = datetime.datetime.fromtimestamp(path.stat().st_mtime).strftime("%H:%M")
+    except Exception:
+        gen_time = ""
     if len(parts) >= 3:  # 快讯
-        hhmm, session = parts[1], parts[2]
+        session = parts[2]
         label = _SESSION_LABEL.get(session, session)
-        time_str = f"{hhmm[:2]}:{hhmm[2:]}" if len(hhmm) == 4 else hhmm
         return {"name": stem, "category": session, "kind": f"{label}快讯",
-                "date": display_date, "time": time_str}
+                "date": display_date, "time": gen_time}
     return {"name": stem, "category": "select", "kind": "完整选股报告",
-            "date": display_date, "time": "盘后"}
+            "date": display_date, "time": gen_time}
 
 
 def _render_markdown(md_text: str) -> str:
@@ -112,7 +119,7 @@ async def index(request: Request, _user: str = Depends(require_auth)):
         Path(settings.report_dir).glob("*.md"),
         key=lambda f: f.stem, reverse=True,
     )
-    metas = [_parse_report_meta(f.stem) for f in files]
+    metas = [_parse_report_meta(f) for f in files]
     # 按分类分组
     groups = []
     for cat, label in _CATEGORIES:
