@@ -131,10 +131,10 @@ function render(d){
   chart('c-breadth',Object.assign(baseOpt(),{
     xAxis:{type:'category',data:dates,...AX}, yAxis:{type:'value',max:100,...AX},
     series:[
-      {name:'全市场',type:'line',data:b.all,smooth:true,symbol:'circle',symbolSize:4,lineStyle:{color:RED,width:3}},
-      {name:'微盘股',type:'line',data:b.micro,smooth:true,symbol:'none',lineStyle:{color:'#f0a020',type:'dashed'}},
-      {name:'中盘股',type:'line',data:b.mid,smooth:true,symbol:'none',lineStyle:{color:'#3b9eff',type:'dashed'}},
-      {name:'大盘股',type:'line',data:b.large,smooth:true,symbol:'none',lineStyle:{color:GREEN,type:'dashed'}}
+      {name:'全市场',type:'line',data:b.all,smooth:true,symbol:'circle',symbolSize:4,itemStyle:{color:RED},lineStyle:{color:RED,width:3}},
+      {name:'微盘股',type:'line',data:b.micro,smooth:true,symbol:'none',itemStyle:{color:'#f0a020'},lineStyle:{color:'#f0a020',type:'dashed'}},
+      {name:'中盘股',type:'line',data:b.mid,smooth:true,symbol:'none',itemStyle:{color:'#3b9eff'},lineStyle:{color:'#3b9eff',type:'dashed'}},
+      {name:'大盘股',type:'line',data:b.large,smooth:true,symbol:'none',itemStyle:{color:GREEN},lineStyle:{color:GREEN,type:'dashed'}}
     ]
   }));
 
@@ -145,8 +145,8 @@ function render(d){
     series:[
       {name:'涨停',type:'bar',stack:'x',data:d.limit_up,itemStyle:{color:RED},barWidth:'45%',label:{show:true,position:'top',color:RED,fontSize:10}},
       {name:'跌停',type:'bar',stack:'x',data:ldNeg,itemStyle:{color:GREEN},label:{show:true,position:'bottom',color:GREEN,fontSize:10,formatter:p=>Math.abs(p.value)}},
-      {name:'涨停趋势',type:'line',data:d.limit_up,smooth:true,symbol:'none',lineStyle:{color:RED,width:2}},
-      {name:'跌停趋势',type:'line',data:ldNeg,smooth:true,symbol:'none',lineStyle:{color:GREEN,width:2}}
+      {name:'涨停趋势',type:'line',data:d.limit_up,smooth:true,symbol:'none',itemStyle:{color:RED},lineStyle:{color:RED,width:2}},
+      {name:'跌停趋势',type:'line',data:ldNeg,smooth:true,symbol:'none',itemStyle:{color:GREEN},lineStyle:{color:GREEN,width:2}}
     ]
   }));
 
@@ -159,15 +159,16 @@ function render(d){
       {name:'3板',type:'bar',stack:'lb',data:lb.b3,itemStyle:{color:GREEN}},
       {name:'4板',type:'bar',stack:'lb',data:lb.b4,itemStyle:{color:'#f0a020'}},
       {name:'5板+',type:'bar',stack:'lb',data:lb.b5p,itemStyle:{color:RED}},
-      {name:'最高板',type:'line',yAxisIndex:1,data:lb.height,smooth:true,symbol:'circle',symbolSize:5,lineStyle:{color:'#7c9ef8',width:2}}
+      {name:'最高板',type:'line',yAxisIndex:1,data:lb.height,smooth:true,symbol:'circle',symbolSize:5,itemStyle:{color:'#7c9ef8'},lineStyle:{color:'#7c9ef8',width:2}}
     ]
   }));
 
   // 指数涨跌幅多线
   const colors=['#f6465d','#3b9eff','#e056c1','#f0a020','#2ebd85','#7c9ef8'];
-  const idxSeries = Object.keys(d.indices).map((name,i)=>({
-    name, type:'line', data:d.indices[name], smooth:true, symbol:'none', lineStyle:{color:colors[i%colors.length],width:2}
-  }));
+  const idxSeries = Object.keys(d.indices).map((name,i)=>{
+    const col=colors[i%colors.length];
+    return { name, type:'line', data:d.indices[name], smooth:true, symbol:'none', itemStyle:{color:col}, lineStyle:{color:col,width:2} };
+  });
   chart('c-index',Object.assign(baseOpt(),{
     xAxis:{type:'category',data:dates,...AX}, yAxis:{type:'value',axisLabel:{formatter:'{value}%',color:'#9ca3af'},...AX},
     series:idxSeries
