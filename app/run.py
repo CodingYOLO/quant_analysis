@@ -191,17 +191,19 @@ def run_pipeline(trade_date: str, no_notify: bool) -> None:
     console.print(f"   预估费用: ¥{cost_summary['estimated_cost_cny']:.4f}")
     console.print(f"   报告路径: {settings.report_dir}/{trade_date}.md\n")
 
-    # 推送：手机收简报，Web查完整报告
+    # 推送：邮件发完整选股报告，标题突出"盘后选股"+候选数
     if not no_notify and final_state.report_md:
         notifier = get_notifier()
-        from app.notify.summary import build_post_market_summary
-        web_url = settings.web_base_url if hasattr(settings, "web_base_url") else ""
-        title, summary = build_post_market_summary(final_state, web_url=web_url)
-        ok = notifier.send(title, summary)
+        n_cand = len(final_state.candidates)
+        regime_label = getattr(final_state.market_regime, "label", "") or ""
+        md, dd = trade_date[4:6], trade_date[6:]
+        title = f"【盘后选股】{md}/{dd} {regime_label} | 候选{n_cand}只"
+        # 邮件/微信均发完整报告全文（之前只发简报，用户要看完整版）
+        ok = notifier.send(title, final_state.report_md)
         if ok:
-            console.print("[green]📱 微信简报推送成功[/green]")
+            console.print("[green]📱 完整选股报告已推送（邮件全文+微信）[/green]")
         else:
-            console.print("[yellow]⚠️  推送失败，请检查 SendKey 配置[/yellow]")
+            console.print("[yellow]⚠️  推送失败，请检查推送配置[/yellow]")
 
 
 @cli.command("backtest")
