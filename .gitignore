@@ -1,4 +1,7 @@
 .env
+.env.*
+!.env.example
+docs/session_handoff_*.md
 data_cache/
 reports/
 __pycache__/
