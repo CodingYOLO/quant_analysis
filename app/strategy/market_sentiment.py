@@ -290,13 +290,16 @@ def _build_kpi(per_day, lianban_series, breadth, last, prev) -> dict:
     lu, ld = d["limit_up"], d["limit_down"]
     height = lianban_series["height"][-1] if lianban_series["height"] else 0
 
-    # 情绪温度（0-100）：综合涨停、广度、量能、涨跌比
+    # 情绪温度（0-100）：5 维度加权，核心加入"连板高度=持续性"，避免单日涨停多即过热
+    #   涨停强度 25 + 市场广度 25 + 连板高度(持续性) 20 + 量能 15 + 上涨家数占比 15
     b5 = breadth["all"][-1] if breadth["all"] and breadth["all"][-1] is not None else 50
+    up_ratio = up / max(up + down, 1)            # 上涨家数占比
     temp = 0
-    temp += min(lu / 200 * 30, 30)               # 涨停占比
-    temp += b5 / 100 * 30                          # 广度
-    temp += min(amt / 30000 * 20, 20)             # 量能(3万亿满分)
-    temp += min((up / max(down, 1)) / 3 * 20, 20)  # 涨跌比
+    temp += min(lu / 250, 1) * 25                 # 涨停强度（250家封顶）
+    temp += b5 / 100 * 25                          # 市场广度（站上5日线占比）
+    temp += min(height / 6, 1) * 20               # 连板高度/持续性（6板封顶）
+    temp += min(amt / 30000, 1) * 15              # 量能（3万亿封顶）
+    temp += max(min((up_ratio - 0.5) / 0.3, 1), 0) * 15  # 上涨占比 0.5~0.8 → 0~15
     temp = round(min(temp, 100))
 
     return {
