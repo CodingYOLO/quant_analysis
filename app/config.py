@@ -36,12 +36,15 @@ class Settings(BaseSettings):
     # ---------- 推送渠道 ----------
     notify_channel: str = Field("serverchan", description="推送渠道: serverchan | email | none")
     serverchan_send_key: str = Field("", description="Server酱 SendKey")
+    # Web报告地址（手机简报末尾附链接，本地留空，部署后填写）
+    web_base_url: str = Field("", description="Web报告访问地址，如 http://your-server:8000")
 
-    # 邮箱配置
-    email_smtp_host: str = Field("smtp.gmail.com")
-    email_smtp_port: int = Field(587)
-    email_user: str = Field("")
-    email_password: str = Field("")
+    # 邮箱配置（163: host=smtp.163.com port=465 use_ssl=true）
+    email_smtp_host: str = Field("smtp.163.com", description="SMTP服务器，163用smtp.163.com")
+    email_smtp_port: int = Field(465, description="163/QQ用465(SSL)，Gmail用587(STARTTLS)")
+    email_use_ssl: bool = Field(True, description="465端口用True，587端口用False")
+    email_user: str = Field("", description="163邮箱地址，如 xxx@163.com")
+    email_password: str = Field("", description="163授权码（不是登录密码，在163设置-POP3/SMTP里生成）")
     email_to: str = Field("")
 
     # ---------- 财联社（可选，填入Cookie后自动启用高质量新闻）----------

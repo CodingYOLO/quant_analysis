@@ -1,0 +1,315 @@
+{% extends "base.html" %}
+{% block title %}策略验证 — A股选股日报{% endblock %}
+{% set page = 'strategy' %}
+
+{% block extra_style %}
+.stat-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 12px; margin-bottom: 16px; }
+.stat-card { background:#232640; border-radius:8px; padding:16px 20px; }
+.stat-card .label { font-size:12px; color:#9ca3af; margin-bottom:6px; }
+.stat-card .value { font-size:28px; font-weight:700; }
+.stat-card .sub { font-size:12px; color:#6b7280; margin-top:4px; }
+.benchmark { color:#6b7280; font-size:12px; }
+.tabs { display:flex; gap:8px; margin-bottom:20px; }
+.tab { padding:6px 16px; border-radius:20px; border:1px solid #2d3052;
+       color:#9ca3af; cursor:pointer; font-size:13px; transition:all .15s; }
+.tab.active,.tab:hover { background:#2d3052; color:#fff; }
+.section-title { font-size:14px; color:#a5b4fc; font-weight:600;
+                 margin:24px 0 12px; padding-left:8px;
+                 border-left:3px solid #4f46e5; }
+.bar-wrap { display:flex; align-items:center; gap:8px; margin:4px 0; }
+.bar-bg { flex:1; background:#1e2138; border-radius:4px; height:8px; overflow:hidden; }
+.bar-fill { height:8px; border-radius:4px; background:#4f46e5; transition:width .3s; }
+.bar-fill.green { background:#22c55e; }
+.bar-fill.red   { background:#ef4444; }
+.win-badge { display:inline-block; padding:1px 7px; border-radius:10px; font-size:11px; font-weight:600; }
+.win-badge.ok  { background:#1a3b2a; color:#4ade80; }
+.win-badge.bad { background:#3b1a1a; color:#f87171; }
+.tag { display:inline-block; padding:1px 7px; border-radius:10px;
+       font-size:11px; background:#1a2b4a; color:#7c9ef8; margin:2px; }
+.insight-box { background:#1e2138; border:1px solid #2d3052; border-radius:8px;
+               padding:16px; margin-bottom:16px; }
+.insight-box h4 { color:#fbbf24; margin-bottom:8px; font-size:14px; }
+.insight-box li { color:#d1d5db; font-size:13px; margin:4px 0; }
+{% endblock %}
+
+{% block content %}
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
+  <div>
+    <h1 style="font-size:20px">📊 策略验证中心</h1>
+    <p class="neu" style="font-size:13px;margin-top:4px">
+      数据区间：<strong id="date-range">加载中…</strong>　|
+      对比基准：吴川体系 T+1 胜率 <strong style="color:#fbbf24">52.11%</strong>
+    </p>
+  </div>
+  <!-- 数据源切换 -->
+  <div class="tabs">
+    <div class="tab active" onclick="switchMode(this,'backtest')" id="tab-backtest">📈 历史回测</div>
+    <div class="tab" onclick="switchMode(this,'forward')" id="tab-forward">🔭 实盘追踪</div>
+    <div class="tab" onclick="switchMode(this,'all')" id="tab-all">全部</div>
+  </div>
+</div>
+
+<!-- ── 总体胜率卡片 ── -->
+<div class="stat-grid" id="overview-grid">
+  <div class="stat-card"><div class="label">加载中…</div></div>
+</div>
+
+<!-- ── 关键洞察 ── -->
+<div id="insights-box"></div>
+
+<!-- ── 因子分桶 ── -->
+<div class="section-title">🔬 因子分桶分析（T+1 胜率）</div>
+<div class="card" id="factor-section"><p class="neu">加载中…</p></div>
+
+<!-- ── 市场状态 ── -->
+<div class="section-title">🌡️ 市场状态对比</div>
+<div class="card" id="market-section"><p class="neu">加载中…</p></div>
+
+<!-- ── 行业排名 ── -->
+<div class="section-title">🏭 行业/主题 T+1 胜率（样本≥5）</div>
+<div class="card" id="theme-section"><p class="neu">加载中…</p></div>
+
+<!-- ── 因子相关性 ── -->
+<div class="section-title">🔗 因子与收益相关性（Spearman）</div>
+<div class="card" id="corr-section"><p class="neu">加载中…</p></div>
+
+<!-- ── 历史明细 ── -->
+<div class="section-title">📋 选股明细</div>
+<div class="card" id="records-section"><p class="neu">加载中…</p></div>
+
+<script>
+const BENCHMARK = 0.5211;
+let currentMode = 'backtest';
+
+function switchMode(el, mode) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+  currentMode = mode;
+  loadData(mode);
+}
+
+function loadData(mode) {
+  const is_backtest = mode === 'backtest' ? 1 : mode === 'forward' ? 0 : '';
+  const url = `/api/strategy?is_backtest=${is_backtest}`;
+  fetch(url)
+    .then(r => r.json())
+    .then(res => {
+      if (!res.ok) { showError(res.error || '加载失败'); return; }
+      render(res.data);
+    })
+    .catch(e => showError(String(e)));
+}
+
+function showError(msg) {
+  document.getElementById('overview-grid').innerHTML =
+    `<div class="stat-card"><div class="label" style="color:#f87171">${msg}</div></div>`;
+}
+
+function wr_badge(wr) {
+  if (wr == null) return '<span class="neu">—</span>';
+  const cls = wr >= BENCHMARK ? 'ok' : 'bad';
+  return `<span class="win-badge ${cls}">${(wr*100).toFixed(1)}%</span>`;
+}
+
+function ret_span(val) {
+  if (val == null) return '<span class="neu">—</span>';
+  const cls = val >= 0 ? 'pos' : 'neg';
+  return `<span class="${cls}">${val >= 0 ? '+' : ''}${(val).toFixed(2)}%</span>`;
+}
+
+function render(d) {
+  const meta = d.meta || {};
+  document.getElementById('date-range').textContent = meta.date_range || '—';
+
+  // ── 总体卡片 ──
+  const ov = d.overview || {};
+  const horizons = [{key:'t1',label:'T+1（次日）'},{key:'t3',label:'T+3（3日）'},{key:'t5',label:'T+5（5日）'}];
+  let gridHtml = '';
+  for (const {key, label} of horizons) {
+    const s = ov[key] || {};
+    const wr = s.win_rate;
+    const color = wr != null ? (wr >= BENCHMARK ? '#4ade80' : '#f87171') : '#9ca3af';
+    const plr = s.profit_loss_ratio != null ? s.profit_loss_ratio.toFixed(2) : '—';
+    const sr = s.stop_rate != null ? (s.stop_rate*100).toFixed(0)+'%' : '—';
+    gridHtml += `<div class="stat-card">
+      <div class="label">${label}</div>
+      <div class="value" style="color:${color}">${wr != null ? (wr*100).toFixed(1)+'%' : '—'}</div>
+      <div class="sub">均收益 ${s.avg_return != null ? (s.avg_return>0?'+':'')+s.avg_return.toFixed(2)+'%' : '—'}
+        &nbsp;|&nbsp; 盈亏比 ${plr}
+        &nbsp;|&nbsp; n=${s.total||0} &nbsp;|&nbsp; 止损率 ${sr}</div>
+    </div>`;
+  }
+  document.getElementById('overview-grid').innerHTML = gridHtml;
+
+  // ── 关键洞察 ──
+  renderInsights(d);
+
+  // ── 因子分桶 ──
+  const factors = d.by_factor || [];
+  if (factors.length === 0) {
+    document.getElementById('factor-section').innerHTML = '<p class="neu">样本不足（需≥20笔T+1收益）</p>';
+  } else {
+    let html = '';
+    for (const fb of factors) {
+      html += `<div style="margin-bottom:20px">
+        <div style="font-size:13px;color:#e8e8e8;margin-bottom:8px">
+          <strong>${fb.factor}</strong>
+          <span class="tag">最优区间: ${fb.best_bucket}</span>
+          <span class="tag">最优胜率: ${(fb.best_win_rate*100).toFixed(1)}%</span>
+        </div>`;
+      for (const b of fb.buckets) {
+        const fillCls = b.win_rate >= BENCHMARK ? 'green' : 'red';
+        html += `<div class="bar-wrap">
+          <span style="width:160px;font-size:12px;color:#9ca3af;text-align:right">${b.label}</span>
+          <div class="bar-bg"><div class="bar-fill ${fillCls}" style="width:${b.win_rate*100}%"></div></div>
+          <span style="width:44px;font-size:12px">${wr_badge(b.win_rate)}</span>
+          <span style="font-size:12px;color:#6b7280">均${ret_span(b.avg_return)} n=${b.n}</span>
+        </div>`;
+      }
+      html += '</div>';
+    }
+    document.getElementById('factor-section').innerHTML = html;
+  }
+
+  // ── 市场状态 ──
+  const mkt = d.by_market || [];
+  if (mkt.length === 0) {
+    document.getElementById('market-section').innerHTML = '<p class="neu">样本不足</p>';
+  } else {
+    let html = '<table><thead><tr><th>市场状态</th><th>T+1胜率</th><th>均收益</th><th>样本数</th></tr></thead><tbody>';
+    for (const m of mkt) {
+      html += `<tr>
+        <td><strong>${m.market}</strong></td>
+        <td>${wr_badge(m.win_rate)}</td>
+        <td>${ret_span(m.avg_return)}</td>
+        <td class="neu">${m.n}</td>
+      </tr>`;
+    }
+    html += '</tbody></table>';
+    document.getElementById('market-section').innerHTML = html;
+  }
+
+  // ── 行业 ──
+  const themes = d.by_theme || [];
+  if (themes.length === 0) {
+    document.getElementById('theme-section').innerHTML = '<p class="neu">样本不足（每个行业需≥5笔）</p>';
+  } else {
+    let html = '<table><thead><tr><th>行业/主题</th><th>T+1胜率</th><th>均收益</th><th>选中次数</th></tr></thead><tbody>';
+    for (const t of themes.slice(0,15)) {
+      html += `<tr>
+        <td><strong>${t.theme}</strong></td>
+        <td>${wr_badge(t.win_rate)}</td>
+        <td>${ret_span(t.avg_return)}</td>
+        <td class="neu">${t.n}</td>
+      </tr>`;
+    }
+    html += '</tbody></table>';
+    document.getElementById('theme-section').innerHTML = html;
+  }
+
+  // ── 相关性 ──
+  const corrs = d.correlations || [];
+  if (corrs.length === 0) {
+    document.getElementById('corr-section').innerHTML = '<p class="neu">样本不足</p>';
+  } else {
+    let html = '<table><thead><tr><th>因子</th><th>Spearman相关</th><th>方向</th><th>强度</th></tr></thead><tbody>';
+    for (const c of corrs) {
+      const cls = c.spearman > 0 ? 'pos' : 'neg';
+      html += `<tr>
+        <td><strong>${c.factor}</strong></td>
+        <td><span class="${cls}"><strong>${c.spearman > 0 ? '+' : ''}${c.spearman.toFixed(3)}</strong></span></td>
+        <td class="neu">${c.direction}</td>
+        <td><span class="tag">${c.strength}</span></td>
+      </tr>`;
+    }
+    html += '</tbody></table>';
+    document.getElementById('corr-section').innerHTML = html;
+  }
+
+  // ── 明细 ──
+  const recs = d.records || [];
+  if (recs.length === 0) {
+    document.getElementById('records-section').innerHTML = '<p class="neu">暂无明细</p>';
+  } else {
+    let html = `<table><thead><tr>
+      <th>名称</th><th>代码</th><th>选股日</th><th>市场</th>
+      <th>RPS50</th><th>RSI</th><th>回踩分</th>
+      <th>T+1</th><th>T+3</th><th>T+5</th>
+    </tr></thead><tbody>`;
+    for (const r of recs.slice(0,100)) {
+      const t1cls = r.t1_win === 1 ? 'pos' : r.t1_win === 0 ? 'neg' : 'neu';
+      const t1 = r.t1_return != null ? `<span class="${t1cls}">${r.t1_return>0?'+':''}${r.t1_return.toFixed(1)}%</span>` : '—';
+      const t3 = r.t3_return != null ? `<span class="${r.t3_win===1?'pos':'neg'}">${r.t3_return>0?'+':''}${r.t3_return.toFixed(1)}%</span>` : '—';
+      const t5 = r.t5_return != null ? `<span class="${r.t5_win===1?'pos':'neg'}">${r.t5_return>0?'+':''}${r.t5_return.toFixed(1)}%</span>` : '—';
+      const stop = r.t1_stop ? '🛑' : '';
+      html += `<tr>
+        <td><strong>${r.name}</strong></td>
+        <td class="neu">${r.ts_code.slice(0,6)}</td>
+        <td class="neu">${r.run_date.slice(0,4)}-${r.run_date.slice(4,6)}-${r.run_date.slice(6)}</td>
+        <td><span class="tag">${r.market_label||'—'}</span></td>
+        <td class="neu">${r.rps50?.toFixed(0)||'—'}</td>
+        <td class="neu">${r.rsi_14?.toFixed(0)||'—'}</td>
+        <td class="neu">${r.pullback_score?.toFixed(0)||'—'}</td>
+        <td>${t1}${stop}</td><td>${t3}</td><td>${t5}</td>
+      </tr>`;
+    }
+    html += '</tbody></table>';
+    if (recs.length > 100) html += `<p class="neu" style="margin-top:8px;font-size:12px">仅展示前100条，共${recs.length}条</p>`;
+    document.getElementById('records-section').innerHTML = html;
+  }
+}
+
+function renderInsights(d) {
+  const ov = d.overview || {};
+  const t1 = ov.t1 || {};
+  const factors = d.by_factor || [];
+  const corrs = d.correlations || [];
+
+  const insights = [];
+
+  // 胜率结论
+  if (t1.win_rate != null) {
+    if (t1.win_rate >= BENCHMARK) {
+      insights.push(`✅ T+1 胜率 <strong>${(t1.win_rate*100).toFixed(1)}%</strong> 超过吴川基准（52.11%），策略有正期望`);
+    } else {
+      insights.push(`⚠️ T+1 胜率 <strong>${(t1.win_rate*100).toFixed(1)}%</strong> 低于基准，当前市场环境策略承压`);
+    }
+  }
+
+  // 止损率
+  if (t1.stop_rate != null && t1.stop_rate > 0.3) {
+    insights.push(`🛑 止损触发率 <strong>${(t1.stop_rate*100).toFixed(0)}%</strong> 偏高，MA5 止损位可能过紧，建议放宽至 MA10 或 -3% 固定止损`);
+  }
+
+  // 最强因子
+  if (corrs.length > 0 && corrs[0].abs_corr >= 0.1) {
+    const top = corrs[0];
+    insights.push(`🔬 对 T+1 收益影响最大的因子：<strong>${top.factor}</strong>（Spearman ${top.spearman > 0 ? '+' : ''}${top.spearman.toFixed(3)}，${top.direction}）`);
+  }
+
+  // 最优因子区间
+  for (const fb of factors.slice(0, 2)) {
+    if (fb.best_win_rate >= BENCHMARK) {
+      insights.push(`💡 <strong>${fb.factor}</strong> 在 <strong>${fb.best_bucket}</strong> 区间胜率最高（${(fb.best_win_rate*100).toFixed(1)}%）`);
+    }
+  }
+
+  // 市场状态
+  const mkt = d.by_market || [];
+  const bestMkt = mkt.find(m => m.win_rate >= BENCHMARK);
+  if (bestMkt) {
+    insights.push(`📈 市场状态为 <strong>${bestMkt.market}</strong> 时策略表现最佳（胜率 ${(bestMkt.win_rate*100).toFixed(1)}%）`);
+  }
+
+  if (insights.length === 0) return;
+
+  let html = `<div class="insight-box"><h4>🧠 关键洞察</h4><ul>`;
+  for (const ins of insights) html += `<li>${ins}</li>`;
+  html += '</ul></div>';
+  document.getElementById('insights-box').innerHTML = html;
+}
+
+// 初始加载
+loadData('backtest');
+</script>
+{% endblock %}

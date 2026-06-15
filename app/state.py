@@ -22,6 +22,9 @@ class MarketRegime(BaseModel):
     hs300_above_ma20: bool = False     # 沪深300是否站上MA20
     north_net_million: float = 0.0    # 北向资金净买入（万元）
     reason: str = ""                   # 判断理由
+    # O4: 新增字段
+    confidence: float = 0.0           # 判断置信度 0~1（多指标共识度）
+    emotion_score: float = 0.0        # 市场情绪综合分 0~100
 
 
 class ThemeLeader(BaseModel):
@@ -58,6 +61,12 @@ class StockFactors(BaseModel):
     lhb_flag: bool = False             # 是否上龙虎榜
     north_flow: float = 0.0           # 北向资金净买入（万元）
     comment_score: float = 0.0        # 千股千评综合得分
+    # O1~O3: 新增因子
+    rsi_14: float = 0.0               # RSI_14 动量强度（>70超买，<30超卖）
+    vwap_deviation: float = 0.0       # VWAP偏离率（正=价格在VWAP上方，>15%追高风险）
+    change_pct_7d: float = 0.0        # 近7日累计涨跌幅（>15%短期过热警告）
+    popularity_rank: int = 0          # 千股千评人气排名（越小越热，0=未获取）
+    main_cost: float = 0.0            # 千股千评主力成本（庄家成本价）
 
 
 class TradePlan(BaseModel):
@@ -87,7 +96,8 @@ class Candidate(BaseModel):
 
 class SectorStat(BaseModel):
     """板块热度量化统计（Phase 2 纯量化输出）。"""
-    industry: str = ""                      # 行业名称
+    industry: str = ""                      # 行业名称（行业板块）或概念名称
+    board_type: str = "industry"            # "industry"=行业板块 / "concept"=概念板块（O8）
     stock_count: int = 0                    # 板块内股票数量
     flow_5d_100m: float = 0.0              # 5日资金净流入（亿元）
     flow_3d_100m: float = 0.0              # 3日资金净流入（亿元）
@@ -102,6 +112,8 @@ class SectorStat(BaseModel):
     decision_score: int = 0                 # 决策评分 0~100
     phase: str = ""                         # 升温/趋势/退潮/中性
     signal: str = ""                        # 信号描述
+    # O9: 连续趋势评分（对标吴川 trend_score=21.41）
+    trend_score: float = 0.0               # 综合趋势评分 0~100（比阶段标签更精细）
 
 
 class Debate(BaseModel):

@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}A股选股日报{% endblock %}</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+      background: #0f1117;
+      color: #e8e8e8;
+      min-height: 100vh;
+    }
+    /* ---- 导航 ---- */
+    nav {
+      background: #1a1d2e;
+      border-bottom: 1px solid #2d3052;
+      padding: 0 24px;
+      display: flex;
+      align-items: center;
+      height: 52px;
+      gap: 32px;
+    }
+    nav .brand {
+      font-size: 16px;
+      font-weight: 700;
+      color: #7c9ef8;
+      text-decoration: none;
+    }
+    nav a {
+      color: #9ca3af;
+      text-decoration: none;
+      font-size: 14px;
+      padding: 4px 8px;
+      border-radius: 4px;
+      transition: all .15s;
+    }
+    nav a:hover, nav a.active { color: #fff; background: #2d3052; }
+    /* ---- 主容器 ---- */
+    .container { max-width: 1100px; margin: 0 auto; padding: 32px 24px; }
+    /* ---- 卡片 ---- */
+    .card {
+      background: #1a1d2e;
+      border: 1px solid #2d3052;
+      border-radius: 8px;
+      padding: 20px 24px;
+      margin-bottom: 16px;
+    }
+    .card h2 { font-size: 15px; color: #7c9ef8; margin-bottom: 12px; }
+    /* ---- 表格 ---- */
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th {
+      background: #232640;
+      color: #9ca3af;
+      font-weight: 500;
+      padding: 8px 12px;
+      text-align: left;
+      border-bottom: 1px solid #2d3052;
+    }
+    td {
+      padding: 8px 12px;
+      border-bottom: 1px solid #1e2138;
+      vertical-align: middle;
+    }
+    tr:hover td { background: #1e2138; }
+    /* ---- Badge ---- */
+    .badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 12px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+    .badge-green { background: #1a3b2a; color: #4ade80; }
+    .badge-red   { background: #3b1a1a; color: #f87171; }
+    .badge-yellow{ background: #3b3218; color: #fbbf24; }
+    .badge-blue  { background: #1a2b4a; color: #7c9ef8; }
+    /* ---- 正负数颜色 ---- */
+    .pos { color: #4ade80; }
+    .neg { color: #f87171; }
+    .neu { color: #9ca3af; }
+    {% block extra_style %}{% endblock %}
+  </style>
+</head>
+<body>
+<nav>
+  <a class="brand" href="/">📈 A股选股日报</a>
+  <a href="/" {% if page=='index' %}class="active"{% endif %}>报告列表</a>
+  <a href="/strategy" {% if page=='strategy' %}class="active"{% endif %}>📊 策略验证</a>
+  <a href="/tracking" {% if page=='tracking' %}class="active"{% endif %}>前向追踪</a>
+</nav>
+<div class="container">
+  {% block content %}{% endblock %}
+</div>
+</body>
+</html>

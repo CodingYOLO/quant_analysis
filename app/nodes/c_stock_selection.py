@@ -6,7 +6,7 @@
   Step 2: 趋势与均线    → 站上MA20、MA60，MA均线向上
   Step 3: 量价结构      → 换手率适中、MACD金叉或缩量回踩MA20
   Step 4: 资金面        → 超大单+大单净流入连续3日为正
-  Step 5: 相对强弱      → RPS50≥70（近50日跑赢70%个股）
+  Step 5: 相对强弱      → RPS50≥90（近50日跑赢90%个股，回测验证门槛）
 
 候选股按综合评分降序排列，取前 MAX_CANDIDATES 只。
 所有过滤条件均可通过 .env 配置，不硬编码。
@@ -23,7 +23,7 @@ from app.factors import (
     ma, macd_golden_cross, calc_rps,
     volume_ratio, pullback_quality_score, above_ma, ma_slope,
     calc_vwap, calc_stop_loss_price, calc_take_profit_prices,
-    calc_buy_zones, calc_position_pct,
+    calc_buy_zones, calc_position_pct, rsi, vwap_position,
 )
 from app.state import Candidate, PipelineState, StockFactors, TradePlan
 
@@ -130,6 +130,9 @@ def _run_selection_pipeline(
     logger.info("技术因子过滤后: %d 只", len(candidates_raw))
 
     # Step 5: 按综合评分排序，取 top N
+    if candidates_raw.empty or "total_score" not in candidates_raw.columns:
+        logger.warning("技术因子过滤后无候选股，返回空列表")
+        return []
     candidates_raw = candidates_raw.sort_values("total_score", ascending=False)
     top = candidates_raw.head(max_candidates)
 
@@ -347,12 +350,15 @@ def _apply_technical_filters(
             # 资金流出不做硬过滤，但影响评分
 
         # ---- RPS 相对强弱 ----
+        # 回测数据：升温+主升市场下 RPS50>=90 组 T+1胜率57.6%，<90组仅50.8%
+        # 门槛从 70 提升到 90，确保只选市场真正认可的强势股
         rps50_val = float(rps50.get(ts_code, 50))
         rps120_val = float(rps120.get(ts_code, 50))
-        if rps50_val >= 70:
+        if rps50_val >= 90:
             filters_passed.append(f"RPS50={rps50_val:.0f}")
         else:
-            filters_failed.append(f"RPS50={rps50_val:.0f}<70")
+            filters_failed.append(f"RPS50={rps50_val:.0f}<90")
+            continue   # 硬过滤，RPS50不达标直接跳过
 
         # ---- 加分项 ----
         bonus_lhb = ts_code in lhb_codes
@@ -379,6 +385,18 @@ def _apply_technical_filters(
             bonus_north=bonus_north,
             bonus_event=bonus_event,
         )
+
+        # ---- O1: RSI_14 ----
+        rsi_series = rsi(close, n=14)
+        rsi_14_val = float(rsi_series.iloc[-1]) if len(rsi_series) >= 14 else 50.0
+
+        # ---- O2: VWAP 偏离率 ----
+        vwap_dev = vwap_position(close, vol, n=20) if len(close) >= 20 else 0.0
+
+        # ---- O3: 7日累计涨跌幅 ----
+        change_7d = 0.0
+        if len(close) >= 8:
+            change_7d = float((close.iloc[-1] / close.iloc[-8] - 1) * 100)
 
         # ---- 走势摘要 ----
         from app.pattern_summary import generate_trend_summary
@@ -426,6 +444,10 @@ def _apply_technical_filters(
             "take_profit_2": tp2,
             # 次日观察清单（传入amount用于计算参考额）
             "amount": float(row.get("amount", 0)),
+            # O1~O3 新因子
+            "rsi_14": rsi_14_val,
+            "vwap_deviation": round(vwap_dev * 100, 2),  # 转为百分比
+            "change_pct_7d": round(change_7d, 2),
         })
 
     return pd.DataFrame(results) if results else pd.DataFrame()
@@ -529,8 +551,8 @@ def _generate_execution_checklist(row: pd.Series, market_label: str) -> str:
         f"确认有承接资金",
         f"  3. 大单方向：超大单/大单净流入为正",
         f"  4. 同行业个股不出现普跌",
-        f"❌ 放弃条件：低开>{abs(stop/close - 1)*100:.0f}% 或 "
-        f"开盘30分钟内跌破 {stop:.2f}（MA5止损位）",
+        f"❌ 放弃条件：开盘价 < {stop:.2f}（止损价 -5%，直接放弃当日入场）"
+        f" 或 高开>{max_high_open:.0f}%未回踩",
         f"✅ 若满足：先1/3仓试探，放量确认支撑后再加至{market_label}仓位上限",
     ]
     return "\n".join(lines)
@@ -558,6 +580,13 @@ def _build_candidate_objects(
             rps50=float(row.get("rps50", 0)),
             pullback_score=float(row.get("pullback_score", 0)),
             lhb_flag=bool(row.get("bonus_lhb", False)),
+            comment_score=float(row.get("comment_score", 0)),
+            popularity_rank=int(row.get("popularity_rank", 0)) if row.get("popularity_rank") else 0,
+            main_cost=float(row.get("main_cost", 0)) if row.get("main_cost") else 0.0,
+            # O1~O3
+            rsi_14=float(row.get("rsi_14", 50)),
+            vwap_deviation=float(row.get("vwap_deviation", 0)),
+            change_pct_7d=float(row.get("change_pct_7d", 0)),
         )
 
         trade_plan = TradePlan(

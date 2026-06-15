@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}报告列表 — A股选股日报{% endblock %}
+
+{% block content %}
+<div class="card">
+  <h2>📅 历史报告</h2>
+  {% if reports %}
+  <table>
+    <thead>
+      <tr>
+        <th>日期</th>
+        <th>文件大小</th>
+        <th>操作</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in reports %}
+      <tr>
+        <td>
+          <strong>{{ r.display }}</strong>
+          {% if loop.first %}
+          <span class="badge badge-green" style="margin-left:8px">最新</span>
+          {% endif %}
+        </td>
+        <td class="neu">{{ r.size_kb }} KB</td>
+        <td>
+          <a href="/report/{{ r.date }}"
+             style="color:#7c9ef8;text-decoration:none;font-size:13px">
+            查看报告 →
+          </a>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="neu" style="padding:16px 0">暂无报告，运行 <code>python -m app.run run</code> 生成。</p>
+  {% endif %}
+</div>
+{% endblock %}

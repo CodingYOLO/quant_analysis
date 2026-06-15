@@ -4,7 +4,7 @@
 判断逻辑：
   强势市场（绿灯）：涨停≥80，跌停<15，下跌家数<2000，大盘股MA5占比>60%
   震荡市场（黄灯）：介于强势和弱势之间
-  弱势市场（红灯）：下跌家数>3000 或 跌停>30
+  弱势市场（红灯）：下跌家数>3000 或 跌停占比>1.2%（≈66家/5500只）
 
 仓位上限：强势0.6，震荡0.3，弱势0.0（不开仓）
 """
@@ -82,6 +82,22 @@ def _calc_market_regime(trade_date: str, provider: CompositeProvider) -> MarketR
         north_net=north_net,
     )
 
+    confidence = _calc_confidence(
+        label=label,
+        pct_above_ma5=pct_above_ma5,
+        limit_up=limit_up,
+        limit_down=limit_down,
+        down_count=down_count,
+        total=total,
+    )
+    emotion_score = _calc_emotion_score(
+        limit_up=limit_up,
+        limit_down=limit_down,
+        pct_above_ma5=pct_above_ma5,
+        consecutive_high=consecutive_high,
+        north_net=north_net,
+    )
+
     return MarketRegime(
         label=label,
         can_open=can_open,
@@ -96,6 +112,8 @@ def _calc_market_regime(trade_date: str, provider: CompositeProvider) -> MarketR
         hs300_above_ma20=hs300_above_ma20,
         north_net_million=north_net,
         reason=reason,
+        confidence=confidence,
+        emotion_score=emotion_score,
     )
 
 
@@ -124,10 +142,14 @@ def _determine_regime(
         return "衰退", False, 0.0, f"站上MA5仅{pct_above_ma5:.1%}，市场极度恐慌，停止交易"
 
     # ---- 弱势 ----
+    # 跌停阈值用比例制：A股5500+只股票，绝对数30已失效，改为占全市场1.2%
+    limit_down_ratio = limit_down / total if total > 0 else 0
     if down_count > 3000:
         return "弱势", False, 0.0, f"全市场下跌{down_count}家>3000，暂停开仓"
-    if limit_down > 30:
-        return "弱势", False, 0.0, f"跌停{limit_down}家>30，市场恐慌，暂停开仓"
+    if limit_down_ratio > 0.012:
+        return "弱势", False, 0.0, (
+            f"跌停{limit_down}家（占比{limit_down_ratio:.1%}）>1.2%，市场恐慌，暂停开仓"
+        )
 
     # ---- 主升（最强势）----
     if (pct_above_ma5 > 0.70 and limit_up >= 120
@@ -146,18 +168,20 @@ def _determine_regime(
 
     # ---- 退潮反抽（吴川文档精确描述的状态）----
     # 特征：MA5占比30-50% + 涨停<100 + 有反弹但连板低
+    # 回测数据：T+1胜率仅20%，暂停实盘开仓，进入观察模式
     is_rebound = (
         0.30 <= pct_above_ma5 <= 0.55
         and limit_up < 100
         and down_count < 2500
     )
     if is_rebound:
-        return "退潮反抽", True, 0.2, (
+        return "退潮反抽", False, 0.0, (
             f"站上MA5 {pct_above_ma5:.1%}（30-55%区间），"
-            f"涨停{limit_up}家<100，反弹连续性待确认，防守优先"
+            f"涨停{limit_up}家<100，历史T+1胜率仅20%，观察模式不开仓"
         )
 
     # ---- 震荡（兜底）----
+    # 回测数据：T+1胜率43.5%，低于随机基准，暂停实盘开仓，进入观察模式
     reasons = []
     if limit_up >= 50:
         reasons.append(f"涨停{limit_up}家")
@@ -166,7 +190,8 @@ def _determine_regime(
     else:
         reasons.append("沪深300未站上MA5")
     reasons.append(f"站上MA5占比{pct_above_ma5:.1%}")
-    return "震荡", True, 0.3, "，".join(reasons)
+    reasons.append("历史T+1胜率43.5%，观察模式不开仓")
+    return "震荡", False, 0.0, "，".join(reasons)
 
 
 def _calc_pct_above_ma(trade_date: str, provider: CompositeProvider, n: int) -> float:
@@ -255,6 +280,65 @@ def _estimate_consecutive_high(trade_date: str, provider: CompositeProvider) -> 
     except Exception as e:
         logger.warning("计算连板高度失败，回退粗估: %s", e)
         return _fallback_consecutive_high(trade_date, provider)
+
+
+def _calc_confidence(
+    label: str,
+    pct_above_ma5: float,
+    limit_up: int,
+    limit_down: int,
+    down_count: int,
+    total: int,
+) -> float:
+    """
+    判断置信度（0~1）：多指标共识度越高，置信度越高。
+    边界模糊区域（如 MA5占比恰好50%附近）置信度低。
+    """
+    # 极端状态置信度高
+    if pct_above_ma5 < 0.20 or pct_above_ma5 > 0.75:
+        return 0.90
+    if limit_down > 50 or limit_up > 150:
+        return 0.90
+    # 边界区域置信度低（MA5占比 45%-65% 是最模糊的区间）
+    if 0.40 <= pct_above_ma5 <= 0.65:
+        return round(0.50 + abs(pct_above_ma5 - 0.525) * 2, 2)
+    return 0.75
+
+
+def _calc_emotion_score(
+    limit_up: int,
+    limit_down: int,
+    pct_above_ma5: float,
+    consecutive_high: int,
+    north_net: float,
+) -> float:
+    """
+    市场情绪综合分 0~100（越高越乐观）。
+    权重：涨停家数30%+MA5占比30%+连板高度20%+北向资金10%+跌停惩罚10%
+    """
+    # 涨停家数（200家以上=满分）
+    limit_up_score = min(limit_up / 200, 1.0) * 100
+
+    # MA5占比（0%~100%）
+    ma5_score = pct_above_ma5 * 100
+
+    # 连板高度（10板以上=满分）
+    consec_score = min(consecutive_high / 10, 1.0) * 100
+
+    # 北向资金（净流入>50亿万元=满分，净流出=0分）
+    north_score = max(0, min(north_net / 500000, 1.0)) * 100
+
+    # 跌停惩罚（0家=满分，50家以上=0分）
+    down_penalty = max(0, 1.0 - limit_down / 50) * 100
+
+    score = (
+        limit_up_score * 0.30
+        + ma5_score * 0.30
+        + consec_score * 0.20
+        + north_score * 0.10
+        + down_penalty * 0.10
+    )
+    return round(score, 1)
 
 
 def _fallback_consecutive_high(trade_date: str, provider: CompositeProvider) -> int:

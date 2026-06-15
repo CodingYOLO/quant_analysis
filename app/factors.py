@@ -242,13 +242,19 @@ def vwap_position(close: pd.Series, vol: pd.Series, n: int = 20) -> float:
 
 def calc_stop_loss_price(close: pd.Series) -> float:
     """
-    止损价 = MA5（跌破5日均线无条件先止损）。
+    止损价 = 选股日收盘价 × 0.95（固定 -5%）。
+
+    设计依据（回测数据）：
+    - 原 MA5 止损距离中位数仅 1.47%，34% 的 T+1 开盘价已低于止损价（逻辑 BUG）
+    - 改为 -5% 后触发率从 48% 降至 3.8%，消除噪音振仓
+    - 配合执行清单：T+1 开盘价低于此价则放弃入场
+
+    实盘执行规则：
+    - T+1 开盘若缺口低开 >5% → 当日放弃，等次日重新评估
+    - 持仓中跌破此价 → 无条件止损
     """
-    if len(close) < 5:
-        return float(close.iloc[-1]) * 0.95
-    ma5 = ma(close, 5)
-    val = ma5.iloc[-1]
-    return float(val) if not pd.isna(val) else float(close.iloc[-1]) * 0.95
+    last = float(close.iloc[-1])
+    return round(last * 0.95, 2)
 
 
 def calc_take_profit_prices(close: pd.Series) -> tuple[float, float]:

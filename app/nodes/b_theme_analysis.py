@@ -359,6 +359,16 @@ def _build_theme_objects(
         if raw.get("has_event_catalyst") and evidence:
             evidence = ["⚡ 事件催化"] + evidence
 
+        # ---- O6: 新闻-量化交叉验证 ----
+        cross_validation = _build_cross_validation(
+            name=name,
+            heat=final_heat,
+            mapped_industries=mapped_industries,
+            sector_stats=sector_stats,
+        )
+        if cross_validation:
+            evidence = evidence + [cross_validation]
+
         themes.append(Theme(
             name=name,
             heat=final_heat,
@@ -418,6 +428,55 @@ def _determine_theme_phase(heat: float, has_event: bool, quant_phase: str | None
     if heat >= 4 or quant_phase == "趋势":
         return "趋势"
     return "中性"
+
+
+def _build_cross_validation(
+    name: str,
+    heat: float,
+    mapped_industries: list[str],
+    sector_stats: list,
+) -> str:
+    """
+    O6: 新闻-量化交叉验证。
+    新闻说主题热 → 查对应板块量化数据 → 输出"新闻说热但量化说退潮"这类交叉结论。
+    """
+    if not mapped_industries or not sector_stats:
+        return ""
+
+    # 找对应板块的量化数据
+    sector_map = {s.industry: s for s in sector_stats}
+    relevant = [sector_map[ind] for ind in mapped_industries if ind in sector_map]
+    if not relevant:
+        return ""
+
+    # 取热度最高的那个
+    best = max(relevant, key=lambda s: s.heat_score)
+    q_phase = best.phase
+    q_flow = best.flow_5d_100m
+    q_risk = best.nextday_risk_penalty
+    q_delta = best.heat_score_delta_3d
+
+    # 交叉判断
+    news_bullish = heat >= 6.0
+    quant_bullish = q_phase in ("升温", "趋势") and q_flow > 0
+
+    if news_bullish and not quant_bullish:
+        return (
+            f"📊 量化验证：{best.industry}板块量化{q_phase}，"
+            f"5日资金{q_flow:+.1f}亿，次日风险{q_risk:.0f}分。"
+            f"⚠️ 新闻热但量化偏弱，谨慎追高"
+        )
+    elif news_bullish and quant_bullish:
+        return (
+            f"📊 量化验证：{best.industry}板块量化{q_phase}，"
+            f"5日资金{q_flow:+.1f}亿，新闻+量化双重共振 ✅"
+        )
+    elif not news_bullish and quant_bullish:
+        return (
+            f"📊 量化验证：{best.industry}板块资金{q_flow:+.1f}亿，"
+            f"量化{q_phase}但新闻热度不足，关注持续性"
+        )
+    return ""
 
 
 def _get_quant_heat_boost(industries: list[str], sector_heat: dict[str, float]) -> float:

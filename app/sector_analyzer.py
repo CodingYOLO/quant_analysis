@@ -121,6 +121,7 @@ def calc_sector_stats(
             decision_score=decision_score,
             phase=row["phase"],
             signal=row["signal"],
+            trend_score=round(float(row.get("trend_score", 0.0)), 1),
         ))
 
     # ---- 5. 缓存今日热度分（供后续 delta 计算使用）----
@@ -329,6 +330,8 @@ def _score_and_classify(df: pd.DataFrame) -> pd.DataFrame:
 
     df["phase"] = df.apply(_classify_phase, axis=1)
     df["signal"] = df.apply(_build_signal, axis=1)
+    # O9: 连续趋势评分 0~100（资金动量60% + 广度20% + 连板强度20%）
+    df["trend_score"] = _calc_trend_score(df)
     return df
 
 
@@ -354,6 +357,33 @@ def _classify_phase(row: pd.Series) -> str:
         return "趋势"
 
     return "中性"
+
+
+def _calc_trend_score(df: pd.DataFrame) -> pd.Series:
+    """
+    O9: 连续趋势评分 0~100。
+    吴川体系中 trend_score=21.41 是比阶段标签更精细的连续指标。
+
+    公式：资金动量(60%) + 广度(20%) + 连板强度(20%)
+    - 资金动量：5日净流入百分位（带加速因子）
+    - 广度：MA20广度直接映射
+    - 连板强度：连板高度百分位
+    """
+    flow_pct = _percentile_rank(df["flow_5d"]) * 100
+    # 加速因子：近3日资金 > 5日均速则加成
+    accel = (df["flow_3d"] / 3).clip(lower=-1e9) - (df["flow_5d"] / 5).clip(lower=-1e9)
+    accel_score = (accel > 0).astype(float) * 10
+    momentum_score = (flow_pct * 0.85 + accel_score).clip(0, 100)
+
+    breadth_score = df["pct_above_ma20"] * 100
+    limitup_score = _percentile_rank(df["consecutive_limit_high"]) * 100
+
+    trend = (
+        momentum_score * 0.60
+        + breadth_score * 0.20
+        + limitup_score * 0.20
+    ).clip(0, 100)
+    return trend.round(1)
 
 
 def _build_signal(row: pd.Series) -> str:
@@ -508,3 +538,198 @@ def _load_prior_heat_scores(trade_date: str, days_back: int = 3) -> dict[str, fl
 def _percentile_rank(series: pd.Series) -> pd.Series:
     """将 Series 归一化为百分位排名（0~1）。"""
     return series.rank(pct=True).fillna(0.5)
+
+
+# ──────────────────────────────────────────────
+# O8: 概念板块分析（代码已就绪，VPN/服务器后自动生效）
+# ──────────────────────────────────────────────
+
+def calc_concept_stats(
+    trade_date: str,
+    provider: DataProvider,
+    close_m: pd.DataFrame,
+    top_n: int = 30,
+) -> list[SectorStat]:
+    """
+    O8: 计算概念板块热度（对标吴川"航天/低空经济/磷化工"等概念维度）。
+
+    与行业板块互补：
+    - 行业板块（已有）= Tushare stock_basic.industry，覆盖全市场
+    - 概念板块（本函数）= Akshare 东方财富概念板，捕捉市场热点概念
+
+    依赖 akshare 接口（本地VPN限制，服务器部署后生效）：
+    - ak.stock_board_concept_name_em()  → 概念列表
+    - ak.stock_board_concept_cons_em()  → 概念成分股
+
+    Args:
+        trade_date: 交易日 YYYYMMDD
+        provider:   CompositeProvider
+        close_m:    历史收盘价矩阵
+        top_n:      只分析热度最高的前 N 个概念
+
+    Returns:
+        SectorStat 列表（board_type="concept"），按决策评分降序
+    """
+    try:
+        # 1. 获取概念列表
+        concept_list = provider.get_concept_list()
+        if concept_list is None or concept_list.empty:
+            logger.debug("[概念板块] 接口不可用（VPN或服务器问题），跳过")
+            return []
+
+        # 2. 过滤到活跃概念（按涨跌幅取 top_n）
+        if "涨跌幅" in concept_list.columns:
+            concept_list = concept_list.nlargest(top_n, "涨跌幅")
+        else:
+            concept_list = concept_list.head(top_n)
+
+        # 3. 逐概念计算成分股指标
+        daily = provider.get_daily(trade_date)
+        if daily is None or daily.empty:
+            return []
+
+        stock_basic = provider.get_stock_basic()
+        money_flow_df = provider.get_money_flow(trade_date)
+
+        results: list[SectorStat] = []
+        for _, row in concept_list.iterrows():
+            concept_name = str(row.get("板块名称", row.get("name", "")))
+            if not concept_name:
+                continue
+
+            try:
+                # 获取成分股
+                members = provider.get_concept_members(concept_name)
+                if members is None or members.empty:
+                    continue
+
+                # 成分股代码（东方财富格式可能需要转换）
+                member_codes = _normalize_concept_codes(members)
+                if not member_codes:
+                    continue
+
+                # 计算板块指标
+                stat = _calc_concept_single(
+                    concept_name=concept_name,
+                    member_codes=member_codes,
+                    trade_date=trade_date,
+                    daily=daily,
+                    close_m=close_m,
+                    money_flow_df=money_flow_df,
+                )
+                if stat:
+                    results.append(stat)
+
+            except Exception as e:
+                logger.debug("概念[%s]计算失败: %s", concept_name, e)
+                continue
+
+        results.sort(key=lambda x: x.decision_score, reverse=True)
+        logger.info("[概念板块] 共分析 %d 个概念", len(results))
+        return results
+
+    except Exception as e:
+        logger.debug("[概念板块] 整体失败: %s", e)
+        return []
+
+
+def _normalize_concept_codes(members: pd.DataFrame) -> list[str]:
+    """将东方财富概念成分股 DataFrame 转为 ts_code 列表。"""
+    code_col = next(
+        (c for c in ["代码", "ts_code", "code", "股票代码"] if c in members.columns),
+        None
+    )
+    if not code_col:
+        return []
+
+    codes = []
+    for code in members[code_col].astype(str):
+        code = code.strip().lstrip("0").zfill(6) if len(code.lstrip("0")) < 6 else code[:6]
+        # 转为 ts_code 格式（xxx.SH / xxx.SZ）
+        if code.startswith(("6", "9")):
+            codes.append(f"{code}.SH")
+        elif code.startswith(("0", "3")):
+            codes.append(f"{code}.SZ")
+        elif code.startswith(("4", "8")):
+            codes.append(f"{code}.BJ")
+    return codes
+
+
+def _calc_concept_single(
+    concept_name: str,
+    member_codes: list[str],
+    trade_date: str,
+    daily: pd.DataFrame,
+    close_m: pd.DataFrame,
+    money_flow_df: pd.DataFrame | None,
+) -> SectorStat | None:
+    """计算单个概念板块的热度指标。"""
+    code_set = set(member_codes)
+
+    # 当日行情
+    day_stocks = daily[daily["ts_code"].isin(code_set)].copy()
+    if day_stocks.empty:
+        return None
+
+    # 涨停家数
+    limit_up = int((day_stocks["pct_chg"] >= 9.5).sum())
+
+    # MA20广度
+    breadth = 0.0
+    available_dates = sorted(d for d in close_m.index if d <= trade_date)
+    if len(available_dates) >= 21:
+        recent = close_m.loc[available_dates[-21:]]
+        ma20 = recent.iloc[:-1].mean()
+        last_close = recent.iloc[-1]
+        concept_close = last_close.reindex(list(code_set)).dropna()
+        concept_ma20 = ma20.reindex(list(code_set)).dropna()
+        common = concept_close.index.intersection(concept_ma20.index)
+        if len(common) > 0:
+            breadth = float((concept_close[common] > concept_ma20[common]).mean())
+
+    # 资金流（汇总5日，这里简化为当日）
+    flow_5d = 0.0
+    flow_3d = 0.0
+    if money_flow_df is not None and not money_flow_df.empty:
+        concept_flow = money_flow_df[money_flow_df["ts_code"].isin(code_set)]
+        if not concept_flow.empty:
+            flow_5d = float(concept_flow["net_mf_amount"].sum() * 1e4)
+            flow_3d = flow_5d  # 简化，单日作为3日代理
+
+    # 人气集中度
+    total_amount = day_stocks["amount"].sum()
+    top3_amount = day_stocks.nlargest(3, "amount")["amount"].sum() if len(day_stocks) >= 3 else total_amount
+    pop_conc = float(top3_amount / total_amount) if total_amount > 0 else 0.0
+
+    # 简化版热度评分（单日数据）
+    heat = min(
+        (limit_up / max(len(code_set), 1)) * 100 * 0.4
+        + breadth * 100 * 0.3
+        + min(abs(flow_5d) / 1e9, 1.0) * 100 * 0.3,
+        100.0,
+    )
+
+    # 阶段判断（简化）
+    phase = "升温" if flow_5d > 0 and breadth > 0.2 else ("退潮" if flow_5d < 0 else "中性")
+    nextday_risk = _calc_nextday_risk(
+        pd.Series({"phase": phase, "flow_5d": flow_5d, "flow_3d": flow_3d, "pop_concentration": pop_conc}),
+        delta_3d=0.0,
+    )
+    decision, decision_score = _make_decision(heat, delta_3d=0.0, nextday_risk=nextday_risk, phase=phase)
+
+    return SectorStat(
+        industry=concept_name,
+        board_type="concept",
+        stock_count=len(code_set),
+        flow_5d_100m=round(flow_5d / 1e8, 2),
+        flow_3d_100m=round(flow_3d / 1e8, 2),
+        pct_above_ma20=round(breadth, 4),
+        limit_up_count=limit_up,
+        heat_score=round(heat, 1),
+        pop_concentration=round(pop_conc, 3),
+        nextday_risk_penalty=round(nextday_risk, 1),
+        decision=decision,
+        decision_score=decision_score,
+        phase=phase,
+        signal="🔥 加速升温" if phase == "升温" else ("📉 回避" if phase == "退潮" else "— 中性"),
+    )

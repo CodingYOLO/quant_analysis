@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}{{ date[:4] }}-{{ date[4:6] }}-{{ date[6:] }} 报告{% endblock %}
+
+{% block extra_style %}
+/* Markdown 内容样式 */
+.md-body { line-height: 1.75; font-size: 14px; }
+.md-body h1 { font-size: 22px; color: #7c9ef8; margin: 24px 0 8px; }
+.md-body h2 { font-size: 17px; color: #a5b4fc; border-bottom: 1px solid #2d3052; padding-bottom: 6px; margin: 28px 0 12px; }
+.md-body h3 { font-size: 15px; color: #c4b5fd; margin: 20px 0 8px; }
+.md-body h4 { font-size: 14px; color: #e8e8e8; margin: 16px 0 6px; }
+.md-body p  { margin: 8px 0; color: #d1d5db; }
+.md-body blockquote {
+  border-left: 3px solid #4b5563;
+  padding: 6px 16px;
+  margin: 8px 0;
+  color: #9ca3af;
+  background: #1e2138;
+  border-radius: 0 4px 4px 0;
+}
+.md-body table { margin: 12px 0; }
+.md-body code {
+  background: #232640;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 12px;
+  color: #a5b4fc;
+}
+.md-body pre {
+  background: #232640;
+  padding: 12px 16px;
+  border-radius: 6px;
+  overflow-x: auto;
+  margin: 10px 0;
+}
+.md-body pre code { background: none; padding: 0; }
+.md-body hr { border: none; border-top: 1px solid #2d3052; margin: 20px 0; }
+.md-body strong { color: #f3f4f6; }
+.md-body a { color: #7c9ef8; }
+/* 报告内的表格继承全局表格样式 */
+.md-body table th { background: #232640; }
+{% endblock %}
+
+{% block content %}
+<div style="display:flex;align-items:center;gap:16px;margin-bottom:20px">
+  <a href="/" style="color:#9ca3af;text-decoration:none;font-size:13px">← 返回列表</a>
+  <h1 style="font-size:20px;color:#e8e8e8">
+    {{ date[:4] }}-{{ date[4:6] }}-{{ date[6:] }} 选股简报
+  </h1>
+</div>
+<div class="card md-body">
+  {{ html_body | safe }}
+</div>
+{% endblock %}
