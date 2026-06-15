@@ -322,6 +322,46 @@ def _crowding_flag(pct: float, turnover: float, vol_ratio: float) -> str:
     return "✅健康"
 
 
+_NEGATIVE_KEYWORDS = [
+    "立案", "处罚", "警示函", "问询函", "监管措施", "违规", "违法", "诉讼", "仲裁",
+    "减持", "拟减持", "退市", "风险警示", "*ST", "ST", "业绩预减", "业绩预亏",
+    "商誉减值", "质押", "冻结", "平仓", "被执行", "失信", "停牌核查",
+]
+
+
+def _negative_events(today: str, provider) -> dict[str, str]:
+    """
+    扫描当日全量公告，识别个股负面事件（立案/减持/问询/退市等），用于避雷。
+    返回 {6位代码: 命中的负面关键词}。
+    """
+    events: dict[str, str] = {}
+    try:
+        df = provider.get_company_notices(today, high_impact_only=False) \
+            if hasattr(provider, "get_company_notices") else None
+    except TypeError:
+        df = provider.get_company_notices(today)
+    except Exception:
+        df = None
+    if df is None or df.empty:
+        return events
+
+    code_col = next((c for c in df.columns if "代码" in c), None)
+    title_col = next((c for c in df.columns if "标题" in c or "公告" in c), None)
+    type_col = next((c for c in df.columns if "类型" in c), None)
+    if not code_col:
+        return events
+
+    for _, row in df.iterrows():
+        text = " ".join(str(row.get(c, "")) for c in (title_col, type_col) if c)
+        hit = next((kw for kw in _NEGATIVE_KEYWORDS if kw in text), None)
+        if hit:
+            code6 = str(row.get(code_col, "")).zfill(6)
+            # 同股多条只记最严重的（立案/退市/处罚优先）
+            if code6 not in events or hit in ("立案", "退市", "处罚", "违法"):
+                events[code6] = hit
+    return events
+
+
 def _enrich_candidates(
     today: str,
     provider,
@@ -393,22 +433,88 @@ def _enrich_candidates(
 
     if not rows:
         return ""
+
+    # 负面事件扫描（避雷：立案/减持/问询/退市等）
+    neg = _negative_events(today, provider)
+
     # 按超大单净流入排序（主力意图优先），无则按涨幅
     rows.sort(key=lambda x: (x["elg"] if x["elg"] is not None else -999, x["pct"]), reverse=True)
 
-    lines = ["\n========== 个股量化画像（候选池，含拥挤度） =========="]
-    lines.append("（字段：涨幅 | 成交 | 换手率 | 量比 | 超大单净流入 | 千股千评得分 | 机构参与度 | 人气排名 | 拥挤度）")
+    lines = ["\n========== 个股量化画像（候选池，含拥挤度+负面事件避雷） =========="]
+    lines.append("（字段：涨幅 | 成交 | 换手率 | 量比 | 超大单净流入 | 千评得分 | 机构参与度 | 人气排名 | 拥挤度 | ⚠️负面）")
     for r in rows[:15]:
         elg_s = f"{r['elg']:+.1f}亿" if r["elg"] is not None else "—"
         score_s = f"{r['score']:.0f}" if r["score"] is not None and pd.notna(r["score"]) else "—"
         inst_s = f"{r['inst']*100:.0f}%" if r["inst"] is not None and pd.notna(r["inst"]) else "—"
         rank_s = f"{int(r['rank'])}" if r["rank"] is not None and pd.notna(r["rank"]) else "—"
+        neg_hit = neg.get(r["ts"].split(".")[0])
+        neg_s = f" | 🚨{neg_hit}" if neg_hit else ""
         lines.append(
             f"  {r['name']}({r['ts'].split('.')[0]}) {r['ind']} | "
             f"涨{r['pct']:+.1f}% 成交{r['amt']:.0f}亿 换手{r['turnover']:.1f}% 量比{r['vol_ratio']:.1f} | "
-            f"超大单{elg_s} | 千评{score_s} 机构{inst_s} 人气{rank_s} | {r['flag']}"
+            f"超大单{elg_s} | 千评{score_s} 机构{inst_s} 人气{rank_s} | {r['flag']}{neg_s}"
         )
+    if neg:
+        flagged = [f"{code2name.get(c + '.SZ', code2name.get(c + '.SH', c))}({c}):{kw}"
+                   for c, kw in list(neg.items())[:10]]
+        lines.append("  【全市场负面事件避雷】" + "；".join(flagged))
     return "\n".join(lines)
+
+
+def _lianban_stats(today: str, provider, code2name: dict[str, str]) -> dict:
+    """
+    计算全市场连板高度与分布（A股情绪核心指标）。
+    连板=连续涨停天数。最高连板反映市场风险偏好/题材强度。
+
+    返回 {"max_height", "distribution": {n: count}, "top_stocks": [(name,code,height)]}。
+    """
+    dates = _recent_trade_dates(provider, today, n=7)  # 含今日的最近7个交易日（升序）
+    # 每个交易日的涨停集合（板块感知）
+    limit_sets: list[set] = []
+    for d in dates:
+        try:
+            dd = provider.get_daily(d)
+            if dd is None or dd.empty:
+                limit_sets.append(set())
+                continue
+            pct = pd.to_numeric(dd["pct_chg"], errors="coerce")
+            up = set()
+            for ts, p in zip(dd["ts_code"], pct):
+                if pd.isna(p):
+                    continue
+                lim = _board_limit_pct(ts, code2name.get(ts, ""))
+                if lim - 0.3 <= p <= lim + 0.5:
+                    up.add(ts)
+            limit_sets.append(up)
+        except Exception:
+            limit_sets.append(set())
+
+    if not limit_sets or not limit_sets[-1]:
+        return {"max_height": 0, "distribution": {}, "top_stocks": []}
+
+    # 对今日涨停的每只股票，从今日往前数连续涨停天数
+    today_up = limit_sets[-1]
+    heights = {}
+    for ts in today_up:
+        h = 0
+        for i in range(len(limit_sets) - 1, -1, -1):
+            if ts in limit_sets[i]:
+                h += 1
+            else:
+                break
+        heights[ts] = h
+
+    distribution: dict[int, int] = {}
+    for h in heights.values():
+        distribution[h] = distribution.get(h, 0) + 1
+
+    max_height = max(heights.values()) if heights else 0
+    # 最高板的代表股
+    top_stocks = sorted(
+        [(code2name.get(ts, ts), ts.split(".")[0], h) for ts, h in heights.items() if h == max_height],
+        key=lambda x: x[0],
+    )[:5]
+    return {"max_height": max_height, "distribution": distribution, "top_stocks": top_stocks}
 
 
 def _market_regime(
@@ -420,6 +526,7 @@ def _market_regime(
     up_count: int,
     down_count: int,
     total_amt_yi: float,
+    code2name: dict[str, str] | None = None,
 ) -> str:
     """
     Phase A：市场环境分桶（顶层定调）。
@@ -475,6 +582,25 @@ def _market_regime(
 
     # —— 3. 量能 ——
     parts.append(f"  涨跌停：涨停{limit_up} / 跌停{limit_down} | 涨跌家数：{up_count}涨 / {down_count}跌 | 成交额{total_amt_yi:.0f}亿")
+
+    # —— 3.5 连板高度（情绪强度核心指标）——
+    lianban = None
+    if code2name:
+        try:
+            lb = _lianban_stats(today, provider, code2name)
+            if lb["max_height"] > 0:
+                lianban = lb["max_height"]
+                dist = "、".join(f"{n}板{c}只" for n, c in sorted(lb["distribution"].items(), reverse=True) if n >= 2)
+                tops = "、".join(f"{nm}({code})" for nm, code, _ in lb["top_stocks"])
+                emo = ("高度亢奋" if lb["max_height"] >= 6 else
+                       "情绪健康" if lb["max_height"] >= 4 else
+                       "情绪一般" if lb["max_height"] >= 3 else "情绪冰点/无高度")
+                parts.append(
+                    f"  连板高度：最高{lb['max_height']}板（{emo}）| 连板分布：{dist or '无2板以上'}"
+                    + (f" | 最高板：{tops}" if tops else "")
+                )
+        except Exception as e:
+            logger.warning("[环境] 连板高度计算失败: %s", e)
 
     # —— 4. 启发式阶段判断（供LLM参考，最终由LLM结合新闻定）——
     regime, confidence, risk = _classify_regime(limit_up, limit_down, breadth_ma5, breadth_ma20, index_signals)
@@ -731,6 +857,7 @@ def _fetch_market_data(today: str) -> str:
                 regime_text = _market_regime(
                     today, provider, df_daily,
                     limit_up, limit_down, up_count, down_count, total_amt,
+                    code2name=code2name,
                 )
                 if regime_text:
                     sections.append(regime_text)
@@ -1043,25 +1170,31 @@ Markdown格式：
 （解读：是板块龙头/独立逻辑/异动，1句话）
 
 ### 六、🎯 明日重点关注（精选3只，量化+消息双验证）
-**选股必须从上方【个股量化画像】中挑选**，优先选拥挤度=✅健康或⚠️偏热、且超大单净流入为正的；
-标记为🔥过热的只能列为"观察"，不可"买入"（追高风险）。
+**选股铁律**：
+1. 必须从上方【个股量化画像】中挑选，优先拥挤度=✅健康/⚠️偏热、且超大单净流入为正；
+2. 🔥过热只能"观察"不可"买入"（追高风险）；
+3. **带🚨负面标记（立案/减持/问询/退市等）的个股一律排除，不得推荐**；
+4. risk_off 环境下全部只能"观察"。
 每只：
 **①名称(代码)** — 所属热门板块 | 拥挤度标记
 - 📊 量化：涨幅X% | 换手X% | 量比X | 超大单净流入X亿 | 千评得分X | 机构参与X% | 人气排名X
 - 🎯 逻辑：（必须同时有"资金证据"+"消息/题材证据"，缺一不可）
-- 💰 参考买入：X-X元（保守=回踩支撑位 / 激进=今日收盘附近）
-- 🛑 止损：X元
-- ⚠️ 失效条件：（个股级 + 板块级，如"板块指数跌2%或资金转净流出"）
-- 🏷️ 建议：**买入** / **观察**（risk_off环境或🔥过热只能"观察"）
+- 💰 参考买入：X-X元（保守=回踩5日线/VWAP支撑 / 激进=今日收盘附近）
+- 🌅 次日开盘确认（9:30-9:40）：（具体3条，如"开盘在X元上方不破昨日均价、量能维持昨日80%以上、所属板块未集体低开"，不满足则放弃）
+- 🛑 止损：X元（跌破支撑离场）
+- 🎯 止盈：+5%减仓一半，+8%继续减仓（趋势走弱分批退出）
+- ⚠️ 失效条件：个股级 + 板块级（如"板块指数跌2%或资金转净流出"）
+- 🏷️ 建议：**买入** / **观察**
 
-### 七、❄️ 明日需回避（基于资金流出/背离/过热）
-列2个板块或个股，必须给量化理由（如"半导体3日净流出168亿仍在退潮"）。
+### 七、❄️ 明日需回避（基于资金流出/背离/过热/负面事件）
+列2-3个板块或个股，必须给量化理由（如"半导体3日净流出168亿仍在退潮"、"XX股被立案调查"）。
+若上方有🚨负面事件个股出现在热门榜，必须在此点名提示。
 
 ### 八、明日大盘研判
-- 市场阶段延续判断（结合一、市场环境）
+- 市场阶段延续判断（结合一、市场环境 + **连板高度**：高度<3情绪弱、≥4健康、≥6亢奋）
 - 量能预判：萎缩/持平/放量
 - 指数方向：强势/震荡/谨慎
-- 一句话核心逻辑（基于今日资金主线 + 板块轮动方向）
+- 一句话核心逻辑（基于今日资金主线 + 板块轮动方向 + 连板梯队强度）
 """
 
 
