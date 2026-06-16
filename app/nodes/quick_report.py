@@ -95,6 +95,15 @@ def build_quick_report(
         research_text=research_text,
     )
 
+    # ---- 推送标题取 LLM 正文要点（在追加实时盯盘块之前计算）----
+    title = f"【{meta['label']}】{today[4:6]}/{today[6:]} | {_headline(content)}"
+
+    # ---- 盘中时段在正文最前追加「实时盯盘」块（指数+观察池个股live）----
+    if session == "mid":
+        rt_block = _realtime_watch_section(today)
+        if rt_block:
+            content = rt_block + "\n" + content
+
     # ---- 保存文件 ----
     filename = f"{today}_{now.strftime('%H%M')}_{session}.md"
     filepath = settings.report_dir / filename
@@ -109,8 +118,95 @@ def build_quick_report(
     filepath.write_text(header + content, encoding="utf-8")
     logger.info("[快讯] 报告已保存: %s", filepath)
 
-    title = f"【{meta['label']}】{today[4:6]}/{today[6:]} | {_headline(content)}"
     return str(filepath), title, header + content
+
+
+# --------------------------------------------------------------------------- #
+# 盘中实时盯盘（新浪源：三大指数 + 近期观察池个股）
+# --------------------------------------------------------------------------- #
+
+# 盯盘指数（Tushare 代码，指数与个股查询通用）
+_WATCH_INDICES = [
+    ("000001.SH", "上证指数"),
+    ("399001.SZ", "深证成指"),
+    ("399006.SZ", "创业板指"),
+    ("000688.SH", "科创50"),
+]
+
+
+def _realtime_watch_section(today: str) -> str:
+    """
+    生成盘中实时盯盘 Markdown 区块：三大指数 + 近期观察池个股实时涨跌。
+
+    数据走 CompositeProvider.get_realtime_quote（新浪源）。
+    任何异常都返回空串，绝不影响主报告（健壮性优先）。
+    """
+    try:
+        from app.data.composite_provider import CompositeProvider
+
+        provider = CompositeProvider()
+        watch = _recent_watch_codes(today, limit=10)
+        index_codes = [c for c, _ in _WATCH_INDICES]
+        quotes = provider.get_realtime_quote(index_codes + [c for c, _ in watch])
+        if quotes is None or quotes.empty:
+            return ""
+        q = quotes.set_index("ts_code")
+
+        now_hm = datetime.datetime.now().strftime("%H:%M")
+        lines = ["", f"## ⚡ 盘中实时盯盘（{now_hm}，新浪源）", ""]
+
+        idx_parts = [
+            f"{label} {q.loc[code, 'price']:.0f} {_pct_arrow(q.loc[code, 'pct_chg'])}"
+            for code, label in _WATCH_INDICES if code in q.index
+        ]
+        if not idx_parts:
+            return ""   # 连指数都取不到，视为数据源不可用
+        lines.append("**大盘**：" + "　|　".join(idx_parts))
+        lines.append("")
+
+        if watch:
+            lines += ["| 观察池个股 | 现价 | 涨跌 |", "|---|---|---|"]
+            for code, name in watch:
+                if code in q.index:
+                    r = q.loc[code]
+                    lines.append(f"| {name}({code[:6]}) | {r['price']:.2f} | {_pct_arrow(r['pct_chg'])} |")
+            lines.append("")
+
+        return "\n".join(lines)
+    except Exception as e:
+        logger.warning("[盘中实时] 区块生成失败（不影响主报告）: %s", e)
+        return ""
+
+
+def _pct_arrow(pct: float) -> str:
+    """涨跌幅着色（A股惯例：红涨绿跌）。"""
+    arrow = "🔴" if pct > 0 else ("🟢" if pct < 0 else "⚪")
+    return f"{arrow}{pct:+.2f}%"
+
+
+def _recent_watch_codes(today: str, limit: int = 10) -> list[tuple[str, str]]:
+    """
+    近期观察池（前向追踪实盘选股）去重个股，返回 [(ts_code, name)]，最近优先。
+    无记录时返回空列表。
+    """
+    try:
+        from app.strategy.db import get_all_with_performance
+        from app.strategy.forward_tracker import _offset_date
+
+        cutoff = _offset_date(today, -10)
+        records = get_all_with_performance(is_backtest=0)  # 已按 run_date 倒序
+        seen: set[str] = set()
+        out: list[tuple[str, str]] = []
+        for r in records:
+            if r["run_date"] < cutoff or r["ts_code"] in seen:
+                continue
+            seen.add(r["ts_code"])
+            out.append((r["ts_code"], r["name"]))
+            if len(out) >= limit:
+                break
+        return out
+    except Exception:
+        return []
 
 
 # --------------------------------------------------------------------------- #

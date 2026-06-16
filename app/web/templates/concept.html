@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}行业资金 — A股Agent{% endblock %}
+{% block title %}概念资金 — A股Agent{% endblock %}
 
 {% block extra_style %}
 .kpi-row { display:grid; grid-template-columns:repeat(5,1fr); gap:14px; margin-bottom:18px; }
@@ -39,29 +39,28 @@ tr.detailrow td { padding:0; background:#141729; }
   <button class="runbtn" id="reload">🔄 加载</button>
 </div>
 <div style="font-size:12px;color:#fbbf24;background:#2a2410;border:1px solid #4a3d15;border-radius:8px;padding:8px 12px;margin-bottom:16px;line-height:1.6">
-  💡 <strong>口径说明</strong>：资金流向 = 板块内个股「主力净流入」合计（主力=超大单+大单，数据源 Tushare 官方）；
-  行业按 <strong>Tushare 行业分类（110个）</strong>聚合。
-  ⚠️ 与<strong>同花顺口径不同</strong>（同花顺用自有行业/概念分类 + DDE主力算法），<strong>绝对数值不可直接对比</strong>；
-  但<strong>资金流入/流出方向与板块相对排名可靠</strong>，适合判断资金轮动。红=流入 绿=流出，点表头排序。
+  💡 <strong>口径说明</strong>：概念按 <strong>同花顺概念分类</strong>聚合，净额=同花顺官方「概念资金净流入」（Tushare moneyflow_cnt_ths，DDE 主力算法）。
+  与<strong>行业资金页（Tushare 110 行业自聚合）口径不同</strong>，绝对数值不可直接对比；
+  本页更贴近市场题材轮动视角。红=流入 绿=流出，点表头排序。数据收盘后约 17:40 后入库。
 </div>
 
-<div id="loading" class="neu" style="font-size:14px;padding:20px">⏳ 加载行业资金数据中...</div>
+<div id="loading" class="neu" style="font-size:14px;padding:20px">⏳ 加载概念资金数据中...</div>
 <div id="dash" style="display:none">
   <div class="kpi-row">
-    <div class="kpi"><div class="label">总板块数</div><div class="big" id="k-cnt">--</div></div>
+    <div class="kpi"><div class="label">概念总数</div><div class="big" id="k-cnt">--</div></div>
     <div class="kpi"><div class="label">平均涨跌幅</div><div class="big" id="k-pct">--</div></div>
-    <div class="kpi"><div class="label">总上涨家数</div><div class="big up" id="k-up">--</div></div>
-    <div class="kpi"><div class="label">总下跌家数</div><div class="big down" id="k-down">--</div></div>
-    <div class="kpi"><div class="label">全市场主力净流向</div><div class="big" id="k-flow">--</div></div>
+    <div class="kpi"><div class="label">净流入概念</div><div class="big up" id="k-in">--</div></div>
+    <div class="kpi"><div class="label">净流出概念</div><div class="big down" id="k-out">--</div></div>
+    <div class="kpi"><div class="label">全市场概念净额</div><div class="big" id="k-net">--</div></div>
   </div>
 
   <div class="chart-card">
-    <h3>💰 资金流向分布（Top10 流入 + Top10 流出）</h3>
+    <h3>💰 概念资金净额分布（Top10 流入 + Top10 流出）</h3>
     <div id="c-flow"></div>
   </div>
 
   <div class="chart-card">
-    <h3>板块资金明细 <span class="neu" id="tbl-cnt" style="font-weight:400;font-size:12px"></span></h3>
+    <h3>概念资金明细 <span class="neu" id="tbl-cnt" style="font-weight:400;font-size:12px"></span></h3>
     <div style="overflow-x:auto"><table id="tbl"></table></div>
   </div>
 </div>
@@ -69,18 +68,17 @@ tr.detailrow td { padding:0; background:#141729; }
 <script src="/static/echarts.min.js"></script>
 <script>
 const RED='#f6465d', GREEN='#2ebd85';
-let rows=[], sortState={key:'main_flow',asc:false};
+let rows=[], sortState={key:'net_amount',asc:false};
 
 (function(){ const d=new Date(); document.getElementById('date').value=d.toISOString().slice(0,10); })();
 
 async function load(){
-  const L=document.getElementById('loading'); L.style.display='block'; L.textContent='⏳ 加载行业资金数据中...';
+  const L=document.getElementById('loading'); L.style.display='block'; L.textContent='⏳ 加载概念资金数据中...';
   document.getElementById('dash').style.display='none';
   const date=(document.getElementById('date').value||'').replace(/-/g,'');
   try{
-    const r=await fetch('/api/industry?date='+date); const j=await r.json();
+    const r=await fetch('/api/concept?date='+date); const j=await r.json();
     if(!j.ok){ L.textContent='❌ '+j.error; return; }
-    // 先显示容器(获得真实宽度)再渲染图表
     L.style.display='none'; document.getElementById('dash').style.display='block';
     renderAll(j.data);
   }catch(e){ L.textContent='❌ '+e; }
@@ -89,37 +87,37 @@ document.getElementById('reload').addEventListener('click', load);
 
 function renderAll(d){
   const k=d.kpi; rows=d.rows;
-  document.getElementById('k-cnt').textContent=k.board_count;
+  document.getElementById('k-cnt').textContent=k.concept_count;
   document.getElementById('k-pct').innerHTML='<span class="'+(k.avg_pct>=0?'up':'down')+'">'+(k.avg_pct>=0?'+':'')+k.avg_pct+'%</span>';
-  document.getElementById('k-up').textContent=k.total_up;
-  document.getElementById('k-down').textContent=k.total_down;
-  document.getElementById('k-flow').innerHTML='<span class="'+(k.total_flow>=0?'up':'down')+'">'+(k.total_flow>=0?'+':'')+k.total_flow+'亿</span>';
+  document.getElementById('k-in').textContent=k.inflow_count;
+  document.getElementById('k-out').textContent=k.outflow_count;
+  document.getElementById('k-net').innerHTML='<span class="'+(k.total_net>=0?'up':'down')+'">'+(k.total_net>=0?'+':'')+k.total_net+'亿</span>';
   renderFlowChart(); renderTable();
-  document.getElementById('tbl-cnt').textContent='· 共 '+rows.length+' 个板块';
+  document.getElementById('tbl-cnt').textContent='· 共 '+rows.length+' 个概念';
 }
 
 function renderFlowChart(){
-  const sorted=rows.slice().sort((a,b)=>b.main_flow-a.main_flow);
+  const sorted=rows.slice().sort((a,b)=>b.net_amount-a.net_amount);
   const top=sorted.slice(0,10), bot=sorted.slice(-10);
   const data=top.concat(bot);
   if(!window._flowChart) window._flowChart = echarts.init(document.getElementById('c-flow'));
   window._flowChart.setOption({
-    backgroundColor:'transparent', grid:{left:56,right:24,top:20,bottom:90},
+    backgroundColor:'transparent', grid:{left:56,right:24,top:20,bottom:100},
     tooltip:{trigger:'axis',axisPointer:{type:'shadow'}},
-    xAxis:{type:'category',data:data.map(r=>r.industry),axisLabel:{color:'#9ca3af',interval:0,rotate:40,fontSize:11},axisLine:{lineStyle:{color:'#3a3f5c'}}},
+    xAxis:{type:'category',data:data.map(r=>r.concept),axisLabel:{color:'#9ca3af',interval:0,rotate:40,fontSize:11},axisLine:{lineStyle:{color:'#3a3f5c'}}},
     yAxis:{type:'value',name:'亿元',axisLabel:{color:'#9ca3af'},splitLine:{lineStyle:{color:'#1e2138'}}},
-    series:[{type:'bar',data:data.map(r=>({value:r.main_flow,itemStyle:{color:r.main_flow>=0?RED:GREEN}})),barWidth:'60%',
+    series:[{type:'bar',data:data.map(r=>({value:r.net_amount,itemStyle:{color:r.net_amount>=0?RED:GREEN}})),barWidth:'60%',
       label:{show:true,position:'top',color:'#9ca3af',fontSize:10,formatter:p=>p.value.toFixed(0)}}]
   });
 }
 window.addEventListener('resize', ()=>{ if(window._flowChart) window._flowChart.resize(); });
 
 const COLS=[
-  ['industry','板块'],['pct_chg','涨跌幅%'],['main_flow','主力净流入(亿)'],['elg_flow','超大单(亿)'],
-  ['up','上涨'],['down','下跌'],['limit_up','涨停'],['rank','排名'],['rank_change','排名变化'],['lead','领涨股']
+  ['concept','概念'],['pct_chg','涨跌幅%'],['net_amount','净额(亿)'],['company_num','成分数'],
+  ['rank','排名'],['rank_change','排名变化'],['lead','领涨股']
 ];
-const SIGNED=new Set(['pct_chg','main_flow','elg_flow','rank_change']);
-const TEXT=new Set(['industry','lead']);
+const SIGNED=new Set(['pct_chg','net_amount','rank_change']);
+const TEXT=new Set(['concept','lead']);
 
 function renderTable(){
   let data=rows.slice();
@@ -130,11 +128,11 @@ function renderTable(){
   let h='<thead><tr>'+COLS.map(([k,l])=>{
     const s=!TEXT.has(k); return '<th data-k="'+k+'" style="'+(s?'cursor:pointer':'')+'">'+l+(s?'<span style="color:#7c9ef8">'+arrow(k)+'</span>':'')+'</th>';
   }).join('')+'</tr></thead><tbody>';
-  data.slice(0,60).forEach(r=>{
-    h+='<tr class="datarow" data-ind="'+encodeURIComponent(r.industry)+'">'+COLS.map(([k])=>{
+  data.slice(0,80).forEach(r=>{
+    h+='<tr class="datarow" data-code="'+r.code+'" data-name="'+encodeURIComponent(r.concept)+'">'+COLS.map(([k])=>{
       let v=r[k];
       if(SIGNED.has(k) && typeof v==='number'){const c=v>0?'up':(v<0?'down':'');const sg=v>0?'+':'';return '<td class="'+c+'">'+sg+v+'</td>';}
-      if(k==='industry') return '<td><span class="exp">▸</span>'+v+'</td>';
+      if(k==='concept') return '<td><span class="exp">▸</span>'+v+'</td>';
       if(k==='lead') return '<td class="lead">'+v+'</td>';
       return '<td>'+v+'</td>';
     }).join('')+'</tr>';
@@ -147,9 +145,9 @@ function renderTable(){
   t.querySelectorAll('tr.datarow').forEach(tr=>{ tr.addEventListener('click',()=>toggleDetail(tr)); });
 }
 
-// ── 点击行业行：展开/收起「环境/宏观/微观」详情面板 ──
+// ── 点击概念行：展开/收起「环境/微观」详情面板 ──
 async function toggleDetail(tr){
-  const ind=decodeURIComponent(tr.dataset.ind);
+  const code=tr.dataset.code, name=decodeURIComponent(tr.dataset.name);
   const arrow=tr.querySelector('.exp');
   const next=tr.nextElementSibling;
   if(next && next.classList.contains('detailrow')){ next.remove(); if(arrow)arrow.textContent='▸'; return; }
@@ -158,11 +156,11 @@ async function toggleDetail(tr){
   if(arrow)arrow.textContent='▾';
   const dr=document.createElement('tr'); dr.className='detailrow';
   const td=document.createElement('td'); td.colSpan=document.querySelectorAll('#tbl thead th').length;
-  td.innerHTML='<div class="detail neu">⏳ 加载「'+ind+'」环境分析中…（首次含 LLM 点评，约数秒）</div>';
+  td.innerHTML='<div class="detail neu">⏳ 加载「'+name+'」环境分析中…（首次含 LLM 点评，约数秒）</div>';
   dr.appendChild(td); tr.after(dr);
   const date=(document.getElementById('date').value||'').replace(/-/g,'');
   try{
-    const r=await fetch('/api/industry/detail?date='+date+'&industry='+encodeURIComponent(ind));
+    const r=await fetch('/api/concept/detail?date='+date+'&code='+encodeURIComponent(code));
     const j=await r.json();
     td.innerHTML = j.ok ? renderDetailPanel(j.data) : '<div class="detail">❌ '+j.error+'</div>';
   }catch(e){ td.innerHTML='<div class="detail">❌ '+e+'</div>'; }
@@ -172,8 +170,8 @@ function renderDetailPanel(d){
   let html='<div class="detail">';
   html+='<div class="d-sec"><b>💰 资金情绪定性</b><div>'+d.fund.summary+'</div></div>';
   html+='<div class="d-sec"><b>🧭 驱动点评（宏观 / 消息面 / 风向）</b><div class="d-comment">'+(d.llm_comment||'—')+'</div></div>';
-  if(d.themes && d.themes.length){
-    html+='<div class="d-sec"><b>🔥 关联活跃题材</b><div>'+d.themes.map(t=>'<span class="chip">'+t.concept+' 净'+(t.net_amount>=0?'+':'')+t.net_amount+'亿</span>').join(' ')+'</div></div>';
+  if(d.lead_members && d.lead_members.length){
+    html+='<div class="d-sec"><b>🚀 领涨成分股</b><div>'+d.lead_members.map(m=>'<span class="chip">'+m.name+'('+m.code+') '+(m.pct>=0?'+':'')+m.pct+'%</span>').join(' ')+'</div></div>';
   }
   if(d.notices && d.notices.length){
     html+='<div class="d-sec"><b>📢 成分股重大公告</b><ul class="d-list">'+d.notices.map(n=>'<li>'+n+'</li>').join('')+'</ul></div>';

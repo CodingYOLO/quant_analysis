@@ -52,6 +52,9 @@ class CompositeProvider(DataProvider):
     def get_spot_em(self) -> pd.DataFrame:
         return self._ak.get_spot_em()
 
+    def get_realtime_quote(self, ts_codes: list[str]) -> pd.DataFrame:
+        return self._ak.get_realtime_quote(ts_codes)
+
     def get_concept_list(self) -> pd.DataFrame:
         return self._ak.get_concept_list()
 
@@ -75,3 +78,7 @@ class CompositeProvider(DataProvider):
 
     def get_stock_news(self, ts_code: str) -> pd.DataFrame:
         return self._ak.get_stock_news(ts_code)
+
+    def check_cls_health(self) -> dict:
+        """财联社 Cookie 健康检查（委托 Akshare 实现）。"""
+        return self._ak.check_cls_health()

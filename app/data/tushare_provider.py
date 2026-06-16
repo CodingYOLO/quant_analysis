@@ -212,3 +212,6 @@ class TushareProvider(DataProvider):
 
     def get_spot_em(self) -> pd.DataFrame:
         raise NotImplementedError("请使用 AkshareProvider.get_spot_em()")
+
+    def get_realtime_quote(self, ts_codes: list[str]) -> pd.DataFrame:
+        raise NotImplementedError("请使用 AkshareProvider.get_realtime_quote()")

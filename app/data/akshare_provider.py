@@ -50,6 +50,120 @@ class AkshareProvider(DataProvider):
     def _fetch_spot_em(self) -> pd.DataFrame:
         return rate_limited_call("ak_spot_em", ak.stock_zh_a_spot_em)
 
+    # ---- 实时报价（新浪，指数+个股，轻量按需）----
+
+    def get_realtime_quote(self, ts_codes: list[str]) -> pd.DataFrame:
+        """
+        新浪实时行情（指数/个股通用），单次批量请求，不缓存。
+
+        选用新浪源（hq.sinajs.cn）而非东方财富全市场扫描：
+        新浪只查指定标的、毫秒级、且在国内服务器可直连（东财扫描接口被封）。
+        盘后调用返回当日收盘快照，仍可用。
+
+        Args:
+            ts_codes: Tushare 格式代码（指数与个股通用），如 ['000001.SH', '600000.SH']
+
+        Returns:
+            DataFrame，列 ts_code/name/price/pct_chg/open/high/low/prev_close/amount。
+            行序与入参一致；解析失败/无效（现价≤0 且无昨收）的标的被剔除。
+        """
+        if not ts_codes:
+            return pd.DataFrame()
+
+        sina_codes = [self._ts_to_sina(c) for c in ts_codes]
+        # 过滤掉无法映射的代码，并保留 sina_code → ts_code 反查
+        sina2ts = {s: t for s, t in zip(sina_codes, ts_codes) if s}
+        if not sina2ts:
+            return pd.DataFrame()
+
+        raw = self._fetch_sina_quote(list(sina2ts.keys()))
+        rows = self._parse_sina_quote(raw, sina2ts)
+        if not rows:
+            return pd.DataFrame()
+
+        df = pd.DataFrame(rows)
+        # 按入参顺序排序，便于上层稳定展示（指数在前等）
+        order = {c: i for i, c in enumerate(ts_codes)}
+        df["_ord"] = df["ts_code"].map(order)
+        return df.sort_values("_ord").drop(columns="_ord").reset_index(drop=True)
+
+    @staticmethod
+    def _ts_to_sina(ts_code: str) -> str:
+        """
+        Tushare 代码 → 新浪代码。
+        '000001.SH'→'sh000001'  '300750.SZ'→'sz300750'  '430047.BJ'→'bj430047'。
+        无法识别返回空串。
+        """
+        try:
+            num, mkt = ts_code.split(".")
+        except ValueError:
+            return ""
+        prefix = {"SH": "sh", "SZ": "sz", "BJ": "bj"}.get(mkt.upper(), "")
+        return f"{prefix}{num}" if prefix else ""
+
+    @_RETRY
+    def _fetch_sina_quote(self, sina_codes: list[str]) -> str:
+        """请求新浪行情接口，返回 GBK 解码后的原始文本。需带 Referer 否则 403。"""
+        import requests
+
+        url = "https://hq.sinajs.cn/list=" + ",".join(sina_codes)
+        headers = {
+            "Referer": "https://finance.sina.com.cn",
+            "User-Agent": (
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/148.0.0.0 Safari/537.36"
+            ),
+        }
+        resp = rate_limited_call(
+            "sina_quote", requests.get, url, headers=headers, timeout=8
+        )
+        resp.raise_for_status()
+        resp.encoding = "gbk"
+        return resp.text
+
+    @staticmethod
+    def _parse_sina_quote(raw: str, sina2ts: dict[str, str]) -> list[dict]:
+        """
+        解析新浪行情文本。指数与个股字段排列一致：
+          [0]名称 [1]今开 [2]昨收 [3]现价 [4]最高 [5]最低 … [9]成交额。
+        """
+        rows: list[dict] = []
+        for line in raw.strip().split("\n"):
+            if 'hq_str_' not in line or '="' not in line:
+                continue
+            sina_code = line.split("hq_str_", 1)[1].split("=", 1)[0]
+            ts_code = sina2ts.get(sina_code)
+            if not ts_code:
+                continue
+            payload = line.split('="', 1)[1].rstrip('";').strip()
+            fields = payload.split(",")
+            if len(fields) < 6 or not fields[0]:
+                continue
+            try:
+                prev_close = float(fields[2])
+                price = float(fields[3])
+            except (ValueError, IndexError):
+                continue
+            # 停牌/未开盘：现价为 0 时回退到昨收，避免显示 0
+            if price <= 0:
+                price = prev_close
+            if prev_close <= 0:
+                continue
+            pct = (price - prev_close) / prev_close * 100
+            rows.append({
+                "ts_code": ts_code,
+                "name": fields[0],
+                "price": round(price, 3),
+                "pct_chg": round(pct, 2),
+                "open": float(fields[1]) if fields[1] else 0.0,
+                "high": float(fields[4]) if fields[4] else 0.0,
+                "low": float(fields[5]) if fields[5] else 0.0,
+                "prev_close": round(prev_close, 3),
+                "amount": float(fields[9]) if len(fields) > 9 and fields[9] else 0.0,
+            })
+        return rows
+
     # ---- 板块与概念 ----
 
     def get_concept_list(self) -> pd.DataFrame:
@@ -181,7 +295,51 @@ class AkshareProvider(DataProvider):
         """
         财联社电报真实 API：/api/cache?name=telegraph（从 telegraph JS bundle 逆向）。
         不需要 sign 参数，只需登录 Cookie。
-        Cookie 过期/失效时静默降级，不抛异常。
+
+        Cookie 过期/失效时降级，不抛异常；但与旧实现不同，此处对
+        「Cookie 失效」打 WARNING（而非静默 debug），便于及时发现需更新 Cookie。
+        """
+        result = self._request_cls_roll(cookie)
+        status = result["status"]
+
+        if status == "expired":
+            logger.warning(
+                "财联社 Cookie 已失效（%s），新闻已降级到东方财富。"
+                "请在 163 邮箱登录 cls.cn 后更新 .env 的 CLS_COOKIE。",
+                result.get("detail", ""),
+            )
+            return None
+        if status != "ok":
+            logger.debug("财联社电报不可用（%s）：%s", status, result.get("detail", ""))
+            return None
+
+        rows = []
+        for item in result["items"]:
+            title = str(item.get("title", "")).strip()
+            brief = str(item.get("brief", item.get("content", ""))).strip()
+            text = f"{title} {brief}".strip() if brief and brief != title else title
+            ctime = item.get("ctime", 0)
+            try:
+                ts = pd.to_datetime(ctime, unit="s", utc=True).tz_convert("Asia/Shanghai")
+            except Exception:
+                ts = pd.NaT
+            rows.append({"标题": text, "发布时间": ts, "等级": item.get("level", "")})
+
+        return pd.DataFrame(rows)
+
+    def _request_cls_roll(self, cookie: str) -> dict:
+        """
+        底层请求财联社电报接口，返回结构化结果（供拉取与健康检查共用）。
+
+        Returns:
+            dict，含:
+              - status: 'ok' | 'expired' | 'empty' | 'network_error'
+                  ok           — 鉴权成功且取到数据
+                  expired      — Cookie 失效/鉴权失败（HTTP 401/403 或 errno!=0），需更新
+                  empty        — 鉴权成功但无数据（接口异常，非 Cookie 问题）
+                  network_error— 网络/超时/解析异常
+              - items:  list，电报原始条目（status=='ok' 时有值）
+              - detail: str，便于日志展示的简短说明
         """
         import requests
         import time
@@ -204,36 +362,58 @@ class AkshareProvider(DataProvider):
         }
         try:
             resp = requests.get(url, params=params, headers=headers, timeout=8)
+            # 401/403 是典型的 Cookie 失效信号
+            if resp.status_code in (401, 403):
+                return {"status": "expired", "items": [], "detail": f"HTTP{resp.status_code}"}
             if resp.status_code != 200:
-                logger.debug("财联社HTTP%d", resp.status_code)
-                return None
+                return {"status": "network_error", "items": [], "detail": f"HTTP{resp.status_code}"}
 
             data = resp.json()
-            if data.get("errno", -1) != 0:
-                logger.debug("财联社返回错误errno=%s: %s", data.get("errno"), data.get("msg"))
-                return None
+            errno = data.get("errno", -1)
+            if errno != 0:
+                # errno!=0 多为登录态失效（如未登录、token 过期）
+                return {
+                    "status": "expired",
+                    "items": [],
+                    "detail": f"errno={errno} msg={data.get('msg', '')}",
+                }
 
-            items = data.get("data", {}).get("roll_data", [])
+            items = data.get("data", {}).get("roll_data", []) or []
             if not items:
-                return None
+                return {"status": "empty", "items": [], "detail": "roll_data 为空"}
 
-            rows = []
-            for item in items:
-                title = str(item.get("title", "")).strip()
-                brief = str(item.get("brief", item.get("content", ""))).strip()
-                text = f"{title} {brief}".strip() if brief and brief != title else title
-                ctime = item.get("ctime", 0)
-                try:
-                    ts = pd.to_datetime(ctime, unit="s", utc=True).tz_convert("Asia/Shanghai")
-                except Exception:
-                    ts = pd.NaT
-                rows.append({"标题": text, "发布时间": ts, "等级": item.get("level", "")})
-
-            return pd.DataFrame(rows)
+            return {"status": "ok", "items": items, "detail": f"{len(items)}条"}
 
         except Exception as e:
-            logger.debug("财联社Cookie请求失败: %s", e)
-            return None
+            return {"status": "network_error", "items": [], "detail": str(e)}
+
+    def check_cls_health(self) -> dict:
+        """
+        财联社 Cookie 健康检查（供 CLI `cls-check` 调用）。
+
+        主动打一次电报接口，明确返回 Cookie 是否仍然有效，
+        用于在 Cookie 到期前（约 2026-08）手动核验。
+
+        Returns:
+            dict，含:
+              - ok:     bool，Cookie 是否有效
+              - status: str，'no_cookie'|'ok'|'expired'|'empty'|'network_error'
+              - detail: str，简短说明
+              - count:  int，本次取到的电报条数（status=='ok' 时）
+        """
+        from app.config import get_settings
+
+        cookie = get_settings().cls_cookie
+        if not cookie:
+            return {"ok": False, "status": "no_cookie", "detail": "未配置 CLS_COOKIE", "count": 0}
+
+        result = self._request_cls_roll(cookie)
+        return {
+            "ok": result["status"] == "ok",
+            "status": result["status"],
+            "detail": result.get("detail", ""),
+            "count": len(result.get("items", [])),
+        }
 
     def get_wscn_lives(self, date: str) -> pd.DataFrame:
         """

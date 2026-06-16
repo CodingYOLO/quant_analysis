@@ -87,3 +87,17 @@ class DataProvider(ABC):
     @abstractmethod
     def get_spot_em(self) -> pd.DataFrame:
         """获取全市场实时/收盘快照（东方财富）。"""
+
+    @abstractmethod
+    def get_realtime_quote(self, ts_codes: list[str]) -> pd.DataFrame:
+        """
+        获取指定标的（指数/个股）的实时行情快照。
+
+        Args:
+            ts_codes: Tushare 格式代码列表，指数与个股通用，
+                      如 ['000001.SH', '399006.SZ', '600000.SH']
+
+        Returns:
+            DataFrame，列含 ts_code/name/price/pct_chg/open/high/low/prev_close/amount，
+            行序与入参一致；取不到的标的不在结果中。
+        """

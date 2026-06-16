@@ -268,6 +268,52 @@ async def api_industry(date: str = "", _user: str = Depends(require_auth)):
         return {"ok": False, "error": str(e)}
 
 
+@app.get("/api/industry/detail")
+async def api_industry_detail(date: str = "", industry: str = "", _user: str = Depends(require_auth)):
+    """单个行业的环境/宏观/微观详情（资金定性+公告+题材+LLM驱动点评，按需+缓存）。"""
+    if not industry:
+        return {"ok": False, "error": "缺少 industry 参数"}
+    try:
+        from app.strategy.industry_detail import build_industry_detail
+        d = date or _last_trade_date()
+        return {"ok": True, "data": build_industry_detail(d, industry)}
+    except Exception as e:
+        logger.exception("行业详情失败")
+        return {"ok": False, "error": str(e)}
+
+
+@app.get("/concept", response_class=HTMLResponse)
+async def concept_page(request: Request, _user: str = Depends(require_auth)):
+    """概念资金流仪表盘页面（同花顺概念口径）。"""
+    return templates.TemplateResponse(request=request, name="concept.html", context={"page": "concept"})
+
+
+@app.get("/api/concept")
+async def api_concept(date: str = "", _user: str = Depends(require_auth)):
+    """概念资金流仪表盘数据（同花顺概念，Tushare moneyflow_cnt_ths）。"""
+    try:
+        from app.strategy.concept_flow import build_concept_dashboard
+        d = date or _last_trade_date()
+        return {"ok": True, "data": build_concept_dashboard(d)}
+    except Exception as e:
+        logger.exception("概念数据失败")
+        return {"ok": False, "error": str(e)}
+
+
+@app.get("/api/concept/detail")
+async def api_concept_detail(date: str = "", code: str = "", _user: str = Depends(require_auth)):
+    """单个概念的环境/微观详情（资金定性+领涨成分+公告+联网+LLM点评，按需+缓存）。"""
+    if not code:
+        return {"ok": False, "error": "缺少 code 参数"}
+    try:
+        from app.strategy.concept_detail import build_concept_detail
+        d = date or _last_trade_date()
+        return {"ok": True, "data": build_concept_detail(d, code)}
+    except Exception as e:
+        logger.exception("概念详情失败")
+        return {"ok": False, "error": str(e)}
+
+
 @app.get("/screener", response_class=HTMLResponse)
 async def screener_page(request: Request, _user: str = Depends(require_auth)):
     """量化因子选股页面。"""

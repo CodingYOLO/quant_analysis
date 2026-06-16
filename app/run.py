@@ -296,6 +296,71 @@ def verify_data() -> None:
     run_all_verifications()
 
 
+@cli.command("signal-eval")
+@click.option("--start", default="", help="回测开始日 YYYYMMDD（默认：结束日前30个自然日）")
+@click.option("--end", default="", help="回测结束日 YYYYMMDD（默认：最近交易日）")
+def signal_eval_cmd(start: str, end: str) -> None:
+    """回测龙虎榜/炸板率信号的真实前向收益（纯量化统计，输出带时间戳报告）。"""
+    from datetime import timedelta
+    from app.backtest.signal_eval import build_signal_report
+
+    end_date = end or _get_last_trade_date()
+    if not start:
+        start = (datetime.strptime(end_date, "%Y%m%d") - timedelta(days=30)).strftime("%Y%m%d")
+
+    console.print(f"\n[bold cyan]🔬 信号回测启动[/bold cyan]  {start} ~ {end_date}（龙虎榜/炸板率）\n")
+    path = build_signal_report(start, end_date)
+    console.print(f"\n[bold green]✅ 信号回测报告已生成[/bold green]  {path}\n")
+
+
+@cli.command("bocha-check")
+def bocha_check() -> None:
+    """验证博查 Bocha 联网搜索 API（填入 BOCHA_API_KEY 后跑一次真实检索）。"""
+    from app.data.web_search import BochaSearchClient
+
+    console.print("\n[bold cyan]🔍 博查 Bocha 联网搜索验证[/bold cyan]\n")
+    health = BochaSearchClient().verify_connection()
+    if health["ok"]:
+        s = health["sample"]
+        console.print(f"   状态: [green]✅ 连接正常（{health['detail']}）[/green]")
+        console.print(f"   样例标题: {s['title']}")
+        console.print(f"   来源/时间: {s['site']} {s['date']}")
+        console.print(f"   摘要: {(s['summary'] or s['snippet'])[:80]}…")
+        console.print(f"   URL: {s['url']}\n")
+    else:
+        console.print(f"   状态: [yellow]⚠️ {health['detail']}[/yellow]")
+        console.print("   请在 .env 设置 BOCHA_API_KEY（https://open.bochaai.com 注册获取）\n")
+
+
+@cli.command("cls-check")
+def cls_check() -> None:
+    """检查财联社 Cookie 是否仍然有效（到期前手动核验，约 2026-08 到期）。"""
+    from app.data.composite_provider import CompositeProvider
+
+    console.print("\n[bold cyan]🔍 财联社 Cookie 健康检查[/bold cyan]\n")
+    health = CompositeProvider().check_cls_health()
+
+    status_hint = {
+        "ok":            ("green",  "✅ Cookie 有效"),
+        "no_cookie":     ("yellow", "⚠️ 未配置 CLS_COOKIE（新闻将仅用东方财富）"),
+        "expired":       ("red",    "❌ Cookie 已失效，请更新"),
+        "empty":         ("yellow", "⚠️ 鉴权通过但无数据（接口异常，非 Cookie 问题）"),
+        "network_error": ("yellow", "⚠️ 网络错误，无法判定（请重试）"),
+    }
+    color, label = status_hint.get(health["status"], ("white", health["status"]))
+    console.print(f"   状态: [{color}]{label}[/{color}]")
+    console.print(f"   详情: {health['detail']}")
+    if health["ok"]:
+        console.print(f"   本次取到电报: {health['count']} 条\n")
+    elif health["status"] == "expired":
+        console.print(
+            "\n   [bold]更新步骤[/bold]：163 邮箱登录 → 打开 cls.cn 并登录 → "
+            "F12 复制请求 Cookie → 填入 .env 的 CLS_COOKIE → 重启 astock-web\n"
+        )
+    else:
+        console.print("")
+
+
 @cli.command("cost")
 def show_cost() -> None:
     """查看今日 LLM 调用费用汇总。"""
