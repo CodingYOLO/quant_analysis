@@ -60,20 +60,42 @@ def _trade_dates_between(provider, start_date: str, end_date: str) -> list[str]:
     return sorted(cal[cal["is_open"] == 1]["cal_date"].astype(str).tolist())
 
 
+def _latest_data_date(provider, end_date: str) -> str:
+    """返回 ≤ end_date 且已有日线数据的最近交易日（用于判断缓存是否过期）。"""
+    try:
+        dates = _recent_trade_dates(provider, end_date, n=4)
+    except Exception:
+        return end_date
+    for d in reversed(dates):   # 由新到旧，取第一个有数据的
+        try:
+            dd = provider.get_daily(d)
+            if dd is not None and not dd.empty:
+                return d
+        except Exception:
+            continue
+    return end_date
+
+
 def build_dashboard(end_date: str, days: int = 22, start_date: str = "", force: bool = False) -> dict:
     """
     构建大盘情绪仪表盘数据。
     指定 start_date 则按区间 [start_date, end_date]；否则取 end_date 往前 days 个交易日。
     结果按缓存键缓存。
     """
+    provider = CompositeProvider()
+    # 最新「有数据」的交易日：缓存必须覆盖到它，否则视为过期重建
+    # （修复：缓存在当日数据未入库时生成会冻结在昨日，且大中小盘广度因 daily_basic 缺失全空）
+    latest = _latest_data_date(provider, end_date)
     path = _cache_path(end_date, days, start_date)
     if path.exists() and not force:
         try:
-            return json.loads(path.read_text(encoding="utf-8"))
+            cached = json.loads(path.read_text(encoding="utf-8"))
+            if cached.get("dates") and cached["dates"][-1] == latest:
+                return cached
+            logger.info("[情绪] 缓存过期：缓存末日 %s ≠ 最新数据日 %s，重建",
+                        (cached.get("dates") or ["?"])[-1], latest)
         except Exception:
             pass
-
-    provider = CompositeProvider()
     if start_date:
         all_dates = _trade_dates_between(provider, start_date, end_date)
     else:
