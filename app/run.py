@@ -310,6 +310,24 @@ def theme_llm_cmd(trade_date: str, theme_type: str, top: int) -> None:
     console.print(f"[green]✅ 生成 {res['generated']} 条主题解读 + 市场环境={res['env']}[/green]\n")
 
 
+@cli.command("stock-pool")
+@click.option("--date", "trade_date", default="last", help="交易日，默认最近交易日")
+@click.option("--no-reason", is_flag=True, default=False, help="跳过理由LLM生成(更快)")
+def stock_pool_cmd(trade_date: str, no_reason: bool) -> None:
+    """运行内置策略选股池（5策略+多路置信度+风控），落库并生成理由（盘后cron）。"""
+    from app.strategy.stock_pool import build_stock_pool, infer_market_label, generate_reasons
+
+    td = _resolve_date(trade_date)
+    label = infer_market_label(td)
+    console.print(f"\n[bold cyan]🎯 选股池[/bold cyan]  {td}  大盘={label}\n")
+    pool = build_stock_pool(td, market_label=label, persist=True)
+    focus = sum(1 for r in pool if r["is_focus"])
+    console.print(f"[green]✅ 候选 {len(pool)} 只，最关注 {focus} 只 → strategy.db[/green]")
+    if not no_reason:
+        n = generate_reasons(td)
+        console.print(f"[green]✅ 生成 {n} 条分析理由[/green]\n")
+
+
 @cli.command("wide")
 @click.option("--date", "trade_date", default="last", show_default=True,
               help="交易日：YYYYMMDD / last（默认最近交易日）")

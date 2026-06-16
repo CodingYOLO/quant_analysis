@@ -363,6 +363,35 @@ async def api_theme_detail(date: str = "", name: str = "", type: str = "industry
         return {"ok": False, "error": str(e)}
 
 
+@app.get("/stockpool", response_class=HTMLResponse)
+async def stockpool_page(request: Request, _user: str = Depends(require_auth)):
+    """Tab2 选股池（内置策略每日盘后自动选股）。"""
+    return templates.TemplateResponse(request=request, name="stockpool.html", context={"page": "llm"})
+
+
+@app.get("/api/stockpool")
+async def api_stockpool(date: str = "", _user: str = Depends(require_auth)):
+    """选股池数据（读 stock_pool + 前向追踪 T+1/3/5）。"""
+    try:
+        from app.strategy.db import get_pool_with_perf, pool_dates
+        d = (date or "").replace("-", "")
+        if not d:
+            dates = pool_dates()
+            d = dates[0] if dates else ""
+        if not d:
+            return {"ok": True, "available": False, "rows": [],
+                    "msg": "选股池尚未生成，请先运行 python -m app.run stock-pool"}
+        rows = get_pool_with_perf(d)
+        if not rows:
+            return {"ok": True, "available": False, "date": d, "rows": [],
+                    "msg": f"{d} 选股池未生成（数据缺失，不展示旧/假数据）"}
+        focus = sum(1 for r in rows if r.get("is_focus"))
+        return {"ok": True, "available": True, "date": d, "total": len(rows), "focus": focus, "rows": rows}
+    except Exception as e:
+        logger.exception("选股池失败")
+        return {"ok": False, "error": str(e)}
+
+
 @app.get("/sectorscope", response_class=HTMLResponse)
 async def sectorscope_page(request: Request, _user: str = Depends(require_auth)):
     """Tab3 板块全景看板（纯因子，读宽表）。"""

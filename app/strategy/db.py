@@ -13,6 +13,7 @@
   - 同一 (run_date, ts_code, is_backtest) 唯一，防重复写入
 """
 
+import json
 import logging
 import sqlite3
 from contextlib import contextmanager
@@ -162,6 +163,39 @@ def init_db() -> None:
                 ON performance_records(selection_id);
             CREATE INDEX IF NOT EXISTS idx_perf_horizon
                 ON performance_records(horizon);
+
+            CREATE TABLE IF NOT EXISTS stock_pool (
+                run_date      TEXT NOT NULL,
+                ts_code       TEXT NOT NULL,
+                name          TEXT,
+                theme         TEXT,
+                theme_heat    REAL,
+                sources       TEXT,    -- json[]
+                strategies    TEXT,    -- json[]
+                strategy_label TEXT,
+                phase         TEXT,
+                confidence    REAL,
+                position_pct  REAL,
+                buy_low       REAL,
+                buy_high      REAL,
+                stop_loss     REAL,
+                take_profit_1 REAL,
+                take_profit_2 REAL,
+                rps50         REAL,
+                main_flow_3d  REAL,
+                change_7d     REAL,
+                turnover      REAL,
+                vol_ratio     REAL,
+                pct_chg       REAL,
+                circ_mv_yi    REAL,
+                close         REAL,
+                is_focus      INTEGER DEFAULT 0,
+                risk_flags    TEXT,    -- json[]
+                reason        TEXT,    -- LLM 接地理由(S5)
+                created_at    TEXT DEFAULT (datetime('now','localtime')),
+                UNIQUE(run_date, ts_code)
+            );
+            CREATE INDEX IF NOT EXISTS idx_pool_date ON stock_pool(run_date);
         """)
     logger.debug("strategy.db 初始化完成: %s", _get_db_path())
 
@@ -353,6 +387,81 @@ def get_all_with_performance(
         ).fetchall()
 
     return [dict(r) for r in rows]
+
+
+_POOL_COLS = [
+    "run_date", "ts_code", "name", "theme", "theme_heat", "sources", "strategies",
+    "strategy_label", "phase", "confidence", "position_pct", "buy_low", "buy_high",
+    "stop_loss", "take_profit_1", "take_profit_2", "rps50", "main_flow_3d", "change_7d",
+    "turnover", "vol_ratio", "pct_chg", "circ_mv_yi", "close", "is_focus", "risk_flags", "reason",
+]
+_POOL_JSON = {"sources", "strategies", "risk_flags"}
+
+
+def save_pool(run_date: str, records: list[dict]) -> int:
+    """覆盖写入某交易日选股池。records 为 stock_pool 引擎输出的 dict 列表。"""
+    if not records:
+        return 0
+    init_db()
+    ph = ",".join("?" for _ in _POOL_COLS)
+    upd = ",".join(f"{c}=excluded.{c}" for c in _POOL_COLS if c not in ("run_date", "ts_code"))
+    with _conn() as con:
+        for r in records:
+            vals = []
+            for c in _POOL_COLS:
+                v = r.get(c)
+                if c == "run_date":
+                    v = run_date
+                elif c == "is_focus":
+                    v = 1 if r.get("is_focus") else 0
+                elif c in _POOL_JSON:
+                    v = json.dumps(r.get(c, []), ensure_ascii=False)
+                vals.append(v)
+            con.execute(
+                f"INSERT INTO stock_pool ({','.join(_POOL_COLS)}) VALUES ({ph}) "
+                f"ON CONFLICT(run_date, ts_code) DO UPDATE SET {upd}",
+                vals,
+            )
+    return len(records)
+
+
+def get_pool_with_perf(run_date: str) -> list[dict]:
+    """读取某交易日选股池，左联 T+1/T+3/T+5 收益（来自前向追踪 performance）。"""
+    init_db()
+    with _conn() as con:
+        rows = con.execute(
+            """
+            SELECT sp.*,
+                   p1.pct_return AS t1_return, p3.pct_return AS t3_return, p5.pct_return AS t5_return
+            FROM stock_pool sp
+            LEFT JOIN selection_records s
+                ON s.run_date=sp.run_date AND s.ts_code=sp.ts_code AND s.is_backtest=0
+            LEFT JOIN performance_records p1 ON p1.selection_id=s.id AND p1.horizon=1
+            LEFT JOIN performance_records p3 ON p3.selection_id=s.id AND p3.horizon=3
+            LEFT JOIN performance_records p5 ON p5.selection_id=s.id AND p5.horizon=5
+            WHERE sp.run_date=?
+            ORDER BY sp.is_focus DESC, sp.confidence DESC
+            """,
+            (run_date,),
+        ).fetchall()
+    out = []
+    for r in rows:
+        d = dict(r)
+        for k in _POOL_JSON:
+            try:
+                d[k] = json.loads(d[k]) if d.get(k) else []
+            except Exception:
+                d[k] = []
+        out.append(d)
+    return out
+
+
+def pool_dates() -> list[str]:
+    """已落库的选股池交易日（降序）。"""
+    init_db()
+    with _conn() as con:
+        rows = con.execute("SELECT DISTINCT run_date FROM stock_pool ORDER BY run_date DESC").fetchall()
+    return [r["run_date"] for r in rows]
 
 
 def get_summary_stats(is_backtest: int | None = None) -> dict:

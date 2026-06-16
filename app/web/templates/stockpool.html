@@ -1,0 +1,132 @@
+{% extends "base.html" %}
+{% block title %}选股池 — A股Agent{% endblock %}
+
+{% block extra_style %}
+.subtabs { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:18px; }
+.subtab { background:#1a1d2e; border:1px solid #2d3052; color:#9ca3af; padding:7px 16px; border-radius:8px; font-size:14px; cursor:pointer; }
+.subtab.active { background:#2742a8; color:#fff; border-color:#3358e0; }
+.subtab.todo { opacity:.55; }
+.disclaim { color:#8a90a0; font-size:12px; margin-bottom:14px; text-align:center; }
+.toolbar { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:10px; }
+.toolbar input,.toolbar select { background:#0f1117; color:#e8e8e8; border:1px solid #2d3052; border-radius:6px; padding:7px 10px; font-size:13px; }
+.meta { display:flex; gap:10px; margin-bottom:12px; }
+.chip { background:#161929; border:1px solid #242842; border-radius:8px; padding:5px 12px; font-size:12px; color:#9ca3af; }
+table { width:100%; border-collapse:collapse; font-size:12.5px; }
+th { background:#232640; color:#9ca3af; font-weight:500; padding:8px 9px; text-align:left; cursor:pointer; white-space:nowrap; position:sticky; top:0; }
+td { padding:8px 9px; border-bottom:1px solid #1e2138; white-space:nowrap; vertical-align:top; }
+tr.datarow:hover td { background:#1e2138; cursor:pointer; }
+.up { color:#f6465d; } .down { color:#2ebd85; } .neu2 { color:#9ca3af; } .miss { color:#6b7280; }
+.src { font-size:10px; padding:1px 6px; border-radius:8px; margin:1px 2px 1px 0; display:inline-block; }
+.src-最关注 { background:#143b28; color:#4ade80; } .src-策略候选 { background:#2a2440; color:#b794f6; }
+.src-主题选股 { background:#2a2410; color:#fbbf24; } .src-规则已选 { background:#1a2b4a; color:#7c9ef8; } .src-规则候选 { background:#262a3e; color:#9ca3af; }
+.hbadge { font-size:10px; padding:1px 6px; border-radius:8px; background:#3b2a18; color:#f0a020; margin-left:4px; }
+.phase-Entry { color:#4ade80; font-weight:600; } .phase-蓄势回踩 { color:#fbbf24; } .phase-观察 { color:#9ca3af; }
+.star { color:#4ade80; } .star-off { color:#3a3f5c; }
+.detail { padding:12px 16px; background:#141729; font-size:12.5px; line-height:1.7; }
+.detail b { color:#7c9ef8; }
+.rk { color:#f87171; }
+{% endblock %}
+
+{% block content %}
+<div style="text-align:center;margin-bottom:6px"><h1 style="font-size:22px">LLM 分析</h1></div>
+<div class="disclaim">选股池：内置 5 套科学策略（主升突破/资金回调低吸/资金跟随/反转低吸/主题选股）每日盘后自动选股，多路交叉验证。仅供研究，不构成投资建议。</div>
+
+<div class="subtabs">
+  <div class="subtab" onclick="location.href='/llm'">主题热点</div>
+  <div class="subtab active">选股池</div>
+  <div class="subtab" onclick="location.href='/sectorscope'">板块全景看板</div>
+  <div class="subtab todo" onclick="alert('个股评估矩阵：后续 Phase')">个股评估矩阵</div>
+  <div class="subtab todo" onclick="alert('产业链研报：后续 Phase')">产业链研报分析</div>
+</div>
+
+<div class="toolbar">
+  <label class="neu2" style="font-size:13px">交易日</label><input type="date" id="date">
+  <input type="text" id="search" placeholder="代码/名称/主题" style="min-width:160px">
+  <select id="fsource"><option value="">来源(全部)</option><option>最关注</option><option>策略候选</option><option>主题选股</option><option>规则已选</option></select>
+  <select id="fstrat"><option value="">策略(全部)</option><option>主升突破</option><option>资金回调低吸</option><option>资金跟随</option><option>反转低吸</option><option>主题选股</option></select>
+  <select id="sortby"><option value="focus">默认(关注优先)</option><option value="confidence">置信度</option><option value="pct_chg">当日涨跌</option></select>
+  <button class="chip" id="reload" style="cursor:pointer;color:#7c9ef8">🔄 加载</button>
+</div>
+<div class="meta" id="meta"></div>
+
+<div id="loading" class="neu2" style="font-size:14px;padding:16px">⏳ 加载中…</div>
+<div id="dash" style="display:none;overflow-x:auto"><table id="tbl"></table></div>
+
+<script>
+let rows=[];
+(function(){ document.getElementById('date').value=new Date().toISOString().slice(0,10); })();
+
+function pct(v){ if(v===null||v===undefined) return '<span class="miss">—</span>'; const c=v>0?'up':(v<0?'down':'neu2'); return '<span class="'+c+'">'+(v>0?'+':'')+v.toFixed(2)+'%</span>'; }
+
+async function load(){
+  const L=document.getElementById('loading'); L.style.display='block'; L.textContent='⏳ 加载中…';
+  document.getElementById('dash').style.display='none';
+  const date=(document.getElementById('date').value||'').replace(/-/g,'');
+  try{
+    const r=await fetch('/api/stockpool?date='+date); const j=await r.json();
+    if(!j.ok){ L.textContent='❌ '+j.error; return; }
+    if(!j.available){ L.textContent='⚠️ '+(j.msg||'该日未生成'); return; }
+    rows=j.rows;
+    const dd=j.date.replace(/(\d{4})(\d{2})(\d{2})/,'$1-$2-$3');
+    document.getElementById('meta').innerHTML='<span class="chip">总数 '+j.total+'</span><span class="chip" style="color:#4ade80">关注 '+j.focus+'</span><span class="chip">交易日 '+dd+'</span>';
+    L.style.display='none'; document.getElementById('dash').style.display='block';
+    render();
+  }catch(e){ L.textContent='❌ '+e; }
+}
+document.getElementById('reload').addEventListener('click', load);
+document.getElementById('date').addEventListener('change', load);
+['search','fsource','fstrat','sortby'].forEach(id=>document.getElementById(id).addEventListener('input', render));
+
+const COLS=[['代码'],['名称'],['主题'],['来源'],['策略'],['阶段'],['仓位'],['置信度'],['买点价'],['T+1'],['T+3'],['T+5'],['关注']];
+
+function render(){
+  const kw=(document.getElementById('search').value||'').trim();
+  const fs=document.getElementById('fsource').value, ft=document.getElementById('fstrat').value, sb=document.getElementById('sortby').value;
+  let data=rows.filter(r=>{
+    if(kw && !(r.ts_code.includes(kw)||(r.name||'').includes(kw)||(r.theme||'').includes(kw))) return false;
+    if(fs && !(r.sources||[]).includes(fs)) return false;
+    if(ft && !(r.strategy_label||'').includes(ft)) return false;
+    return true;
+  });
+  if(sb==='confidence') data.sort((a,b)=>b.confidence-a.confidence);
+  else if(sb==='pct_chg') data.sort((a,b)=>b.pct_chg-a.pct_chg);
+  else data.sort((a,b)=>(b.is_focus-a.is_focus)||(b.confidence-a.confidence));
+
+  let h='<thead><tr>'+COLS.map(c=>'<th>'+c[0]+'</th>').join('')+'</tr></thead><tbody>';
+  data.forEach((r,i)=>{
+    const srcs=(r.sources||[]).map(s=>'<span class="src src-'+s+'">'+s+'</span>').join('');
+    const heat=r.theme_heat?'<span class="hbadge">热度 '+Math.round(r.theme_heat)+'</span>':'';
+    const buy=(r.buy_low&&r.buy_high)?r.buy_low.toFixed(2)+'~'+r.buy_high.toFixed(2):'<span class="miss">—</span>';
+    const pos=r.is_focus&&r.position_pct?(r.position_pct*100).toFixed(0)+'%':'<span class="miss">—</span>';
+    h+='<tr class="datarow" data-i="'+i+'">'
+      +'<td style="color:#7c9ef8">'+r.ts_code.slice(0,6)+'</td><td>'+(r.name||'')+'</td>'
+      +'<td>'+(r.theme||'未归类')+heat+'</td><td>'+srcs+'</td>'
+      +'<td>'+(r.strategy_label||'<span class="miss">—</span>')+'</td>'
+      +'<td class="phase-'+(r.phase||'观察')+'">'+(r.phase||'—')+'</td>'
+      +'<td>'+pos+'</td><td><b>'+r.confidence.toFixed(2)+'</b></td><td>'+buy+'</td>'
+      +'<td>'+pct(r.t1_return)+'</td><td>'+pct(r.t3_return)+'</td><td>'+pct(r.t5_return)+'</td>'
+      +'<td class="'+(r.is_focus?'star':'star-off')+'">'+(r.is_focus?'★':'☆')+'</td></tr>';
+  });
+  h+='</tbody>';
+  const t=document.getElementById('tbl'); t.innerHTML=h;
+  // 行展开
+  t.querySelectorAll('tr.datarow').forEach(tr=>tr.addEventListener('click',()=>{
+    const i=+tr.dataset.i, nx=tr.nextElementSibling;
+    if(nx&&nx.classList.contains('exp')){ nx.remove(); return; }
+    t.querySelectorAll('tr.exp').forEach(e=>e.remove());
+    const r=data[i], dr=document.createElement('tr'); dr.className='exp';
+    const td=document.createElement('td'); td.colSpan=COLS.length; td.innerHTML=detail(r);
+    dr.appendChild(td); tr.after(dr);
+  }));
+}
+function detail(r){
+  let h='<div class="detail">';
+  h+='<b>量化因子</b>：RPS50 '+r.rps50+' ｜ 3日主力 '+r.main_flow_3d+'亿 ｜ 7日涨幅 '+r.change_7d+'% ｜ 换手 '+r.turnover+'% ｜ 量比 '+r.vol_ratio+' ｜ 当日 '+r.pct_chg+'% ｜ 市值 '+r.circ_mv_yi+'亿<br>';
+  h+='<b>交易计划</b>：买点 '+(r.buy_low||'-')+'~'+(r.buy_high||'-')+' ｜ 🛑止损 '+(r.stop_loss||'-')+' ｜ 🎯止盈 '+(r.take_profit_1||'-')+'/'+(r.take_profit_2||'-')+' ｜ 建议仓位 '+(r.position_pct?(r.position_pct*100).toFixed(0)+'%':'—')+'<br>';
+  if(r.reason) h+='<b>分析理由</b>：'+r.reason+'<br>';
+  if(r.risk_flags&&r.risk_flags.length) h+='<span class="rk"><b>⚠️ 风控</b>：'+r.risk_flags.join('；')+'</span>';
+  return h+'</div>';
+}
+load();
+</script>
+{% endblock %}
