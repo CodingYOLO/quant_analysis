@@ -32,6 +32,23 @@ def _disable_proxy_for_akshare() -> None:
 _disable_proxy_for_akshare()
 
 
+def _intraday_cache_key(date: str) -> str:
+    """
+    实时新闻源（财联社/华尔街见闻）的缓存键策略。
+
+    这些接口本质是「返回当前最新 N 条」，与传入 date 无关。若按天缓存，
+    盘前 09:00 第一次抓取就会把全天缓存冻结，导致盘中/盘后/选股复用 09:00
+    的旧快照（新闻被时间窗过滤为 0 条）。
+
+    解决：当日数据按「小时」分桶缓存，保证盘中(12点)/盘后(16/18点)各自取到最新；
+    历史日期仍按天缓存（已落库的快照不应再变）。
+    """
+    today = datetime.date.today().strftime("%Y%m%d")
+    if date == today:
+        return f"{date}_{datetime.datetime.now():%H}"
+    return date
+
+
 class AkshareProvider(DataProvider):
     """基于 akshare 的数据提供者（免费，覆盖 Tushare 不足的部分）。"""
 
@@ -248,7 +265,7 @@ class AkshareProvider(DataProvider):
         """
         return cached_daily(
             name="ak_cls_news",
-            date_key=date,
+            date_key=_intraday_cache_key(date),
             fetch_fn=self._fetch_cls_news,
         )
 
@@ -346,7 +363,7 @@ class AkshareProvider(DataProvider):
 
         url = "https://www.cls.cn/api/cache"
         params = {
-            "rn": 60,
+            "rn": 100,   # 拉更多条，保证盘中[09:00→现在]等较宽窗口有足够覆盖
             "lastTime": int(time.time()),
             "name": "telegraph",
         }
@@ -428,7 +445,7 @@ class AkshareProvider(DataProvider):
         """
         return cached_daily(
             name="ak_wscn_lives",
-            date_key=date,
+            date_key=_intraday_cache_key(date),
             fetch_fn=self._fetch_wscn_lives,
         )
 
