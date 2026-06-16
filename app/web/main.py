@@ -353,6 +353,24 @@ async def api_theme_detail(date: str = "", name: str = "", type: str = "industry
         return {"ok": False, "error": str(e)}
 
 
+@app.get("/sectorscope", response_class=HTMLResponse)
+async def sectorscope_page(request: Request, _user: str = Depends(require_auth)):
+    """Tab3 板块全景看板（纯因子，读宽表）。"""
+    return templates.TemplateResponse(request=request, name="sectorscope.html", context={"page": "llm"})
+
+
+@app.get("/api/sectorscope")
+async def api_sectorscope(date: str = "", _user: str = Depends(require_auth)):
+    """板块全景：三栏诊断 + 全板块明细（读宽表 theme_heat_all_in_one）。"""
+    try:
+        from app.strategy.sector_scope import build_sectorscope
+        data = build_sectorscope(date)
+        return {"ok": True, **data}
+    except Exception as e:
+        logger.exception("板块全景失败")
+        return {"ok": False, "error": str(e)}
+
+
 @app.get("/concept", response_class=HTMLResponse)
 async def concept_page(request: Request, _user: str = Depends(require_auth)):
     """概念资金流仪表盘页面（同花顺概念口径）。"""
