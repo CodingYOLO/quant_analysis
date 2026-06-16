@@ -28,6 +28,25 @@ logger = logging.getLogger(__name__)
 _ENDPOINT = "https://api.bochaai.com/v1/web-search"
 _TIMEOUT = 12.0
 
+# 权威财经媒体（命中则优先；用于保证信息准确性）
+_AUTHORITATIVE = [
+    "证券时报", "中国证券报", "上海证券报", "证券日报", "经济日报", "第一财经",
+    "21世纪", "界面新闻", "华尔街见闻", "财联社", "新华", "人民网", "人民日报",
+    "央视", "央广", "格隆汇", "证券之星", "金十", "科创板日报", "每日经济新闻",
+    "中国基金报", "券商中国", "路透", "彭博", "中国经济网", "澎湃", "财新",
+    "新浪财经", "同花顺", "和讯",
+]
+# UGC / 自媒体 / 标题党（命中则剔除，避免误导，保证准确性）
+_EXCLUDE_SITES = [
+    "今日头条", "财富号", "百家号", "知乎", "雪球", "大鱼号", "网易号",
+    "搜狐号", "微博", "股吧", "贴吧", "博客", "个人", "社区", "老虎",
+]
+_EXCLUDE_URL = [
+    "toutiao.com", "caifuhao", "baijiahao", "zhihu.com", "xueqiu.com",
+    "weibo.com", "guba.", "/blog", "qq.com/rain", "dayu", "sohu.com/a",
+    "163.com/dy", "163.com/v", "/dy/article",
+]
+
 
 class BochaSearchClient:
     """博查 Web Search API 封装。无 key 时降级为空结果。"""
@@ -58,11 +77,12 @@ class BochaSearchClient:
         if not self.enabled or not query.strip():
             return []
 
+        # 多取一些结果留出过滤余量（按调用计费，扩大 count 不额外收费）
         payload = {
             "query": query.strip(),
             "freshness": freshness or self._freshness,
             "summary": True,
-            "count": max(1, min(count, 50)),
+            "count": max(1, min(count + 8, 50)),
         }
         try:
             resp = requests.post(
@@ -77,10 +97,30 @@ class BochaSearchClient:
             if resp.status_code != 200:
                 logger.warning("[博查] HTTP%d：%s", resp.status_code, resp.text[:200])
                 return []
-            return self._parse(resp.json())
+            results = self._rank_filter(self._parse(resp.json()))
+            return results[:count]
         except Exception as e:
             logger.warning("[博查] 搜索失败（降级为不联网）: %s", e)
             return []
+
+    @staticmethod
+    def _rank_filter(results: list[dict]) -> list[dict]:
+        """
+        来源质量过滤（准确性优先）：
+          - 剔除 UGC/自媒体/标题党来源；
+          - 权威财经媒体优先排序，其余保留在后。
+        """
+        kept = []
+        for r in results:
+            blob = f"{r.get('site','')} {r.get('url','')}"
+            if any(x in (r.get('site', '') or '') for x in _EXCLUDE_SITES):
+                continue
+            if any(x in (r.get('url', '') or '') for x in _EXCLUDE_URL):
+                continue
+            kept.append(r)
+        # 权威源优先（稳定排序）
+        kept.sort(key=lambda r: 0 if any(a in (r.get('site', '') or '') for a in _AUTHORITATIVE) else 1)
+        return kept
 
     @staticmethod
     def _parse(data: dict) -> list[dict]:

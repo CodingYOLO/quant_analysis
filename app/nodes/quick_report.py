@@ -65,12 +65,14 @@ def build_quick_report(
     if label_suffix:
         meta["label"] = f"{meta['label']}{label_suffix}"
 
-    # ---- 拉取三路信息源 ----
+    # ---- 拉取信息源 ----
     news_df = _fetch_news(today, meta["start_h"], meta["end_h"])
     notices_text = _fetch_notices(today)
     research_text = _fetch_research_reports(today)
+    # 博查联网检索（盘前隔夜全网 / 盘后复盘；盘中不调用，实时性以电报为准）
+    web_news = _fetch_web_news(session)
 
-    has_content = not news_df.empty or notices_text or research_text
+    has_content = not news_df.empty or notices_text or research_text or web_news
 
     # ---- 无任何内容时直接返回提示，拒绝生成 ----
     if not has_content:
@@ -93,9 +95,10 @@ def build_quick_report(
         session, meta["label"], now_str, news_df, today,
         notices_text=notices_text,
         research_text=research_text,
+        web_news=web_news,
     )
 
-    # ---- 推送标题取 LLM 正文要点（在追加实时盯盘块之前计算）----
+    # ---- 推送标题取 LLM 正文要点（在追加附加块之前计算）----
     title = f"【{meta['label']}】{today[4:6]}/{today[6:]} | {_headline(content)}"
 
     # ---- 盘中时段在正文最前追加「实时盯盘」块（指数+观察池个股live）----
@@ -103,6 +106,11 @@ def build_quick_report(
         rt_block = _realtime_watch_section(today)
         if rt_block:
             content = rt_block + "\n" + content
+
+    # ---- 盘前/盘后在正文末尾附「博查联网原文」块，供人工核对（防 LLM 失真）----
+    web_block = _web_source_block(web_news)
+    if web_block:
+        content = content + "\n" + web_block
 
     # ---- 保存文件 ----
     filename = f"{today}_{now.strftime('%H%M')}_{session}.md"
@@ -119,6 +127,75 @@ def build_quick_report(
     logger.info("[快讯] 报告已保存: %s", filepath)
 
     return str(filepath), title, header + content
+
+
+# --------------------------------------------------------------------------- #
+# 博查联网检索（盘前隔夜全网要闻 / 盘后复盘，真实网页 + 原文核对）
+# --------------------------------------------------------------------------- #
+
+# 各时段的联网检索查询（query, freshness）
+_WEB_QUERIES = {
+    "pre": [
+        ("A股 隔夜 外盘 美股 重要消息 影响", "oneDay"),
+        ("A股 今日 重要财经新闻 政策 利好利空", "oneDay"),
+    ],
+    "post": [
+        ("A股 今日 收盘 复盘 热点板块 资金", "oneDay"),
+        ("A股 明日 关注 利好 政策 消息", "oneDay"),
+    ],
+}
+
+
+def _fetch_web_news(session: SessionType) -> list[dict]:
+    """
+    博查联网检索当日真实网络要闻（仅盘前/盘后；盘中不调用）。
+    未配置 BOCHA_API_KEY 或失败时返回空，调用方自动降级。
+    """
+    queries = _WEB_QUERIES.get(session)
+    if not queries:
+        return []
+    try:
+        from app.data.web_search import BochaSearchClient
+        client = BochaSearchClient()
+        if not client.enabled:
+            return []
+        seen, out = set(), []
+        for q, fr in queries:
+            for r in client.search(q, count=5, freshness=fr):
+                title = r.get("title", "")
+                if not title or title in seen:
+                    continue
+                seen.add(title)
+                out.append(r)
+        return out[:10]
+    except Exception as e:
+        logger.debug("[快讯] 博查联网检索失败: %s", e)
+        return []
+
+
+def _format_web_news(web_news: list[dict]) -> str:
+    """把博查结果格式化为喂给 LLM 的文本块（含来源与日期标签）。"""
+    if not web_news:
+        return ""
+    return "\n".join(
+        f"[博查·{w.get('site','')} {w.get('date','')}] {w.get('title','')}："
+        f"{(w.get('summary') or w.get('snippet') or '')[:120]}"
+        for w in web_news
+    )
+
+
+def _web_source_block(web_news: list[dict]) -> str:
+    """报告末尾的「博查联网原文」核对块（真实标题 + 可点击链接，防 LLM 失真）。"""
+    if not web_news:
+        return ""
+    lines = ["", "### 🌐 联网信息源（博查实时检索·原文核对）", ""]
+    for w in web_news:
+        meta = " · ".join(x for x in [w.get("date", ""), w.get("site", "")] if x)
+        url = w.get("url", "")
+        title = w.get("title", "")
+        link = f"[{title}]({url})" if url else title
+        lines.append(f"- {link}" + (f"（{meta}）" if meta else ""))
+    return "\n".join(lines)
 
 
 # --------------------------------------------------------------------------- #
@@ -1100,10 +1177,12 @@ def _generate_analysis(
     *,
     notices_text: str = "",
     research_text: str = "",
+    web_news: list[dict] | None = None,
 ) -> str:
     """调用 DeepSeek 生成时段分析。三个时段使用不同数据源和分析视角。"""
     from app.llm.client import LLMClient
     llm = LLMClient()
+    web_text = _format_web_news(web_news or [])
 
     # 整理新闻文本（带来源+时间标签）
     if news_df.empty:
@@ -1132,6 +1211,7 @@ def _generate_analysis(
         notices_text=notices_text,
         research_text=research_text,
         market_data_text=market_data_text,
+        web_text=web_text,
     )
 
     messages = [
@@ -1139,9 +1219,10 @@ def _generate_analysis(
             "role": "system",
             "content": (
                 "你是专业A股策略分析师。\n"
-                "【铁律】只分析用户提供的信息，严禁编造或引用未出现的内容。\n"
+                "【铁律】只分析用户提供的信息，严禁编造或引用未出现的内容；"
+                "引用联网检索内容时不得夸大，须如实转述。\n"
                 "来源标注规则（必须执行）：每条结论末尾标注来源和时间，"
-                "格式：[财联社 13:36] / [华尔街见闻 14:06] / [公告] / [行情数据]。\n"
+                "格式：[财联社 13:36] / [华尔街见闻 14:06] / [博查·证券时报 06-15] / [公告] / [行情数据]。\n"
                 "分析必须落地到具体A股板块和代表性个股（附6位股票代码）。"
             ),
         },
@@ -1162,6 +1243,7 @@ def _build_prompt(
     notices_text: str = "",
     research_text: str = "",
     market_data_text: str = "",
+    web_text: str = "",
 ) -> str:
     """三个时段使用完全不同的数据源组合和分析视角。"""
 
@@ -1176,6 +1258,8 @@ def _build_prompt(
 【隔夜新闻（昨日15:00 → 今日09:00，共{news_count}条，按时间倒序）】
 {news_text if news_text else "（无隔夜新闻）"}
 """
+        if web_text:
+            info += f"\n【博查联网·隔夜全网要闻（真实网页，含来源与日期）】\n{web_text}\n"
         if notices_text:
             info += f"\n【今日盘前重大公告】\n{notices_text}\n"
 
@@ -1255,6 +1339,8 @@ def _build_prompt(
 【今日全天新闻（09:00→收盘，共{news_count}条，按时间倒序）】
 {news_text if news_text else "（无新闻）"}
 """
+        if web_text:
+            info += f"\n【博查联网·今日复盘/明日关注（真实网页，含来源与日期）】\n{web_text}\n"
         if notices_text:
             info += f"\n【今日重大公告】\n{notices_text}\n"
         if research_text:

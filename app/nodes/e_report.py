@@ -101,6 +101,9 @@ def _build_report(state: PipelineState) -> str:
             "止损止盈为系统建议，不构成买入建议。"
         )
 
+        # ---- 网络舆情避雷（博查实时检索，真实原文核对）----
+        _append_news_guard_section(lines, state.candidates)
+
         # ---- 第四部分：逐股详情（走势+交易计划+次日清单）----
         lines += ["", "## 四、个股详情与执行计划"]
         for i, c in enumerate(state.candidates, 1):
@@ -514,6 +517,56 @@ def _append_stock_detail(lines: list, idx: int, c: Candidate, market_label: str)
 
     lines.append("")
     lines.append("---")
+
+
+def _append_news_guard_section(lines: list, candidates: list[Candidate]) -> None:
+    """
+    候选股网络舆情避雷区块（博查实时检索）。
+
+    准确性优先：直接呈现真实新闻原文（标题+来源+日期+可点击链接），
+    不经 LLM 复述；命中风险关键词的股票逐条列出，未命中的集中标注「未检索到明显负面」。
+    未配置博查 key 时整段跳过（不显示）。
+    """
+    try:
+        from app.strategy.news_guard import scan_candidates
+        hits_map = scan_candidates(candidates)
+    except Exception as e:
+        logger.debug("[避雷] 网络舆情检索失败（不影响报告）: %s", e)
+        return
+
+    # scan_candidates 在未启用博查时返回 {}；此时不显示该区块
+    from app.data.web_search import BochaSearchClient
+    if not BochaSearchClient().enabled:
+        return
+
+    lines += [
+        "",
+        "## 🛡️ 候选股网络舆情避雷（博查实时检索）",
+        "> ⚠️ 自动检索近一月全网新闻，命中风险关键词即列出**原文供人工核实**，"
+        "与系统结构化避雷互补；非确定性结论，请点击来源核对。",
+        "",
+    ]
+
+    flagged = [c for c in candidates if str(c.code)[:6] in hits_map]
+    clean = [c for c in candidates if str(c.code)[:6] not in hits_map]
+
+    if flagged:
+        for c in flagged:
+            code6 = str(c.code)[:6]
+            lines.append(f"**⚠️ {c.name}（{code6}）** — 检索到潜在负面：")
+            for h in hits_map[code6]:
+                meta = " · ".join(x for x in [h["date"], h["site"]] if x)
+                link = f"[{h['title']}]({h['url']})" if h["url"] else h["title"]
+                lines.append(f"- 〔{h['keyword']}〕{link}" + (f"（{meta}）" if meta else ""))
+            lines.append("")
+    else:
+        lines.append("✅ 候选股均未检索到明显负面舆情。")
+        lines.append("")
+
+    if clean:
+        names = "、".join(f"{c.name}({str(c.code)[:6]})" for c in clean)
+        lines.append(f"> ✅ 未检索到明显负面：{names}")
+        lines.append("")
 
 
 def _append_post_market_section(lines: list, state: "PipelineState") -> None:
