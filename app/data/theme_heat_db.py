@@ -178,6 +178,32 @@ def update_popularity_weights(trade_date: str, weights: list[tuple]) -> int:
     return len(weights)
 
 
+def upsert_popularity_full(trade_date: str, rows: list[tuple]) -> int:
+    """
+    整行写入人气代理（换手率排名口径，盘后单快照）。
+
+    rows = [(ts_code, rank, weight), ...]；代理无早盘/收盘之分，故 am=pm=rank、
+    三档权重相等、equiv_rank=rank、收盘-早盘恒为 0。
+
+    Returns: 写入条数。
+    """
+    if not rows:
+        return 0
+    init_db()
+    with _conn() as con:
+        con.executemany(
+            """INSERT INTO popularity_rank
+               (trade_date, ts_code, am_rank, pm_rank, am_weight, pm_weight, intraday_weight, equiv_rank)
+               VALUES (?,?,?,?,?,?,?,?)
+               ON CONFLICT(trade_date, ts_code) DO UPDATE SET
+                 am_rank=excluded.am_rank, pm_rank=excluded.pm_rank,
+                 am_weight=excluded.am_weight, pm_weight=excluded.pm_weight,
+                 intraday_weight=excluded.intraday_weight, equiv_rank=excluded.equiv_rank""",
+            [(trade_date, c, r, r, w, w, w, r) for c, r, w in rows],
+        )
+    return len(rows)
+
+
 def get_popularity(trade_date: str) -> list[dict]:
     """读取某交易日全部人气榜记录。"""
     init_db()

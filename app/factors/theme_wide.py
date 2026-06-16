@@ -74,9 +74,9 @@ def build_industry_wide(
     code2net_by_date = {d: _net_map(mf) for d, mf in mf_by_date.items()}
     top100, top300 = _top_rank_sets(code2net_by_date.get(trade_date, {}))
 
-    # 人气体系（M3）：仅当日有东财人气榜数据时非空，否则各 pop_* 为 None
-    from app.factors.popularity import get_intraday_weights
-    pop_weights = get_intraday_weights(trade_date)
+    # 人气体系（M3，换手率排名代理）：盘后随宽表一并计算并落库
+    from app.factors.popularity import build_popularity_proxy
+    pop_weights = build_popularity_proxy(trade_date, provider)
 
     rows: list[ThemeWideRow] = []
     for st in stats:

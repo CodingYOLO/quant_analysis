@@ -1,16 +1,17 @@
 """
-M3：人气体系（东财人气榜前向积累）。
+M3：人气体系（换手率全市场排名代理）。
 
-数据源：akshare stock_hot_rank_em（东财人气榜，Top100 当前快照，服务器可达）。
-调度：每交易日抓 2 次——早盘约 09:45（am）、收盘约 15:05（pm）→ popularity_rank 表。
-派生：
-  - 个股「日内综合权重」= 人气排名经单调递减变换；排名越前权重越高。
-  - 收盘-早盘 = pm_rank - am_rank（负=日内人气上行=更热）。
-  - 主题级人气因子（pop_weight/HHI/fairness）= 成分股日内综合权重的聚合（见 theme_wide）。
+设计取舍：东财股吧人气榜端点不稳定（时有 RemoteDisconnected），改用
+Tushare daily_basic 的「换手率全市场排名」作为人气代理：
+  - 优点：100% 可达、及时、可回补历史；盘后随宽表一并计算，无需单独抓取 cron。
+  - 局限：是「活跃度」代理，非东财股吧「人气」原口径；且为盘后单快照，
+    无早盘/收盘之分 → 收盘-早盘恒为 0（如实标注，不伪造日内变化）。
 
-【需校准 C3】rank→权重变换：w = clip(a·exp(-rank/k), 0, 1)。
-已知锚点（吴川截图实测）：rank27→0.19、rank92→0.10，据此拟合 a、k（抽常量便于回归）。
-仅 Top100 深度；无历史回补——启用前的交易日人气字段为 None（数据缺失）。
+口径：换手率(turnover_rate)全市场降序 → 名次(1=最活跃) → 单调递减变换得权重。
+派生主题级 pop_weight/HHI/fairness（成分股权重聚合）。
+
+【需校准 C3】rank→权重变换 w=clip(a·exp(-rank/k),0,1)。
+锚点（东财人气榜实测 rank27→0.19、rank92→0.10）暂沿用；代理口径下需另行回归。
 """
 
 from __future__ import annotations
@@ -18,130 +19,76 @@ from __future__ import annotations
 import logging
 import math
 
+import pandas as pd
+
 from app.data.composite_provider import CompositeProvider
-from app.data.theme_heat_db import (
-    get_popularity,
-    update_popularity_weights,
-    upsert_popularity,
-)
+from app.data.theme_heat_db import upsert_popularity_full
 
 logger = logging.getLogger(__name__)
 
-# rank→权重拟合参数（由锚点 rank27→0.19、rank92→0.10 反解；【需校准】可调）
+# rank→权重拟合参数（沿用东财锚点拟合；代理口径【需校准】）
 _POP_W_A = 0.248
 _POP_W_K = 101.3
+# 仅保存名次靠前的（权重>0 的有意义部分），控制表体量
+_STORE_TOP_N = 1000
 
 
 def rank_to_weight(rank: int | None) -> float | None:
-    """人气排名 → 权重（排名越前越高）。rank 缺失返回 None。"""
+    """活跃度名次 → 权重（名次越前越高）。rank 缺失返回 None。"""
     if rank is None or rank <= 0:
         return None
     return round(min(max(_POP_W_A * math.exp(-rank / _POP_W_K), 0.0), 1.0), 4)
 
 
-# ──────────────────────────────────────────────
-# 抓取
-# ──────────────────────────────────────────────
-
-def capture_hot_rank(trade_date: str, slot: str, provider: CompositeProvider | None = None) -> int:
+def build_popularity_proxy(trade_date: str, provider: CompositeProvider | None = None) -> dict[str, float]:
     """
-    抓取东财人气榜当前快照，写入 popularity_rank 的对应时段列。
+    用换手率全市场排名计算人气代理权重，落库 popularity_rank，并返回 {ts_code: 权重}。
 
     Args:
         trade_date: 交易日 YYYYMMDD
-        slot:       'am' 早盘 / 'pm' 收盘
-        provider:   数据接口（用于 symbol→ts_code 映射）
+        provider:   数据接口
 
     Returns:
-        写入条数；失败/无数据返回 0。
+        {ts_code: 日内综合权重}；当日 daily_basic 缺失返回 {}（数据缺失，不伪造）。
     """
     provider = provider or CompositeProvider()
     try:
-        df = provider._ak.get_hot_rank()
+        db = provider.get_daily_basic(trade_date)
     except Exception as e:
-        logger.warning("[人气] 东财人气榜抓取失败（已重试）: %s", e)
-        return 0
-    if df is None or df.empty:
-        logger.warning("[人气] 东财人气榜返回空")
-        return 0
+        logger.warning("[人气代理] %s daily_basic 失败: %s", trade_date, e)
+        return {}
+    if db is None or db.empty or "turnover_rate" not in db.columns:
+        logger.warning("[人气代理] %s 无换手率数据", trade_date)
+        return {}
 
-    rank_col = next((c for c in df.columns if "排名" in c), None)
-    code_col = next((c for c in df.columns if "代码" in c), None)
-    if not rank_col or not code_col:
-        logger.warning("[人气] 人气榜字段异常: %s", list(df.columns))
-        return 0
+    df = db[["ts_code", "turnover_rate"]].copy()
+    df["_tr"] = pd.to_numeric(df["turnover_rate"], errors="coerce")
+    df = df.dropna(subset=["_tr"]).sort_values("_tr", ascending=False).reset_index(drop=True)
 
-    sym2ts = _symbol_to_tscode(provider)
-    rank_map: dict[str, int] = {}
-    for _, r in df.iterrows():
-        sym = str(r[code_col]).strip()[-6:]   # 兼容带/不带市场前缀
-        ts = sym2ts.get(sym)
-        try:
-            rank = int(r[rank_col])
-        except (TypeError, ValueError):
-            continue
-        if ts:
-            rank_map[ts] = rank
+    weights: dict[str, float] = {}
+    rows: list[tuple] = []
+    for i, ts in enumerate(df["ts_code"]):
+        rank = i + 1
+        w = rank_to_weight(rank)
+        weights[ts] = w
+        if rank <= _STORE_TOP_N:
+            rows.append((ts, rank, w))
 
-    n = upsert_popularity(trade_date, slot, rank_map)
-    logger.info("[人气] %s %s 写入 %d 条", trade_date, slot, n)
-    return n
-
-
-def _symbol_to_tscode(provider: CompositeProvider) -> dict[str, str]:
-    """6 位代码 → Tushare ts_code。"""
-    sb = provider.get_stock_basic()
-    return dict(zip(sb["symbol"].astype(str), sb["ts_code"].astype(str)))
-
-
-# ──────────────────────────────────────────────
-# 权重派生
-# ──────────────────────────────────────────────
-
-def compute_weights(trade_date: str) -> int:
-    """
-    依据当日 am_rank/pm_rank 计算权重列。
-
-    intraday_weight 取 早/收 权重均值（缺一则用另一个）；
-    equiv_rank 取 早/收 排名均值（跨日可比的归一化人气排名近似）。
-    """
-    recs = get_popularity(trade_date)
-    if not recs:
-        return 0
-    updates = []
-    for r in recs:
-        am, pm = r.get("am_rank"), r.get("pm_rank")
-        aw, pw = rank_to_weight(am), rank_to_weight(pm)
-        ws = [w for w in (aw, pw) if w is not None]
-        iw = round(sum(ws) / len(ws), 4) if ws else None
-        ranks = [x for x in (am, pm) if x is not None]
-        eq = int(round(sum(ranks) / len(ranks))) if ranks else None
-        updates.append((aw, pw, iw, eq, r["ts_code"]))
-    n = update_popularity_weights(trade_date, updates)
-    logger.info("[人气] %s 权重回填 %d 条", trade_date, n)
-    return n
+    upsert_popularity_full(trade_date, rows)
+    logger.info("[人气代理] %s 换手率排名 %d 只，存 Top%d", trade_date, len(df), len(rows))
+    return weights
 
 
 # ──────────────────────────────────────────────
 # 主题级聚合（供 theme_wide 调用）
 # ──────────────────────────────────────────────
 
-def get_intraday_weights(trade_date: str) -> dict[str, float]:
-    """{ts_code: 日内综合权重}（仅当日有人气数据时非空）。"""
-    out: dict[str, float] = {}
-    for r in get_popularity(trade_date):
-        w = r.get("intraday_weight")
-        if w is not None:
-            out[r["ts_code"]] = float(w)
-    return out
-
-
 def theme_pop_factors(codes: list[str], weight_map: dict[str, float]) -> dict[str, float | None]:
     """
     主题级人气因子：pop_weight(均值) / pop_concentration_hhi / pop_fairness(1-Gini)。
-    成分股均无人气数据时返回 None（数据缺失，不置零）。
+    成分股均无权重时返回 None（数据缺失，不置零）。
     """
-    ws = [weight_map[c] for c in codes if c in weight_map]
+    ws = [weight_map[c] for c in codes if c in weight_map and weight_map[c] is not None]
     if not ws:
         return {"pop_weight": None, "pop_concentration_hhi": None, "pop_fairness": None}
     total = sum(ws)

@@ -296,19 +296,6 @@ def verify_data() -> None:
     run_all_verifications()
 
 
-@cli.command("popularity")
-@click.option("--slot", type=click.Choice(["am", "pm"]), required=True, help="时段：am早盘 / pm收盘")
-@click.option("--date", "trade_date", default="last", help="交易日，默认最近交易日")
-def capture_popularity_cmd(slot: str, trade_date: str) -> None:
-    """抓取东财人气榜快照并回填权重（供 cron 早盘09:45 / 收盘15:05 调用）。"""
-    from app.factors.popularity import capture_hot_rank, compute_weights
-
-    td = _resolve_date(trade_date)
-    n = capture_hot_rank(td, slot)
-    compute_weights(td)
-    console.print(f"[green]✅ 人气榜 {td} {slot}：写入 {n} 条并回填权重[/green]")
-
-
 @cli.command("wide")
 @click.option("--date", "trade_date", default="last", show_default=True,
               help="交易日：YYYYMMDD / last（默认最近交易日）")
