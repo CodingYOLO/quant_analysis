@@ -51,6 +51,22 @@ class TushareProvider(DataProvider):
             trade_date=trade_date,
         )
 
+    def get_adj_factor(self, trade_date: str) -> pd.DataFrame:
+        """全市场复权因子（用于前复权均线广度）。列：ts_code/trade_date/adj_factor。"""
+        return cached_daily(
+            name="tushare_adj_factor",
+            date_key=trade_date,
+            fetch_fn=lambda: self._fetch_adj_factor(trade_date),
+        )
+
+    @_RETRY
+    def _fetch_adj_factor(self, trade_date: str) -> pd.DataFrame:
+        return rate_limited_call(
+            "tushare_adj_factor",
+            self._api.adj_factor,
+            trade_date=trade_date,
+        )
+
     def get_stock_basic(self) -> pd.DataFrame:
         """股票基础信息列表（缓存一天）。"""
         import datetime

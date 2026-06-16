@@ -26,6 +26,9 @@ class CompositeProvider(DataProvider):
     def get_daily(self, trade_date: str) -> pd.DataFrame:
         return self._ts.get_daily(trade_date)
 
+    def get_adj_factor(self, trade_date: str) -> pd.DataFrame:
+        return self._ts.get_adj_factor(trade_date)
+
     def get_stock_basic(self) -> pd.DataFrame:
         return self._ts.get_stock_basic()
 

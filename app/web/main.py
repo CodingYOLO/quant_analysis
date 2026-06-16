@@ -310,6 +310,49 @@ async def api_industry_detail(date: str = "", industry: str = "", _user: str = D
         return {"ok": False, "error": str(e)}
 
 
+@app.get("/llm", response_class=HTMLResponse)
+async def llm_page(request: Request, _user: str = Depends(require_auth)):
+    """LLM 分析模块（Tab1 主题热点等）。"""
+    return templates.TemplateResponse(request=request, name="llm_theme.html", context={"page": "llm"})
+
+
+@app.get("/api/theme/list")
+async def api_theme_list(date: str = "", type: str = "industry", _user: str = Depends(require_auth)):
+    """主题列表（读宽表 theme_heat_all_in_one）。date 为空取宽表最近已计算日。"""
+    try:
+        from app.data.theme_heat_db import get_themes, latest_trade_date
+        d = (date or "").replace("-", "") or (latest_trade_date(type) or "")
+        if not d:
+            return {"ok": True, "available": False, "date": "", "rows": [],
+                    "msg": "宽表尚未计算任何交易日，请先运行 python -m app.run wide"}
+        rows = get_themes(d, type)
+        if not rows:
+            return {"ok": True, "available": False, "date": d, "rows": [],
+                    "msg": f"{d} 宽表未计算（数据缺失，不展示旧/假数据）。可运行 python -m app.run wide --date {d}"}
+        return {"ok": True, "available": True, "date": d, "rows": rows}
+    except Exception as e:
+        logger.exception("主题列表失败")
+        return {"ok": False, "error": str(e)}
+
+
+@app.get("/api/theme/detail")
+async def api_theme_detail(date: str = "", name: str = "", type: str = "industry",
+                           _user: str = Depends(require_auth)):
+    """单个主题宽表全字段。"""
+    if not name:
+        return {"ok": False, "error": "缺少 name 参数"}
+    try:
+        from app.data.theme_heat_db import get_theme
+        d = (date or "").replace("-", "")
+        row = get_theme(d, name, type)
+        if not row:
+            return {"ok": False, "error": f"{d} 无主题「{name}」宽表数据"}
+        return {"ok": True, "data": row}
+    except Exception as e:
+        logger.exception("主题详情失败")
+        return {"ok": False, "error": str(e)}
+
+
 @app.get("/concept", response_class=HTMLResponse)
 async def concept_page(request: Request, _user: str = Depends(require_auth)):
     """概念资金流仪表盘页面（同花顺概念口径）。"""

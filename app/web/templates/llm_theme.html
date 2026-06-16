@@ -1,0 +1,168 @@
+{% extends "base.html" %}
+{% block title %}LLM分析 — A股Agent{% endblock %}
+
+{% block extra_style %}
+.subtabs { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:18px; }
+.subtab { background:#1a1d2e; border:1px solid #2d3052; color:#9ca3af; padding:7px 16px; border-radius:8px; font-size:14px; cursor:pointer; }
+.subtab.active { background:#2742a8; color:#fff; border-color:#3358e0; }
+.subtab.todo { opacity:.55; }
+.disclaim { color:#8a90a0; font-size:12px; margin-bottom:16px; line-height:1.6; }
+.layout { display:grid; grid-template-columns:320px 1fr; gap:16px; }
+@media(max-width:900px){ .layout{grid-template-columns:1fr} }
+.panel { background:#161929; border:1px solid #242842; border-radius:10px; padding:14px; }
+.toolbar2 { display:flex; gap:8px; align-items:center; margin-bottom:10px; flex-wrap:wrap; }
+.tg { background:#0f1117; color:#9ca3af; border:1px solid #2d3052; border-radius:16px; padding:5px 14px; font-size:13px; cursor:pointer; }
+.tg.active { background:#3358e0; color:#fff; border-color:#3358e0; }
+.toolbar2 input { background:#0f1117; color:#e8e8e8; border:1px solid #2d3052; border-radius:6px; padding:6px 9px; font-size:13px; }
+.tcard { background:#0f1117; border:1px solid #242842; border-radius:8px; padding:10px 12px; margin-bottom:8px; cursor:pointer; }
+.tcard.sel { border-color:#5d7cff; background:#1b2140; }
+.tcard .l1 { display:flex; justify-content:space-between; align-items:center; }
+.tcard .nm { font-size:14px; font-weight:600; color:#e8e8e8; }
+.tcard .l2 { font-size:12px; color:#9ca3af; margin-top:4px; }
+.hbadge { font-size:11px; padding:1px 7px; border-radius:10px; font-weight:600; }
+.env { border:1px solid #5a4a1e; background:#221c0e; border-radius:10px; padding:14px; margin-bottom:14px; }
+.env .tags { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:8px; }
+.tag { font-size:11px; padding:2px 9px; border-radius:10px; background:#2d3052; color:#c9d2f8; }
+.tag.amber { background:#3b3218; color:#fbbf24; }
+.kpis { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:14px; }
+@media(max-width:900px){ .kpis{grid-template-columns:repeat(2,1fr)} }
+.kpi { background:#161929; border:1px solid #242842; border-radius:10px; padding:14px; }
+.kpi .lab { font-size:12px; color:#9ca3af; } .kpi .big { font-size:22px; font-weight:700; margin-top:4px; }
+.up { color:#f6465d; } .down { color:#2ebd85; } .neu2 { color:#9ca3af; }
+.sec { background:#161929; border:1px solid #242842; border-radius:10px; padding:14px; margin-bottom:14px; }
+.sec h3 { font-size:14px; color:#7c9ef8; margin-bottom:10px; display:flex; justify-content:space-between; }
+.ff { display:grid; grid-template-columns:1fr 1fr; gap:8px 16px; }
+.ff .row { display:flex; justify-content:space-between; border-bottom:1px solid #1e2138; padding:5px 0; font-size:13px; }
+.ff .row .k { color:#9ca3af; } .ff .row .v { color:#e8e8e8; font-weight:600; }
+.miss { color:#6b7280; font-style:italic; font-weight:400; }
+.todo-box { color:#8a90a0; font-size:13px; background:#12152a; border:1px dashed #2d3052; border-radius:8px; padding:12px; }
+table.mini { width:100%; font-size:13px; border-collapse:collapse; }
+table.mini th,table.mini td { text-align:left; padding:6px 10px; border-bottom:1px solid #1e2138; }
+table.mini th { color:#9ca3af; font-weight:500; }
+{% endblock %}
+
+{% block content %}
+<div style="text-align:center;margin-bottom:6px"><h1 style="font-size:22px;color:#e8e8e8">LLM 分析</h1></div>
+<div class="disclaim" style="text-align:center">基于公开数据的资金流向、均线广度、拥挤度等量化因子分析。数字=因子层真实计算，文字结论=LLM 解读层（标注来源/验证点）。仅供研究，不构成投资建议。</div>
+
+<div class="subtabs">
+  <div class="subtab active">主题热点</div>
+  <div class="subtab todo" onclick="alert('选股池：后续 Phase 建设中')">选股池</div>
+  <div class="subtab todo" onclick="location.href='/sectorscope'">板块全景看板</div>
+  <div class="subtab todo" onclick="alert('个股评估矩阵：后续 Phase（依赖人气数据积累）')">个股评估矩阵</div>
+  <div class="subtab todo" onclick="alert('产业链研报：后续 Phase')">产业链研报分析</div>
+</div>
+
+<div class="layout">
+  <!-- 左：主题列表 -->
+  <div class="panel">
+    <div class="toolbar2">
+      <span class="tg active" data-type="industry">行业</span>
+      <span class="tg" data-type="concept">概念</span>
+      <input type="date" id="date">
+    </div>
+    <input type="text" id="search" placeholder="筛选主题…" style="width:100%;margin-bottom:8px">
+    <div id="tlist"><div class="neu2" style="font-size:13px;padding:10px">⏳ 加载中…</div></div>
+  </div>
+
+  <!-- 右：主题详情 -->
+  <div>
+    <div class="env" id="env">
+      <div class="tags"><b style="color:#fbbf24">市场环境</b><span class="tag" id="env-asof">as_of —</span></div>
+      <div class="neu2" id="env-text" style="font-size:13px;line-height:1.7">选择左侧主题查看。市场环境综合解读（LLM）将在 LLM 落库模块（M6）接入。</div>
+    </div>
+    <div id="detail"><div class="todo-box">← 请在左侧选择一个主题</div></div>
+  </div>
+</div>
+
+<script>
+let curType='industry', curDate='', rows=[], sel=null;
+(function(){ document.getElementById('date').value=new Date().toISOString().slice(0,10); })();
+
+function fmtNull(v,suf=''){ return (v===null||v===undefined)?'<span class="miss">数据缺失</span>':(v+suf); }
+function signed(v,suf=''){ if(v===null||v===undefined) return '<span class="miss">数据缺失</span>'; const c=v>0?'up':(v<0?'down':'neu2'); return '<span class="'+c+'">'+(v>0?'+':'')+v+suf+'</span>'; }
+function heatColor(h){ if(h===null) return '#3b3218'; if(h>=80) return '#5a1e1e'; if(h>=60) return '#5a3a1e'; if(h>=40) return '#3b3218'; return '#1e3a2a'; }
+
+async function loadList(){
+  const tl=document.getElementById('tlist'); tl.innerHTML='<div class="neu2" style="font-size:13px;padding:10px">⏳ 加载中…</div>';
+  document.getElementById('detail').innerHTML='<div class="todo-box">← 请在左侧选择一个主题</div>';
+  const date=(document.getElementById('date').value||'').replace(/-/g,'');
+  const r=await fetch('/api/theme/list?type='+curType+'&date='+date);
+  const j=await r.json();
+  if(!j.ok){ tl.innerHTML='<div class="todo-box">❌ '+j.error+'</div>'; return; }
+  if(!j.available){ tl.innerHTML='<div class="todo-box">⚠️ '+(j.msg||'该日宽表未计算')+'</div>'; return; }
+  curDate=j.date; rows=j.rows;
+  document.getElementById('env-asof').textContent='as_of '+j.date.replace(/(\d{4})(\d{2})(\d{2})/,'$1-$2-$3');
+  document.getElementById('env-text').textContent='共 '+rows.length+' 个'+(curType==='industry'?'行业':'概念')+'主题（数据交易日 '+j.date.replace(/(\d{4})(\d{2})(\d{2})/,'$1-$2-$3')+'）。市场环境综合解读（LLM）将在 M6 接入。';
+  renderList();
+}
+function renderList(){
+  const kw=(document.getElementById('search').value||'').trim();
+  const tl=document.getElementById('tlist');
+  let data=rows.slice(); if(kw) data=data.filter(r=>r.theme_name.includes(kw));
+  tl.innerHTML = data.map(r=>{
+    const h=r.heat_score;
+    return '<div class="tcard" data-name="'+encodeURIComponent(r.theme_name)+'">'
+      +'<div class="l1"><span class="nm">'+r.theme_name+'</span>'
+      +'<span class="hbadge" style="background:'+heatColor(h)+';color:#fff">热度 '+(h===null?'—':Math.round(h))+'</span></div>'
+      +'<div class="l2">趋势 '+(r.trend||'—')+'　3日资金 '+fmtNull(r.money_flow_3d)+'亿</div></div>';
+  }).join('') || '<div class="todo-box">无匹配主题</div>';
+  tl.querySelectorAll('.tcard').forEach(c=>c.addEventListener('click',()=>openDetail(decodeURIComponent(c.dataset.name),c)));
+}
+document.getElementById('search').addEventListener('input', renderList);
+document.querySelectorAll('.tg').forEach(t=>t.addEventListener('click',()=>{
+  document.querySelectorAll('.tg').forEach(x=>x.classList.remove('active')); t.classList.add('active');
+  curType=t.dataset.type; loadList();
+}));
+document.getElementById('date').addEventListener('change', loadList);
+
+async function openDetail(name, card){
+  document.querySelectorAll('.tcard').forEach(c=>c.classList.remove('sel')); if(card) card.classList.add('sel');
+  const box=document.getElementById('detail'); box.innerHTML='<div class="todo-box">⏳ 加载主题详情…</div>';
+  const r=await fetch('/api/theme/detail?type='+curType+'&date='+curDate+'&name='+encodeURIComponent(name));
+  const j=await r.json();
+  if(!j.ok){ box.innerHTML='<div class="todo-box">❌ '+j.error+'</div>'; return; }
+  box.innerHTML=renderDetail(j.data);
+}
+
+function renderDetail(d){
+  let h='';
+  // 标题 + 4 卡
+  h+='<div style="display:flex;align-items:center;gap:10px;margin-bottom:12px"><span style="font-size:18px;font-weight:700">'+d.theme_name+'</span>'
+   +'<span class="hbadge" style="background:'+heatColor(d.heat_score)+';color:#fff">热度 '+(d.heat_score===null?'—':Math.round(d.heat_score))+'</span>'
+   +'<span class="tag">'+(d.tier||'—')+'</span><span class="tag">'+(d.phase||'—')+'</span></div>';
+  h+='<div class="kpis">'
+   +kpi('3日资金(亿)', signed(d.money_flow_3d))
+   +kpi('3日涨跌', signed(d.pct_chg_3d,'%'))
+   +kpi('站上MA20(%)', fmtNull(d.breadth_ma20,'%'))
+   +kpi('人气集中(成交额)', fmtNull(d.pop_concentration_amount))
+   +'</div>';
+  // 全字段
+  const F=[
+    ['样本股票数','sample_count'],['样本可靠性','sample_reliability','%'],
+    ['1日资金(亿)','money_flow_1d',''],['3日资金(亿)','money_flow_3d',''],
+    ['5日资金(亿)','money_flow_5d',''],['7日资金(亿)','money_flow_7d',''],
+    ['3日资金_norm','money_flow_3d_norm',''],['Top100比例','top100_ratio','%'],
+    ['Top300比例','top300_ratio','%'],['1日涨跌','pct_chg_1d','%'],
+    ['3日涨跌','pct_chg_3d','%'],['5日涨跌','pct_chg_5d','%'],['7日涨跌','pct_chg_7d','%'],
+    ['MA3广度','breadth_ma3','%'],['MA5广度','breadth_ma5','%'],['MA10广度','breadth_ma10','%'],
+    ['MA20广度','breadth_ma20','%'],['MA30广度','breadth_ma30','%'],['MA60广度','breadth_ma60','%'],
+    ['MA90广度','breadth_ma90','%'],['MA144广度','breadth_ma144','%'],
+    ['人气权重','pop_weight',''],['人气集中度(HHI)','pop_concentration_hhi',''],['人气公平分','pop_fairness',''],
+    ['综合热度','heat_score',''],['3日热度Δ','heat_score_delta_3d',''],['次日风险','nextday_risk_penalty',''],
+  ];
+  h+='<div class="sec"><h3>主题市场数据（theme_heat_all_in_one 全字段）</h3><div class="ff">'
+   + F.map(([lab,k,suf])=>'<div class="row"><span class="k">'+lab+'</span><span class="v">'+fmtNull(d[k]===undefined?null:d[k], suf||'')+'</span></div>').join('')
+   +'</div></div>';
+  // 标准化映射（行业=直接命中）
+  h+='<div class="sec"><h3>标准化映射明细</h3><table class="mini"><tr><th>原始主题</th><th>标准主题</th><th>方法</th><th>匹配</th><th>类型</th></tr>'
+   +'<tr><td>'+d.theme_name+'</td><td>'+d.theme_name+'</td><td>'+(d.theme_type==='industry'?'exact(行业直配)':'concept')+'</td><td>是</td><td>'+d.theme_type+'</td></tr></table></div>';
+  // LLM 解读（M6 待接入，诚实占位，不编造）
+  h+='<div class="sec"><h3>理由 / 新闻证据 / 分层与策略结论（LLM）</h3>'
+   +'<div class="todo-box">🧠 LLM 解读层（理由、新闻证据、🟢介入条件/🔴证伪条件、量化解读）将在 M6（盘后 LLM 批量落库）接入。当前页仅展示已真实计算的量化因子，不展示未生成内容。</div></div>';
+  return h;
+}
+function kpi(lab,val){ return '<div class="kpi"><div class="lab">'+lab+'</div><div class="big">'+val+'</div></div>'; }
+loadList();
+</script>
+{% endblock %}

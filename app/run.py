@@ -296,6 +296,19 @@ def verify_data() -> None:
     run_all_verifications()
 
 
+@cli.command("wide")
+@click.option("--date", "trade_date", default="last", show_default=True,
+              help="交易日：YYYYMMDD / last（默认最近交易日）")
+def build_wide_cmd(trade_date: str) -> None:
+    """计算并落库 theme_heat_all_in_one 宽表（行业口径，供 LLM 分析页读取）。"""
+    from app.factors.theme_wide import build_industry_wide
+
+    td = _resolve_date(trade_date)
+    console.print(f"\n[bold cyan]🧮 计算主题宽表[/bold cyan]  交易日 {td}（行业口径，首次约2-3分钟）\n")
+    rows = build_industry_wide(td, persist=True)
+    console.print(f"[green]✅ 宽表已落库：{len(rows)} 个行业 → data_cache/theme_heat.db[/green]\n")
+
+
 @cli.command("signal-eval")
 @click.option("--start", default="", help="回测开始日 YYYYMMDD（默认：结束日前30个自然日）")
 @click.option("--end", default="", help="回测结束日 YYYYMMDD（默认：最近交易日）")
