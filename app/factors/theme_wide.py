@@ -74,12 +74,16 @@ def build_industry_wide(
     code2net_by_date = {d: _net_map(mf) for d, mf in mf_by_date.items()}
     top100, top300 = _top_rank_sets(code2net_by_date.get(trade_date, {}))
 
+    # 人气体系（M3）：仅当日有东财人气榜数据时非空，否则各 pop_* 为 None
+    from app.factors.popularity import get_intraday_weights
+    pop_weights = get_intraday_weights(trade_date)
+
     rows: list[ThemeWideRow] = []
     for st in stats:
         codes = ind_members.get(st.industry, [])
         rows.append(_build_one_row(
             st, codes, trade_date, panel,
-            dates7, code2net_by_date, top100, top300, k_norm,
+            dates7, code2net_by_date, top100, top300, k_norm, pop_weights,
         ))
 
     if persist:
@@ -93,7 +97,7 @@ def build_industry_wide(
 # ──────────────────────────────────────────────
 
 def _build_one_row(
-    st, codes, trade_date, panel, dates7, code2net_by_date, top100, top300, k_norm,
+    st, codes, trade_date, panel, dates7, code2net_by_date, top100, top300, k_norm, pop_weights,
 ) -> ThemeWideRow:
     n = len(codes)
     breadth = compute_breadth(panel, codes, BREADTH_WINDOWS) if n else {f"ma{w}": None for w in BREADTH_WINDOWS}
@@ -104,6 +108,10 @@ def _build_one_row(
     top300_ratio = round(len(cset & top300) / n * 100, 1) if n else None
     norm = round(money["3d"] / (n ** 0.5) * k_norm, 2) if (money["3d"] is not None and n) else None
     reliability = _sample_reliability(codes, code2net_by_date.get(trade_date, {}))
+
+    # 人气体系（数据缺失时各项为 None）
+    from app.factors.popularity import theme_pop_factors
+    pop = theme_pop_factors(codes, pop_weights)
 
     return ThemeWideRow(
         theme_name=st.industry,
@@ -119,6 +127,9 @@ def _build_one_row(
         breadth_ma20=breadth["ma20"], breadth_ma30=breadth["ma30"], breadth_ma60=breadth["ma60"],
         breadth_ma90=breadth["ma90"], breadth_ma144=breadth["ma144"],
         top100_ratio=top100_ratio, top300_ratio=top300_ratio,
+        pop_weight=pop["pop_weight"],
+        pop_concentration_hhi=pop["pop_concentration_hhi"],
+        pop_fairness=pop["pop_fairness"],
         heat_score=round(st.heat_score, 1),
         heat_score_delta_3d=round(st.heat_score_delta_3d, 1),
         trend=_trend_label(st),

@@ -67,6 +67,14 @@ class AkshareProvider(DataProvider):
     def _fetch_spot_em(self) -> pd.DataFrame:
         return rate_limited_call("ak_spot_em", ak.stock_zh_a_spot_em)
 
+    def get_hot_rank(self) -> pd.DataFrame:
+        """东财人气榜（Top100 当前快照，含重试；不缓存，每个时段取实时）。"""
+        return self._fetch_hot_rank()
+
+    @_RETRY
+    def _fetch_hot_rank(self) -> pd.DataFrame:
+        return rate_limited_call("ak_hot_rank", ak.stock_hot_rank_em)
+
     # ---- 实时报价（新浪，指数+个股，轻量按需）----
 
     def get_realtime_quote(self, ts_codes: list[str]) -> pd.DataFrame:

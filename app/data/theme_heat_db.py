@@ -116,6 +116,76 @@ def init_db() -> None:
         con.execute(
             "CREATE INDEX IF NOT EXISTS idx_theme_date ON theme_heat_all_in_one(trade_date, theme_type)"
         )
+        # 人气榜（东财人气榜前向积累）：早盘/收盘排名与权重
+        con.execute("""
+            CREATE TABLE IF NOT EXISTS popularity_rank (
+                trade_date      TEXT NOT NULL,
+                ts_code         TEXT NOT NULL,
+                am_rank         INTEGER,
+                pm_rank         INTEGER,
+                am_weight       REAL,
+                pm_weight       REAL,
+                intraday_weight REAL,
+                equiv_rank      INTEGER,
+                created_at      TEXT DEFAULT (datetime('now','localtime')),
+                UNIQUE(trade_date, ts_code)
+            )
+        """)
+        con.execute("CREATE INDEX IF NOT EXISTS idx_pop_date ON popularity_rank(trade_date)")
+
+
+# ──────────────────────────────────────────────
+# 人气榜读写
+# ──────────────────────────────────────────────
+
+def upsert_popularity(trade_date: str, slot: str, rank_map: dict[str, int]) -> int:
+    """
+    写入某时段（slot='am'|'pm'）的人气排名（仅更新对应 rank 列，另一列保留）。
+
+    Args:
+        trade_date: 交易日 YYYYMMDD
+        slot:       'am'(早盘) / 'pm'(收盘)
+        rank_map:   {ts_code: rank}
+
+    Returns:
+        写入条数。
+    """
+    if slot not in ("am", "pm") or not rank_map:
+        return 0
+    init_db()
+    col = "am_rank" if slot == "am" else "pm_rank"
+    with _conn() as con:
+        con.executemany(
+            f"""INSERT INTO popularity_rank (trade_date, ts_code, {col})
+                VALUES (?, ?, ?)
+                ON CONFLICT(trade_date, ts_code) DO UPDATE SET {col}=excluded.{col}""",
+            [(trade_date, code, rank) for code, rank in rank_map.items()],
+        )
+    return len(rank_map)
+
+
+def update_popularity_weights(trade_date: str, weights: list[tuple]) -> int:
+    """批量回填权重列。weights = [(am_weight, pm_weight, intraday_weight, equiv_rank, ts_code), ...]。"""
+    if not weights:
+        return 0
+    with _conn() as con:
+        con.executemany(
+            """UPDATE popularity_rank
+               SET am_weight=?, pm_weight=?, intraday_weight=?, equiv_rank=?
+               WHERE trade_date=? AND ts_code=?""",
+            [(w[0], w[1], w[2], w[3], trade_date, w[4]) for w in weights],
+        )
+    return len(weights)
+
+
+def get_popularity(trade_date: str) -> list[dict]:
+    """读取某交易日全部人气榜记录。"""
+    init_db()
+    with _conn() as con:
+        rows = con.execute(
+            "SELECT * FROM popularity_rank WHERE trade_date=?", (trade_date,)
+        ).fetchall()
+    return [dict(r) for r in rows]
 
 
 # ──────────────────────────────────────────────
