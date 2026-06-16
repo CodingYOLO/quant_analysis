@@ -121,8 +121,9 @@ function render(d){
   chart('c-amount',Object.assign(baseOpt(),{
     legend:{show:false}, xAxis:{type:'category',data:dates,...AX}, yAxis:{type:'value',scale:true,...AX},
     series:[
-      {type:'bar',data:d.amount,itemStyle:{color:'#3358e0'},barWidth:'55%'},
-      {type:'line',data:d.amount,smooth:true,symbol:'none',lineStyle:{color:'#f0a020',width:2}}
+      {name:'成交额',type:'bar',data:d.amount,itemStyle:{color:'#3358e0'},barWidth:'55%'},
+      // 趋势线仅作视觉叠加，不进 tooltip（避免与柱状重复显示同一数值）
+      {type:'line',data:d.amount,smooth:true,symbol:'none',lineStyle:{color:'#f0a020',width:2},tooltip:{show:false},silent:true}
     ]
   }));
 
