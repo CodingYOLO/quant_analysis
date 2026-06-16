@@ -58,8 +58,10 @@ def generate_for_date(trade_date: str = "", theme_type: str = "industry",
     n = 0
     for r in hot:
         try:
-            _gen_theme(d, theme_type, r, headlines)
-            n += 1
+            if _gen_theme(d, theme_type, r, headlines):
+                n += 1
+            else:
+                logger.warning("[主题LLM] %s JSON 解析失败，跳过", r.get("theme_name"))
         except Exception as e:
             logger.warning("[主题LLM] %s 生成失败: %s", r.get("theme_name"), e)
     logger.info("[主题LLM] %s %s 生成 %d 条 + 市场环境=%s", d, theme_type, n, env_ok)
@@ -70,7 +72,8 @@ def generate_for_date(trade_date: str = "", theme_type: str = "industry",
 # 单主题解读
 # ──────────────────────────────────────────────
 
-def _gen_theme(date: str, theme_type: str, r: dict, headlines: list[str]) -> None:
+def _gen_theme(date: str, theme_type: str, r: dict, headlines: list[str]) -> bool:
+    """生成并落库单主题解读。返回是否成功落库（JSON 解析失败返回 False）。"""
     name = r["theme_name"]
     subject = f"{name}{'行业' if theme_type == 'industry' else '概念'}"
     rel_news = DC.relevant_news(headlines, {name})
@@ -98,11 +101,17 @@ def _gen_theme(date: str, theme_type: str, r: dict, headlines: list[str]) -> Non
         f"【相关新闻(财联社精筛)】\n{news_text}\n"
         f"【联网检索(博查,真实网页)】\n{web_text}\n"
     )
-    raw = LLMClient().chat([{"role": "user", "content": prompt}], task_type="flash",
-                           temperature=0.3, max_tokens=700)
-    obj = _parse_json(raw)
+    prompt += "\n严格只输出一个 JSON 对象，不要任何额外文字或代码块标记。"
+    llm = LLMClient()
+    obj = None
+    for _ in range(2):   # 解析失败重试一次
+        raw = llm.chat([{"role": "user", "content": prompt}], task_type="flash",
+                       temperature=0.3, max_tokens=700)
+        obj = _parse_json(raw)
+        if obj:
+            break
     if not obj:
-        return
+        return False
 
     upsert_theme_llm({
         "theme_name": name, "trade_date": date, "theme_type": theme_type,
@@ -117,6 +126,7 @@ def _gen_theme(date: str, theme_type: str, r: dict, headlines: list[str]) -> Non
                                     "site": w.get("site"), "date": w.get("date")} for w in web],
                                    ensure_ascii=False),
     })
+    return True
 
 
 def _facts_text(r: dict) -> str:
