@@ -20,11 +20,12 @@ from app.config import get_settings
 
 logger = logging.getLogger(__name__)
 
-# DeepSeek 价格（人民币/1M tokens，2024年参考价，可在 .env 覆盖）
-_DEEPSEEK_PRICE_INPUT = 0.5   # ¥/1M input tokens (flash)
-_DEEPSEEK_PRICE_OUTPUT = 2.0  # ¥/1M output tokens (flash)
-_DEEPSEEK_PRO_PRICE_INPUT = 4.0
-_DEEPSEEK_PRO_PRICE_OUTPUT = 16.0
+# DeepSeek V4 价格（人民币/1M tokens，按官方 USD 价×约7.2 折算，仅用于成本估算展示）
+# v4-flash: $0.14 in / $0.28 out ；v4-pro: $0.435 in / $0.87 out
+_DEEPSEEK_PRICE_INPUT = 1.0    # ¥/1M input tokens (v4-flash)
+_DEEPSEEK_PRICE_OUTPUT = 2.0   # ¥/1M output tokens (v4-flash)
+_DEEPSEEK_PRO_PRICE_INPUT = 3.1
+_DEEPSEEK_PRO_PRICE_OUTPUT = 6.3
 
 TaskType = Literal["flash", "pro"]
 

@@ -23,8 +23,8 @@ class Settings(BaseSettings):
 
     # ---------- DeepSeek ----------
     deepseek_api_key: str = Field(..., description="DeepSeek API Key")
-    deepseek_flash_model: str = Field("deepseek-chat", description="高频低价值任务模型")
-    deepseek_pro_model: str = Field("deepseek-reasoner", description="低频高价值任务模型")
+    deepseek_flash_model: str = Field("deepseek-v4-flash", description="高频低价值任务模型(V4快速)")
+    deepseek_pro_model: str = Field("deepseek-v4-pro", description="低频高价值任务模型(V4推理,质量最强)")
 
     # ---------- Claude（可选）----------
     claude_api_key: str = Field("", description="Claude API Key（可选备用）")

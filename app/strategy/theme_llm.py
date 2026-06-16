@@ -105,8 +105,8 @@ def _gen_theme(date: str, theme_type: str, r: dict, headlines: list[str]) -> boo
     llm = LLMClient()
     obj = None
     for _ in range(2):   # 解析失败重试一次
-        raw = llm.chat([{"role": "user", "content": prompt}], task_type="flash",
-                       temperature=0.3, max_tokens=700)
+        raw = llm.chat([{"role": "user", "content": prompt}], task_type="pro",
+                       temperature=0.3, max_tokens=1600)
         obj = _parse_json(raw)
         if obj:
             break
@@ -163,8 +163,8 @@ def _gen_market_env(date: str, rows: list[dict], headlines: list[str]) -> bool:
         f"【数据】板块{len(rows)}个,上涨{len(up)}个,当日资金合计{total_money}亿,平均MA20广度{avg_breadth}%,"
         f"热度居前: {top_str}\n【新闻头条】\n{news_text}\n"
     )
-    raw = LLMClient().chat([{"role": "user", "content": prompt}], task_type="flash",
-                           temperature=0.3, max_tokens=500)
+    raw = LLMClient().chat([{"role": "user", "content": prompt}], task_type="pro",
+                           temperature=0.3, max_tokens=1300)
     obj = _parse_json(raw)
     if not obj:
         return False

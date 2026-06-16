@@ -162,9 +162,9 @@ def compose_comment(
     try:
         return LLMClient().chat(
             [{"role": "user", "content": prompt}],
-            task_type="flash",
+            task_type="pro",
             temperature=0.2,
-            max_tokens=450,
+            max_tokens=1300,
         ).strip()
     except Exception as e:
         logger.warning("[详情] LLM 点评生成失败: %s", e)
