@@ -160,11 +160,13 @@ def compose_comment(
         f"【联网检索（博查，真实网页，含来源与日期）】\n{web_text}\n"
     )
     try:
+        # 即时面板（用户点击等待）用 flash(v4-flash) 保证秒级响应；
+        # 深度推理(v4-pro)留给预计算的批量任务(主题解读/报告)，那里无人等待。
         return LLMClient().chat(
             [{"role": "user", "content": prompt}],
-            task_type="pro",
+            task_type="flash",
             temperature=0.2,
-            max_tokens=1300,
+            max_tokens=800,
         ).strip()
     except Exception as e:
         logger.warning("[详情] LLM 点评生成失败: %s", e)
