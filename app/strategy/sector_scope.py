@@ -21,9 +21,8 @@ logger = logging.getLogger(__name__)
 _THRESHOLDS = {
     "rotate_breadth_ma20": 50.0,    # 轮动上行：MA20 广度下限
     "dip_breadth_ma20": 40.0,       # 低吸观察：MA20 广度下限（结构未破）
-    "risk_pct_7d": 12.0,            # 高位风险：7 日涨幅下限
-    "risk_concentration": 0.30,     # 高位风险：人气集中度(成交额)下限
-    "risk_top100": 10.0,            # 高位风险：Top100 比例下限(%)
+    "risk_pct_7d": 10.0,            # 高位风险：7 日涨幅下限
+    "risk_top100": 12.0,            # 高位风险：Top100 拥挤度下限(%)（行业/概念通用）
 }
 
 
@@ -46,10 +45,9 @@ def _is_dip(r: dict) -> bool:
 
 
 def _is_risk(r: dict) -> bool:
-    """高位风险：7日涨幅高 且 人气集中度高 且 Top100占比高。"""
+    """高位风险：7日涨幅高 且 Top100 拥挤度高（行业/概念通用口径）。"""
     return (
         _num(r.get("pct_chg_7d")) >= _THRESHOLDS["risk_pct_7d"]
-        and _num(r.get("pop_concentration_amount")) >= _THRESHOLDS["risk_concentration"]
         and _num(r.get("top100_ratio")) >= _THRESHOLDS["risk_top100"]
     )
 

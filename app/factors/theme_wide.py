@@ -229,3 +229,191 @@ def _trend_label(st) -> str:
     if d < -3:
         return "down"
     return "flat"
+
+
+# ══════════════════════════════════════════════
+# 概念宽表（同花顺概念，ths_index + ths_member 成分；heat 自算）
+# ══════════════════════════════════════════════
+
+import datetime as _dt
+
+from app.data.cache import cached_daily
+
+# 概念成分过滤：剔除过宽(>300,如国企改革)与过窄(<5)，聚焦真题材
+_CONCEPT_MIN, _CONCEPT_MAX = 5, 300
+# heat 权重（与 PRD §4.2 默认一致，可校准）
+_HEAT_W = {"money": 0.40, "ret": 0.25, "breadth": 0.20, "top": 0.15}
+
+
+def build_concept_wide(
+    trade_date: str,
+    provider: CompositeProvider | None = None,
+    k_norm: float = 1.0,
+    persist: bool = True,
+    lookback: int = 145,
+) -> list[ThemeWideRow]:
+    """计算指定交易日全部同花顺概念的宽表行（heat/phase/tier 按 PRD 公式自算）。"""
+    provider = provider or CompositeProvider()
+    members_map = _load_concept_members(provider)
+    if not members_map:
+        logger.warning("[概念宽表] 无成分映射，跳过")
+        return []
+
+    panel = build_qfq_panel(trade_date, provider, lookback=lookback)
+    dates7 = _recent_trade_dates(provider, trade_date, 7)
+    mf_by_date = _load_moneyflow(provider, dates7)
+    code2net_by_date = {d: _net_map(mf) for d, mf in mf_by_date.items()}
+    top100, top300 = _top_rank_sets(code2net_by_date.get(trade_date, {}))
+
+    from app.factors.popularity import build_popularity_proxy, theme_pop_factors
+    pop_weights = build_popularity_proxy(trade_date, provider)
+
+    # 1. 逐概念算因子（先不含 heat）
+    partials = []
+    for name, codes in members_map.items():
+        n = len(codes)
+        if n < 3:
+            continue
+        breadth = compute_breadth(panel, codes, BREADTH_WINDOWS)
+        money = _multi_period_money(codes, dates7, code2net_by_date)
+        pct = _multi_period_return(codes, panel)
+        cset = set(codes)
+        partials.append({
+            "name": name, "n": n, "breadth": breadth, "money": money, "pct": pct,
+            "top100": round(len(cset & top100) / n * 100, 1),
+            "top300": round(len(cset & top300) / n * 100, 1),
+            "norm": round(money["3d"] / (n ** 0.5) * k_norm, 2) if money["3d"] is not None else None,
+            "reliability": _sample_reliability(codes, code2net_by_date.get(trade_date, {})),
+            "pop": theme_pop_factors(codes, pop_weights),
+        })
+
+    # 2. 全概念横截面打分（heat/phase/tier/risk）
+    rows = _score_concept_rows(trade_date, partials)
+    if persist:
+        upsert_rows(rows)
+        logger.info("[概念宽表] %s 写入 %d 个概念", trade_date, len(rows))
+    return rows
+
+
+def _load_concept_members(provider: CompositeProvider) -> dict[str, list[str]]:
+    """
+    {概念名: [成分 ts_code]}，按 ISO 周缓存（成分变动慢）。
+    走 Tushare 同花顺 ths_index(type=N) + ths_member（服务器可达）。
+    """
+    iso = _dt.date.today().isocalendar()
+    week_key = f"{iso[0]}W{iso[1]:02d}"
+    df = cached_daily(name="ths_concept_members", date_key=week_key,
+                      fetch_fn=lambda: _fetch_concept_members(provider))
+    if df is None or df.empty:
+        return {}
+    return {name: g["member_code"].tolist() for name, g in df.groupby("concept_name")}
+
+
+def _fetch_concept_members(provider: CompositeProvider) -> "pd.DataFrame":
+    """拉取同花顺概念成分（长表 concept_name/member_code），过滤过宽/过窄概念。"""
+    pro = provider._ts._api
+    try:
+        idx = pro.ths_index(type="N")
+    except Exception as e:
+        logger.warning("[概念宽表] ths_index 失败: %s", e)
+        return pd.DataFrame()
+    if idx is None or idx.empty:
+        return pd.DataFrame()
+
+    idx = idx.copy()
+    idx["count"] = pd.to_numeric(idx.get("count"), errors="coerce")
+    idx = idx[(idx["count"] >= _CONCEPT_MIN) & (idx["count"] <= _CONCEPT_MAX)]
+
+    rows = []
+    for _, r in idx.iterrows():
+        code, name = r["ts_code"], str(r["name"])
+        try:
+            m = pro.ths_member(ts_code=code)
+        except Exception:
+            continue
+        if m is None or m.empty or "con_code" not in m.columns:
+            continue
+        for con in m["con_code"]:
+            rows.append({"concept_name": name, "member_code": str(con)})
+    logger.info("[概念宽表] 成分缓存：%d 概念 / %d 条", idx.shape[0], len(rows))
+    return pd.DataFrame(rows)
+
+
+def _pct_rank(values: list) -> list:
+    """百分位归一（0-1）；None 视为最低。"""
+    clean = [(i, v) for i, v in enumerate(values) if v is not None]
+    out = [0.0] * len(values)
+    if not clean:
+        return out
+    order = sorted(clean, key=lambda x: x[1])
+    m = len(order)
+    for rank, (i, _) in enumerate(order):
+        out[i] = rank / (m - 1) if m > 1 else 1.0
+    return out
+
+
+def _score_concept_rows(trade_date: str, partials: list[dict]) -> list[ThemeWideRow]:
+    """横截面打分：heat(百分位加权) + phase/tier/nextday_risk(规则)。"""
+    if not partials:
+        return []
+    z_money = _pct_rank([p["money"]["3d"] for p in partials])
+    z_ret = _pct_rank([p["pct"]["3d"] for p in partials])
+    z_top = _pct_rank([p["top100"] for p in partials])
+
+    rows = []
+    for i, p in enumerate(partials):
+        b20 = p["breadth"].get("ma20") or 0.0
+        heat = round(100 * (_HEAT_W["money"] * z_money[i] + _HEAT_W["ret"] * z_ret[i]
+                            + _HEAT_W["breadth"] * (b20 / 100) + _HEAT_W["top"] * z_top[i]), 1)
+        m3, r3, r1, r7 = p["money"]["3d"], p["pct"]["3d"], p["pct"]["1d"], p["pct"]["7d"]
+        phase = _concept_phase(m3, r3, r7, b20)
+        tier = _concept_tier(heat, m3, b20)
+        risk = _concept_risk(r1, p["top100"], phase)
+        b = p["breadth"]
+        rows.append(ThemeWideRow(
+            theme_name=p["name"], trade_date=trade_date, theme_type="concept",
+            sample_count=p["n"], sample_reliability=p["reliability"],
+            money_flow_1d=p["money"]["1d"], money_flow_3d=m3,
+            money_flow_5d=p["money"]["5d"], money_flow_7d=p["money"]["7d"],
+            money_flow_3d_norm=p["norm"],
+            pct_chg_1d=r1, pct_chg_3d=r3, pct_chg_5d=p["pct"]["5d"], pct_chg_7d=r7,
+            breadth_ma3=b["ma3"], breadth_ma5=b["ma5"], breadth_ma10=b["ma10"], breadth_ma20=b["ma20"],
+            breadth_ma30=b["ma30"], breadth_ma60=b["ma60"], breadth_ma90=b["ma90"], breadth_ma144=b["ma144"],
+            top100_ratio=p["top100"], top300_ratio=p["top300"],
+            pop_weight=p["pop"]["pop_weight"], pop_concentration_hhi=p["pop"]["pop_concentration_hhi"],
+            pop_fairness=p["pop"]["pop_fairness"],
+            heat_score=heat, heat_score_delta_3d=0.0, trend="new", phase=phase, tier=tier,
+            nextday_risk_penalty=risk,
+        ))
+    return rows
+
+
+def _concept_phase(m3, r3, r7, b20) -> str:
+    if m3 is None or r3 is None:
+        return "震荡"
+    if m3 > 0 and r3 > 0 and b20 >= 50:
+        return "趋势"
+    if m3 > 0 and r3 > 0:
+        return "升温"
+    if m3 < 0 and r3 < 0:
+        return "退潮"
+    return "震荡"
+
+
+def _concept_tier(heat, m3, b20) -> str:
+    if heat >= 60 and (m3 or 0) > 0 and b20 >= 40:
+        return "buy"
+    if heat >= 40:
+        return "watch"
+    return "avoid"
+
+
+def _concept_risk(r1, top100, phase) -> float:
+    risk = 0.0
+    if r1 is not None:
+        risk += 40 if r1 > 5 else (20 if r1 > 3 else 0)
+    if (top100 or 0) > 15:
+        risk += 25
+    if phase == "退潮":
+        risk += 25
+    return round(min(risk, 100.0), 1)

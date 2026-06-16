@@ -94,14 +94,14 @@ function renderCols(b){
   document.getElementById('c-dip').innerHTML=(b.dip||[]).map(r=>card(r,[
     ['5日涨',sg(r.pct_chg_5d)],['当日资金',f(r.money_flow_1d)],['MA20',f(r.breadth_ma20,'%')]])).join('')||'<div class="miss" style="font-size:12px">无</div>';
   document.getElementById('c-risk').innerHTML=(b.risk||[]).map(r=>card(r,[
-    ['7日涨',sg(r.pct_chg_7d)],['集中度',f(r.pop_concentration_amount)],['Top100',f(r.top100_ratio,'%')]])).join('')||'<div class="miss" style="font-size:12px">无</div>';
+    ['7日涨',sg(r.pct_chg_7d)],['人气HHI',f(r.pop_concentration_hhi)],['Top100',f(r.top100_ratio,'%')]])).join('')||'<div class="miss" style="font-size:12px">无</div>';
 }
 
 const COLS=[
   ['signal','信号'],['theme_name','板块'],['pct_chg_1d','1日涨跌','%'],['pct_chg_3d','3日涨跌','%'],
   ['money_flow_1d','当日资金_亿'],['money_flow_3d','3日资金_亿'],['top100_ratio','Top100','%'],
   ['money_flow_5d','5日资金_亿'],['pct_chg_5d','5日涨跌','%'],['pct_chg_7d','7日涨跌','%'],
-  ['breadth_ma20','MA20占比','%'],['pop_concentration_amount','集中度'],['money_flow_3d_norm','3日资金_norm'],
+  ['breadth_ma20','MA20占比','%'],['pop_concentration_hhi','人气HHI'],['money_flow_3d_norm','3日资金_norm'],
 ];
 const SIGNED=new Set(['pct_chg_1d','pct_chg_3d','pct_chg_5d','pct_chg_7d','money_flow_1d','money_flow_3d','money_flow_5d','money_flow_3d_norm']);
 const TEXT=new Set(['signal','theme_name']);

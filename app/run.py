@@ -314,13 +314,15 @@ def theme_llm_cmd(trade_date: str, theme_type: str, top: int) -> None:
 @click.option("--date", "trade_date", default="last", show_default=True,
               help="交易日：YYYYMMDD / last（默认最近交易日）")
 def build_wide_cmd(trade_date: str) -> None:
-    """计算并落库 theme_heat_all_in_one 宽表（行业口径，供 LLM 分析页读取）。"""
-    from app.factors.theme_wide import build_industry_wide
+    """计算并落库 theme_heat_all_in_one 宽表（行业 + 同花顺概念，供 LLM 分析页读取）。"""
+    from app.factors.theme_wide import build_industry_wide, build_concept_wide
 
     td = _resolve_date(trade_date)
-    console.print(f"\n[bold cyan]🧮 计算主题宽表[/bold cyan]  交易日 {td}（行业口径，首次约2-3分钟）\n")
-    rows = build_industry_wide(td, persist=True)
-    console.print(f"[green]✅ 宽表已落库：{len(rows)} 个行业 → data_cache/theme_heat.db[/green]\n")
+    console.print(f"\n[bold cyan]🧮 计算主题宽表[/bold cyan]  交易日 {td}（行业 + 概念，首次约3-5分钟）\n")
+    ind = build_industry_wide(td, persist=True)
+    console.print(f"[green]✅ 行业：{len(ind)} 个[/green]")
+    con = build_concept_wide(td, persist=True)
+    console.print(f"[green]✅ 概念：{len(con)} 个 → data_cache/theme_heat.db[/green]\n")
 
 
 @cli.command("signal-eval")
