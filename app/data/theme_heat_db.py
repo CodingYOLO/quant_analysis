@@ -132,6 +132,32 @@ def init_db() -> None:
             )
         """)
         con.execute("CREATE INDEX IF NOT EXISTS idx_pop_date ON popularity_rank(trade_date)")
+        # 主题 LLM 解读（盘后批量生成、落库缓存；前端只读，不实时调 LLM）
+        con.execute("""
+            CREATE TABLE IF NOT EXISTS theme_llm (
+                theme_name      TEXT NOT NULL,
+                trade_date      TEXT NOT NULL,
+                theme_type      TEXT NOT NULL,
+                reason          TEXT,
+                news_evidence   TEXT,    -- json[]
+                enter_conditions TEXT,   -- json[] 绿色介入条件
+                falsify_conditions TEXT, -- json[] 红色证伪条件
+                factor_explain  TEXT,    -- json[] 量化解读
+                tier_llm        TEXT,
+                score_llm       REAL,
+                web_sources     TEXT,    -- json[] 博查原文链接(可核对)
+                created_at      TEXT DEFAULT (datetime('now','localtime')),
+                UNIQUE(theme_name, trade_date, theme_type)
+            )
+        """)
+        # 每日市场环境解读（主题无关，一日一条）
+        con.execute("""
+            CREATE TABLE IF NOT EXISTS market_env (
+                trade_date TEXT PRIMARY KEY,
+                phase TEXT, trend TEXT, confidence REAL, summary TEXT,
+                created_at TEXT DEFAULT (datetime('now','localtime'))
+            )
+        """)
 
 
 # ──────────────────────────────────────────────
@@ -212,6 +238,58 @@ def get_popularity(trade_date: str) -> list[dict]:
             "SELECT * FROM popularity_rank WHERE trade_date=?", (trade_date,)
         ).fetchall()
     return [dict(r) for r in rows]
+
+
+# ──────────────────────────────────────────────
+# 主题 LLM 解读 / 市场环境
+# ──────────────────────────────────────────────
+
+def upsert_theme_llm(row: dict) -> None:
+    """写入/覆盖单个主题的 LLM 解读（按 theme_name+trade_date+theme_type）。"""
+    init_db()
+    cols = ["theme_name", "trade_date", "theme_type", "reason", "news_evidence",
+            "enter_conditions", "falsify_conditions", "factor_explain",
+            "tier_llm", "score_llm", "web_sources"]
+    ph = ",".join("?" for _ in cols)
+    upd = ",".join(f"{c}=excluded.{c}" for c in cols[3:])
+    with _conn() as con:
+        con.execute(
+            f"INSERT INTO theme_llm ({','.join(cols)}) VALUES ({ph}) "
+            f"ON CONFLICT(theme_name, trade_date, theme_type) DO UPDATE SET {upd}",
+            tuple(row.get(c) for c in cols),
+        )
+
+
+def get_theme_llm(trade_date: str, theme_name: str, theme_type: str) -> dict | None:
+    """读取单个主题的 LLM 解读。"""
+    init_db()
+    with _conn() as con:
+        r = con.execute(
+            "SELECT * FROM theme_llm WHERE trade_date=? AND theme_name=? AND theme_type=?",
+            (trade_date, theme_name, theme_type),
+        ).fetchone()
+    return dict(r) if r else None
+
+
+def upsert_market_env(trade_date: str, phase: str, trend: str, confidence: float, summary: str) -> None:
+    """写入/覆盖每日市场环境解读。"""
+    init_db()
+    with _conn() as con:
+        con.execute(
+            """INSERT INTO market_env (trade_date, phase, trend, confidence, summary)
+               VALUES (?,?,?,?,?)
+               ON CONFLICT(trade_date) DO UPDATE SET
+                 phase=excluded.phase, trend=excluded.trend,
+                 confidence=excluded.confidence, summary=excluded.summary""",
+            (trade_date, phase, trend, confidence, summary),
+        )
+
+
+def get_market_env(trade_date: str) -> dict | None:
+    init_db()
+    with _conn() as con:
+        r = con.execute("SELECT * FROM market_env WHERE trade_date=?", (trade_date,)).fetchone()
+    return dict(r) if r else None
 
 
 # ──────────────────────────────────────────────

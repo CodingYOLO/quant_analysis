@@ -296,6 +296,20 @@ def verify_data() -> None:
     run_all_verifications()
 
 
+@cli.command("theme-llm")
+@click.option("--date", "trade_date", default="last", help="交易日，默认最近交易日")
+@click.option("--type", "theme_type", default="industry", help="industry / concept")
+@click.option("--top", default=15, show_default=True, help="为热度前 N 的主题生成")
+def theme_llm_cmd(trade_date: str, theme_type: str, top: int) -> None:
+    """为热门主题批量生成接地式 LLM 解读 + 市场环境，落库（供 LLM 分析页读取）。"""
+    from app.strategy.theme_llm import generate_for_date
+
+    td = _resolve_date(trade_date)
+    console.print(f"\n[bold cyan]🧠 生成主题 LLM 解读[/bold cyan]  {td} {theme_type} Top{top}\n")
+    res = generate_for_date(td, theme_type, top)
+    console.print(f"[green]✅ 生成 {res['generated']} 条主题解读 + 市场环境={res['env']}[/green]\n")
+
+
 @cli.command("wide")
 @click.option("--date", "trade_date", default="last", show_default=True,
               help="交易日：YYYYMMDD / last（默认最近交易日）")

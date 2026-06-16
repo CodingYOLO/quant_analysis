@@ -92,8 +92,20 @@ async function loadList(){
   if(!j.ok){ tl.innerHTML='<div class="todo-box">❌ '+j.error+'</div>'; return; }
   if(!j.available){ tl.innerHTML='<div class="todo-box">⚠️ '+(j.msg||'该日宽表未计算')+'</div>'; return; }
   curDate=j.date; rows=j.rows;
-  document.getElementById('env-asof').textContent='as_of '+j.date.replace(/(\d{4})(\d{2})(\d{2})/,'$1-$2-$3');
-  document.getElementById('env-text').textContent='共 '+rows.length+' 个'+(curType==='industry'?'行业':'概念')+'主题（数据交易日 '+j.date.replace(/(\d{4})(\d{2})(\d{2})/,'$1-$2-$3')+'）。市场环境综合解读（LLM）将在 M6 接入。';
+  const dd=j.date.replace(/(\d{4})(\d{2})(\d{2})/,'$1-$2-$3');
+  const tg=document.getElementById('env').querySelector('.tags');
+  const e=j.env;
+  if(e){
+    tg.innerHTML='<b style="color:#fbbf24">市场环境</b>'
+      +(e.phase?'<span class="tag amber">'+e.phase+'</span>':'')
+      +(e.trend?'<span class="tag">'+e.trend+'</span>':'')
+      +(e.confidence!=null?'<span class="tag">置信度 '+e.confidence+'</span>':'')
+      +'<span class="tag">as_of '+dd+'</span>';
+    document.getElementById('env-text').textContent=e.summary||'';
+  }else{
+    tg.innerHTML='<b style="color:#fbbf24">市场环境</b><span class="tag">as_of '+dd+'</span>';
+    document.getElementById('env-text').textContent='共 '+rows.length+' 个'+(curType==='industry'?'行业':'概念')+'主题。市场环境解读尚未生成（运行 theme-llm）。';
+  }
   renderList();
 }
 function renderList(){
@@ -122,10 +134,10 @@ async function openDetail(name, card){
   const r=await fetch('/api/theme/detail?type='+curType+'&date='+curDate+'&name='+encodeURIComponent(name));
   const j=await r.json();
   if(!j.ok){ box.innerHTML='<div class="todo-box">❌ '+j.error+'</div>'; return; }
-  box.innerHTML=renderDetail(j.data);
+  box.innerHTML=renderDetail(j.data, j.llm);
 }
 
-function renderDetail(d){
+function renderDetail(d, llm){
   let h='';
   // 标题 + 4 卡
   h+='<div style="display:flex;align-items:center;gap:10px;margin-bottom:12px"><span style="font-size:18px;font-weight:700">'+d.theme_name+'</span>'
@@ -157,9 +169,26 @@ function renderDetail(d){
   // 标准化映射（行业=直接命中）
   h+='<div class="sec"><h3>标准化映射明细</h3><table class="mini"><tr><th>原始主题</th><th>标准主题</th><th>方法</th><th>匹配</th><th>类型</th></tr>'
    +'<tr><td>'+d.theme_name+'</td><td>'+d.theme_name+'</td><td>'+(d.theme_type==='industry'?'exact(行业直配)':'concept')+'</td><td>是</td><td>'+d.theme_type+'</td></tr></table></div>';
-  // LLM 解读（M6 待接入，诚实占位，不编造）
-  h+='<div class="sec"><h3>理由 / 新闻证据 / 分层与策略结论（LLM）</h3>'
-   +'<div class="todo-box">🧠 LLM 解读层（理由、新闻证据、🟢介入条件/🔴证伪条件、量化解读）将在 M6（盘后 LLM 批量落库）接入。当前页仅展示已真实计算的量化因子，不展示未生成内容。</div></div>';
+  // LLM 解读（盘后落库；未生成则诚实提示，不编造）
+  if(llm){
+    const arr=(x)=>Array.isArray(x)?x:[];
+    h+='<div class="sec"><h3>理由（LLM·接地）</h3><div style="font-size:13px;line-height:1.7;color:#dfe6ff;background:#1b1f33;border-left:3px solid #5d7cff;padding:8px 12px;border-radius:4px">'+(llm.reason||'—')+'</div></div>';
+    if(arr(llm.news_evidence).length)
+      h+='<div class="sec"><h3>新闻证据</h3><div>'+arr(llm.news_evidence).map(n=>'<span class="tag" style="margin:2px">'+n+'</span>').join(' ')+'</div></div>';
+    h+='<div class="sec"><h3>主题分层与策略结论</h3>'
+      +'<div style="margin-bottom:8px"><span class="tag">分层 '+(llm.tier||'—')+'</span> <span class="tag">评分 '+(llm.score_llm!=null?Math.round(llm.score_llm):'—')+'</span></div>';
+    arr(llm.enter_conditions).forEach(c=>h+='<div style="font-size:12.5px;color:#4ade80;background:#0e1c14;border:1px solid #1e4a32;border-radius:6px;padding:5px 9px;margin:3px 0">'+c+'</div>');
+    arr(llm.falsify_conditions).forEach(c=>h+='<div style="font-size:12.5px;color:#f87171;background:#1c0e0e;border:1px solid #4a1e1e;border-radius:6px;padding:5px 9px;margin:3px 0">'+c+'</div>');
+    if(arr(llm.factor_explain).length)
+      h+='<div style="margin-top:8px;font-size:12.5px;color:#b8c2e8">'+arr(llm.factor_explain).map(f=>'· '+f).join('<br>')+'</div>';
+    h+='</div>';
+    if(arr(llm.web_sources).length){
+      h+='<div class="sec"><h3>🌐 联网检索来源（博查·可点击核对）</h3><ul style="margin:0 0 0 16px;color:#c2c8de;font-size:12.5px">'
+        +arr(llm.web_sources).filter(w=>w&&w.title).map(w=>'<li><a href="'+(w.url||'#')+'" target="_blank" rel="noopener" style="color:#7c9ef8">'+w.title+'</a> <span class="neu2">（'+[w.date,w.site].filter(Boolean).join(' · ')+'）</span></li>').join('')+'</ul></div>';
+    }
+  }else{
+    h+='<div class="sec"><h3>理由 / 新闻证据 / 分层结论（LLM）</h3><div class="todo-box">该主题 LLM 解读尚未生成（仅为热度前列主题盘后生成）。当前展示真实量化因子，不展示未生成内容。</div></div>';
+  }
   return h;
 }
 function kpi(lab,val){ return '<div class="kpi"><div class="lab">'+lab+'</div><div class="big">'+val+'</div></div>'; }
