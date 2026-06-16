@@ -132,7 +132,11 @@ def build_dashboard(end_date: str, days: int = 22, start_date: str = "", force: 
             "limit_down": len(down_set),
         }
 
-    range_dates = [d for d in all_dates if d in per_day][-days:]
+    # 指定区间：取 [start_date, end_date] 全部交易日（不截断）；否则取最近 days 天
+    if start_date:
+        range_dates = [d for d in all_dates if d in per_day and d >= start_date]
+    else:
+        range_dates = [d for d in all_dates if d in per_day][-days:]
 
     # —— 连板梯队（每日 2板/3板/4板/5板+ 家数 + 最高板）——
     lianban_series = _lianban_series(all_dates, limit_sets, range_dates)

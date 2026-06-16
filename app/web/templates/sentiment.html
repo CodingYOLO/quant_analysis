@@ -16,15 +16,23 @@
 .chart { width:100%; height:300px; }
 .chart-full { grid-column: 1 / -1; }
 @media (max-width: 900px){ .kpi-row{grid-template-columns:repeat(2,1fr)} .chart-grid{grid-template-columns:1fr} }
+.preset { background:#0f1117; border:1px solid #2d3052; color:#9ca3af; border-radius:14px; padding:4px 12px; font-size:12px; cursor:pointer; transition:all .15s; }
+.preset:hover, .preset.active { background:#2742a8; color:#fff; border-color:#3358e0; }
 {% endblock %}
 
 {% block content %}
-<div class="chart-card" style="margin-bottom:16px;display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+<div class="chart-card" style="margin-bottom:16px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
   <label class="neu" style="font-size:13px">区间</label>
   <input type="date" id="d-start" style="background:#0f1117;color:#e8e8e8;border:1px solid #2d3052;border-radius:6px;padding:7px 10px;font-size:13px">
   <span class="neu">至</span>
   <input type="date" id="d-end" style="background:#0f1117;color:#e8e8e8;border:1px solid #2d3052;border-radius:6px;padding:7px 10px;font-size:13px">
-  <button id="reload" style="background:linear-gradient(135deg,#3358e0,#5d7cff);color:#fff;border:none;padding:8px 20px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer">🔄 加载区间分析</button>
+  <button id="reload" style="background:linear-gradient(135deg,#3358e0,#5d7cff);color:#fff;border:none;padding:8px 18px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer">🔄 加载</button>
+  <span style="width:1px;height:22px;background:#2d3052;margin:0 4px"></span>
+  <span class="neu" style="font-size:12px">快捷：</span>
+  <span class="preset" data-d="30">近1月</span>
+  <span class="preset" data-d="90">近3月</span>
+  <span class="preset" data-d="180">近半年</span>
+  <span class="preset" data-d="365">近1年</span>
   <span id="regime-badge" style="margin-left:auto;font-size:15px;font-weight:700"></span>
   <span id="regime-reason" class="neu" style="font-size:12px;width:100%"></span>
 </div>
@@ -92,7 +100,20 @@ async function load(){
     render(j.data);
   }catch(e){ loadingEl.textContent='❌ 请求出错：'+e; }
 }
-document.getElementById('reload').addEventListener('click', load);
+document.getElementById('reload').addEventListener('click', ()=>{ clearPreset(); load(); });
+
+// 快捷区间预设：一键回溯历史
+function clearPreset(){ document.querySelectorAll('.preset').forEach(p=>p.classList.remove('active')); }
+document.querySelectorAll('.preset').forEach(p=>p.addEventListener('click', ()=>{
+  clearPreset(); p.classList.add('active');
+  const days = +p.dataset.d;
+  const end = new Date(), start = new Date(); start.setDate(start.getDate()-days);
+  document.getElementById('d-end').value = end.toISOString().slice(0,10);
+  document.getElementById('d-start').value = start.toISOString().slice(0,10);
+  const L=document.getElementById('loading');
+  if(days>=180){ L.style.display='block'; L.textContent='⏳ 长区间首次加载较慢（需逐日聚合历史数据，约1-3分钟），之后缓存秒开...'; }
+  load();
+}));
 
 function render(d){
   // 行情类型徽章
