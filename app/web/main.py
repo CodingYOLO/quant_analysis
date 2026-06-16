@@ -155,11 +155,32 @@ async def generate_page(request: Request, _user: str = Depends(require_auth)):
     return templates.TemplateResponse(request=request, name="generate.html", context={})
 
 
-@app.post("/api/generate_selection")
-async def api_generate_selection(_user: str = Depends(require_auth)):
-    """按需运行完整选股流水线（吴川三层+量化+风控），返回报告 HTML。耗时约2-3分钟。"""
+def _push_report(notify: bool, title: str, content: str) -> bool:
+    """
+    将网页手动生成的报告推送到邮箱/微信（与定时任务一致）。
+
+    Args:
+        notify:  是否推送（前端勾选框控制，默认开）
+        title:   推送标题（Server酱标题上限约32字，统一截断）
+        content: 报告 Markdown 全文
+
+    Returns:
+        是否推送成功；notify=False 或失败均返回 False（不影响生成结果）。
+    """
+    if not notify:
+        return False
     try:
-        import time as _t
+        from app.notify.notifier import get_notifier
+        return bool(get_notifier().send(title[:32], content))
+    except Exception as e:
+        logger.warning("网页生成推送失败: %s", e)
+        return False
+
+
+@app.post("/api/generate_selection")
+async def api_generate_selection(notify: bool = True, _user: str = Depends(require_auth)):
+    """按需运行完整选股流水线（吴川三层+量化+风控），返回报告 HTML，默认推送邮箱/微信。"""
+    try:
         from app.graph import build_graph
         from app.state import PipelineState
         from app.run import _resolve_date
@@ -172,28 +193,35 @@ async def api_generate_selection(_user: str = Depends(require_auth)):
         content = md_path.read_text(encoding="utf-8") if md_path.exists() else (final.report_md or "")
         if not content:
             return {"ok": False, "error": "选股流水线未产出报告（可能当日数据未就绪或非交易日）"}
+        # 推送标题与 CLI 定时任务保持一致
+        n_cand = len(final.candidates)
+        regime_label = getattr(final.market_regime, "label", "") or ""
+        title = f"【盘后选股】{trade_date[4:6]}/{trade_date[6:]} {regime_label} | 候选{n_cand}只"
+        pushed = _push_report(notify, title, content)
         return {"ok": True, "title": f"完整选股报告 {trade_date}", "name": trade_date,
-                "html": _render_markdown(content)}
+                "html": _render_markdown(content), "pushed": pushed}
     except Exception as e:
         logger.exception("选股流水线失败")
         return {"ok": False, "error": str(e)}
 
 
 @app.post("/api/generate/{session}")
-async def api_generate(session: str, _user: str = Depends(require_auth)):
+async def api_generate(session: str, notify: bool = True, _user: str = Depends(require_auth)):
     """
-    按需生成三时段快讯之一（pre/mid/post），不推送，仅返回 HTML 供网页预览。
+    按需生成三时段快讯之一（pre/mid/post），返回 HTML 供网页预览，默认推送邮箱/微信。
     """
     if session not in ("pre", "mid", "post"):
         return {"ok": False, "error": "session 必须是 pre/mid/post"}
     try:
         from app.nodes.quick_report import build_quick_report
         filepath, title, content = build_quick_report(session)
+        pushed = _push_report(notify, title, content)
         return {
             "ok": True,
             "title": title,
             "name": Path(filepath).stem,
             "html": _render_markdown(content),
+            "pushed": pushed,
         }
     except Exception as e:
         logger.exception("按需生成失败")
