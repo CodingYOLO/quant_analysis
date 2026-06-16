@@ -31,27 +31,198 @@ logger = logging.getLogger(__name__)
 
 
 def node_stock_selection(state: PipelineState) -> PipelineState:
-    """量化选股流水线，任何市场状态都执行——弱势时仓位建议为0%，但依然输出观察候选股。"""
-
+    """
+    融合版选股（路线B）：候选统一来自「选股池」引擎
+    （已纳入板块热度/多周期资金/人气/Top100拥挤度/次日风险/多路交叉验证）。
+    叠加：① 当天数据新鲜度校验（必须等数据就绪）② 个股避雷否决。
+    老五步评分(_run_selection_pipeline)已退役（保留代码不调用）。
+    """
     provider = CompositeProvider()
     settings = get_settings()
+    td = state.trade_date
+    regime = state.market_regime
+    market_label = regime.label if regime else "震荡"
+    can_open = regime.can_open if regime else True
 
-    # 从 state.themes 提取有事件催化的行业（用于事件动量加分）
-    event_catalyst_industries = _extract_event_industries(state)
+    # S1: 数据新鲜度校验——绝不用半截数据
+    ok, msg = _data_ready(td, provider)
+    if not ok:
+        logger.warning("[节点C] 当天数据未就绪，跳过选股: %s", msg)
+        if state.meta:
+            state.meta.errors.append(f"选股跳过（数据未就绪）：{msg}")
+        state.candidates = []
+        return state
+    _ensure_wide(td, provider)   # 主题热度/板块全景宽表就绪（theme_pick 依赖），缺则现算
 
-    candidates = _run_selection_pipeline(
-        trade_date=state.trade_date,
-        provider=provider,
-        max_candidates=settings.max_candidates,
-        min_market_cap=settings.min_market_cap,
-        max_market_cap=settings.max_market_cap,
-        market_label=state.market_regime.label,
-        event_catalyst_industries=event_catalyst_industries,
-    )
+    # 统一选股逻辑：调用选股池引擎
+    from app.strategy.stock_pool import build_stock_pool
+    pool = build_stock_pool(td, provider, market_label=market_label, persist=True)
+    if not pool:
+        state.candidates = []
+        logger.info("[节点C] 选股池为空")
+        return state
 
-    state.candidates = candidates
-    logger.info("[节点C] 选股完成，候选股 %d 只", len(candidates))
+    # 可开仓→取最关注；不可开仓(弱势)→全池按置信度作观察候选
+    picks = [r for r in pool if r["is_focus"]] if can_open else pool
+    picks = sorted(picks, key=lambda r: r["confidence"], reverse=True)[:settings.max_candidates]
+
+    # S2: 个股避雷（结构化减持/立案 + 博查最新负面）→ 降级"仅观察"
+    guard = _news_guard_map(td, provider, picks)
+    # 富化补算 rsi/vwap/振幅（仅候选小集合）
+    extra = _enrich_factors(td, provider, [r["ts_code"] for r in picks])
+
+    state.candidates = [
+        _pool_to_candidate(r, extra.get(r["ts_code"], {}),
+                           guard.get(r["ts_code"][:6], {}), market_label, can_open)
+        for r in picks
+    ]
+    n_red = sum(1 for v in guard.values() if v.get("red"))
+    logger.info("[节点C] 融合选股完成：候选 %d 只（can_open=%s，重大利空降级 %d）",
+                len(state.candidates), can_open, n_red)
     return state
+
+
+# ============================================================
+# 融合版助手（S1 数据校验 / S2 避雷 / 候选映射）
+# ============================================================
+
+def _data_ready(td: str, provider: CompositeProvider) -> tuple[bool, str]:
+    """校验当天核心数据是否就绪（日线/资金流/每日指标）。"""
+    try:
+        daily = provider.get_daily(td)
+        if daily is None or daily.empty:
+            return False, f"{td} 日线未入库"
+        mf = provider.get_money_flow(td)
+        if mf is None or mf.empty:
+            return False, f"{td} 个股资金流未入库（约17:15）"
+        db = provider.get_daily_basic(td)
+        if db is None or db.empty:
+            return False, f"{td} 每日指标(换手/市值)未入库"
+        return True, "ok"
+    except Exception as e:
+        return False, f"数据校验异常: {e}"
+
+
+def _ensure_wide(td: str, provider: CompositeProvider) -> None:
+    """确保主题宽表已计算（theme_pick/板块热度依赖），缺则现算。"""
+    try:
+        from app.data.theme_heat_db import get_themes
+        if get_themes(td, "industry"):
+            return
+        from app.factors.theme_wide import build_industry_wide, build_concept_wide
+        logger.info("[节点C] %s 宽表缺失，现算行业+概念...", td)
+        build_industry_wide(td, provider, persist=True)
+        build_concept_wide(td, provider, persist=True)
+    except Exception as e:
+        logger.warning("[节点C] 宽表确保失败（板块热度可能缺）: %s", e)
+
+
+# 重大利空(降级)关键词 vs 一般风险(仅警示)关键词——避免误报否决好票
+_RED_KW = {"立案", "调查", "退市", "*ST", "ST", "诉讼", "仲裁", "处罚", "违规",
+           "违法", "造假", "冻结", "爆仓", "暴雷", "踩雷"}
+_RED_FORECAST = {"预亏", "预减", "首亏", "续亏"}
+
+
+def _news_guard_map(td: str, provider: CompositeProvider, picks: list[dict]) -> dict[str, dict]:
+    """
+    分级避雷：返回 {6位码: {"red":[重大利空,降级], "yellow":[一般风险,仅警示]}}。
+    红线(可信)：业绩预亏/预减 + 立案/退市/诉讼/处罚/造假/冻结。
+    黄线(常见,不降级)：减持/问询/核查/监管/质押 等。
+    """
+    out: dict[str, dict] = {}
+
+    def add(code6, tier, tag):
+        out.setdefault(code6, {"red": [], "yellow": []})[tier].append(tag)
+
+    # 结构化（Tushare，可信）
+    try:
+        from app.strategy.market_extras import get_forecast_risk, get_holder_reduce
+        forecast = get_forecast_risk(td, provider)
+        reduce = get_holder_reduce(td, provider)
+        for r in picks:
+            ts = r["ts_code"]
+            if ts in forecast:
+                tier = "red" if forecast[ts] in _RED_FORECAST else "yellow"
+                add(ts[:6], tier, f"业绩{forecast[ts]}")
+            if ts in reduce:
+                add(ts[:6], "yellow", reduce[ts])    # 减持=黄线，不降级
+    except Exception as e:
+        logger.debug("[节点C] 结构化避雷失败: %s", e)
+
+    # 博查最新负面（按命中关键词分红/黄线）
+    try:
+        from types import SimpleNamespace
+        from app.strategy.news_guard import scan_candidates
+        cands = [SimpleNamespace(name=r["name"], code=r["ts_code"]) for r in picks]
+        for code6, hs in scan_candidates(cands).items():
+            red = sorted({h["keyword"] for h in hs if h["keyword"] in _RED_KW})
+            yellow = sorted({h["keyword"] for h in hs if h["keyword"] not in _RED_KW})
+            if red:
+                add(code6, "red", "网络舆情:" + "/".join(red[:3]))
+            if yellow:
+                add(code6, "yellow", "网络舆情:" + "/".join(yellow[:3]))
+    except Exception as e:
+        logger.debug("[节点C] 博查避雷失败: %s", e)
+    return out
+
+
+def _enrich_factors(td: str, provider: CompositeProvider, codes: list[str]) -> dict[str, dict]:
+    """为候选补算 rsi_14 / vwap_deviation / avg_amplitude_5d（小集合，复用价格矩阵）。"""
+    out: dict[str, dict] = {}
+    if not codes:
+        return out
+    try:
+        close_m, _o, high_m, low_m, vol_m = load_price_matrix(td, provider, n_days=30)
+    except Exception:
+        return out
+    for ts in codes:
+        if ts not in close_m.columns:
+            continue
+        try:
+            close = close_m[ts].dropna()
+            vol = vol_m[ts].dropna() if ts in vol_m.columns else pd.Series(dtype=float)
+            rsi_v = float(rsi(close, 14).iloc[-1]) if len(close) >= 15 else 0.0
+            vwap_dev = float(vwap_position(close, vol, 20)) if (len(close) >= 20 and len(vol) >= 20) else 0.0
+            amp = 0.0
+            if ts in high_m.columns and ts in low_m.columns:
+                amp_series = (high_m[ts] - low_m[ts]) / close_m[ts].shift(1) * 100
+                amp = float(amp_series.dropna().tail(5).mean()) if amp_series.dropna().tail(5).size else 0.0
+            out[ts] = {"rsi_14": round(rsi_v, 1), "vwap_deviation": round(vwap_dev, 1),
+                       "avg_amplitude_5d": round(amp, 1)}
+        except Exception:
+            continue
+    return out
+
+
+def _pool_to_candidate(r: dict, extra: dict, guard: dict,
+                       market_label: str, can_open: bool) -> Candidate:
+    """选股池记录 → Candidate（映射因子/交易计划；红线避雷降级仅观察，黄线仅警示）。"""
+    red = guard.get("red", []) if guard else []
+    yellow = guard.get("yellow", []) if guard else []
+    observe = (not can_open) or bool(red)
+    f = StockFactors(
+        close=r.get("close", 0.0), pct_change=r.get("pct_chg", 0.0),
+        turnover_rate=r.get("turnover", 0.0), market_cap=r.get("circ_mv_yi", 0.0),
+        fund_flow_3d=r.get("main_flow_3d", 0.0) * 1e4,   # 亿→万元
+        rps50=r.get("rps50", 0.0), change_pct_7d=r.get("change_7d", 0.0),
+        rsi_14=extra.get("rsi_14", 0.0), vwap_deviation=extra.get("vwap_deviation", 0.0),
+        avg_amplitude_5d=extra.get("avg_amplitude_5d", 0.0),
+    )
+    p = TradePlan(
+        buy_conservative=r.get("buy_low", 0.0), buy_aggressive=r.get("buy_high", 0.0),
+        stop_loss=r.get("stop_loss", 0.0), take_profit_1=r.get("take_profit_1", 0.0),
+        take_profit_2=r.get("take_profit_2", 0.0),
+        position_pct=0.0 if observe else r.get("position_pct", 0.0),
+    )
+    filters = [x for x in (list(r.get("sources", [])) + [r.get("strategy_label", "")]) if x]
+    risk = list(r.get("risk_flags", []))
+    risk += [f"🔴{t}" for t in red] + [f"🟡{t}" for t in yellow]
+    if red:
+        risk.append("命中重大利空·降级仅观察")
+    return Candidate(
+        code=r["ts_code"], name=r["name"], theme=r.get("theme", ""),
+        filters_passed=filters, risk_flags=risk, trade_plan=p, factors=f,
+    )
 
 
 # ============================================================

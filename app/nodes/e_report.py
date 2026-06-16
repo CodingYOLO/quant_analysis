@@ -111,6 +111,9 @@ def _build_report(state: PipelineState) -> str:
     else:
         lines.append("_（今日无股票通过量化筛选）_")
 
+    # ---- AI 深度复盘（v4-pro 接地：大盘→主线→为何选→风险）----
+    _append_llm_review(lines, state)
+
     # ---- O15: 持仓追踪区块 ----
     _append_tracking_section(lines, state)
 
@@ -517,6 +520,55 @@ def _append_stock_detail(lines: list, idx: int, c: Candidate, market_label: str)
 
     lines.append("")
     lines.append("---")
+
+
+def _append_llm_review(lines: list, state: PipelineState) -> None:
+    """
+    AI 深度复盘（v4-pro 接地）：大盘环境 → 主线板块 → 为何选这些候选(横向) → 风险。
+    只解释已算因子+真实数据，不编造、不预测涨跌、不输出胜率。盘后批量，无人等待用 pro。
+    """
+    if not state.candidates:
+        return
+    try:
+        from app.llm.client import LLMClient
+        regime = state.market_regime
+        buy_sectors = [s for s in state.sector_stats if s.decision == "buy"][:6]
+        sec_txt = "、".join(
+            f"{s.industry}(热度{s.heat_score:.0f}/{s.phase}/5日资金{s.flow_5d_100m:+.1f}亿)"
+            for s in buy_sectors
+        ) or "无明确主线（震荡轮动）"
+
+        cand_lines = []
+        for c in state.candidates[:10]:
+            f = c.factors
+            strat = c.filters_passed[-1] if c.filters_passed else ""
+            risk = "｜⚠️" + "；".join(c.risk_flags) if c.risk_flags else ""
+            cand_lines.append(
+                f"- {c.name}({c.code[:6]}) {c.theme} [{strat}] "
+                f"RPS{f.rps50:.0f} 3日主力{f.fund_flow_3d/1e4:+.1f}亿 7日{f.change_pct_7d:+.1f}% "
+                f"仓位{c.trade_plan.position_pct:.0%}{risk}"
+            )
+        cand_txt = "\n".join(cand_lines)
+
+        td = state.trade_date
+        prompt = (
+            f"你是A股策略总监。基于 {td[:4]}-{td[4:6]}-{td[6:]} 的真实盘后数据，写一段 150-280 字的深度复盘。"
+            f"**只依据下方数据，严禁编造未出现的公司/数字/事件，不预测涨跌，不输出胜率/成功率，不构成投资建议。**\n"
+            f"结构（连贯成段，不分点标题）：①大盘环境与赚钱效应 ②今日主线板块 "
+            f"③为何选中这些候选（结合板块热度/资金/多路验证，可横向点评同主题强弱）④风险提示（含避雷）。\n\n"
+            f"【大盘】状态{regime.label}｜情绪{regime.emotion_score:.0f}/100｜"
+            f"涨停{regime.limit_up_count}/跌停{regime.limit_down_count}｜连板最高{regime.consecutive_limit_high}板｜{regime.reason}\n"
+            f"【主线板块(可关注)】{sec_txt}\n"
+            f"【今日候选】\n{cand_txt}\n"
+        )
+        review = LLMClient().chat(
+            [{"role": "user", "content": prompt}], task_type="pro", max_tokens=1500,
+        ).strip()
+        if review:
+            lines += ["", "## 🧠 AI 深度复盘（v4-pro·接地）", "", review,
+                      "", "> ⚠️ AI 基于客观因子的解读，不构成投资建议。"]
+    except Exception as e:
+        logger.debug("[节点E] AI深度复盘生成失败（不影响报告）: %s", e)
 
 
 def _append_news_guard_section(lines: list, candidates: list[Candidate]) -> None:
