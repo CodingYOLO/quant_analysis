@@ -66,16 +66,18 @@ def _percentile(values: list[float], q: float) -> float:
 
 
 def _build_context(rows: list[dict]) -> dict:
-    """预计算当日相对分位阈值，供各诊断规则共享。"""
+    """预计算当日横截面阈值（分位 + 中位），供各诊断规则共享。"""
     mf3 = [_num(r.get("money_flow_3d")) for r in rows]
     pct5 = [_num(r.get("pct_chg_5d")) for r in rows]
     pct3 = [_num(r.get("pct_chg_3d")) for r in rows]
+    pct1 = [_num(r.get("pct_chg_1d")) for r in rows]
     top100 = [_num(r.get("top100_ratio")) for r in rows]
     t = _THRESHOLDS
     return {
         "mf3_cut": _percentile(mf3, t["rotate_mf3_pctile"]),
         "pct5_cut": _percentile(pct5, t["risk_pct5_pctile"]),
         "pct3_cut": _percentile(pct3, t["risk_pct3_pctile"]),
+        "pct1_median": _percentile(pct1, 0.50),   # 当日涨幅中位（判定「相对走弱」）
         "top100_cut": max(_percentile(top100, t["risk_top100_pctile"]),
                           t["risk_top100_floor"]),
     }
@@ -94,15 +96,24 @@ def _is_rotate(r: dict, ctx: dict) -> bool:
 
 
 def _is_dip(r: dict, ctx: dict) -> bool:
-    """低吸观察：中期资金仍在 + 今日分歧(当日资金流出 或 价格回调) + 结构未破。"""
+    """
+    低吸观察：中期趋势/资金仍在 + 结构未破 + 今日分歧（资金流出 或 涨幅相对走弱）。
+
+    「今日分歧」放宽到「涨幅低于当日中位」而非必须下跌——普涨日里强势主线
+    若今日明显跑输大盘，往往是资金获利分歧、待回踩的低吸点。过热板块在
+    _classify 中另行剔除（不低吸已拥挤板块）。
+    """
     t = _THRESHOLDS
-    mid_money_in = _num(r.get("money_flow_5d")) > 0
+    mid_trend_in = (
+        _num(r.get("money_flow_5d")) > 0
+        and _num(r.get("pct_chg_5d")) > 0
+    )
     today_diverge = (
         _num(r.get("money_flow_1d"), float("inf")) < 0
-        or _num(r.get("pct_chg_1d"), float("inf")) < 0
+        or _num(r.get("pct_chg_1d"), float("inf")) < ctx["pct1_median"]
     )
     return (
-        mid_money_in
+        mid_trend_in
         and today_diverge
         and _num(r.get("breadth_ma20")) >= t["dip_breadth_ma20"]
     )
@@ -179,13 +190,15 @@ def _classify(rows: list[dict], ctx: dict) -> tuple[list, list, list]:
     rotate, dip, risk = [], [], []
     for r in rows:
         flags = []
+        is_risk = _is_risk(r, ctx)
         if _is_rotate(r, ctx):
             flags.append("轮动")
             rotate.append(r)
-        if _is_dip(r, ctx):
+        # 低吸与过热互斥：已拥挤/超买的板块不进低吸（不低吸高位板块）
+        if not is_risk and _is_dip(r, ctx):
             flags.append("低吸")
             dip.append(r)
-        if _is_risk(r, ctx):
+        if is_risk:
             flags.append("高位风险")
             risk.append(r)
         r["signal"] = flags[0] if flags else ""

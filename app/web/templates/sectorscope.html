@@ -19,6 +19,7 @@
 .bcol.risk { border-color:#4a1e1e; background:#1c0e0e; }
 .bcol h3 { font-size:14px; margin-bottom:2px; }
 .bcol .sub { font-size:11px; color:#9ca3af; margin-bottom:10px; }
+.cnt { font-size:11px; color:#9ca3af; font-weight:400; }
 .bcard { background:#0f1117; border:1px solid #242842; border-radius:8px; padding:9px 11px; margin-bottom:7px; }
 .bcard .nm { font-size:13px; font-weight:600; }
 .bcard .mx { display:flex; justify-content:space-between; font-size:11px; color:#9ca3af; margin-top:4px; gap:6px; }
@@ -53,9 +54,9 @@ tr:hover td { background:#1e2138; }
 <div id="loading" class="neu2" style="font-size:14px;padding:16px">⏳ 加载中…</div>
 <div id="dash" style="display:none">
   <div class="cols3">
-    <div class="bcol rotate"><h3 style="color:#fbbf24">轮动上行</h3><div class="sub">主力持续净流入 · 价涨 · 结构健康（在途主线）</div><div id="c-rotate"></div></div>
-    <div class="bcol dip"><h3 style="color:#4ade80">低吸观察</h3><div class="sub">中期趋势在 · 今日资金/价格分歧（等回踩）</div><div id="c-dip"></div></div>
-    <div class="bcol risk"><h3 style="color:#f87171">高位风险</h3><div class="sub">涨幅居前 · 超买或拥挤（防高位派发）</div><div id="c-risk"></div></div>
+    <div class="bcol rotate"><h3 style="color:#fbbf24">轮动上行 <span id="n-rotate" class="cnt"></span></h3><div class="sub">主力持续净流入 · 价涨 · 结构健康（在途主线）</div><div id="c-rotate"></div></div>
+    <div class="bcol dip"><h3 style="color:#4ade80">低吸观察 <span id="n-dip" class="cnt"></span></h3><div class="sub">中期趋势在 · 今日资金/价格分歧（等回踩）</div><div id="c-dip"></div></div>
+    <div class="bcol risk"><h3 style="color:#f87171">高位风险 <span id="n-risk" class="cnt"></span></h3><div class="sub">涨幅居前 · 超买或拥挤（防高位派发）</div><div id="c-risk"></div></div>
   </div>
   <div style="overflow-x:auto"><table id="tbl"></table></div>
 </div>
@@ -88,6 +89,8 @@ document.getElementById('date').addEventListener('change', load);
 document.getElementById('search').addEventListener('input', renderTable);
 
 function renderCols(b){
+  const setN=(id,n)=>document.getElementById(id).textContent=n?('· '+n+' 个'):'';
+  setN('n-rotate',(b.rotate||[]).length); setN('n-dip',(b.dip||[]).length); setN('n-risk',(b.risk||[]).length);
   const card=(r,metrics)=>'<div class="bcard"><div class="nm">'+r.theme_name+'</div><div class="mx">'+
     metrics.map(([lab,html])=>'<span>'+lab+' '+html+'</span>').join('')+'</div></div>';
   document.getElementById('c-rotate').innerHTML=(b.rotate||[]).map(r=>card(r,[

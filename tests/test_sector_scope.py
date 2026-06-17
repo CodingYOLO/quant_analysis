@@ -23,9 +23,10 @@ def _row(**kw) -> dict:
     return base
 
 
-def _ctx(mf3=0.0, pct5=3.0, pct3=3.0, top100=10.0) -> dict:
-    """直接给定分位阈值，隔离规则与分位计算。"""
-    return {"mf3_cut": mf3, "pct5_cut": pct5, "pct3_cut": pct3, "top100_cut": top100}
+def _ctx(mf3=0.0, pct5=3.0, pct3=3.0, top100=10.0, pct1_median=1.5) -> dict:
+    """直接给定阈值，隔离规则与分位计算。"""
+    return {"mf3_cut": mf3, "pct5_cut": pct5, "pct3_cut": pct3,
+            "top100_cut": top100, "pct1_median": pct1_median}
 
 
 def test_rotate_hit_and_miss() -> None:
@@ -41,17 +42,34 @@ def test_rotate_hit_and_miss() -> None:
 
 
 def test_dip_divergence_signal() -> None:
-    ctx = _ctx()
-    # 中期资金在 + 当日资金流出 + 结构未破 → 命中（价格未跌也可）
-    assert ss._is_dip(_row(money_flow_5d=20, money_flow_1d=-5, pct_chg_1d=1.0, breadth_ma20=50), ctx) is True
-    # 价格回调亦算分歧
-    assert ss._is_dip(_row(money_flow_5d=20, money_flow_1d=3, pct_chg_1d=-0.5, breadth_ma20=50), ctx) is True
+    ctx = _ctx(pct1_median=1.5)
+    base = dict(money_flow_5d=20, pct_chg_5d=4.0, breadth_ma20=50)  # 中期趋势/资金在 + 结构未破
+    # 当日资金流出 → 分歧命中（价格未跌也可）
+    assert ss._is_dip(_row(**base, money_flow_1d=-5, pct_chg_1d=3.0), ctx) is True
+    # 涨幅相对走弱（1日 < 当日中位 1.5）→ 分歧命中
+    assert ss._is_dip(_row(**base, money_flow_1d=3, pct_chg_1d=0.5), ctx) is True
+    # 中期趋势已走坏（5日涨 ≤ 0）→ 不是低吸
+    assert ss._is_dip(_row(money_flow_5d=20, pct_chg_5d=-1.0, money_flow_1d=-5,
+                           pct_chg_1d=0.5, breadth_ma20=50), ctx) is False
     # 中期资金已流出 → 不是低吸（是离场）
-    assert ss._is_dip(_row(money_flow_5d=-20, money_flow_1d=-5, pct_chg_1d=-1.0, breadth_ma20=50), ctx) is False
-    # 无分歧（资金流入且价涨）→ 不命中
-    assert ss._is_dip(_row(money_flow_5d=20, money_flow_1d=5, pct_chg_1d=1.0, breadth_ma20=50), ctx) is False
+    assert ss._is_dip(_row(money_flow_5d=-20, pct_chg_5d=4.0, money_flow_1d=-5,
+                           pct_chg_1d=0.5, breadth_ma20=50), ctx) is False
+    # 无分歧（资金流入且涨幅强于中位）→ 不命中
+    assert ss._is_dip(_row(**base, money_flow_1d=5, pct_chg_1d=3.0), ctx) is False
     # 结构已破（广度 < 45）→ 不低吸破位板块
-    assert ss._is_dip(_row(money_flow_5d=20, money_flow_1d=-5, pct_chg_1d=-1.0, breadth_ma20=30), ctx) is False
+    assert ss._is_dip(_row(money_flow_5d=20, pct_chg_5d=4.0, money_flow_1d=-5,
+                           pct_chg_1d=0.5, breadth_ma20=30), ctx) is False
+
+
+def test_classify_dip_excludes_overheated() -> None:
+    """已过热(高位风险)的板块不应进低吸栏。"""
+    # 构造一个既满足低吸又过热的板块：5日涨高+超买 → risk；同时今日资金流出
+    rows = [_row(theme_name="过热票", money_flow_5d=20, pct_chg_5d=12.0,
+                 pct_chg_3d=8.0, pct_chg_1d=0.2, money_flow_1d=-3,
+                 breadth_ma20=85, top100_ratio=25)]
+    rotate, dip, risk = ss._classify(rows, ss._build_context(rows))
+    assert rows[0] in risk
+    assert rows[0] not in dip  # 互斥：过热不进低吸
 
 
 def test_risk_overbought_or_crowded() -> None:
