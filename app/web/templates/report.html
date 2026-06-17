@@ -58,13 +58,100 @@
 .md-body table tr:nth-child(even) { background: #161929; }   /* 偶数行：深色，不再是白底 */
 .md-body table tr:nth-child(odd)  { background: #1a1d2e; }
 .md-body table tr:hover td { background: #232846; }
+
+/* 工具栏与导出按钮 */
+.report-toolbar { display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:20px; flex-wrap:wrap; }
+.report-toolbar a { color:#7c9ef8; text-decoration:none; font-size:13px; }
+.rt-actions { display:flex; gap:10px; }
+.rt-actions button {
+  background:#1a1d2e; color:#c9d2f8; border:1px solid #3358e0; border-radius:8px;
+  padding:7px 14px; font-size:13px; cursor:pointer;
+}
+.rt-actions button:hover { background:#2742a8; color:#fff; }
+.rt-actions button:disabled { opacity:.6; cursor:wait; }
+
+/* 导出用页眉/页脚（屏幕上隐藏，仅出现在导出图/打印中）*/
+.report-head, .report-foot { display:none; }
+.report-head { font-size:13px; color:#9ca3af; margin-bottom:16px; padding-bottom:10px; border-bottom:1px solid #2d3052; }
+.report-head b { color:#7c9ef8; font-size:15px; }
+.report-foot { margin-top:22px; padding-top:12px; border-top:1px solid #2d3052; font-size:11px; color:#6b7280; text-align:center; }
+
+/* 长图导出模式：显示页眉页脚 + 宽表换行（避免横向裁剪）*/
+#report-capture.exporting .report-head,
+#report-capture.exporting .report-foot { display:block; }
+#report-capture.exporting table { display:table; width:100%; white-space:normal; overflow:visible; }
+#report-capture.exporting table th,
+#report-capture.exporting table td { white-space:normal; }
+
+/* 打印（导出 PDF）：白底黑字、隐藏导航与按钮、宽表换行 */
+@media print {
+  nav, .report-toolbar { display:none !important; }
+  body, .container { background:#fff !important; color:#111 !important; padding:0 !important; max-width:none !important; }
+  .card { background:#fff !important; border:none !important; box-shadow:none !important; }
+  .report-head, .report-foot { display:block; }
+  .report-head { color:#555; border-color:#ccc; } .report-head b { color:#1a4fd0; }
+  .report-foot { color:#999; border-color:#ccc; }
+  .md-body, .md-body p, .md-body li { color:#222 !important; }
+  .md-body h1 { color:#1a4fd0 !important; } .md-body h2 { color:#2b50c0 !important; border-color:#ccc !important; }
+  .md-body h3 { color:#5b3fd0 !important; } .md-body h4, .md-body strong { color:#000 !important; }
+  .md-body blockquote { background:#f4f5f9 !important; color:#444 !important; border-color:#bbb !important; }
+  .md-body table { display:table; width:100%; white-space:normal; overflow:visible; page-break-inside:auto; }
+  .md-body table th { background:#eaeefb !important; color:#1a2b6b !important; white-space:normal; }
+  .md-body table td { color:#222 !important; white-space:normal; border-color:#ddd !important; }
+  .md-body table tr:nth-child(even){ background:#f6f8fe !important; }
+  .md-body table tr:nth-child(odd){ background:#fff !important; }
+  .md-body code, .md-body pre { background:#f0f2f8 !important; color:#1a2b6b !important; }
+}
 {% endblock %}
 
 {% block content %}
-<div style="display:flex;align-items:center;gap:16px;margin-bottom:20px">
-  <a href="/" style="color:#7c9ef8;text-decoration:none;font-size:13px">← 返回报告中心</a>
+<div class="report-toolbar no-export">
+  <a href="/">← 返回报告中心</a>
+  <div class="rt-actions">
+    <button id="btn-img" title="生成整页长图，便于微信/社交分享">📷 导出长图</button>
+    <button id="btn-pdf" title="调用浏览器打印，另存为 PDF（文字可选中）">📄 导出 PDF</button>
+  </div>
 </div>
-<div class="card md-body">
+<div id="report-capture" class="card md-body">
+  <div class="report-head"><b>A股Agent</b> · 报告 {{ date }}</div>
   {{ html_body | safe }}
+  <div class="report-foot">由 A股Agent 生成 · 仅供研究，不构成投资建议</div>
 </div>
+{% endblock %}
+
+{% block extra_script %}
+<script src="/static/html2canvas.min.js"></script>
+<script>
+(function(){
+  const node = document.getElementById('report-capture');
+  const btnImg = document.getElementById('btn-img');
+  const btnPdf = document.getElementById('btn-pdf');
+  const reportName = {{ date | tojson }};
+
+  // 导出长图：临时进入 exporting 模式（宽表换行、显示页眉页脚），html2canvas 截图为 PNG
+  btnImg.addEventListener('click', async () => {
+    if (typeof html2canvas === 'undefined') { alert('图片库未加载，请刷新后重试'); return; }
+    btnImg.disabled = true; const old = btnImg.textContent; btnImg.textContent = '⏳ 生成中…';
+    node.classList.add('exporting');
+    try {
+      const canvas = await html2canvas(node, {
+        scale: 2, backgroundColor: '#12141c', useCORS: true,
+        windowWidth: node.scrollWidth, scrollX: 0, scrollY: 0,
+      });
+      const link = document.createElement('a');
+      link.download = 'A股Agent_报告_' + reportName + '.png';
+      link.href = canvas.toDataURL('image/png');
+      link.click();
+    } catch (e) {
+      alert('长图生成失败（报告过长或浏览器限制），可改用「导出 PDF」。\n' + e);
+    } finally {
+      node.classList.remove('exporting');
+      btnImg.disabled = false; btnImg.textContent = old;
+    }
+  });
+
+  // 导出 PDF：调用浏览器打印（@media print 已切换为白底黑字），用户选「另存为 PDF」
+  btnPdf.addEventListener('click', () => window.print());
+})();
+</script>
 {% endblock %}
