@@ -9,8 +9,13 @@
 .disclaim { color:#8a90a0; font-size:12px; margin-bottom:14px; text-align:center; }
 .toolbar { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:10px; }
 .toolbar input,.toolbar select { background:#0f1117; color:#e8e8e8; border:1px solid #2d3052; border-radius:6px; padding:7px 10px; font-size:13px; }
-.meta { display:flex; gap:10px; margin-bottom:12px; }
+.meta { display:flex; gap:10px; margin-bottom:12px; flex-wrap:wrap; align-items:center; }
 .chip { background:#161929; border:1px solid #242842; border-radius:8px; padding:5px 12px; font-size:12px; color:#9ca3af; }
+.databar { background:linear-gradient(90deg,#15264a,#1a2140); border:1px solid #2a3a6a; border-radius:10px;
+  padding:11px 16px; margin-bottom:12px; font-size:13.5px; line-height:1.6; color:#cdd6f4; }
+.databar b { color:#7c9ef8; } .databar .buy { color:#fbbf24; font-weight:600; } .databar .gen { color:#8a90a0; font-size:12px; }
+.databar.stale { background:linear-gradient(90deg,#3a2410,#2a1d10); border-color:#7a4a1a; }
+.databar .warn { color:#fbbf24; font-weight:600; }
 table { width:100%; border-collapse:collapse; font-size:12.5px; }
 th { background:#232640; color:#9ca3af; font-weight:500; padding:8px 9px; text-align:left; cursor:pointer; white-space:nowrap; position:sticky; top:0; }
 td { padding:8px 9px; border-bottom:1px solid #1e2138; white-space:nowrap; vertical-align:top; }
@@ -40,13 +45,14 @@ tr.datarow:hover td { background:#1e2138; cursor:pointer; }
 </div>
 
 <div class="toolbar">
-  <label class="neu2" style="font-size:13px">交易日</label><input type="date" id="date">
+  <label class="neu2" style="font-size:13px">数据日</label><input type="date" id="date" title="留空=最新；选某日查历史选股池">
   <input type="text" id="search" placeholder="代码/名称/主题" style="min-width:160px">
   <select id="fsource"><option value="">来源(全部)</option><option>最关注</option><option>策略候选</option><option>主题选股</option><option>规则已选</option></select>
   <select id="fstrat"><option value="">策略(全部)</option><option>主升突破</option><option>资金回调低吸</option><option>资金跟随</option><option>反转低吸</option><option>主题选股</option></select>
   <select id="sortby"><option value="focus">默认(关注优先)</option><option value="confidence">置信度</option><option value="pct_chg">当日涨跌</option></select>
   <button class="chip" id="reload" style="cursor:pointer;color:#7c9ef8">🔄 加载</button>
 </div>
+<div class="databar" id="databar" style="display:none"></div>
 <div class="meta" id="meta"></div>
 
 <div id="loading" class="neu2" style="font-size:14px;padding:16px">⏳ 加载中…</div>
@@ -54,7 +60,34 @@ tr.datarow:hover td { background:#1e2138; cursor:pointer; }
 
 <script>
 let rows=[];
-(function(){ document.getElementById('date').value=new Date().toISOString().slice(0,10); })();
+// 数据日默认留空 → 后端返回最新已生成的选股池（避免卡在浏览器“今天”而误报未生成）。
+
+const WK=['日','一','二','三','四','五','六'];
+function fmtCN(ymd){ // 20260616 -> 2026年6月16日(周二)
+  if(!ymd||ymd.length!==8) return ymd||'—';
+  const y=ymd.slice(0,4),m=+ymd.slice(4,6),d=+ymd.slice(6,8);
+  const w=new Date(+y,m-1,d).getDay();
+  return y+'年'+m+'月'+d+'日(周'+WK[w]+')';
+}
+
+function renderDatabar(j){
+  const bar=document.getElementById('databar');
+  // 仅当“正在看最新的池”且该池落后于最新交易日时，才告警（避免主动查历史日时误报）。
+  const stale=(j.is_viewing_newest && j.pool_behind);
+  bar.className='databar'+(stale?' stale':'');
+  const buy=j.next_date?('<span class="buy">'+fmtCN(j.next_date)+'</span>'):'<span class="buy">下一交易日</span>';
+  const gen=j.gen_time?('　🕐 生成于 '+j.gen_time):'';
+  let html='📅 本选股池基于 <b>'+fmtCN(j.date)+'</b> 收盘<b>完整数据</b>分析 → 推荐 '+buy+' 观察 / 买入'
+    +'<span class="gen">'+gen+'</span>';
+  if(!j.is_viewing_newest){
+    html+='<span class="gen">　（历史选股池）</span>';
+  }
+  if(stale){
+    html+='<br><span class="warn">⚠️ 最新交易日 '+fmtCN(j.latest_trade_date)
+      +' 的选股池尚未生成（收盘数据约 18:45 入库后自动更新），当前展示的是上一交易日结果。</span>';
+  }
+  bar.innerHTML=html; bar.style.display='block';
+}
 
 function pct(v){ if(v===null||v===undefined) return '<span class="miss">—</span>'; const c=v>0?'up':(v<0?'down':'neu2'); return '<span class="'+c+'">'+(v>0?'+':'')+v.toFixed(2)+'%</span>'; }
 
@@ -64,11 +97,13 @@ async function load(){
   const date=(document.getElementById('date').value||'').replace(/-/g,'');
   try{
     const r=await fetch('/api/stockpool?date='+date); const j=await r.json();
-    if(!j.ok){ L.textContent='❌ '+j.error; return; }
-    if(!j.available){ L.textContent='⚠️ '+(j.msg||'该日未生成'); return; }
+    if(!j.ok){ L.textContent='❌ '+j.error; document.getElementById('databar').style.display='none'; return; }
+    if(!j.available){ L.textContent='⚠️ '+(j.msg||'该日未生成'); document.getElementById('databar').style.display='none'; return; }
     rows=j.rows;
-    const dd=j.date.replace(/(\d{4})(\d{2})(\d{2})/,'$1-$2-$3');
-    document.getElementById('meta').innerHTML='<span class="chip">总数 '+j.total+'</span><span class="chip" style="color:#4ade80">关注 '+j.focus+'</span><span class="chip">交易日 '+dd+'</span>';
+    // 回填日期框为实际数据日（默认进来时为空，此处显示后端选定的最新池日期）
+    if(j.date&&j.date.length===8){ document.getElementById('date').value=j.date.replace(/(\d{4})(\d{2})(\d{2})/,'$1-$2-$3'); }
+    renderDatabar(j);
+    document.getElementById('meta').innerHTML='<span class="chip">总数 '+j.total+'</span><span class="chip" style="color:#4ade80">关注 '+j.focus+'</span>';
     L.style.display='none'; document.getElementById('dash').style.display='block';
     render();
   }catch(e){ L.textContent='❌ '+e; }

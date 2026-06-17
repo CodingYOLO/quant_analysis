@@ -258,6 +258,25 @@ def _last_trade_date() -> str:
         return today
 
 
+def _next_trade_date(td: str) -> str:
+    """
+    给定交易日 td（YYYYMMDD），返回其之后最近的一个交易日（用于「推荐买入日」提示）。
+
+    用交易日历向后查 15 天足够覆盖节假日连休；查不到时回退空串。
+    """
+    import datetime
+    try:
+        from app.data.composite_provider import CompositeProvider
+        base = datetime.datetime.strptime(td, "%Y%m%d")
+        start = (base + datetime.timedelta(days=1)).strftime("%Y%m%d")
+        end = (base + datetime.timedelta(days=15)).strftime("%Y%m%d")
+        cal = CompositeProvider().get_trade_cal(start, end)
+        days = sorted(cal[cal["is_open"] == 1]["cal_date"].astype(str).tolist())
+        return days[0] if days else ""
+    except Exception:
+        return ""
+
+
 @app.get("/sentiment", response_class=HTMLResponse)
 async def sentiment_page(request: Request, _user: str = Depends(require_auth)):
     """大盘情绪仪表盘页面。"""
@@ -373,11 +392,12 @@ async def stockpool_page(request: Request, _user: str = Depends(require_auth)):
 async def api_stockpool(date: str = "", _user: str = Depends(require_auth)):
     """选股池数据（读 stock_pool + 前向追踪 T+1/3/5）。"""
     try:
-        from app.strategy.db import get_pool_with_perf, pool_dates
+        from app.strategy.db import get_pool_with_perf, pool_dates, pool_gen_time
+        all_dates = pool_dates()
+        newest_pool = all_dates[0] if all_dates else ""
         d = (date or "").replace("-", "")
         if not d:
-            dates = pool_dates()
-            d = dates[0] if dates else ""
+            d = newest_pool
         if not d:
             return {"ok": True, "available": False, "rows": [],
                     "msg": "选股池尚未生成，请先运行 python -m app.run stock-pool"}
@@ -386,7 +406,17 @@ async def api_stockpool(date: str = "", _user: str = Depends(require_auth)):
             return {"ok": True, "available": False, "date": d, "rows": [],
                     "msg": f"{d} 选股池未生成（数据缺失，不展示旧/假数据）"}
         focus = sum(1 for r in rows if r.get("is_focus"))
-        return {"ok": True, "available": True, "date": d, "total": len(rows), "focus": focus, "rows": rows}
+        # 日期语义：data_date=分析所用收盘数据日；next_date=推荐观察/买入日（下一交易日）
+        latest = _last_trade_date()                       # 最新「应有数据」的交易日
+        return {
+            "ok": True, "available": True, "date": d,
+            "total": len(rows), "focus": focus, "rows": rows,
+            "next_date": _next_trade_date(d),             # 推荐买入日
+            "gen_time": pool_gen_time(d),                 # 选股池生成时间（北京时间）
+            "latest_trade_date": latest,                 # 最新交易日
+            "is_viewing_newest": d == newest_pool,       # 是否在看「最新的那个池」
+            "pool_behind": bool(newest_pool and newest_pool < latest),  # 最新池是否落后于最新交易日
+        }
     except Exception as e:
         logger.exception("选股池失败")
         return {"ok": False, "error": str(e)}

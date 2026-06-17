@@ -464,6 +464,24 @@ def pool_dates() -> list[str]:
     return [r["run_date"] for r in rows]
 
 
+def pool_gen_time(run_date: str) -> str | None:
+    """
+    某交易日选股池的生成时间（取该日最早一条 created_at，即首次落库时间）。
+
+    Args:
+        run_date: 选股日 YYYYMMDD
+    Returns:
+        'YYYY-MM-DD HH:MM:SS' 字符串（服务器本地时区=北京时间），无记录时 None。
+    """
+    init_db()
+    with _conn() as con:
+        row = con.execute(
+            "SELECT MIN(created_at) AS gen FROM stock_pool WHERE run_date=?",
+            (run_date,),
+        ).fetchone()
+    return row["gen"] if row and row["gen"] else None
+
+
 def get_summary_stats(is_backtest: int | None = None) -> dict:
     """快速查询各时间窗口的汇总统计（胜率、均值等）。"""
     init_db()
