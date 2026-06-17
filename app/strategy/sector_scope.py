@@ -1,12 +1,21 @@
 """
 M5：板块全景看板分类引擎（纯因子，无 LLM）。
 
-读中枢宽表 theme_heat_all_in_one，按规则把板块打到三类互不排斥的诊断视角：
-  - 轮动上行：资金流入 + 强度共振
-  - 低吸观察：回撤但结构未破
-  - 高位风险：涨幅高 + 拥挤度高
+读中枢宽表 theme_heat_all_in_one，按 A 股主线投资特性把板块打到三类
+互不排斥的诊断视角（同一板块可同时命中多类）：
 
-同一板块可同时命中多类（互不排斥）。所有阈值集中在 _THRESHOLDS，便于对照原站校准。
+  - 轮动上行：主力持续净流入 + 价在涨 + 结构健康 → 在途主线，可追。
+  - 低吸观察：中期趋势仍在、结构未破，但今日出现分歧（当日主力净流出或价格回调）
+              → 等回踩的低吸候选。
+  - 高位风险：涨幅居前 + 超买/拥挤 → 高位派发风险，防接盘。
+
+设计要点（为何这样判，而非简单照搬绝对阈值）：
+  * 板块级「7日涨幅」是众多成分股的平均，被严重稀释（实测全市场 90% 分位仅 ~3%），
+    用绝对值 ≥10% 几乎永不命中 → 高位风险恒空。故「涨幅居前/拥挤居前」改用
+    **当日横截面相对分位**（regime-adaptive），结构性门槛（广度/资金方向）才用绝对值。
+  * 指数样本股（沪深300/上证50/上证180 等）并非可操作主题，全栏剔除，避免污染。
+
+所有阈值集中在 _THRESHOLDS，便于对照原站回归校准。
 """
 
 from __future__ import annotations
@@ -17,50 +26,105 @@ from app.data.theme_heat_db import get_themes, latest_trade_date
 
 logger = logging.getLogger(__name__)
 
-# 分类阈值（配置化，便于对照吴川原站回归校准）
+# ── 分类阈值（配置化；相对分位部分会随当日行情自适应）────────────────────────
 _THRESHOLDS = {
-    "rotate_breadth_ma20": 50.0,    # 轮动上行：MA20 广度下限
-    "dip_breadth_ma20": 40.0,       # 低吸观察：MA20 广度下限（结构未破）
-    "risk_pct_7d": 10.0,            # 高位风险：7 日涨幅下限
-    "risk_top100": 12.0,            # 高位风险：Top100 拥挤度下限(%)（行业/概念通用）
+    # 轮动上行
+    "rotate_breadth_ma20": 50.0,   # 结构健康：半数以上成分站上 MA20
+    "rotate_mf3_pctile": 0.55,     # 主力3日净流入需进入当日前 45%（剔除边际流入噪音）
+    # 低吸观察
+    "dip_breadth_ma20": 45.0,      # 结构未破（不低吸已破位板块）
+    # 高位风险
+    "risk_pct5_pctile": 0.75,      # 涨幅居前：5日涨幅进入当日前 25%
+    "risk_pct3_pctile": 0.80,      # 或 3日涨幅进入当日前 20%
+    "risk_top100_pctile": 0.85,    # 拥挤：Top100 占比进入当日前 15%
+    "risk_top100_floor": 10.0,     # 拥挤绝对下限（分位过低时兜底，%）
+    "risk_breadth_overbought": 70.0,  # 极度超买：>70% 成分站上 MA20
+    # 通用
+    "min_sample": 3,               # 成分过少的板块不参与诊断（统计不可靠）
 }
 
+# 指数样本股 / 宽基成份并非可操作主题，全栏剔除
+_EXCLUDE_KEYWORDS = ("样本股", "成份", "成分", "指数")
 
-def _is_rotate(r: dict) -> bool:
-    """轮动上行：3日资金>0 且 3日涨>0 且 MA20广度≥阈值。"""
+
+# ── 数值与分位工具 ──────────────────────────────────────────────────────────
+def _num(v, default: float = float("-inf")) -> float:
+    """None/非数 → default（默认 -inf，使 ≥ 阈值判断安全地不命中）。"""
+    try:
+        return float(v) if v is not None else default
+    except (TypeError, ValueError):
+        return default
+
+
+def _percentile(values: list[float], q: float) -> float:
+    """当日横截面分位（线性最近秩）。空集合返回 +inf（使任何 ≥ 判断不命中）。"""
+    vals = sorted(v for v in values if v is not None and v != float("-inf"))
+    if not vals:
+        return float("inf")
+    idx = min(len(vals) - 1, int(len(vals) * q))
+    return vals[idx]
+
+
+def _build_context(rows: list[dict]) -> dict:
+    """预计算当日相对分位阈值，供各诊断规则共享。"""
+    mf3 = [_num(r.get("money_flow_3d")) for r in rows]
+    pct5 = [_num(r.get("pct_chg_5d")) for r in rows]
+    pct3 = [_num(r.get("pct_chg_3d")) for r in rows]
+    top100 = [_num(r.get("top100_ratio")) for r in rows]
+    t = _THRESHOLDS
+    return {
+        "mf3_cut": _percentile(mf3, t["rotate_mf3_pctile"]),
+        "pct5_cut": _percentile(pct5, t["risk_pct5_pctile"]),
+        "pct3_cut": _percentile(pct3, t["risk_pct3_pctile"]),
+        "top100_cut": max(_percentile(top100, t["risk_top100_pctile"]),
+                          t["risk_top100_floor"]),
+    }
+
+
+# ── 三类诊断规则（纯函数，便于单测）─────────────────────────────────────────
+def _is_rotate(r: dict, ctx: dict) -> bool:
+    """轮动上行：主力3日净流入(且居前) + 3日上涨 + 结构健康。"""
+    t = _THRESHOLDS
     return (
         _num(r.get("money_flow_3d")) > 0
+        and _num(r.get("money_flow_3d")) >= ctx["mf3_cut"]
         and _num(r.get("pct_chg_3d")) > 0
-        and _num(r.get("breadth_ma20")) >= _THRESHOLDS["rotate_breadth_ma20"]
+        and _num(r.get("breadth_ma20")) >= t["rotate_breadth_ma20"]
     )
 
 
-def _is_dip(r: dict) -> bool:
-    """低吸观察：当日回调(1日跌) 但 资金仍净流入(3日>0) 且 MA20广度未破阈值。"""
+def _is_dip(r: dict, ctx: dict) -> bool:
+    """低吸观察：中期资金仍在 + 今日分歧(当日资金流出 或 价格回调) + 结构未破。"""
+    t = _THRESHOLDS
+    mid_money_in = _num(r.get("money_flow_5d")) > 0
+    today_diverge = (
+        _num(r.get("money_flow_1d"), float("inf")) < 0
+        or _num(r.get("pct_chg_1d"), float("inf")) < 0
+    )
     return (
-        _num(r.get("pct_chg_1d")) < 0
-        and _num(r.get("money_flow_3d")) > 0
-        and _num(r.get("breadth_ma20")) >= _THRESHOLDS["dip_breadth_ma20"]
+        mid_money_in
+        and today_diverge
+        and _num(r.get("breadth_ma20")) >= t["dip_breadth_ma20"]
     )
 
 
-def _is_risk(r: dict) -> bool:
-    """高位风险：7日涨幅高 且 Top100 拥挤度高（行业/概念通用口径）。"""
-    return (
-        _num(r.get("pct_chg_7d")) >= _THRESHOLDS["risk_pct_7d"]
-        and _num(r.get("top100_ratio")) >= _THRESHOLDS["risk_top100"]
+def _is_risk(r: dict, ctx: dict) -> bool:
+    """高位风险：涨幅居前(5日或3日) 且 (极度超买 或 拥挤居前)。"""
+    t = _THRESHOLDS
+    big_run = (
+        _num(r.get("pct_chg_5d")) >= ctx["pct5_cut"]
+        or _num(r.get("pct_chg_3d")) >= ctx["pct3_cut"]
     )
+    overheated = (
+        _num(r.get("breadth_ma20")) >= t["risk_breadth_overbought"]
+        or _num(r.get("top100_ratio")) >= ctx["top100_cut"]
+    )
+    return big_run and overheated
 
 
-def _num(v) -> float:
-    """None/非数 → -inf（不命中任何 ≥ 阈值判断），用于安全比较。"""
-    try:
-        return float(v) if v is not None else float("-inf")
-    except (TypeError, ValueError):
-        return float("-inf")
-
-
-def build_sectorscope(date: str = "", theme_types: tuple[str, ...] = ("industry", "concept")) -> dict:
+# ── 主入口 ──────────────────────────────────────────────────────────────────
+def build_sectorscope(date: str = "",
+                      theme_types: tuple[str, ...] = ("industry", "concept")) -> dict:
     """
     构建板块全景数据。
 
@@ -69,40 +133,21 @@ def build_sectorscope(date: str = "", theme_types: tuple[str, ...] = ("industry"
         theme_types: 纳入的板块类型。
 
     Returns:
-        {ok, available, date, rows, buckets:{rotate,dip,risk}}。rows 含 signal 标签。
-        无数据时 available=False（不展示旧/假数据）。
+        {ok, available, date, rows, buckets:{rotate,dip,risk}}。
+        rows 含 signal/signals。无数据时 available=False（不展示旧/假数据）。
     """
     d = (date or "").replace("-", "") or (latest_trade_date() or "")
     if not d:
         return {"available": False, "date": "", "rows": [], "buckets": {},
                 "msg": "宽表尚未计算，请先运行 python -m app.run wide"}
 
-    rows: list[dict] = []
-    for t in theme_types:
-        rows.extend(get_themes(d, t))
+    rows = _load_rows(d, theme_types)
     if not rows:
         return {"available": False, "date": d, "rows": [], "buckets": {},
                 "msg": f"{d} 宽表未计算（数据缺失，不展示旧/假数据）"}
 
-    rotate, dip, risk = [], [], []
-    for r in rows:
-        flags = []
-        if _is_rotate(r):
-            flags.append("轮动")
-            rotate.append(r)
-        if _is_dip(r):
-            flags.append("低吸")
-            dip.append(r)
-        if _is_risk(r):
-            flags.append("高位风险")
-            risk.append(r)
-        r["signal"] = flags[0] if flags else ""
-        r["signals"] = flags
-
-    # 各栏按相关强度排序
-    rotate.sort(key=lambda r: _num(r.get("money_flow_3d")), reverse=True)
-    dip.sort(key=lambda r: _num(r.get("money_flow_3d")), reverse=True)
-    risk.sort(key=lambda r: _num(r.get("pct_chg_7d")), reverse=True)
+    ctx = _build_context(rows)
+    rotate, dip, risk = _classify(rows, ctx)
 
     return {
         "available": True,
@@ -114,3 +159,41 @@ def build_sectorscope(date: str = "", theme_types: tuple[str, ...] = ("industry"
             "risk": risk[:12],
         },
     }
+
+
+def _load_rows(d: str, theme_types: tuple[str, ...]) -> list[dict]:
+    """读宽表并剔除指数样本股、成分过少的板块。"""
+    rows: list[dict] = []
+    for t in theme_types:
+        rows.extend(get_themes(d, t))
+    min_n = _THRESHOLDS["min_sample"]
+    return [
+        r for r in rows
+        if not any(k in r["theme_name"] for k in _EXCLUDE_KEYWORDS)
+        and _num(r.get("sample_count"), 0) >= min_n
+    ]
+
+
+def _classify(rows: list[dict], ctx: dict) -> tuple[list, list, list]:
+    """对每行打三类标签，写回 signal/signals，并分栏排序。"""
+    rotate, dip, risk = [], [], []
+    for r in rows:
+        flags = []
+        if _is_rotate(r, ctx):
+            flags.append("轮动")
+            rotate.append(r)
+        if _is_dip(r, ctx):
+            flags.append("低吸")
+            dip.append(r)
+        if _is_risk(r, ctx):
+            flags.append("高位风险")
+            risk.append(r)
+        r["signal"] = flags[0] if flags else ""
+        r["signals"] = flags
+
+    rotate.sort(key=lambda r: _num(r.get("money_flow_3d")), reverse=True)
+    dip.sort(key=lambda r: _num(r.get("money_flow_5d")), reverse=True)
+    # 高位风险：拥挤度优先（更危险），同档按 5 日涨幅
+    risk.sort(key=lambda r: (_num(r.get("top100_ratio")), _num(r.get("pct_chg_5d"))),
+              reverse=True)
+    return rotate, dip, risk
