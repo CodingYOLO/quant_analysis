@@ -77,7 +77,7 @@ table.mini th { color:#9ca3af; font-weight:500; }
 
 <script>
 let curType='industry', curDate='', rows=[], sel=null;
-(function(){ document.getElementById('date').value=new Date().toISOString().slice(0,10); })();
+// 日期默认留空 → 后端取「宽表最近已计算日」（避免默认今天、盘中未算时误报「未计算」）。
 
 function fmtNull(v,suf=''){ return (v===null||v===undefined)?'<span class="miss">数据缺失</span>':(v+suf); }
 function signed(v,suf=''){ if(v===null||v===undefined) return '<span class="miss">数据缺失</span>'; const c=v>0?'up':(v<0?'down':'neu2'); return '<span class="'+c+'">'+(v>0?'+':'')+v+suf+'</span>'; }
@@ -92,6 +92,8 @@ async function loadList(){
   if(!j.ok){ tl.innerHTML='<div class="todo-box">❌ '+j.error+'</div>'; return; }
   if(!j.available){ tl.innerHTML='<div class="todo-box">⚠️ '+(j.msg||'该日宽表未计算')+'</div>'; return; }
   curDate=j.date; rows=j.rows;
+  // 回填日期框为后端实际使用的数据日（默认进来为空时显示最新已计算日）
+  if(j.date&&j.date.length===8){ document.getElementById('date').value=j.date.replace(/(\d{4})(\d{2})(\d{2})/,'$1-$2-$3'); }
   const dd=j.date.replace(/(\d{4})(\d{2})(\d{2})/,'$1-$2-$3');
   const tg=document.getElementById('env').querySelector('.tags');
   const e=j.env;

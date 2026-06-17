@@ -62,7 +62,7 @@ tr:hover td { background:#1e2138; }
 
 <script>
 let rows=[], sortState={key:'money_flow_1d',asc:false};
-(function(){ document.getElementById('date').value=new Date().toISOString().slice(0,10); })();
+// 日期默认留空 → 后端取「宽表最近已计算日」（避免默认今天、盘中未算时误报「未计算」）。
 
 function f(v,suf=''){ return (v===null||v===undefined)?'<span class="miss">—</span>':(v+suf); }
 function sg(v,suf=''){ if(v===null||v===undefined) return '<span class="miss">—</span>'; const c=v>0?'up':(v<0?'down':'neu2'); return '<span class="'+c+'">'+(v>0?'+':'')+v+suf+'</span>'; }
@@ -76,8 +76,9 @@ async function load(){
     if(!j.ok){ L.textContent='❌ '+j.error; return; }
     if(!j.available){ L.textContent='⚠️ '+(j.msg||'该日宽表未计算'); return; }
     rows=j.rows;
+    if(j.date&&j.date.length===8){ document.getElementById('date').value=j.date.replace(/(\d{4})(\d{2})(\d{2})/,'$1-$2-$3'); }
     const dd=j.date.replace(/(\d{4})(\d{2})(\d{2})/,'$1-$2-$3');
-    document.getElementById('meta').innerHTML='<span class="chip">总数 '+rows.length+'</span><span class="chip">交易日 '+dd+'</span>';
+    document.getElementById('meta').innerHTML='<span class="chip">总数 '+rows.length+'</span><span class="chip">数据日 '+dd+'</span>';
     L.style.display='none'; document.getElementById('dash').style.display='block';
     renderCols(j.buckets); renderTable();
   }catch(e){ L.textContent='❌ '+e; }

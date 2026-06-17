@@ -70,7 +70,7 @@ tr.detailrow td { padding:0; background:#141729; }
 const RED='#f6465d', GREEN='#2ebd85';
 let rows=[], sortState={key:'net_amount',asc:false};
 
-(function(){ const d=new Date(); document.getElementById('date').value=d.toISOString().slice(0,10); })();
+// 日期默认留空 → 后端取最近交易日（避免默认今天、盘中数据未入库时报错/空）。
 
 async function load(){
   const L=document.getElementById('loading'); L.style.display='block'; L.textContent='⏳ 加载概念资金数据中...';
@@ -86,6 +86,8 @@ async function load(){
 document.getElementById('reload').addEventListener('click', load);
 
 function renderAll(d){
+  // 回填日期框为后端实际使用的数据日（默认进来为空时显示最近交易日）
+  if(d.date){ const dd=String(d.date).replace(/-/g,''); if(dd.length===8) document.getElementById('date').value=dd.replace(/(\d{4})(\d{2})(\d{2})/,'$1-$2-$3'); }
   const k=d.kpi; rows=d.rows;
   document.getElementById('k-cnt').textContent=k.concept_count;
   document.getElementById('k-pct').innerHTML='<span class="'+(k.avg_pct>=0?'up':'down')+'">'+(k.avg_pct>=0?'+':'')+k.avg_pct+'%</span>';
