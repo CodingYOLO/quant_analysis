@@ -100,7 +100,7 @@ def _append_market_summary(
         if df_north is not None and not df_north.empty:
             north_val = float(df_north["north_money"].iloc[0])
             sign = "+" if north_val >= 0 else ""
-            north_text = f"{sign}{north_val / 10000:.1f}亿元 {'🟢净流入' if north_val >= 0 else '🔴净流出'}"
+            north_text = f"{sign}{north_val / 10000:.1f}亿元 {'🔴净流入' if north_val >= 0 else '🟢净流出'}"
     except Exception as e:
         logger.debug("获取北向资金失败: %s", e)
 
@@ -111,7 +111,7 @@ def _append_market_summary(
         if df_mf is not None and not df_mf.empty and "net_mf_amount" in df_mf.columns:
             total_net = df_mf["net_mf_amount"].sum() / 10000  # 转亿元
             sign = "+" if total_net >= 0 else ""
-            mf_text = f"{sign}{total_net:.0f}亿元 {'🟢流入' if total_net >= 0 else '🔴流出'}"
+            mf_text = f"{sign}{total_net:.0f}亿元 {'🔴流入' if total_net >= 0 else '🟢流出'}"
     except Exception as e:
         logger.debug("获取主力资金失败: %s", e)
 
@@ -153,7 +153,7 @@ def _append_sector_rank(
         top5_down = sorted_stats[-5:][::-1]
 
         lines.append("### 🏆 今日板块涨跌榜\n")
-        lines.append("**🟢 涨幅榜 Top5**\n")
+        lines.append("**🔴 涨幅榜 Top5**\n")
         lines.append("| 板块 | 涨跌幅 | 阶段 | 5日净流入(亿) |")
         lines.append("|---|---|---|---|")
         for s in top5_up:
@@ -161,7 +161,7 @@ def _append_sector_rank(
             lines.append(f"| {s.name} | {s.avg_pct_chg:+.2f}% | {s.stage} | {flow} |")
 
         lines.append("")
-        lines.append("**🔴 跌幅榜 Top5**\n")
+        lines.append("**🟢 跌幅榜 Top5**\n")
         lines.append("| 板块 | 涨跌幅 | 阶段 | 5日净流入(亿) |")
         lines.append("|---|---|---|---|")
         for s in top5_down:
@@ -176,7 +176,7 @@ def _append_sector_rank(
                     sorted(stats, key=lambda s: s.heat_delta_3d)[:5]
 
         lines.append("### 🏆 今日板块资金动向（热度变化）\n")
-        lines.append("**🟢 资金流入 Top5**\n")
+        lines.append("**🔴 资金流入 Top5**\n")
         lines.append("| 板块 | 热度3日Δ | 阶段 | 5日净流入(亿) |")
         lines.append("|---|---|---|---|")
         for s in top5_up:
@@ -184,7 +184,7 @@ def _append_sector_rank(
             lines.append(f"| {s.name} | +{s.heat_delta_3d:.1f} | {s.stage} | {flow} |")
 
         lines.append("")
-        lines.append("**🔴 资金流出 Top5**\n")
+        lines.append("**🟢 资金流出 Top5**\n")
         lines.append("| 板块 | 热度3日Δ | 阶段 | 5日净流入(亿) |")
         lines.append("|---|---|---|---|")
         for s in top5_down:

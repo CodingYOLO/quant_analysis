@@ -1109,7 +1109,7 @@ def _fetch_market_data(today: str) -> str:
         df_north = provider.get_north_flow(today)
         if df_north is not None and not df_north.empty:
             north_val = float(df_north["north_money"].iloc[0])
-            direction = "净流入🟢" if north_val >= 0 else "净流出🔴"
+            direction = "净流入🔴" if north_val >= 0 else "净流出🟢"
             sections.append(f"【北向资金】{north_val / 10000:+.1f} 亿元 {direction}")
         else:
             sections.append("【北向资金】数据尚未更新")
@@ -1123,7 +1123,7 @@ def _fetch_market_data(today: str) -> str:
         if df_mf is not None and not df_mf.empty and "net_mf_amount" in df_mf.columns:
             df_mf = df_mf.copy()
             total_net = df_mf["net_mf_amount"].sum() / 10000  # 万元 → 亿元
-            direction = "净流入🟢" if total_net >= 0 else "净流出🔴"
+            direction = "净流入🔴" if total_net >= 0 else "净流出🟢"
             sections.append(f"【全市场主力资金】{total_net:+.1f} 亿元 {direction}")
 
             # 超大单净流入 Top10 个股（附名称）
@@ -1278,7 +1278,7 @@ def _build_prompt(
 ### 二、今日开盘板块预判
 | 板块 | 开盘方向 | 核心逻辑（来源+时间） | 代表个股（代码） |
 |---|---|---|---|
-（列4-6个板块，方向：🟢高开/🔴低开/⚪平开，逻辑必须对应上方新闻）
+（列4-6个板块，方向按A股习惯：🔴高开/🟢低开/⚪平开，逻辑必须对应上方新闻）
 
 ### 三、开盘重点盯盘个股（2-3只）
 每只格式：**股票名称(代码)** — 关注理由 — 关键价位（突破/支撑） — 来源
@@ -1305,23 +1305,27 @@ def _build_prompt(
         return info + """
 请生成【盘中快讯】，基于上方已发生的信息，Markdown格式：
 
+【标记约定（务必全文统一）】涨跌方向按A股习惯：🔴=涨/偏多，🟢=跌/偏空，⚪=平/中性；
+操作分类用专属标志（勿与涨跌点混用）：✅=可关注，⛔=需回避，👀=观望/等待。
+
 ## ☀️ 盘中快讯 · """ + now_str + """
 
 > 💡 **今日一句话摘要：**（在此写一句话，如"算力半导体领涨，原油暴跌利好航运，午后关注存储芯片接力"，20字内，供标题使用）
 
 ### 一、上午盘面催化（已验证的板块异动）
-每条格式：📌 **[来源 时间] 事件** → 板块方向（🟢涨/🔴跌） → 代表个股涨跌表现预判
+每条格式：📌 **[来源 时间] 事件** → 板块方向（🔴涨/🟢跌/⚪平） → 代表个股涨跌表现预判
 
 （只写上方新闻中有明确板块联动的，列3-5条）
 
 ### 二、上午热点板块
 | 板块 | 方向 | 催化逻辑（来源+时间） | 值得关注个股（代码） |
 |---|---|---|---|
+（方向列用 🔴涨/🟢跌/⚪平）
 
 ### 三、午后操作策略
-**🟢 午后可关注：** 列具体个股+理由+参考价位
-**🔴 午后需回避：** 列具体个股+回避理由（消息出尽/过热/风险）
-**⚪ 等待信号：** 哪些逻辑还需验证才能介入
+**✅ 午后可关注：** 列具体个股+理由+参考价位
+**⛔ 午后需回避：** 列具体个股+回避理由（消息出尽/过热/风险）
+**👀 等待信号：** 哪些逻辑还需验证才能介入
 
 ### 四、下午重要时间节点
 （今日下午有无数据公布/讲话/事件，几点，影响哪个板块）

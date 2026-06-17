@@ -195,16 +195,16 @@ def _append_sector_section(lines: list, state: PipelineState) -> None:
     lines += [
         "",
         f"> 共分析 **{len(sector_stats)}** 个行业板块 | "
-        f"🟢 可关注 **{len(buy_sectors)}** 个 | "
-        f"🟡 观望 **{len(watch_sectors)}** 个 | "
-        f"🔴 退潮预警 **{len(avoid_sectors)}** 个",
+        f"✅ 可关注 **{len(buy_sectors)}** 个 | "
+        f"👀 观望 **{len(watch_sectors)}** 个 | "
+        f"⛔ 退潮预警 **{len(avoid_sectors)}** 个",
     ]
 
     # ---- 可关注板块（buy）----
     if buy_sectors:
         lines += [
             "",
-            f"### 🟢 可关注板块（决策评分 ≥ 60，共 {len(buy_sectors)} 个）",
+            f"### ✅ 可关注板块（决策评分 ≥ 60，共 {len(buy_sectors)} 个）",
             "",
             "| 板块 | 决策分 | 热度 | 3日Δ | 阶段 | 5日资金(亿) | MA20广度 | 连板 | 人气集中 | 次日风险 | 信号 |",
             "|---|---|---|---|---|---|---|---|---|---|---|",
@@ -227,7 +227,7 @@ def _append_sector_section(lines: list, state: PipelineState) -> None:
     if watch_sectors:
         lines += [
             "",
-            "### 🟡 观望板块（决策评分 40-59）",
+            "### 👀 观望板块（决策评分 40-59）",
             "",
             "| 板块 | 决策分 | 热度 | 3日Δ | 阶段 | 5日资金(亿) | 人气集中 | 次日风险 |",
             "|---|---|---|---|---|---|---|---|",
@@ -247,7 +247,7 @@ def _append_sector_section(lines: list, state: PipelineState) -> None:
     if avoid_sectors:
         lines += [
             "",
-            "### 🔴 退潮预警（建议回避）",
+            "### ⛔ 退潮预警（建议回避）",
             "",
             "| 板块 | 决策分 | 5日资金(亿) | MA20广度 | 人气集中 | 次日风险 |",
             "|---|---|---|---|---|---|",
@@ -400,7 +400,7 @@ def _append_overnight_risk_table(lines: list, sector_stats: list) -> None:
         risk = s.nextday_risk_penalty
 
         if risk >= 80:
-            tip = "🔴 高风险，严格回避"
+            tip = "⛔ 高风险，严格回避"
         elif risk >= 60:
             tip = "⚠️ 次日需条件确认"
         elif risk >= 30:
@@ -640,7 +640,7 @@ def _append_post_market_section(lines: list, state: "PipelineState") -> None:
 
         lines.append("### 🏆 今日板块资金动向")
         lines.append("")
-        lines.append("**🟢 资金流入 Top5**")
+        lines.append("**🔴 资金流入 Top5**")
         lines.append("")
         lines.append("| 板块 | 热度 | 3日Δ | 阶段 | 5日净流入(亿) |")
         lines.append("|---|---|---|---|---|")
@@ -652,7 +652,7 @@ def _append_post_market_section(lines: list, state: "PipelineState") -> None:
                 f"| {s.phase} | {flow} |"
             )
         lines.append("")
-        lines.append("**🔴 资金流出 Top5**")
+        lines.append("**🟢 资金流出 Top5**")
         lines.append("")
         lines.append("| 板块 | 热度 | 3日Δ | 阶段 | 5日净流入(亿) |")
         lines.append("|---|---|---|---|---|")

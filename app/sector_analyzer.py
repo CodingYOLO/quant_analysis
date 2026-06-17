@@ -451,10 +451,10 @@ def _make_decision(
     decision_score 公式：
         热度贡献(50%) + 趋势动量(30%) + 次日安全边际(20%)
 
-    决策阈值：
-        ≥ 60 → buy  🟢
-        ≥ 40 → watch 🟡
-        <  40 → avoid 🔴
+    决策阈值（报告标志：✅可关注 / 👀观望 / ⛔回避）：
+        ≥ 60 → buy   ✅
+        ≥ 40 → watch 👀
+        <  40 → avoid ⛔
     """
     # 趋势动量分（0-100）: delta > 0 加分，< 0 减分，每单位变化3分
     trend_momentum = max(0.0, min(100.0, 50.0 + delta_3d * 3))
