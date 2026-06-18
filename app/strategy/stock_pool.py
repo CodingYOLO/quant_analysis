@@ -29,6 +29,11 @@ _W = {"strategy": 0.35, "theme": 0.15, "rule_selected": 0.08, "factor": 0.30}
 _THEME_HEAT_MIN = 60.0       # 主题选股：热度下限
 _MAX_PER_THEME = 3           # 单主题入选上限（风控）
 _FOCUS_CONF_MIN = 0.55       # 最关注置信度下限
+
+# 历史主题胜率前向闸门（对标吴川：低胜率主题禁追涨）
+_WINRATE_MIN_SAMPLES = 10    # 闸门生效的最小历史样本数（不足则不判，避免小样本误杀）
+_WINRATE_VETO = 0.35         # T+1 胜率 < 35% 且样本足 → 降级"仅观察"+避免追涨
+_WINRATE_WARN = 0.45         # T+1 胜率 < 45% 且样本足 → 仅警示不降级
 _FLOW_FOLLOW_TOPN = 6        # 资金跟随：成交额前 N
 
 
@@ -183,17 +188,19 @@ def _factor_score_norm(r) -> float:
 # ──────────────────────────────────────────────
 
 def _apply_risk(records: list[dict], market_label: str, zhaban_warn: bool) -> list[dict]:
-    """单主题上限 + 涨停溢价预警 + 大盘仓位；定 is_focus。"""
+    """单主题上限 + 涨停溢价预警 + 历史胜率闸门 + 大盘仓位；定 is_focus。"""
     can_open = market_label not in ("弱势", "衰退", "数据缺失")
     pos = calc_position_pct(market_label)
     focus_conf = _FOCUS_CONF_MIN + (0.1 if zhaban_warn else 0)  # 预警时抬高门槛
+    win_rates = _theme_win_rates_safe()        # {theme: {win_rate, samples, avg_return}}
 
     # 单主题上限：按置信度排序后每主题保留前 N 的 is_focus 资格
     per_theme: dict[str, int] = {}
     for rec in sorted(records, key=lambda x: x["confidence"], reverse=True):
+        veto = _apply_winrate_gate(rec, win_rates)   # 低胜率主题 → 降级"仅观察"
         # 最关注须有真实策略信号(①~④)，仅蹭热门主题不够
         strat_hit = any(s != "theme_pick" for s in rec["strategies"])
-        focus = (strat_hit and rec["confidence"] >= focus_conf and can_open)
+        focus = (strat_hit and rec["confidence"] >= focus_conf and can_open and not veto)
         if focus:
             c = per_theme.get(rec["theme"], 0)
             if c >= _MAX_PER_THEME:
@@ -209,6 +216,37 @@ def _apply_risk(records: list[dict], market_label: str, zhaban_warn: bool) -> li
         if not can_open:
             rec["risk_flags"].append(f"大盘{market_label}·仅观察")
     return records
+
+
+def _theme_win_rates_safe() -> dict[str, dict]:
+    """读历史主题 T+1 胜率（现行库）；失败则返回空，不阻塞选股。"""
+    try:
+        from app.strategy.db import theme_win_rates
+        return theme_win_rates(min_samples=_WINRATE_MIN_SAMPLES)
+    except Exception as e:
+        logger.warning("[选股池] 历史主题胜率读取失败，跳过闸门: %s", e)
+        return {}
+
+
+def _apply_winrate_gate(rec: dict, win_rates: dict[str, dict]) -> bool:
+    """
+    历史主题胜率前向闸门（对标吴川「PCB板T+1胜率20%→避免追涨」）。
+
+    样本≥阈值时：胜率<35% → 降级"仅观察"并标避免追涨(返回 True=veto)；
+    35%~45% → 仅警示不降级。样本不足不判（避免小样本误杀）。
+    """
+    wr = win_rates.get(rec["theme"])
+    if not wr or wr["samples"] < _WINRATE_MIN_SAMPLES:
+        return False
+    pct = wr["win_rate"] * 100
+    tag = f"历史T+1胜率{pct:.0f}%(样本{wr['samples']})"
+    if wr["win_rate"] < _WINRATE_VETO:
+        rec["risk_flags"].append(f"⛔{tag}·避免追涨")
+        rec["confidence"] = round(min(rec["confidence"], 0.45), 2)   # 压低置信度
+        return True
+    if wr["win_rate"] < _WINRATE_WARN:
+        rec["risk_flags"].append(f"⚠️{tag}·偏低")
+    return False
 
 
 def _zhaban_premium_warn(trade_date: str, provider: CompositeProvider) -> bool:

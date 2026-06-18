@@ -456,6 +456,45 @@ def get_pool_with_perf(run_date: str) -> list[dict]:
     return out
 
 
+def theme_win_rates(min_samples: int = 1) -> dict[str, dict]:
+    """
+    按主题(行业)计算历史 T+1 胜率（现行库口径，替代已废弃的 history_tracker）。
+
+    数据源：selection_records.theme JOIN performance_records(horizon=1)。
+    含回测与实盘样本以扩大统计量（pct_return>0 计为胜）。
+
+    Args:
+        min_samples: 最少样本数才纳入。
+    Returns:
+        {theme: {"win_rate": 0.0~1.0, "samples": int, "avg_return": float}}
+    """
+    init_db()
+    with _conn() as con:
+        rows = con.execute(
+            """
+            SELECT s.theme AS theme,
+                   COUNT(*) AS samples,
+                   AVG(CASE WHEN p.pct_return > 0 THEN 1.0 ELSE 0.0 END) AS win_rate,
+                   AVG(p.pct_return) AS avg_return
+            FROM selection_records s
+            JOIN performance_records p
+              ON p.selection_id = s.id AND p.horizon = 1
+            WHERE p.pct_return IS NOT NULL AND s.theme IS NOT NULL AND s.theme <> ''
+            GROUP BY s.theme
+            HAVING COUNT(*) >= ?
+            """,
+            (min_samples,),
+        ).fetchall()
+    return {
+        r["theme"]: {
+            "win_rate": round(r["win_rate"], 3),
+            "samples": int(r["samples"]),
+            "avg_return": round(r["avg_return"] or 0.0, 2),
+        }
+        for r in rows
+    }
+
+
 def pool_dates() -> list[str]:
     """已落库的选股池交易日（降序）。"""
     init_db()
