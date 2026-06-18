@@ -106,8 +106,9 @@ def _build_report(state: PipelineState) -> str:
 
         # ---- 第四部分：逐股详情（走势+交易计划+次日清单）----
         lines += ["", "## 四、个股详情与执行计划"]
+        pop_imp = _pop_improvement_safe(state.trade_date)   # {ts_code: 人气排名改善_3日}
         for i, c in enumerate(state.candidates, 1):
-            _append_stock_detail(lines, i, c, regime.label)
+            _append_stock_detail(lines, i, c, regime.label, pop_imp)
     else:
         lines.append("_（今日无股票通过量化筛选）_")
 
@@ -454,10 +455,22 @@ def _append_candidates_table(lines: list, candidates: list[Candidate]) -> None:
         )
 
 
-def _append_stock_detail(lines: list, idx: int, c: Candidate, market_label: str) -> None:
+def _pop_improvement_safe(trade_date: str) -> dict:
+    """读各股近3日人气排名改善；失败/数据不足返回空，不阻塞报告。"""
+    try:
+        from app.factors.popularity import pop_rank_improvement_map
+        return pop_rank_improvement_map(trade_date, days=3)
+    except Exception as e:
+        logger.debug("[报告] 人气排名改善读取失败: %s", e)
+        return {}
+
+
+def _append_stock_detail(lines: list, idx: int, c: Candidate, market_label: str,
+                         pop_imp: dict | None = None) -> None:
     """写入单只股票的详情区块。"""
     p = c.trade_plan
     f = c.factors
+    pop_imp = pop_imp or {}
     # 新因子信号标注
     rsi_note = f"🔴过热" if f.rsi_14 > 70 else ("🟢超卖" if f.rsi_14 < 30 else "")
     vwap_note = f"⚠️偏离+{f.vwap_deviation:.0f}%（追高风险）" if f.vwap_deviation > 15 else (
@@ -482,6 +495,10 @@ def _append_stock_detail(lines: list, idx: int, c: Candidate, market_label: str)
         new_factor_parts.append(f"7日涨幅={f.change_pct_7d:+.1f}%{' '+pct7_note if pct7_note else ''}")
     if f.popularity_rank > 0:
         new_factor_parts.append(f"人气排名={f.popularity_rank}名")
+    imp = pop_imp.get(c.code)
+    if imp is not None and imp != 0:
+        arrow = "↑" if imp > 0 else "↓"
+        new_factor_parts.append(f"人气排名改善_3日={imp:+d}{arrow}")
     if new_factor_parts:
         lines.append("**新增指标：** " + "  |  ".join(new_factor_parts))
 

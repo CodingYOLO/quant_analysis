@@ -98,6 +98,52 @@ def theme_pop_factors(codes: list[str], weight_map: dict[str, float]) -> dict[st
     return {"pop_weight": pop_weight, "pop_concentration_hhi": hhi, "pop_fairness": fairness}
 
 
+# ──────────────────────────────────────────────
+# 人气排名改善（对标吴川「人气排名改善_3日」）
+# ──────────────────────────────────────────────
+
+def rank_delta(today_ranks: dict[str, int], prior_ranks: dict[str, int]) -> dict[str, int]:
+    """
+    人气排名改善 = 历史排名 − 今日排名（正=名次前移/人气上升，纯函数便于单测）。
+
+    仅对两期都有排名的个股计算；缺一期则不计（避免伪造）。
+    """
+    out: dict[str, int] = {}
+    for code, today in today_ranks.items():
+        prior = prior_ranks.get(code)
+        if prior is not None and today is not None:
+            out[code] = int(prior) - int(today)
+    return out
+
+
+def pop_rank_improvement_map(trade_date: str, provider: CompositeProvider | None = None,
+                             days: int = 3) -> dict[str, int]:
+    """
+    读人气表，算各股近 `days` 个交易日的人气排名改善（{ts_code: 改善值}）。
+
+    数据随盘后人气代理逐日累积；历史不足 `days` 天时返回空（数据积累中，不报错）。
+    """
+    from app.data.theme_heat_db import get_popularity
+    from app.factors.breadth_qfq import _recent_trade_dates
+    provider = provider or CompositeProvider()
+    try:
+        dates = _recent_trade_dates(provider, trade_date, days + 1)
+    except Exception:
+        return {}
+    if len(dates) < days + 1:
+        return {}
+    today_d, prior_d = dates[-1], dates[-(days + 1)]
+
+    def _ranks(d: str) -> dict[str, int]:
+        return {r["ts_code"]: r["equiv_rank"] for r in get_popularity(d)
+                if r.get("equiv_rank") is not None}
+
+    today_ranks, prior_ranks = _ranks(today_d), _ranks(prior_d)
+    if not today_ranks or not prior_ranks:
+        return {}
+    return rank_delta(today_ranks, prior_ranks)
+
+
 def _gini(values: list[float]) -> float:
     """基尼系数（0=完全均衡，1=完全集中）。"""
     if not values:
