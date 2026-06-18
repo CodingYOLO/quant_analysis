@@ -186,7 +186,7 @@ function render(d){
   }));
 
   // 指数涨跌幅多线
-  const colors=['#f6465d','#3b9eff','#e056c1','#f0a020','#2ebd85','#7c9ef8'];
+  const colors=['#f6465d','#3b9eff','#e056c1','#f0a020','#2ebd85','#7c9ef8','#c084fc'];
   const idxSeries = Object.keys(d.indices).map((name,i)=>{
     const col=colors[i%colors.length];
     return { name, type:'line', data:d.indices[name], smooth:true, symbol:'none', itemStyle:{color:col}, lineStyle:{color:col,width:2} };

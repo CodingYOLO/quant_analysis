@@ -28,14 +28,17 @@ from app.nodes.quick_report import _board_limit_pct, _recent_trade_dates
 
 logger = logging.getLogger(__name__)
 
-# 展示用指数（Tushare index_daily 代码）
+# 展示用指数（吴川分类口径；均经 Tushare index_daily 实测可取真实数据）
+#   全A=中证全指 / 上证=上证指数 / 红利=中证红利 / 小盘=国证2000 /
+#   中小盘=中证500 / 深成=深证成指 / 创业板=创业板指
 _INDICES = [
-    ("上证指数", "000001.SH"),
-    ("深证成指", "399001.SZ"),
-    ("创业板指", "399006.SZ"),
-    ("沪深300", "399300.SZ"),
-    ("中证500", "000905.SH"),
-    ("中证1000", "000852.SH"),
+    ("全A", "000985.CSI"),     # 中证全指（全A 代理，万得全A Tushare 无）
+    ("上证", "000001.SH"),     # 上证指数
+    ("红利", "000922.CSI"),    # 中证红利
+    ("小盘", "399303.SZ"),     # 国证2000
+    ("中小盘", "000905.SH"),   # 中证500
+    ("深成", "399001.SZ"),     # 深证成指
+    ("创业板", "399006.SZ"),   # 创业板指
 ]
 
 # 流通市值分层（亿元）
@@ -52,10 +55,10 @@ def _cache_path(end_date: str, days: int, start_date: str = "") -> Path:
 
 
 def _trade_dates_between(provider, start_date: str, end_date: str) -> list[str]:
-    """区间内所有交易日（升序），并向前多取6个用于连板回溯。"""
+    """区间内所有交易日（升序），并向前多取 ~15 个交易日用于连板回溯（避免高连板被低估）。"""
     import datetime
-    # 向前扩 6 个交易日 ≈ 12 自然日
-    pad_start = (datetime.datetime.strptime(start_date, "%Y%m%d") - datetime.timedelta(days=12)).strftime("%Y%m%d")
+    # 向前扩 ~15 个交易日 ≈ 30 自然日（覆盖 7 板+ 的回溯深度）
+    pad_start = (datetime.datetime.strptime(start_date, "%Y%m%d") - datetime.timedelta(days=30)).strftime("%Y%m%d")
     cal = provider.get_trade_cal(pad_start, end_date)
     return sorted(cal[cal["is_open"] == 1]["cal_date"].astype(str).tolist())
 
@@ -99,8 +102,8 @@ def build_dashboard(end_date: str, days: int = 22, start_date: str = "", force: 
     if start_date:
         all_dates = _trade_dates_between(provider, start_date, end_date)
     else:
-        # 取 days + 6 个交易日（多6天用于连板回溯），升序
-        all_dates = _recent_trade_dates(provider, end_date, n=days + 6)
+        # 取 days + 15 个交易日（多15天用于连板回溯，避免高连板被低估），升序
+        all_dates = _recent_trade_dates(provider, end_date, n=days + 15)
     if not all_dates:
         raise ValueError(f"{end_date} 无交易日数据")
 
@@ -177,7 +180,7 @@ def _classify_market_regime(indices: dict, breadth: dict, per_day: dict, range_d
     依据：上证区间累计涨幅 + 平均市场广度 + 涨跌停净值趋势。
     """
     # 上证区间累计涨幅（_index_series 已是相对首日的累计%）
-    sh = indices.get("上证指数") or []
+    sh = indices.get("上证") or []
     sh_cum = sh[-1] if sh and sh[-1] is not None else 0.0
     # 平均广度
     bvals = [b for b in breadth.get("all", []) if b is not None]
