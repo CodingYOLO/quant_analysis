@@ -100,7 +100,28 @@
     <button class="quickbtn" id="cf-add">＋ 添加条件</button>
     <span id="cf-chips" style="display:flex;gap:6px;flex-wrap:wrap;align-items:center"></span>
   </div>
+
+  <!-- 策略保存 / 我的策略库 -->
+  <div class="toolbar" style="margin-top:10px">
+    <label>策略</label>
+    <input type="text" id="strat-name" placeholder="策略名称" style="min-width:160px">
+    <button class="quickbtn" id="strat-save">💾 保存当前条件</button>
+    <button class="quickbtn" id="strat-open">📚 我的策略库</button>
+  </div>
   <div id="status" class="neu" style="font-size:13px;margin-top:12px"></div>
+</div>
+
+<!-- 策略库弹窗 -->
+<div id="strat-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:50;align-items:flex-start;justify-content:center">
+  <div style="background:#12141c;border:1px solid #2d3052;border-radius:12px;width:min(560px,92vw);margin-top:8vh;max-height:78vh;display:flex;flex-direction:column">
+    <div style="display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid #242842">
+      <b style="font-size:15px;color:#c9d2f8">📚 我的策略库</b>
+      <input type="text" id="strat-search" placeholder="搜索策略名/创建者" style="flex:1;background:#0f1117;color:#e8e8e8;border:1px solid #2d3052;border-radius:6px;padding:6px 10px;font-size:13px">
+      <label class="neu" style="font-size:12px;display:flex;align-items:center;gap:4px"><input type="checkbox" id="strat-mine"> 仅看我的</label>
+      <span id="strat-close" style="cursor:pointer;color:#9ca3af;font-size:18px">✕</span>
+    </div>
+    <div id="strat-list" style="overflow-y:auto;padding:10px 14px"></div>
+  </div>
 </div>
 
 <div class="card" id="rescard" style="display:none">
@@ -236,5 +257,88 @@ document.getElementById('run').addEventListener('click', async () => {
     btn.disabled = false;
   }
 });
+
+// ── 策略保存 / 我的策略库 ──
+function currentPayload() {
+  const cn = document.getElementById('cn').value, cv = document.getElementById('cv').value;
+  return {
+    factors: [...selected],
+    customs: customs.map(c => ({ col: c.col, op: c.op, val: c.val, label: c.label })),
+    custom: (cn && cv !== '') ? { n: parseInt(cn), op: 'le', val: parseFloat(cv) } : null,
+    sort_by: document.getElementById('sort').value,
+  };
+}
+function applyPayload(p) {
+  // 还原因子按钮
+  selected.clear();
+  document.querySelectorAll('.fbtn').forEach(b => b.classList.remove('on'));
+  (p.factors || []).forEach(k => {
+    selected.add(k);
+    const b = document.querySelector('.fbtn[data-key="' + k + '"]');
+    if (b) b.classList.add('on');
+  });
+  // 还原自定义条件
+  customs.length = 0;
+  (p.customs || []).forEach(c => customs.push({ ...c, label: c.label || c.col }));
+  renderChips();
+  // 还原近N日 / 排序
+  document.getElementById('cn').value = p.custom ? p.custom.n : '';
+  document.getElementById('cv').value = p.custom ? p.custom.val : '';
+  if (p.sort_by) document.getElementById('sort').value = p.sort_by;
+}
+
+document.getElementById('strat-save').addEventListener('click', async () => {
+  const name = document.getElementById('strat-name').value.trim();
+  const st = document.getElementById('status');
+  if (!name) { st.textContent = '⚠️ 请先填策略名称'; return; }
+  const p = currentPayload();
+  if (!p.factors.length && !p.customs.length && !p.custom) { st.textContent = '⚠️ 当前没有任何条件可保存'; return; }
+  try {
+    const r = await fetch('/api/strategy/save', { method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ name, payload: p }) });
+    const d = await r.json();
+    st.textContent = d.ok ? '✅ 策略「' + name + '」已保存' : ('❌ ' + d.error);
+  } catch (e) { st.textContent = '❌ ' + e; }
+});
+
+const modal = document.getElementById('strat-modal');
+async function loadStrategies() {
+  const mine = document.getElementById('strat-mine').checked ? 1 : 0;
+  const q = document.getElementById('strat-search').value.trim();
+  const box = document.getElementById('strat-list');
+  box.innerHTML = '<div class="neu" style="padding:10px">加载中…</div>';
+  const r = await fetch('/api/strategy/list?mine=' + mine + '&q=' + encodeURIComponent(q));
+  const d = await r.json();
+  if (!d.ok) { box.innerHTML = '<div class="neu" style="padding:10px">❌ ' + d.error + '</div>'; return; }
+  if (!d.rows.length) { box.innerHTML = '<div class="neu" style="padding:14px;text-align:center">暂无策略</div>'; return; }
+  box.innerHTML = d.rows.map(s => {
+    const n = (s.payload.factors || []).length + (s.payload.customs || []).length + (s.payload.custom ? 1 : 0);
+    const canDel = s.creator === d.me;
+    return '<div style="background:#161929;border:1px solid #242842;border-radius:9px;padding:10px 12px;margin-bottom:8px;display:flex;align-items:center;gap:10px">'
+      + '<div style="flex:1;min-width:0"><div style="font-weight:600">' + s.name + '</div>'
+      + '<div class="neu" style="font-size:11px">创建者 ' + s.creator + ' · ' + n + ' 个条件 · ' + (s.created_at || '') + '</div></div>'
+      + '<button class="quickbtn apply-s" data-id="' + s.id + '">应用</button>'
+      + (canDel ? '<button class="quickbtn del-s" data-id="' + s.id + '" style="color:#f6465d">删除</button>' : '')
+      + '</div>';
+  }).join('');
+  const byId = Object.fromEntries(d.rows.map(s => [s.id, s]));
+  box.querySelectorAll('.apply-s').forEach(b => b.addEventListener('click', () => {
+    applyPayload(byId[b.dataset.id].payload || {});
+    modal.style.display = 'none';
+    document.getElementById('status').textContent = '✅ 已应用策略「' + byId[b.dataset.id].name + '」，点击开始筛选';
+  }));
+  box.querySelectorAll('.del-s').forEach(b => b.addEventListener('click', async () => {
+    if (!confirm('删除该策略？')) return;
+    const r2 = await fetch('/api/strategy/delete', { method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ id: +b.dataset.id }) });
+    const d2 = await r2.json();
+    if (d2.ok) loadStrategies(); else alert(d2.error);
+  }));
+}
+document.getElementById('strat-open').addEventListener('click', () => { modal.style.display = 'flex'; loadStrategies(); });
+document.getElementById('strat-close').addEventListener('click', () => { modal.style.display = 'none'; });
+modal.addEventListener('click', e => { if (e.target === modal) modal.style.display = 'none'; });
+document.getElementById('strat-search').addEventListener('input', loadStrategies);
+document.getElementById('strat-mine').addEventListener('change', loadStrategies);
 </script>
 {% endblock %}

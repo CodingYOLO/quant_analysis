@@ -510,6 +510,48 @@ async def api_screen(request: Request, _user: str = Depends(require_auth)):
         return {"ok": False, "error": str(e)}
 
 
+@app.post("/api/strategy/save")
+async def api_strategy_save(request: Request, _user: str = Depends(require_auth)):
+    """保存选股策略（名称+条件载荷）。同创建者同名覆盖。"""
+    try:
+        from app.strategy.saved_strategies import save
+        body = await request.json()
+        name = (body.get("name") or "").strip()
+        payload = body.get("payload") or {}
+        if not name:
+            return {"ok": False, "error": "策略名称不能为空"}
+        sid = save(name, _user, payload)
+        return {"ok": True, "id": sid}
+    except Exception as e:
+        logger.exception("保存策略失败")
+        return {"ok": False, "error": str(e)}
+
+
+@app.get("/api/strategy/list")
+async def api_strategy_list(mine: int = 0, q: str = "", _user: str = Depends(require_auth)):
+    """策略库列表。mine=1 仅看本人；q 模糊搜索名称/创建者。"""
+    try:
+        from app.strategy.saved_strategies import list_strategies
+        rows = list_strategies(creator=_user if mine else None, q=q.strip())
+        return {"ok": True, "me": _user, "rows": rows}
+    except Exception as e:
+        logger.exception("策略库列表失败")
+        return {"ok": False, "error": str(e)}
+
+
+@app.post("/api/strategy/delete")
+async def api_strategy_delete(request: Request, _user: str = Depends(require_auth)):
+    """删除策略（仅创建者本人可删）。"""
+    try:
+        from app.strategy.saved_strategies import delete
+        body = await request.json()
+        ok = delete(int(body.get("id", 0)), _user)
+        return {"ok": ok, "error": "" if ok else "无权删除或策略不存在"}
+    except Exception as e:
+        logger.exception("删除策略失败")
+        return {"ok": False, "error": str(e)}
+
+
 @app.get("/strategy", response_class=HTMLResponse)
 async def strategy_page(request: Request, _user: str = Depends(require_auth)):
     return templates.TemplateResponse(request=request, name="strategy.html", context={})
