@@ -502,11 +502,22 @@ def _append_stock_detail(lines: list, idx: int, c: Candidate, market_label: str)
         "|---|---|---|",
         f"| 保守买入 | **{p.buy_conservative:.2f}** | 20日VWAP主力成本区，回踩首选 |",
         f"| 激进买入 | {p.buy_aggressive:.2f} | 当日收盘价，趋势追随 |",
-        f"| 🛑 止损 | {p.stop_loss:.2f} | 跌破MA5无条件止损 |",
+        f"| 🛑 止损位 | {p.stop_loss:.2f} | 跌破即离场（多条件见下） |",
         f"| 🎯 止盈1 | {p.take_profit_1:.2f} | +5% 减仓一半 |",
         f"| 🎯 止盈2 | {p.take_profit_2:.2f} | +8% 继续减仓 |",
         f"| 建议仓位 | {p.position_pct:.0%} | 基于{market_label}市场状态 |",
     ]
+
+    # 多条件止损 + 次日验证清单（对标吴川，量化可勾选）
+    from app.factors.trade_rules import build_stop_rule, build_nextday_checklist
+    lines += [
+        "",
+        f"**🛑 多条件止损：** {build_stop_rule(p.stop_loss, c.theme)}",
+        "",
+        "**🌅 次日 09:30-09:40 验证清单（满足才介入）：**",
+    ]
+    for i, rule in enumerate(build_nextday_checklist(f.close), 1):
+        lines.append(f"{i}. {rule}")
 
     # 多空辩论结果
     if c.debate:
