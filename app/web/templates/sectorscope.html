@@ -20,6 +20,18 @@
 .bcol h3 { font-size:14px; margin-bottom:2px; }
 .bcol .sub { font-size:11px; color:#9ca3af; margin-bottom:10px; }
 .cnt { font-size:11px; color:#9ca3af; font-weight:400; }
+.stage-wrap { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-bottom:18px; }
+@media(max-width:760px){ .stage-wrap{grid-template-columns:1fr} }
+.stage-col { background:#141729; border:1px solid #242842; border-radius:12px; padding:14px; }
+.stage-col h3 { font-size:14px; margin-bottom:2px; }
+.stage-sub { font-size:11px; color:#8a90a0; margin-bottom:10px; }
+.srow { display:flex; align-items:center; justify-content:space-between; gap:8px;
+  padding:6px 8px; border-radius:7px; font-size:12.5px; }
+.srow:nth-child(odd){ background:#0f1117; }
+.srow .nm { font-weight:600; color:#e8e8e8; }
+.srow .mt { color:#9ca3af; font-size:11px; }
+.srow .st { font-weight:600; }
+.delta-up { color:#f6465d; } .delta-dn { color:#2ebd85; }
 .bcard { background:#0f1117; border:1px solid #242842; border-radius:8px; padding:9px 11px; margin-bottom:7px; }
 .bcard .nm { font-size:13px; font-weight:600; }
 .bcard .mx { display:flex; justify-content:space-between; font-size:11px; color:#9ca3af; margin-top:4px; gap:6px; }
@@ -58,6 +70,21 @@ tr:hover td { background:#1e2138; }
     <div class="bcol dip"><h3 style="color:#4ade80">低吸观察 <span id="n-dip" class="cnt"></span></h3><div class="sub">中期趋势在 · 今日资金/价格分歧（等回踩）</div><div id="c-dip"></div></div>
     <div class="bcol risk"><h3 style="color:#f87171">高位风险 <span id="n-risk" class="cnt"></span></h3><div class="sub">涨幅居前 · 超买或拥挤（防高位派发）</div><div id="c-risk"></div></div>
   </div>
+
+  <!-- 板块阶段·趋势动量（对标吴川：趋势强度 + 3日变化Δ）-->
+  <div class="stage-wrap">
+    <div class="stage-col">
+      <h3 style="color:#fb923c">🔥 主升候选 <span class="cnt" style="font-size:11px;color:#9ca3af">趋势强度榜</span></h3>
+      <div class="stage-sub">升温 / 趋势期 · 按强度排序（Δ=趋势3日变化）</div>
+      <div id="s-surge"></div>
+    </div>
+    <div class="stage-col">
+      <h3 style="color:#9ca3af">⚠️ 退潮预警 <span class="cnt" style="font-size:11px;color:#9ca3af">衰减最快榜</span></h3>
+      <div class="stage-sub">退潮期 · 按 Δ 升序（趋势衰减最快在前）</div>
+      <div id="s-decay"></div>
+    </div>
+  </div>
+
   <div style="overflow-x:auto"><table id="tbl"></table></div>
 </div>
 
@@ -81,8 +108,18 @@ async function load(){
     const dd=j.date.replace(/(\d{4})(\d{2})(\d{2})/,'$1-$2-$3');
     document.getElementById('meta').innerHTML='<span class="chip">总数 '+rows.length+'</span><span class="chip">数据日 '+dd+'</span>';
     L.style.display='none'; document.getElementById('dash').style.display='block';
-    renderCols(j.buckets); renderTable();
+    renderCols(j.buckets); renderStage(j.stage||{}); renderTable();
   }catch(e){ L.textContent='❌ '+e; }
+}
+
+// 板块阶段·趋势动量：主升候选 / 退潮预警（强度 + Δ）
+function renderStage(st){
+  const delta=v=>{ if(v===null||v===undefined) return ''; const c=v>0?'delta-up':(v<0?'delta-dn':'neu2');
+    return '<span class="'+c+'">Δ'+(v>0?'+':'')+(+v).toFixed(0)+'</span>'; };
+  const row=r=>'<div class="srow"><span class="nm">'+r.theme_name+'</span>'
+    +'<span class="mt">3日 '+sg(r.pct_chg_3d,'%')+'　<span class="st">强度'+(r.heat_score==null?'—':Math.round(r.heat_score))+'</span>　'+delta(r.heat_score_delta_3d)+'</span></div>';
+  const fill=(id,arr)=>document.getElementById(id).innerHTML=(arr&&arr.length)?arr.map(row).join(''):'<div class="miss" style="font-size:12px">今日无</div>';
+  fill('s-surge', st.surge); fill('s-decay', st.decay);
 }
 document.getElementById('reload').addEventListener('click', load);
 document.getElementById('date').addEventListener('change', load);

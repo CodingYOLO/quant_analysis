@@ -103,6 +103,20 @@ def test_percentile_and_context() -> None:
         assert key in ctx
 
 
+def test_stage_tops_ordering() -> None:
+    """主升按强度降序；退潮按 Δ 升序（衰减最快在前）。"""
+    rows = [
+        _row(theme_name="强主升", phase="升温", heat_score=88, heat_score_delta_3d=10),
+        _row(theme_name="次主升", phase="趋势", heat_score=80, heat_score_delta_3d=5),
+        _row(theme_name="震荡票", phase="震荡", heat_score=50, heat_score_delta_3d=0),
+        _row(theme_name="缓退", phase="退潮", heat_score=30, heat_score_delta_3d=-10),
+        _row(theme_name="急退", phase="退潮", heat_score=25, heat_score_delta_3d=-40),
+    ]
+    surge, decay = ss._stage_tops(rows)
+    assert [r["theme_name"] for r in surge] == ["强主升", "次主升"]   # 震荡不入主升
+    assert [r["theme_name"] for r in decay] == ["急退", "缓退"]       # Δ最负在前
+
+
 def _run_all() -> None:
     fns = [v for k, v in sorted(globals().items())
            if k.startswith("test_") and callable(v)]

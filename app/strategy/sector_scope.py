@@ -159,6 +159,7 @@ def build_sectorscope(date: str = "",
 
     ctx = _build_context(rows)
     rotate, dip, risk = _classify(rows, ctx)
+    surge, decay = _stage_tops(rows)
 
     return {
         "available": True,
@@ -169,7 +170,33 @@ def build_sectorscope(date: str = "",
             "dip": dip[:12],
             "risk": risk[:12],
         },
+        # 板块阶段·趋势动量（对标吴川：趋势强度 heat_score + 3日变化 Δ）
+        "stage": {
+            "surge": surge[:10],   # 主升候选：升温/趋势，按强度
+            "decay": decay[:10],   # 退潮预警：退潮，按 Δ 最快衰减
+        },
     }
+
+
+# ── 板块阶段·趋势动量（对标吴川 板块阶段识别：trend_score + 3日变化）──────────
+# 复用宽表自带字段：heat_score(趋势强度 0~100) / heat_score_delta_3d(3日变化Δ) / phase
+_SURGE_PHASES = ("升温", "趋势")
+
+
+def _stage_tops(rows: list[dict]) -> tuple[list[dict], list[dict]]:
+    """
+    主升候选 / 退潮预警 两个排行（吴川式生命周期视角，与三栏诊断互补）。
+
+    主升候选：phase∈{升温,趋势}，按强度 heat_score 降序（同档 Δ 大者优先）。
+    退潮预警：phase==退潮，按 3 日变化 Δ 升序（衰减最快在前），同档低强度优先。
+    """
+    surge = [r for r in rows if r.get("phase") in _SURGE_PHASES]
+    decay = [r for r in rows if r.get("phase") == "退潮"]
+    surge.sort(key=lambda r: (_num(r.get("heat_score")),
+                              _num(r.get("heat_score_delta_3d"))), reverse=True)
+    decay.sort(key=lambda r: (_num(r.get("heat_score_delta_3d"), 0.0),
+                              _num(r.get("heat_score"), 100.0)))
+    return surge, decay
 
 
 def _load_rows(d: str, theme_types: tuple[str, ...]) -> list[dict]:
