@@ -24,6 +24,8 @@ from app import factors as F
 from app.config import get_settings
 from app.data.composite_provider import CompositeProvider
 from app.data.history_loader import load_price_matrix
+from app.factors.patterns import price_volume as _pv  # noqa: F401  触发形态注册
+from app.factors.patterns.base import PATTERN_REGISTRY, detect_all
 
 logger = logging.getLogger(__name__)
 
@@ -84,6 +86,14 @@ FACTOR_GROUPS = [
             {"key": "comment_ge80", "label": "千评得分≥80", "col": "comment_score", "op": "ge", "val": 80},
             {"key": "inst_ge50", "label": "机构参与度≥50%", "col": "institution_pct", "op": "ge", "val": 50},
             {"key": "popular_top500", "label": "人气排名前500", "col": "popularity_rank", "op": "le", "val": 500, "pos": True},
+        ],
+    },
+    {
+        # K线/量价形态（由形态注册表自动生成，新增形态零侵入）
+        "group": "K线形态/量价",
+        "factors": [
+            {"key": f"pat_{k}", "label": p.label, "col": f"pat_{k}", "op": "true"}
+            for k, p in PATTERN_REGISTRY.items()
         ],
     },
 ]
@@ -216,8 +226,9 @@ def _add_technical_factors(df: pd.DataFrame, date: str, provider) -> pd.DataFram
     df["rps120"] = df["ts_code"].map(rps120.to_dict()) if not rps120.empty else np.nan
     df["rps_combo"] = df[["rps50", "rps120"]].mean(axis=1)
 
-    # MACD金叉 / RSI / VWAP偏离（逐股，受候选量影响，全市场一次性算）
+    # MACD金叉 / RSI / VWAP偏离 / K线形态（逐股，全市场一次性算）
     macd_gold, rsi14, vwap_dev, vol_ratio = {}, {}, {}, {}
+    pat_hits: dict[str, dict[str, bool]] = {}
     for ts in close_m.columns:
         s = close_m[ts].dropna()
         if len(s) < 35:
@@ -231,13 +242,29 @@ def _add_technical_factors(df: pd.DataFrame, date: str, provider) -> pd.DataFram
                 vol_ratio[ts] = F.volume_ratio(v, n=5)
             if len(v) >= 20:
                 vwap_dev[ts] = F.vwap_position(s.tail(20), v.tail(20), 20) * 100
+            pat_hits[ts] = _detect_patterns(ts, close_m, open_m, high_m, low_m, vol_m)
         except Exception:
             continue
     df["macd_gold"] = df["ts_code"].map(macd_gold).fillna(False)
     df["rsi14"] = df["ts_code"].map(rsi14)
     df["vwap_dev"] = df["ts_code"].map(vwap_dev)
     df["volume_ratio"] = df["ts_code"].map(vol_ratio)
+    # K线形态布尔列 pat_<key>
+    for key in PATTERN_REGISTRY:
+        col = f"pat_{key}"
+        df[col] = df["ts_code"].map(lambda ts: pat_hits.get(ts, {}).get(key, False)).fillna(False)
     return df
+
+
+def _detect_patterns(ts, close_m, open_m, high_m, low_m, vol_m) -> dict[str, bool]:
+    """构建单股 OHLCV 并跑全部已注册形态（不复权，与其余技术因子口径一致）。"""
+    ohlcv = pd.DataFrame({
+        "open": open_m.get(ts), "high": high_m.get(ts), "low": low_m.get(ts),
+        "close": close_m.get(ts), "vol": vol_m.get(ts),
+    }).dropna()
+    if ohlcv.empty:
+        return {}
+    return detect_all(ohlcv)
 
 
 # ──────────────────────────────────────────────
