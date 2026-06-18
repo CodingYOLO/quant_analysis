@@ -64,6 +64,9 @@ FACTOR_GROUPS = [
             {"key": "above_ma10", "label": "站上MA10", "col": "above_ma10", "op": "true"},
             {"key": "above_ma20", "label": "站上MA20", "col": "above_ma20", "op": "true"},
             {"key": "above_ma60", "label": "站上MA60", "col": "above_ma60", "op": "true"},
+            {"key": "above_ma90", "label": "站上MA90", "col": "above_ma90", "op": "true"},
+            {"key": "above_ma144", "label": "站上MA144", "col": "above_ma144", "op": "true"},
+            {"key": "ema_bull", "label": "EMA14>EMA26(多头)", "col": "ema_bull", "op": "true"},
             {"key": "rps50_ge70", "label": "RPS50≥70", "col": "rps50", "op": "ge", "val": 70},
             {"key": "rps120_ge70", "label": "RPS120≥70", "col": "rps120", "op": "ge", "val": 70},
             {"key": "rps_ge80", "label": "RPS综合≥80", "col": "rps_combo", "op": "ge", "val": 80},
@@ -73,6 +76,10 @@ FACTOR_GROUPS = [
         "group": "技术与资金",
         "factors": [
             {"key": "macd_gold", "label": "MACD金叉", "col": "macd_gold", "op": "true"},
+            {"key": "kdj_gold", "label": "KDJ金叉(低位)", "col": "kdj_gold", "op": "true"},
+            {"key": "td_buy9", "label": "TD神奇九转(买入9)", "col": "td_buy9", "op": "true"},
+            {"key": "long_lower", "label": "长下影线(承接)", "col": "long_lower", "op": "true"},
+            {"key": "long_upper", "label": "长上影线(抛压)", "col": "long_upper", "op": "true"},
             {"key": "rsi_oversold", "label": "RSI超卖(<30)", "col": "rsi14", "op": "lt", "val": 30, "pos": True},
             {"key": "rsi_strong", "label": "RSI强势(50-70)", "col": "rsi14", "op": "between", "val": [50, 70]},
             {"key": "main_inflow", "label": "主力净流入>0", "col": "main_net_amount", "op": "gt", "val": 0},
@@ -97,6 +104,22 @@ FACTOR_GROUPS = [
         ],
     },
 ]
+
+# 自定义条件可选字段（任意数值列 + 操作符 + 值），供前端「自定义条件」下拉
+CUSTOM_FIELDS = [
+    {"col": "pe_ttm", "label": "市盈率PE"}, {"col": "pb", "label": "市净率PB"},
+    {"col": "total_mv_100m", "label": "总市值(亿)"}, {"col": "circ_mv_100m", "label": "流通市值(亿)"},
+    {"col": "turnover_rate", "label": "换手率%"}, {"col": "volume_ratio", "label": "量比"},
+    {"col": "amount_100m", "label": "成交额(亿)"}, {"col": "amplitude", "label": "振幅%"},
+    {"col": "pct_chg", "label": "当日涨跌%"}, {"col": "rps50", "label": "RPS50"},
+    {"col": "rps120", "label": "RPS120"}, {"col": "rps_combo", "label": "RPS综合"},
+    {"col": "rsi14", "label": "RSI"}, {"col": "vwap_dev", "label": "VWAP偏离%"},
+    {"col": "main_net_amount", "label": "主力净流入(亿)"}, {"col": "elg_net", "label": "超大单(亿)"},
+    {"col": "comment_score", "label": "千评得分"}, {"col": "institution_pct", "label": "机构参与度%"},
+    {"col": "popularity_rank", "label": "人气排名"},
+]
+_CUSTOM_COLS = {f["col"] for f in CUSTOM_FIELDS}
+_CUSTOM_OPS = {"ge", "gt", "le", "lt", "eq"}
 
 # 结果表展示列（顺序）
 DISPLAY_COLS = [
@@ -226,16 +249,24 @@ def _add_technical_factors(df: pd.DataFrame, date: str, provider) -> pd.DataFram
     df["rps120"] = df["ts_code"].map(rps120.to_dict()) if not rps120.empty else np.nan
     df["rps_combo"] = df[["rps50", "rps120"]].mean(axis=1)
 
-    # MACD金叉 / RSI / VWAP偏离 / K线形态（逐股，全市场一次性算）
+    # MACD/KDJ金叉 / RSI / VWAP / EMA多头 / 影线 / TD九转 / K线形态（逐股一次性算）
     macd_gold, rsi14, vwap_dev, vol_ratio = {}, {}, {}, {}
+    kdj_gold, ema_bull, td9, long_up, long_dn = {}, {}, {}, {}, {}
     pat_hits: dict[str, dict[str, bool]] = {}
     for ts in close_m.columns:
         s = close_m[ts].dropna()
         if len(s) < 35:
             continue
         try:
+            hi, lo = high_m[ts].dropna(), low_m[ts].dropna()
             macd_gold[ts] = F.macd_golden_cross(s)
             rsi14[ts] = float(F.rsi(s, 14).iloc[-1])
+            kdj_gold[ts] = F.kdj_golden_cross(s, hi, lo)
+            ema_bull[ts] = F.ema_bull(s)
+            td9[ts] = F.td_buy_setup_count(s) >= 9
+            up_r, dn_r = F.shadow_ratio(float(open_m[ts].iloc[-1]), float(hi.iloc[-1]),
+                                        float(lo.iloc[-1]), float(s.iloc[-1]))
+            long_up[ts], long_dn[ts] = up_r >= 0.5, dn_r >= 0.5   # 影线占全幅一半以上
             v = vol_m[ts].dropna()
             if len(v) >= 6:
                 # 量比 = 今日量 / 近5日均量（自算，因 daily_basic.volume_ratio 当日常缺失）
@@ -249,6 +280,11 @@ def _add_technical_factors(df: pd.DataFrame, date: str, provider) -> pd.DataFram
     df["rsi14"] = df["ts_code"].map(rsi14)
     df["vwap_dev"] = df["ts_code"].map(vwap_dev)
     df["volume_ratio"] = df["ts_code"].map(vol_ratio)
+    df["kdj_gold"] = df["ts_code"].map(kdj_gold).fillna(False)
+    df["ema_bull"] = df["ts_code"].map(ema_bull).fillna(False)
+    df["td_buy9"] = df["ts_code"].map(td9).fillna(False)
+    df["long_upper"] = df["ts_code"].map(long_up).fillna(False)
+    df["long_lower"] = df["ts_code"].map(long_dn).fillna(False)
     # K线形态布尔列 pat_<key>
     for key in PATTERN_REGISTRY:
         col = f"pat_{key}"
@@ -293,16 +329,35 @@ def _apply_condition(df: pd.DataFrame, f: dict) -> pd.Series:
     if op == "between":
         lo, hi = f["val"]
         return (s >= lo) & (s <= hi)
+    if op == "eq":
+        return s == f["val"]
     return pd.Series(True, index=df.index)
 
 
+def _apply_customs(df: pd.DataFrame, customs: list[dict] | None) -> pd.Series:
+    """应用自定义任意字段条件 [{col, op, val}]（白名单字段+操作符，防注入）。"""
+    mask = pd.Series(True, index=df.index)
+    for c in customs or []:
+        col, op = c.get("col"), c.get("op")
+        if col not in _CUSTOM_COLS or op not in _CUSTOM_OPS:
+            continue
+        try:
+            val = float(c.get("val"))
+        except (TypeError, ValueError):
+            continue
+        if col in df.columns:
+            mask &= _apply_condition(df, {"col": col, "op": op, "val": val}).fillna(False)
+    return mask
+
+
 def screen(date: str, selected_keys: list[str],
-           custom: dict | None = None,
+           custom: dict | None = None, customs: list[dict] | None = None,
            sort_by: str = "rps120", limit: int = 100,
            provider: CompositeProvider | None = None) -> dict:
     """
     按选中因子筛选。
-    custom: {"col": "ret_nd", "n": 7, "op": "le", "val": 7}  近N日累计涨幅自定义
+    custom:  {"n": 7, "op": "le", "val": 7}  近N日累计涨幅自定义
+    customs: [{"col","op","val"}, ...]        任意字段自定义条件（白名单）
     返回 {"ok", "count", "columns", "rows"}。
     """
     df = build_factor_table(date, provider)
@@ -312,6 +367,9 @@ def screen(date: str, selected_keys: list[str],
         f = _FACTOR_INDEX.get(key)
         if f:
             mask &= _apply_condition(df, f).fillna(False)
+
+    # 自定义任意字段条件
+    mask &= _apply_customs(df, customs)
 
     # 自定义：近N日累计涨跌幅
     if custom and custom.get("n"):

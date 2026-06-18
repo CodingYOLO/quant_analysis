@@ -85,6 +85,21 @@
     <input type="number" id="cv" placeholder="%" style="width:64px">
     <button class="runbtn" id="run">🚀 开始筛选</button>
   </div>
+
+  <!-- 自定义任意字段条件（选字段+操作符+值 → 添加） -->
+  <div class="toolbar" style="margin-top:10px">
+    <label>自定义</label>
+    <select id="cf-field">
+      {% for f in custom_fields %}<option value="{{ f.col }}">{{ f.label }}</option>{% endfor %}
+    </select>
+    <select id="cf-op">
+      <option value="ge">≥</option><option value="gt">&gt;</option>
+      <option value="le">≤</option><option value="lt">&lt;</option><option value="eq">=</option>
+    </select>
+    <input type="number" id="cf-val" placeholder="值" style="width:80px">
+    <button class="quickbtn" id="cf-add">＋ 添加条件</button>
+    <span id="cf-chips" style="display:flex;gap:6px;flex-wrap:wrap;align-items:center"></span>
+  </div>
   <div id="status" class="neu" style="font-size:13px;margin-top:12px"></div>
 </div>
 
@@ -101,6 +116,27 @@ document.querySelectorAll('.fbtn').forEach(b => {
     if (selected.has(k)) { selected.delete(k); b.classList.remove('on'); }
     else { selected.add(k); b.classList.add('on'); }
   });
+});
+
+// 自定义任意字段条件
+const customs = [];
+const OP_TXT = { ge:'≥', gt:'>', le:'≤', lt:'<', eq:'=' };
+function renderChips() {
+  const box = document.getElementById('cf-chips');
+  box.innerHTML = customs.map((c, i) =>
+    '<span class="fbtn on" style="cursor:default">' + c.label + ' ' + OP_TXT[c.op] + ' ' + c.val +
+    ' <b data-i="' + i + '" style="cursor:pointer;color:#f6465d">✕</b></span>').join('');
+  box.querySelectorAll('b[data-i]').forEach(b =>
+    b.addEventListener('click', () => { customs.splice(+b.dataset.i, 1); renderChips(); }));
+}
+document.getElementById('cf-add').addEventListener('click', () => {
+  const sel = document.getElementById('cf-field');
+  const val = document.getElementById('cf-val').value;
+  if (val === '') { document.getElementById('status').textContent = '⚠️ 请填自定义条件的值'; return; }
+  customs.push({ col: sel.value, op: document.getElementById('cf-op').value,
+                 val: parseFloat(val), label: sel.options[sel.selectedIndex].text });
+  document.getElementById('cf-val').value = '';
+  renderChips();
 });
 
 // 前一日按钮
@@ -169,7 +205,7 @@ function renderTable() {
 document.getElementById('run').addEventListener('click', async () => {
   const btn = document.getElementById('run');
   const statusEl = document.getElementById('status');
-  if (selected.size === 0) { statusEl.textContent = '⚠️ 请至少选择一个因子'; return; }
+  if (selected.size === 0 && customs.length === 0) { statusEl.textContent = '⚠️ 请至少选择一个因子或添加一个自定义条件'; return; }
   btn.disabled = true;
   statusEl.textContent = '⏳ 筛选中（首次某日需计算因子表 ~30-60秒）...';
   const isoDate = document.getElementById('date').value;
@@ -181,6 +217,7 @@ document.getElementById('run').addEventListener('click', async () => {
   };
   const cn = document.getElementById('cn').value, cv = document.getElementById('cv').value;
   if (cn && cv !== '') body.custom = { n: parseInt(cn), op: 'le', val: parseFloat(cv) };
+  if (customs.length) body.customs = customs.map(c => ({ col: c.col, op: c.op, val: c.val }));
   try {
     const resp = await fetch('/api/screen', {
       method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body),

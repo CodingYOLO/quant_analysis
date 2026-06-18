@@ -75,6 +75,81 @@ def macd_golden_cross(close: pd.Series) -> bool:
 
 
 # ============================================================
+# KDJ 随机指标
+# ============================================================
+
+def kdj(close: pd.Series, high: pd.Series, low: pd.Series,
+        n: int = 9, k_p: int = 3, d_p: int = 3) -> pd.DataFrame:
+    """
+    KDJ 随机指标。返回 DataFrame，列 k/d/j。
+    RSV = (close - LLV(low,n)) / (HHV(high,n) - LLV(low,n)) × 100
+    K = EMA(RSV, k_p)（SMA 平滑近似）, D = EMA(K, d_p), J = 3K - 2D。
+    """
+    llv = low.rolling(n, min_periods=1).min()
+    hhv = high.rolling(n, min_periods=1).max()
+    rsv = (close - llv) / (hhv - llv + 1e-8) * 100
+    k = rsv.ewm(com=k_p - 1, adjust=False).mean()
+    d = k.ewm(com=d_p - 1, adjust=False).mean()
+    j = 3 * k - 2 * d
+    return pd.DataFrame({"k": k, "d": d, "j": j})
+
+
+def kdj_golden_cross(close: pd.Series, high: pd.Series, low: pd.Series) -> bool:
+    """KDJ 金叉：前一日 K<D，当日 K≥D，且发生在低位（D<50，避免高位钝化）。"""
+    if len(close) < 12:
+        return False
+    x = kdj(close, high, low)
+    if x["k"].iloc[-2:].isna().any() or x["d"].iloc[-2:].isna().any():
+        return False
+    cross = x["k"].iloc[-2] < x["d"].iloc[-2] and x["k"].iloc[-1] >= x["d"].iloc[-1]
+    return bool(cross and x["d"].iloc[-1] < 50)
+
+
+# ============================================================
+# EMA 多头 / 影线 / TD 神奇九转
+# ============================================================
+
+def ema_bull(close: pd.Series, fast: int = 14, slow: int = 26) -> bool:
+    """EMA 多头：EMA(fast) > EMA(slow)（默认 14>26）。"""
+    if len(close) < slow:
+        return False
+    ef, es = ema(close, fast).iloc[-1], ema(close, slow).iloc[-1]
+    if pd.isna(ef) or pd.isna(es):
+        return False
+    return bool(ef > es)
+
+
+def shadow_ratio(open_: float, high: float, low: float, close: float) -> tuple[float, float]:
+    """
+    返回 (上影占全幅, 下影占全幅)，即影线长度 / (high-low)。
+    上影 = high - max(open,close)；下影 = min(open,close) - low。
+    口径用全幅（非实体），稳健且避开 doji 除零；≥0.5 即「长影线」（锤子/上吊）。
+    """
+    rng = high - low
+    if rng <= 1e-6:
+        return 0.0, 0.0
+    upper = (high - max(open_, close)) / rng
+    lower = (min(open_, close) - low) / rng
+    return upper, lower
+
+
+def td_buy_setup_count(close: pd.Series) -> int:
+    """
+    TD 神奇九转「买入结构」计数：连续 close < 4 根之前的 close 的根数（封顶常看 9）。
+    返回当前连续计数（≥9 即「九转见底」买入信号）。
+    """
+    if len(close) < 5:
+        return 0
+    cnt = 0
+    for i in range(len(close) - 1, 3, -1):
+        if close.iloc[i] < close.iloc[i - 4]:
+            cnt += 1
+        else:
+            break
+    return cnt
+
+
+# ============================================================
 # RSI
 # ============================================================
 

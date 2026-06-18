@@ -475,13 +475,14 @@ async def api_concept_detail(date: str = "", code: str = "", _user: str = Depend
 @app.get("/screener", response_class=HTMLResponse)
 async def screener_page(request: Request, _user: str = Depends(require_auth)):
     """量化因子选股页面。"""
-    from app.strategy.screener import FACTOR_GROUPS
+    from app.strategy.screener import FACTOR_GROUPS, CUSTOM_FIELDS
     default_date = _last_trade_date()
     # 转成 input[type=date] 需要的 YYYY-MM-DD
     iso_date = f"{default_date[:4]}-{default_date[4:6]}-{default_date[6:]}"
     return templates.TemplateResponse(
         request=request, name="screener.html",
-        context={"factor_groups": FACTOR_GROUPS, "default_date": iso_date},
+        context={"factor_groups": FACTOR_GROUPS, "custom_fields": CUSTOM_FIELDS,
+                 "default_date": iso_date},
     )
 
 
@@ -500,6 +501,7 @@ async def api_screen(request: Request, _user: str = Depends(require_auth)):
             date=date,
             selected_keys=body.get("factors", []),
             custom=body.get("custom"),
+            customs=body.get("customs"),
             sort_by=body.get("sort_by", "rps120"),
             limit=int(body.get("limit", 100)),
         )
