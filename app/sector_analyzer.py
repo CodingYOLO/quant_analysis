@@ -132,6 +132,42 @@ def calc_sector_stats(
 
 
 # ──────────────────────────────────────────────
+# 全市场板块衰减占比（对标吴川 decay_ratio，市场级风险闸门）
+# ──────────────────────────────────────────────
+
+# decay_ratio 风险分档阈值（>=high 偏防守；>=mid 中性偏谨慎）
+_DECAY_HIGH = 0.60
+_DECAY_MID = 0.45
+
+
+def calc_decay_ratio(sector_stats: list[SectorStat]) -> dict:
+    """
+    计算全市场板块衰减占比 = 退潮板块数 / 有效板块数（对标吴川 decay_ratio=0.71）。
+
+    Args:
+        sector_stats: calc_sector_stats 的输出。
+    Returns:
+        {decay_ratio, n_decay, n_total, level, advice}。
+        level: defensive(>=0.60) / cautious(>=0.45) / normal；空输入返回 n_total=0。
+    """
+    total = len(sector_stats)
+    if total == 0:
+        return {"decay_ratio": None, "n_decay": 0, "n_total": 0,
+                "level": "unknown", "advice": "板块数据缺失，无法计算衰减占比"}
+
+    n_decay = sum(1 for s in sector_stats if s.phase == "退潮")
+    ratio = round(n_decay / total, 3)
+    if ratio >= _DECAY_HIGH:
+        level, advice = "defensive", "板块普遍退潮 → 防守优先，压缩仓位与关注数，不追一致性上涨"
+    elif ratio >= _DECAY_MID:
+        level, advice = "cautious", "退潮板块偏多 → 中性偏谨慎，优先低吸确认、回避高位拥挤"
+    else:
+        level, advice = "normal", "板块结构尚可 → 按常规风控执行"
+    return {"decay_ratio": ratio, "n_decay": n_decay, "n_total": total,
+            "level": level, "advice": advice}
+
+
+# ──────────────────────────────────────────────
 # 核心量化指标计算
 # ──────────────────────────────────────────────
 

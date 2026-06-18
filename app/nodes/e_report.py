@@ -200,6 +200,17 @@ def _append_sector_section(lines: list, state: PipelineState) -> None:
         f"⛔ 退潮预警 **{len(avoid_sectors)}** 个",
     ]
 
+    # ---- 全市场板块衰减占比（对标吴川 decay_ratio，市场级风险闸门）----
+    from app.sector_analyzer import calc_decay_ratio
+    dr = calc_decay_ratio(sector_stats)
+    if dr["decay_ratio"] is not None:
+        emoji = {"defensive": "🔴", "cautious": "🟠", "normal": "🟢"}.get(dr["level"], "⚪")
+        lines += [
+            "",
+            f"> {emoji} **板块衰减占比 {dr['decay_ratio']:.0%}**"
+            f"（退潮 {dr['n_decay']}/{dr['n_total']} 个）→ {dr['advice']}",
+        ]
+
     # ---- 可关注板块（buy）----
     if buy_sectors:
         lines += [
