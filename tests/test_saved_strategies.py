@@ -12,10 +12,16 @@ from pathlib import Path
 import app.strategy.saved_strategies as ss
 
 
-def _use_temp_db():
-    """把库路径指向临时文件，避免污染真实 strategies.db。"""
+def _use_temp_db(mark_seeded: bool = True):
+    """把库路径指向临时文件，避免污染真实 strategies.db。
+    mark_seeded=True 时预先标记预设已播种，隔离用户策略测试不被预设干扰。"""
     tmp = Path(tempfile.mkdtemp()) / "strategies.db"
     ss._db_path = lambda: tmp  # type: ignore[assignment]
+    ss.init()
+    if mark_seeded:
+        with ss._conn() as con:
+            con.execute("INSERT OR REPLACE INTO _meta (key, value) VALUES (?, ?)",
+                        (ss._PRESET_SEED_KEY, "1"))
 
 
 def test_save_list_delete_flow() -> None:
@@ -50,6 +56,21 @@ def test_filters() -> None:
     assert len(ss.list_strategies(q="打板")) == 1                 # 名称搜索
     assert len(ss.list_strategies(q="userB")) == 1               # 创建者搜索
     assert len(ss.list_strategies()) == 2                        # 全部
+
+
+def test_seed_presets_idempotent_and_respects_delete() -> None:
+    _use_temp_db(mark_seeded=False)
+    n1 = ss.seed_presets()
+    assert n1 == len(ss.PRESET_STRATEGIES) and n1 > 0       # 首次播种全部
+    n2 = ss.seed_presets()
+    assert n2 == 0                                           # 再播种无新增（幂等）
+    rows = ss.list_strategies()
+    assert all(r["creator"] == "系统预设" for r in rows)
+    assert rows[0]["payload"].get("desc")                   # 预设含描述
+    # 删除一条预设后再播种 → 不复活（meta 已标记）
+    ss.delete(rows[0]["id"], "系统预设")
+    ss.seed_presets()
+    assert len(ss.list_strategies()) == len(ss.PRESET_STRATEGIES) - 1
 
 
 def test_empty_name_rejected() -> None:

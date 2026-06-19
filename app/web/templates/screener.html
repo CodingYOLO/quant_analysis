@@ -314,9 +314,12 @@ async function loadStrategies() {
   box.innerHTML = d.rows.map(s => {
     const n = (s.payload.factors || []).length + (s.payload.customs || []).length + (s.payload.custom ? 1 : 0);
     const canDel = s.creator === d.me;
-    return '<div style="background:#161929;border:1px solid #242842;border-radius:9px;padding:10px 12px;margin-bottom:8px;display:flex;align-items:center;gap:10px">'
-      + '<div style="flex:1;min-width:0"><div style="font-weight:600">' + s.name + '</div>'
-      + '<div class="neu" style="font-size:11px">创建者 ' + s.creator + ' · ' + n + ' 个条件 · ' + (s.created_at || '') + '</div></div>'
+    const isPreset = s.creator === '系统预设';
+    const badge = isPreset ? '<span class="fbtn on" style="cursor:default;font-size:10px;padding:1px 6px">预设</span> ' : '';
+    const desc = s.payload.desc ? '<div class="neu" style="font-size:11px;color:#8a90a0;margin-top:2px">' + s.payload.desc + '</div>' : '';
+    return '<div style="background:#161929;border:1px solid ' + (isPreset ? '#2a3a6a' : '#242842') + ';border-radius:9px;padding:10px 12px;margin-bottom:8px;display:flex;align-items:center;gap:10px">'
+      + '<div style="flex:1;min-width:0"><div style="font-weight:600">' + badge + s.name + '</div>' + desc
+      + '<div class="neu" style="font-size:11px">' + s.creator + ' · ' + n + ' 个条件 · ' + (s.created_at || '') + '</div></div>'
       + '<button class="quickbtn apply-s" data-id="' + s.id + '">应用</button>'
       + (canDel ? '<button class="quickbtn del-s" data-id="' + s.id + '" style="color:#f6465d">删除</button>' : '')
       + '</div>';
