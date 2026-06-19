@@ -510,6 +510,61 @@ async def api_screen(request: Request, _user: str = Depends(require_auth)):
         return {"ok": False, "error": str(e)}
 
 
+def _resolve_ts_code(raw: str) -> str:
+    """归一化股票输入：6位代码补后缀 / 已带后缀直接用 / 名称查 stock_basic。"""
+    import re
+    s = (raw or "").strip().upper()
+    if not s:
+        return ""
+    if re.fullmatch(r"\d{6}\.(SH|SZ|BJ)", s):
+        return s
+    if re.fullmatch(r"\d{6}", s):
+        if s[0] in "69":
+            return s + ".SH"
+        if s[0] == "8" or s[0] == "4":
+            return s + ".BJ"
+        return s + ".SZ"
+    # 名称模糊匹配
+    try:
+        from app.data.composite_provider import CompositeProvider
+        sb = CompositeProvider().get_stock_basic()
+        hit = sb[sb["name"].astype(str).str.contains(raw.strip(), na=False)]
+        if not hit.empty:
+            return str(hit.iloc[0]["ts_code"])
+    except Exception:
+        pass
+    return ""
+
+
+@app.get("/backtest", response_class=HTMLResponse)
+async def backtest_page(request: Request, _user: str = Depends(require_auth)):
+    """个股回测页：选票+选信号+区间 → 历史胜率/收益/资金曲线。"""
+    from app.backtest.signal_backtest import list_signals
+    return templates.TemplateResponse(
+        request=request, name="backtest.html",
+        context={"page": "backtest", "signals": list_signals()},
+    )
+
+
+@app.post("/api/backtest/stock")
+async def api_backtest_stock(request: Request, _user: str = Depends(require_auth)):
+    """单股单信号回测。Body: {code, signal, start, end}。"""
+    try:
+        from app.backtest.signal_backtest import backtest_stock_signal
+        body = await request.json()
+        ts_code = _resolve_ts_code(body.get("code", ""))
+        if not ts_code:
+            return {"ok": False, "msg": "无法识别股票（请输入6位代码/完整代码/名称）"}
+        start = (body.get("start") or "").replace("-", "")
+        end = (body.get("end") or "").replace("-", "")
+        if not start or not end:
+            return {"ok": False, "msg": "请选择回测起止日期"}
+        return backtest_stock_signal(ts_code, body.get("signal", ""), start, end)
+    except Exception as e:
+        logger.exception("个股回测失败")
+        return {"ok": False, "msg": str(e)}
+
+
 @app.post("/api/strategy/save")
 async def api_strategy_save(request: Request, _user: str = Depends(require_auth)):
     """保存选股策略（名称+条件载荷）。同创建者同名覆盖。"""

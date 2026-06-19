@@ -67,6 +67,40 @@ class TushareProvider(DataProvider):
             trade_date=trade_date,
         )
 
+    def get_stock_daily(self, ts_code: str, start_date: str, end_date: str) -> pd.DataFrame:
+        """单股区间日线（按 ts_code 一次拉全，用于个股回测/形态）。列同 daily。"""
+        key = f"{ts_code}_{start_date}_{end_date}"
+        return cached_daily(
+            name="tushare_stock_daily",
+            date_key=key,
+            fetch_fn=lambda: self._fetch_stock_daily(ts_code, start_date, end_date),
+        )
+
+    @_RETRY
+    def _fetch_stock_daily(self, ts_code: str, start_date: str, end_date: str) -> pd.DataFrame:
+        return rate_limited_call(
+            "tushare_stock_daily",
+            self._api.daily,
+            ts_code=ts_code, start_date=start_date, end_date=end_date,
+        )
+
+    def get_adj_factor_series(self, ts_code: str, start_date: str, end_date: str) -> pd.DataFrame:
+        """单股区间复权因子。列：trade_date/adj_factor。"""
+        key = f"{ts_code}_{start_date}_{end_date}"
+        return cached_daily(
+            name="tushare_stock_adj",
+            date_key=key,
+            fetch_fn=lambda: self._fetch_stock_adj(ts_code, start_date, end_date),
+        )
+
+    @_RETRY
+    def _fetch_stock_adj(self, ts_code: str, start_date: str, end_date: str) -> pd.DataFrame:
+        return rate_limited_call(
+            "tushare_stock_adj",
+            self._api.adj_factor,
+            ts_code=ts_code, start_date=start_date, end_date=end_date,
+        )
+
     def get_stock_basic(self) -> pd.DataFrame:
         """股票基础信息列表（缓存一天）。"""
         import datetime

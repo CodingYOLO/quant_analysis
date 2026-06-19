@@ -1,0 +1,116 @@
+{% extends "base.html" %}
+{% block title %}个股回测 — A股Agent{% endblock %}
+
+{% block extra_style %}
+.disclaim { color:#8a90a0; font-size:12px; margin-bottom:16px; text-align:center; }
+.toolbar { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:12px; }
+.toolbar input,.toolbar select { background:#0f1117; color:#e8e8e8; border:1px solid #2d3052; border-radius:6px; padding:8px 10px; font-size:13px; }
+.runbtn { background:#2742a8; color:#fff; border:1px solid #3358e0; border-radius:8px; padding:8px 18px; font-size:14px; cursor:pointer; }
+.runbtn:disabled { opacity:.6; cursor:wait; }
+.cards { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin:14px 0; }
+@media(max-width:760px){ .cards{grid-template-columns:repeat(2,1fr)} }
+.kcard { background:#161929; border:1px solid #242842; border-radius:10px; padding:14px; text-align:center; }
+.kcard .h { font-size:12px; color:#9ca3af; } .kcard .v { font-size:22px; font-weight:700; margin:4px 0; }
+.kcard .s { font-size:11px; color:#8a90a0; }
+.win-hi { color:#f6465d; } .win-lo { color:#2ebd85; }
+.meta { font-size:13px; color:#cdd6f4; margin-bottom:8px; }
+.meta b { color:#7c9ef8; }
+table { width:100%; border-collapse:collapse; font-size:12.5px; }
+th { background:#232640; color:#9ca3af; font-weight:500; padding:7px 9px; text-align:left; white-space:nowrap; }
+td { padding:7px 9px; border-bottom:1px solid #1e2138; white-space:nowrap; }
+.up { color:#f6465d; } .down { color:#2ebd85; } .neu2 { color:#9ca3af; }
+{% endblock %}
+
+{% block content %}
+<div style="text-align:center;margin-bottom:6px"><h1 style="font-size:22px">🔬 个股回测</h1></div>
+<div class="disclaim">选一只票 + 一个技术信号 → 历史上每次信号后的胜率/收益（前复权·防未来函数·T+1开盘买入·T+N收盘卖出）。历史回测≠未来收益，仅供研究。</div>
+
+<div class="card">
+  <div class="toolbar">
+    <input type="text" id="code" placeholder="股票代码/名称，如 600519 或 贵州茅台" style="min-width:220px">
+    <select id="signal">
+      {% for s in signals %}<option value="{{ s.key }}">{{ s.label }}</option>{% endfor %}
+    </select>
+    <label class="neu2" style="font-size:13px">起</label><input type="date" id="start">
+    <label class="neu2" style="font-size:13px">止</label><input type="date" id="end">
+    <button class="runbtn" id="run">🚀 开始回测</button>
+  </div>
+  <div id="status" class="neu2" style="font-size:13px"></div>
+</div>
+
+<div class="card" id="rescard" style="display:none">
+  <div class="meta" id="meta"></div>
+  <div class="cards" id="cards"></div>
+  <div style="font-size:13px;color:#9ca3af;margin:6px 0">📈 资金曲线（每次信号 T+5 持有复利，起点=1.0）</div>
+  <div id="equity" style="height:300px"></div>
+  <div style="font-size:13px;color:#9ca3af;margin:14px 0 6px">📋 历史信号明细（最近 60 次）</div>
+  <div style="overflow-x:auto"><table id="trades"></table></div>
+</div>
+
+<script src="/static/echarts.min.js"></script>
+<script>
+// 默认区间：近3年
+(function(){
+  const e=new Date(), s=new Date(); s.setFullYear(s.getFullYear()-3);
+  document.getElementById('end').value=e.toISOString().slice(0,10);
+  document.getElementById('start').value=s.toISOString().slice(0,10);
+})();
+
+function pct(v){ if(v===null||v===undefined) return '<span class="neu2">—</span>'; const c=v>0?'up':(v<0?'down':'neu2'); return '<span class="'+c+'">'+(v>0?'+':'')+v+'%</span>'; }
+
+let chart=null;
+document.getElementById('run').addEventListener('click', async () => {
+  const btn=document.getElementById('run'), st=document.getElementById('status');
+  const code=document.getElementById('code').value.trim();
+  if(!code){ st.textContent='⚠️ 请输入股票代码或名称'; return; }
+  btn.disabled=true; st.textContent='⏳ 回测中（首次拉取该股历史 ~数秒）...';
+  try{
+    const r=await fetch('/api/backtest/stock',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({code, signal:document.getElementById('signal').value,
+        start:document.getElementById('start').value, end:document.getElementById('end').value})});
+    const d=await r.json();
+    if(!d.ok){ st.textContent='❌ '+(d.msg||'回测失败'); btn.disabled=false; return; }
+    if(d.n_signals===0){ st.textContent='ℹ️ '+d.ts_code+' 在该区间内未出现「'+d.signal_label+'」信号（换个信号或拉长区间）'; document.getElementById('rescard').style.display='none'; btn.disabled=false; return; }
+    st.textContent='✅ 完成';
+    render(d);
+    document.getElementById('rescard').style.display='block';
+  }catch(e){ st.textContent='❌ '+e; }
+  finally{ btn.disabled=false; }
+});
+
+function render(d){
+  document.getElementById('meta').innerHTML='<b>'+d.ts_code+'</b> · 信号「<b>'+d.signal_label+'</b>」 · 区间 '+d.start+'~'+d.end
+    +' · 共 <b>'+d.n_signals+'</b> 次信号（'+d.bars+' 根K线）';
+  // 胜率卡片 T+1/3/5/10
+  const cardsEl=document.getElementById('cards'); cardsEl.innerHTML='';
+  [1,3,5,10].forEach(h=>{
+    const s=d.horizons[h]; const wr=Math.round(s.win_rate*100);
+    const cls=wr>=50?'win-hi':'win-lo';
+    cardsEl.innerHTML+='<div class="kcard"><div class="h">T+'+h+' 胜率</div>'
+      +'<div class="v '+cls+'">'+wr+'%</div>'
+      +'<div class="s">均收益 '+(s.avg_return>0?'+':'')+s.avg_return+'% · 盈亏比 '+s.profit_factor+'</div>'
+      +'<div class="s">最好 +'+s.best+'% / 最差 '+s.worst+'%</div></div>';
+  });
+  // 资金曲线
+  const eq=d.equity||[];
+  if(!chart) chart=echarts.init(document.getElementById('equity'));
+  chart.setOption({
+    backgroundColor:'transparent', grid:{left:50,right:20,top:20,bottom:40},
+    tooltip:{trigger:'axis'}, xAxis:{type:'category',data:eq.map(e=>e.date),axisLabel:{color:'#9ca3af'}},
+    yAxis:{type:'value',axisLabel:{color:'#9ca3af'},splitLine:{lineStyle:{color:'#1e2138'}}},
+    series:[{type:'line',data:eq.map(e=>e.equity),smooth:true,symbol:'none',
+      lineStyle:{color:'#7c9ef8',width:2}, areaStyle:{color:'rgba(124,158,248,.12)'},
+      markLine:{silent:true,data:[{yAxis:1}],lineStyle:{color:'#6b7280',type:'dashed'}}}],
+  });
+  // 明细表（倒序，最新在上）
+  const COLS=[['signal_date','信号日'],['buy_date','买入日(T+1)'],['entry','买入价'],['t1','T+1'],['t3','T+3'],['t5','T+5'],['t10','T+10'],['win','T+5']];
+  let h='<thead><tr>'+COLS.map(c=>'<th>'+c[1]+'</th>').join('')+'</tr></thead><tbody>';
+  d.trades.slice().reverse().forEach(t=>{
+    h+='<tr><td>'+t.signal_date+'</td><td>'+t.buy_date+'</td><td>'+t.entry+'</td>'
+      +'<td>'+pct(t.t1)+'</td><td>'+pct(t.t3)+'</td><td>'+pct(t.t5)+'</td><td>'+pct(t.t10)+'</td>'
+      +'<td>'+(t.win?'<span class="up">胜</span>':'<span class="down">负</span>')+'</td></tr>';
+  });
+  document.getElementById('trades').innerHTML=h+'</tbody>';
+}
+</script>
+{% endblock %}
