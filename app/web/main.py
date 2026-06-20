@@ -676,6 +676,20 @@ async def api_backtest_sector(request: Request, _user: str = Depends(require_aut
         return {"ok": False, "msg": str(e)}
 
 
+@app.post("/api/backtest/brief")
+async def api_backtest_brief(request: Request, _user: str = Depends(require_auth)):
+    """AI 综合研判：把已算好的回测/大盘/同类/板块/股性/基本面喂给 v4-pro 做接地解读。"""
+    try:
+        from fastapi.concurrency import run_in_threadpool
+
+        from app.backtest.llm_brief import generate_brief
+        payload = await request.json()
+        return await run_in_threadpool(generate_brief, payload)
+    except Exception as e:
+        logger.exception("AI 综合研判失败")
+        return {"ok": False, "msg": str(e)}
+
+
 @app.get("/api/backtest/history")
 async def api_backtest_history(q: str = "", limit: int = 100,
                                _user: str = Depends(require_auth)):
