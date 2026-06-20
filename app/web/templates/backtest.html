@@ -32,6 +32,9 @@ td { padding:7px 9px; border-bottom:1px solid #1e2138; white-space:nowrap; }
 .rngbtn { background:#1a1d2e; color:#c9d2f8; border:1px solid #2d3052; border-radius:14px; padding:4px 11px; font-size:12px; cursor:pointer; }
 .rngbtn:hover { background:#2742a8; color:#fff; }
 .rngbtn.active { background:#2742a8; color:#fff; border-color:#3358e0; }
+.scbtn { background:#1a1d2e; color:#c9d2f8; border:1px solid #2d3052; border-radius:14px; padding:4px 11px; font-size:12px; cursor:pointer; }
+.scbtn:hover { background:#2742a8; color:#fff; }
+.scbtn.active { background:#2742a8; color:#fff; border-color:#3358e0; }
 #presets { display:none; flex-wrap:wrap; align-items:center; }
 #export-bar { display:none; }
 /* 导出按钮：实心/描边按钮，明显区别于灰色小标签chip */
@@ -97,6 +100,29 @@ td { padding:7px 9px; border-bottom:1px solid #1e2138; white-space:nowrap; }
   <div id="export-bar" style="display:none;gap:10px;margin-top:12px">
     <button class="exportbtn primary" id="btn-img">📷 导出长图</button>
     <button class="exportbtn" id="btn-pdf">📄 导出 PDF</button>
+  </div>
+</div>
+
+<!-- 🎯 自动选策略（反向推荐）：输票→自动跑全部信号→推荐最贴它股性的打法 -->
+<div class="card export-hide" id="scoutcard">
+  <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px">
+    <div class="meta" style="margin:0">🎯 自动选策略 <span class="neu2" style="font-size:11px">（反向推荐 · 用上方股票框，替你跑全部信号，推荐最贴它股性的打法）</span></div>
+    <button class="runbtn" id="scout-btn" style="padding:6px 14px;font-size:13px">🎯 一键找最适配策略</button>
+  </div>
+  <div style="display:flex;gap:7px;align-items:center;flex-wrap:wrap;margin-bottom:6px">
+    <span class="neu2" style="font-size:12px">扫描窗口：</span>
+    <button class="scbtn" data-m="1">近1月</button>
+    <button class="scbtn active" data-m="3">近3月</button>
+    <button class="scbtn" data-m="6">近半年</button>
+    <button class="scbtn" data-m="12">近1年</button>
+    <span class="neu2" style="font-size:11px">· 2024-09 后市场风格剧变，默认近3月更贴当下股性</span>
+  </div>
+  <div id="scout-status" class="neu2" style="font-size:13px"></div>
+  <div id="scout-body" style="display:none">
+    <div id="scout-rationale" style="font-size:13.5px;line-height:1.9;margin:8px 0;padding:10px 12px;background:#12161f;border:1px solid #2a3a5a;border-radius:10px;color:#cdd6f4"></div>
+    <div id="scout-note" style="font-size:13.5px;line-height:1.9;margin:8px 0;display:none;padding:10px 12px;background:#161929;border:1px solid #2d3052;border-radius:10px"></div>
+    <div style="overflow-x:auto"><table id="scout-table"></table></div>
+    <div class="neu2" style="font-size:11px;margin-top:8px" id="scout-foot"></div>
   </div>
 </div>
 
@@ -851,5 +877,100 @@ document.getElementById('btn-pdf').addEventListener('click', ()=>{
   window.print();
   setTimeout(()=>{document.title=old;}, 1000);
 });
+
+// ── 🎯 自动选策略（反向推荐）──
+let scoutMonths=3, lastScout=null;
+function setScoutRange(m){
+  scoutMonths=m;
+  document.querySelectorAll('.scbtn').forEach(b=>b.classList.toggle('active',parseInt(b.dataset.m)===m));
+}
+document.querySelectorAll('.scbtn').forEach(b=>b.addEventListener('click',()=>setScoutRange(parseInt(b.dataset.m))));
+
+// 扫描窗口起止（止=今天，起=N月前），与上方回测区间相互独立
+function scoutRange(){
+  const e=new Date(), s=new Date(); s.setMonth(s.getMonth()-scoutMonths);
+  return {start:s.toISOString().slice(0,10), end:e.toISOString().slice(0,10)};
+}
+
+async function runScout(){
+  const code=document.getElementById('code').value.trim();
+  const st=document.getElementById('scout-status');
+  if(!code){ st.textContent='⚠️ 请先在上方输入股票代码或名称'; return; }
+  const btn=document.getElementById('scout-btn'), old=btn.textContent;
+  btn.disabled=true; btn.textContent='⏳ 扫描中…';
+  st.textContent='⏳ 正在对该票回测全部信号（首次拉取历史 ~数秒）…';
+  document.getElementById('scout-body').style.display='none';
+  const {start,end}=scoutRange();
+  try{
+    const r=await fetch('/api/backtest/scout',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({code,start,end})});
+    const d=await r.json().catch(()=>null);   // 空/截断响应不抛JS错
+    if(!d){ st.textContent='⚠️ 服务繁忙或超时，请稍候重试'; return; }
+    if(!d.ok){ st.textContent='❌ '+(d.msg||'扫描失败'); return; }
+    lastScout=d;
+    st.textContent='✅ 已扫描 '+d.n_total+' 个信号 · 推荐 '+d.n_eligible+' 个'+(d.msg?'（'+d.msg+'）':'');
+    renderScout(d);
+    loadProfile(code);   // 同步股性卡，整页一致
+    loadScoutNote(d);    // 异步 AI 解读
+  }catch(e){ st.textContent='❌ '+e; }
+  finally{ btn.disabled=false; btn.textContent=old; }
+}
+document.getElementById('scout-btn').addEventListener('click', runScout);
+
+function scoutTierBadge(t){
+  const m={rec:['✅推荐','calm'], rec_thin:['推荐·样本少','warn'],
+           neg:['期望为负','info'], thin:['样本极少','info'], none:['未触发','info']};
+  const [txt,lv]=m[t]||['—','info'];
+  return '<span class="ptag '+lv+'">'+txt+'</span>';
+}
+
+function renderScout(d){
+  document.getElementById('scout-body').style.display='block';
+  document.getElementById('scout-rationale').innerHTML='💡 <b>规则初判：</b>'+d.rationale;
+  const rec=new Set(d.recommended||[]);
+  let h='<thead><tr><th>评级</th><th>信号(打法)</th><th>类型</th><th>样本n</th><th>T+5胜率</th>'
+    +'<th>T+5期望</th><th>盈亏比</th><th>最好/最差</th><th></th></tr></thead><tbody>';
+  (d.ranked||[]).forEach(s=>{
+    const isRec=rec.has(s.key);
+    const wr=s.n?('<span class="'+(s.win_rate>=0.5?'up':'down')+'">'+Math.round(s.win_rate*100)+'%</span>'):'<span class="neu2">—</span>';
+    const exp=s.n?('<span class="'+(s.avg_return>0?'up':'down')+'">'+(s.avg_return>0?'+':'')+s.avg_return+'%</span>'):'<span class="neu2">—</span>';
+    const bw=s.n?('+'+s.best+'% / '+s.worst+'%'):'—';
+    const act=s.n?('<button class="ppreset scout-use" data-key="'+s.key+'">↑用此信号回测</button>'):'';
+    h+='<tr style="'+(isRec?'background:#11261c':'')+'"><td>'+scoutTierBadge(s.tier)+'</td>'
+      +'<td>'+(isRec?'⭐ ':'')+s.label+'</td><td class="neu2">'+(s.category||'')+'</td>'
+      +'<td>'+(s.n||'—')+'</td><td>'+wr+'</td><td>'+exp+'</td>'
+      +'<td>'+(s.n?s.profit_factor:'—')+'</td>'
+      +'<td class="neu2" style="font-size:11px">'+bw+'</td><td>'+act+'</td></tr>';
+  });
+  document.getElementById('scout-table').innerHTML=h+'</tbody>';
+  document.getElementById('scout-foot').textContent=
+    '排名分 = T+5期望 × 样本置信度 × 盈亏比质量（样本越少越向0收缩）。'+(d.disclaimer||'');
+}
+
+// 点「用此信号回测」→ 把该信号灌入上方回测框并对齐扫描窗口，自动跑正向回测
+document.getElementById('scout-table').addEventListener('click', ev=>{
+  const b=ev.target.closest('.scout-use'); if(!b) return;
+  document.getElementById('mode').value='signal'; syncMode();
+  document.getElementById('signal').value=b.dataset.key;
+  setRange(scoutMonths);
+  baseParams=buildBody();
+  doFetch({...baseParams});
+  document.getElementById('status').scrollIntoView({behavior:'smooth',block:'start'});
+});
+
+// 异步 AI 解读（v4-pro 综合股性与各打法，缓存命中秒回）
+async function loadScoutNote(d){
+  const el=document.getElementById('scout-note');
+  el.style.display='block';
+  el.innerHTML='🧠 AI 解读中（综合股性与各打法，约15秒；缓存后秒回）…';
+  try{
+    const r=await fetch('/api/backtest/scout/note',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({result:d})});
+    const n=await r.json().catch(()=>null);
+    if(!n||!n.ok||!n.note){ el.style.display='none'; return; }
+    el.innerHTML='🧠 <b style="color:#7c9ef8">AI 解读：</b>'+n.note
+      +'<div class="neu2" style="font-size:11px;margin-top:6px">'+(n.model?'模型 '+n.model+' · ':'')+(n.disclaimer||'')+'</div>';
+  }catch(e){ el.style.display='none'; }
+}
 </script>
 {% endblock %}

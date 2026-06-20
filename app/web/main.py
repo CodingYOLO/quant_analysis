@@ -737,6 +737,47 @@ async def api_backtest_brief(request: Request, _user: str = Depends(require_auth
         return {"ok": False, "msg": str(e)}
 
 
+@app.post("/api/backtest/scout")
+async def api_backtest_scout(request: Request, _user: str = Depends(require_auth)):
+    """反向策略推荐：选票→全信号回测→按样本/T+5期望/盈亏比打分→推荐最贴股性的打法。
+    Body: {code, start, end, min_sample?}。较重(16信号+股性)→跑线程池。"""
+    try:
+        from fastapi.concurrency import run_in_threadpool
+
+        from app.backtest.strategy_scout import scout_strategies
+        body = await request.json()
+        ts_code = _resolve_ts_code(body.get("code", ""))
+        if not ts_code:
+            return {"ok": False, "msg": "无法识别股票（请输入6位代码/完整代码/名称）"}
+        start = (body.get("start") or "").replace("-", "")
+        end = (body.get("end") or "").replace("-", "")
+        if not start or not end:
+            return {"ok": False, "msg": "请选择扫描起止日期"}
+        return await run_in_threadpool(
+            scout_strategies, ts_code, start, end,
+            name=_stock_name(ts_code), min_sample=int(body.get("min_sample") or 4))
+    except Exception as e:
+        logger.exception("反向策略推荐失败")
+        return {"ok": False, "msg": str(e)}
+
+
+@app.post("/api/backtest/scout/note")
+async def api_backtest_scout_note(request: Request, _user: str = Depends(require_auth)):
+    """对已算好的 scout 结果生成 LLM 一句话点评（解读层，不参与排名）。Body: {result}。"""
+    try:
+        from fastapi.concurrency import run_in_threadpool
+
+        from app.backtest.strategy_scout import generate_scout_note
+        body = await request.json()
+        result = body.get("result") or {}
+        if not result.get("ok"):
+            return {"ok": False, "msg": "请先运行策略扫描"}
+        return await run_in_threadpool(generate_scout_note, result)
+    except Exception as e:
+        logger.exception("策略点评失败")
+        return {"ok": False, "msg": str(e)}
+
+
 @app.get("/api/backtest/history")
 async def api_backtest_history(q: str = "", limit: int = 100,
                                _user: str = Depends(require_auth)):
