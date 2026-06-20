@@ -47,6 +47,29 @@ def test_focus_score_fewer_than_5() -> None:
     assert SP._compute_focus_scores([]) is None  # 空安全
 
 
+def test_ramp_and_risk_penalty() -> None:
+    assert SP._ramp(5, 8, 28) == 0.0 and SP._ramp(28, 8, 28) == 1.0
+    assert abs(SP._ramp(18, 8, 28) - 0.5) < 1e-9
+    # 温和强势(乖离小·未追高·不在高位) → 不罚
+    assert SP._risk_penalty({"bias20": 3.0, "change_7d": 4.0, "dist_high": -15.0}) == 0.0
+    # 赶顶(高乖离+追高+新高) → 重罚，且封顶 _RISK_MAX
+    p = SP._risk_penalty({"bias20": 24.0, "change_7d": 26.0, "dist_high": 0.0})
+    assert 12 < p <= SP._RISK_MAX
+    # 缺字段安全(默认不罚)
+    assert SP._risk_penalty({}) == 0.0
+
+
+def test_focus_score_risk_adjusted() -> None:
+    base = dict(rps50=95.0, main_flow_3d=10.0, theme_heat=90.0, vol_ratio=1.5,
+                above_ma20=1, above_ma60=1, slope_up=1,
+                strategies=["breakout", "theme_pick"], focus_score=0.0, star=0)
+    hot = {**base, "bias20": 24.0, "change_7d": 26.0, "dist_high": 0.0}    # 赶顶
+    cool = {**base, "bias20": 2.0, "change_7d": 3.0, "dist_high": -15.0}   # 强势回踩
+    SP._compute_focus_scores([hot, cool])
+    assert cool["focus_score"] > hot["focus_score"]          # 回踩排在赶顶之前
+    assert hot["risk_penalty"] > cool["risk_penalty"] >= 0
+
+
 def test_open_gate_board_aware() -> None:
     strong = lambda: {"theme_heat": 85.0, "main_flow_3d": 5.0, "above_ma20": 1, "risk_flags": []}
     weak = lambda: {"theme_heat": 50.0, "main_flow_3d": -1.0, "above_ma20": 0, "risk_flags": []}

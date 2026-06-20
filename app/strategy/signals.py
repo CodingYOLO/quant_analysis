@@ -150,6 +150,11 @@ def _stock_signals(close, vol, open_, low, today_open, today_low, today_close) -
     change_7d = (cur / float(close.iloc[-8]) - 1) * 100 if len(close) >= 8 else 0.0
     rev_form = has_lower_shadow(today_open, today_low, today_close) or (today_close > today_open)
 
+    # 风险/位置（供选股池重点分做风险调整：过热、逼近历史高位）
+    bias20 = (cur - ma20) / ma20 * 100 if ma20 > 0 else 0.0   # 20日乖离率：远离均线=过热/回归风险
+    high120 = float(close.tail(120).max())                     # 近120日高
+    dist_high = (cur / high120 - 1) * 100 if high120 > 0 else 0.0  # 距高点(≤0，越近0越高位)
+
     # 交易计划价位（基于序列，仓位由 stock_pool 按大盘状态另算）
     try:
         buy_low, buy_high = calc_buy_zones(close, vol)
@@ -168,6 +173,7 @@ def _stock_signals(close, vol, open_, low, today_open, today_low, today_close) -
         "breakout": bool(breakout), "near_ma20": bool(near_ma20),
         "pullback_score": round(pb_score, 1), "is_pullback": bool(is_pullback),
         "change_7d": round(change_7d, 2), "rev_form": bool(rev_form),
+        "bias20": round(bias20, 2), "dist_high": round(dist_high, 2),
     }
 
 

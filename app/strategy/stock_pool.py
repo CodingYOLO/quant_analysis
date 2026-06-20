@@ -182,8 +182,10 @@ def _assemble(ts, r, strategies: list[str], hot: dict, market_label: str) -> dic
         # 均线结构（供前端一眼看清趋势 + 重点分）
         "above_ma20": int(bool(r["above_ma20"])), "above_ma60": int(bool(r["above_ma60"])),
         "slope_up": int(bool(r["slope_up"])),
+        # 风险/位置（供重点分做风险调整：过热/高位）
+        "bias20": r.get("bias20", 0.0), "dist_high": r.get("dist_high", -100.0),
         "is_focus": False,     # 风控后定
-        "focus_score": 0.0, "star": 0,   # 重点分/星标后算
+        "focus_score": 0.0, "star": 0, "risk_penalty": 0.0,   # 重点分/风险扣分/星标后算
         "risk_flags": [],
     }
 
@@ -197,9 +199,16 @@ def _factor_score_norm(r) -> float:
     return min(s, 1.0)
 
 
-# ── 重点分（0-100·区分度高，替代饱和的0.98置信度）+ 星标 Top5 ───────────────
-# 权重：强度30 + 主力资金25 + 板块热度15 + 多路交叉15 + 量价健康10 + 均线多头5
+# ── 重点分（0-100·风险调整）+ 星标 Top5 ──────────────────────────────────────
+# 强度分(0-100)：强度RPS30 + 主力资金25 + 板块热度15 + 多路交叉15 + 量价10 + 均线5
+# 风险扣分(0-_RISK_MAX)：乖离过热 + 近期追高 + 逼近历史高位 → 只罚极端过热(主升强者恒强保留)
+# 重点分 = 强度分 − 风险扣分。避免把"加速赶顶"的高位票排第一。
 _STAR_TOPN = 5
+# 风险扣分坡度 (起罚, 封顶, 满分扣分)：温和强势不罚、极端过热重罚
+_RISK_BIAS = (8.0, 28.0, 12.0)    # 20日乖离率：8%起、28%封顶 → 0~12
+_RISK_CHASE = (15.0, 38.0, 8.0)   # 7日涨幅：15%起、38%封顶 → 0~8（追高）
+_RISK_HIGH = (-6.0, 0.0, 6.0)     # 距120日高：跌破6%内开始、新高封顶 → 0~6（高位）
+_RISK_MAX = 24.0                   # 风险扣分上限
 # 质量门槛：只留重点分≥此值的"真正强的"，收紧池子(对标吴川·宁缺毋滥)。
 # 数量随行情变：弱市少(诚实)；普涨强势日再加 _POOL_MAX 封顶，避免爆量(对标吴川精选感)。
 _POOL_MIN_FOCUS = 60.0
@@ -222,8 +231,28 @@ def _ma_score(rec: dict) -> float:
     return 0.5 if rec["above_ma20"] else 0.0
 
 
+def _ramp(v: float, lo: float, hi: float) -> float:
+    """v 从 lo→hi 线性映射到 0→1（越界裁剪）。"""
+    if v <= lo:
+        return 0.0
+    if v >= hi:
+        return 1.0
+    return (v - lo) / (hi - lo)
+
+
+def _risk_penalty(rec: dict) -> float:
+    """
+    过热/高位风险扣分（0~_RISK_MAX）：乖离过高 + 近期追高 + 逼近历史高位。
+    只罚极端过热（坡度起点之内不罚），尊重主升浪"强者恒强"，不一刀切毙高位龙头。
+    """
+    lo, hi, w = _RISK_BIAS;  p_bias = _ramp(rec.get("bias20", 0.0), lo, hi) * w
+    lo, hi, w = _RISK_CHASE; p_chase = _ramp(rec.get("change_7d", 0.0), lo, hi) * w
+    lo, hi, w = _RISK_HIGH;  p_high = _ramp(rec.get("dist_high", -100.0), lo, hi) * w
+    return round(min(p_bias + p_chase + p_high, _RISK_MAX), 1)
+
+
 def _compute_focus_scores(records: list[dict]) -> None:
-    """就地计算重点分(0-100)并星标本池最强 Top10。资金按当日横截面分位归一。"""
+    """就地计算重点分(强度分 − 风险扣分)并星标本池最强 Top5。资金按当日横截面分位归一。"""
     if not records:
         return
     flows = sorted(r["main_flow_3d"] for r in records)
@@ -237,9 +266,10 @@ def _compute_focus_scores(records: list[dict]) -> None:
         rps = min(max(r["rps50"], 0), 100) / 100
         cross = min(len([s for s in r["strategies"] if s != "theme_pick"]), 4) / 4
         heat = min(max(r["theme_heat"], 0), 100) / 100
-        score = (rps * 30 + flow_pct(r["main_flow_3d"]) * 25 + heat * 15
-                 + cross * 15 + _vol_health(r["vol_ratio"]) * 10 + _ma_score(r) * 5)
-        r["focus_score"] = round(score, 1)
+        strength = (rps * 30 + flow_pct(r["main_flow_3d"]) * 25 + heat * 15
+                    + cross * 15 + _vol_health(r["vol_ratio"]) * 10 + _ma_score(r) * 5)
+        r["risk_penalty"] = _risk_penalty(r)
+        r["focus_score"] = round(max(strength - r["risk_penalty"], 0.0), 1)   # 风险调整
 
     for i, r in enumerate(sorted(records, key=lambda x: x["focus_score"], reverse=True)):
         r["star"] = 1 if i < _STAR_TOPN else 0

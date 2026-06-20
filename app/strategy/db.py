@@ -195,8 +195,11 @@ def init_db() -> None:
                 above_ma20    INTEGER, -- 均线结构
                 above_ma60    INTEGER,
                 slope_up      INTEGER,
-                focus_score   REAL,    -- 重点分 0-100(区分度高)
-                star          INTEGER DEFAULT 0,  -- 本池最强Top10
+                focus_score   REAL,    -- 重点分 0-100(风险调整)
+                star          INTEGER DEFAULT 0,  -- 本池最强Top5
+                bias20        REAL,    -- 20日乖离率(过热)
+                dist_high     REAL,    -- 距120日高(高位)
+                risk_penalty  REAL,    -- 风险扣分
                 created_at    TEXT DEFAULT (datetime('now','localtime')),
                 UNIQUE(run_date, ts_code)
             );
@@ -404,14 +407,16 @@ _POOL_COLS = [
     "strategy_label", "phase", "confidence", "position_pct", "buy_low", "buy_high",
     "stop_loss", "take_profit_1", "take_profit_2", "rps50", "main_flow_3d", "change_7d",
     "turnover", "vol_ratio", "pct_chg", "circ_mv_yi", "close", "is_focus", "risk_flags", "reason",
-    # 2026-06-20 新增：均线结构 + 重点分(0-100·区分度高) + 星标(本池最强Top10·始终标)
+    # 2026-06-20 新增：均线结构 + 重点分(风险调整) + 星标 + 风险/位置(乖离/距高点/风险扣分)
     "above_ma20", "above_ma60", "slope_up", "focus_score", "star",
+    "bias20", "dist_high", "risk_penalty",
 ]
 
 # 旧库兼容：新增列（init_db 幂等补列，避免改 CREATE TABLE 后旧库缺列）
 _POOL_NEW_COLS = [
     ("above_ma20", "INTEGER"), ("above_ma60", "INTEGER"), ("slope_up", "INTEGER"),
     ("focus_score", "REAL"), ("star", "INTEGER DEFAULT 0"),
+    ("bias20", "REAL"), ("dist_high", "REAL"), ("risk_penalty", "REAL"),
 ]
 _POOL_JSON = {"sources", "strategies", "risk_flags"}
 
