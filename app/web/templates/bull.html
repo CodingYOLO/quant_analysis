@@ -59,6 +59,9 @@ tr.datarow:hover td { background:#1e2138; cursor:pointer; }
 </div>
 
 <h2 class="sec">① 政策 / 热点催化 → 板块（点击板块标签看埋伏候选）</h2>
+<div class="neu2" style="font-size:12px;margin:-4px 0 10px">
+  💡 板块标签后的 <b>热N</b> = 该板块热度(0-100,越高越热)，<span class="ris">↑</span>=近3日上升；<b>热—</b>=该日暂无热度数据。「依据」可点击跳转新闻原文(含来源·日期)。
+</div>
 <div id="cat-loading" class="neu2" style="padding:14px">⏳ 正在联网检索政策/新闻并映射真实板块…（首次约 10-20 秒）</div>
 <div id="catalysts" class="cat-grid"></div>
 <div id="cat-empty" class="neu2" style="display:none;padding:12px"></div>
@@ -104,16 +107,31 @@ async function loadCatalysts(refresh){
   }catch(e){ $('cat-loading').textContent='❌ 催化加载失败：'+e; }
 }
 function renderCatCard(c){
-  const chips=c.related_concepts.map(x=>
-    '<span class="cchip" onclick="selectConcept(this,'+JSON.stringify(esc(x.name)).replace(/"/g,'&quot;')+')">'
-    +esc(x.name)+'<span class="ht">热'+(x.heat||0).toFixed(0)+'</span>'
-    +(x.rising?'<span class="ris"> ↑</span>':'')+'</span>').join('');
-  const ev=(c.evidence||[]).map(e=>'· '+esc(e)).join('<br>');
+  const chips=c.related_concepts.map(x=>{
+    // heat=null → 该概念无宽表热度数据，显示「热—」而非误导的「热0」
+    const ht=(x.heat==null)
+      ? '<span class="ht" title="该日无板块热度数据">热—</span>'
+      : '<span class="ht" title="板块热度 0-100，越高越热">热'+(+x.heat).toFixed(0)+'</span>';
+    return '<span class="cchip" onclick="selectConcept(this,'+JSON.stringify(esc(x.name)).replace(/"/g,'&quot;')+')">'
+      +esc(x.name)+ht+(x.rising?'<span class="ris" title="近3日热度上升"> ↑</span>':'')+'</span>';
+  }).join('');
+  const ev=(c.evidence||[]).map(evLine).join('<br>');
   return '<div class="cat-card"><div><span class="cat-type t-'+esc(c.type)+'">'+esc(c.type)+'</span>'
     +(c.rising?'<span class="ris" style="font-size:10px">板块热度上升中</span>':'')+'</div>'
     +'<div class="cat-text">'+esc(c.catalyst)+'</div>'
     +(ev?'<div class="cat-ev">📰 依据：<br>'+ev+'</div>':'')
     +'<div>'+chips+'</div></div>';
+}
+// 依据一条：可点击链接(新窗口) + 来源·日期（兼容旧缓存的纯字符串格式）
+function evLine(e){
+  const o=(typeof e==='string')?{title:e}:(e||{});
+  const t=esc(o.title||'');
+  const meta=[o.site,o.date].filter(Boolean).map(esc).join(' · ');
+  const metaHtml=meta?' <span class="neu2" style="font-size:10px">['+meta+']</span>':'';
+  const head=o.url
+    ? '<a href="'+esc(o.url)+'" target="_blank" rel="noopener" style="color:#7c9ef8;text-decoration:none">· '+t+' ↗</a>'
+    : '· '+t;
+  return head+metaHtml;
 }
 
 // ── ② 埋伏层 ──────────────────────────────────────────────────────────────

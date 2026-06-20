@@ -181,6 +181,34 @@ def test_normalize_catalysts_vocab_constraint() -> None:
     assert out[0]["rising"] is True
 
 
+def test_normalize_catalyst_heat_none() -> None:
+    """概念无宽表热度数据 → heat=None（前端显示「热—」而非误导的「热0」）。"""
+    vocab = {"有热度概念", "无热度概念"}
+    heat = {"有热度概念": {"heat": 70, "rising": False}}        # 无热度概念 不在 heat_map
+    raw = [{"catalyst": "X", "type": "题材",
+            "related_concepts": ["有热度概念", "无热度概念"], "evidence": []}]
+    out = bh._normalize_catalysts(raw, vocab, heat, [])
+    cs = {c["name"]: c for c in out[0]["related_concepts"]}
+    assert cs["有热度概念"]["heat"] == 70
+    assert cs["无热度概念"]["heat"] is None                     # 无数据 → None
+
+
+def test_enrich_evidence() -> None:
+    """LLM 引用标题回连原始新闻：精确/相似匹配带 url+来源+日期，匹配不到仅留标题。"""
+    news = [
+        {"title": "大基金三期加码半导体", "url": "http://a", "site": "证券时报", "date": "2026-06-18"},
+        {"title": "证监会扩大科创板第五套标准适用范围至人工智能大模型", "url": "http://b", "site": "上证报", "date": "2026-06-17"},
+    ]
+    exact = bh._enrich_evidence(["大基金三期加码半导体"], news)[0]
+    assert exact["url"] == "http://a" and exact["site"] == "证券时报" and exact["date"] == "2026-06-18"
+    fuzzy = bh._enrich_evidence(["证监会扩大科创板第五套标准至人工智能大模型领域"], news)[0]
+    assert fuzzy["url"] == "http://b"                          # 轻微改写仍能相似匹配
+    miss = bh._enrich_evidence(["完全无关的标题XYZ123"], news)[0]
+    assert miss["title"] == "完全无关的标题XYZ123" and miss["url"] == ""
+    none_news = bh._enrich_evidence(["某标题"], [])[0]
+    assert none_news["title"] == "某标题" and none_news["url"] == ""
+
+
 # ── 催化层：注入式集成（零网络）─────────────────────────────────────────────
 
 def test_discover_catalysts_injected() -> None:

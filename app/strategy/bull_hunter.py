@@ -173,7 +173,7 @@ def discover_catalysts(date: str, provider: CompositeProvider | None = None,
         logger.info("[牛股发掘] %s 无可用新闻源（博查未配置或无结果），催化层降级为空", d)
 
     raw = _llm_extract_catalysts(news, vocab, heat_map, d, client)
-    catalysts = _normalize_catalysts(raw, set(vocab), heat_map)
+    catalysts = _normalize_catalysts(raw, set(vocab), heat_map, news)
 
     result = {
         "ok": bool(catalysts), "date": d, "catalysts": catalysts,
@@ -202,8 +202,12 @@ def _concept_vocab(provider: CompositeProvider, date: str) -> tuple[list[str], d
 
     heat_map: dict[str, dict] = {}
     try:
-        from app.data.theme_heat_db import get_themes
-        for r in get_themes(date, "concept"):
+        from app.data.theme_heat_db import get_themes, latest_trade_date
+        rows = get_themes(date, "concept")
+        if not rows:                       # 该日无宽表(如非宽表交易日)→退到最近有热度的交易日
+            ld = latest_trade_date("concept")
+            rows = get_themes(ld, "concept") if ld else []
+        for r in rows:
             name = r.get("theme_name")
             if name in members:
                 delta = _num(r.get("heat_score_delta_3d")) or 0.0
@@ -305,8 +309,14 @@ def _build_catalyst_prompt(news: list[dict], vocab: list[str], heat_map: dict, d
     )
 
 
-def _normalize_catalysts(raw: list, vocab: set, heat_map: dict) -> list[dict]:
-    """清洗 LLM 催化：过滤词表外概念、补热度、去空，截断到上限。"""
+def _normalize_catalysts(raw: list, vocab: set, heat_map: dict,
+                         news: list[dict] | None = None) -> list[dict]:
+    """
+    清洗 LLM 催化：过滤词表外概念、补热度、把 evidence 标题回连到原始新闻(含来源/日期/可点击URL)、截断到上限。
+
+    heat：概念有宽表数据→真实热度+rising；无数据→heat=None（前端显示「热—」而非误导的「热0」）。
+    evidence：把 LLM 选的标题用相似度匹配回 news → {title,url,site,date}（匹配不到则仅留标题）。
+    """
     out: list[dict] = []
     for item in raw:
         if not isinstance(item, dict):
@@ -317,9 +327,10 @@ def _normalize_catalysts(raw: list, vocab: set, heat_map: dict) -> list[dict]:
             name = str(c).strip()
             if name in vocab and name not in seen:   # 受限词表硬约束
                 seen.add(name)
-                hm = heat_map.get(name, {})
-                concepts.append({"name": name, "heat": hm.get("heat", 0.0),
-                                 "rising": bool(hm.get("rising", False))})
+                hm = heat_map.get(name)              # 不在 heat_map=该概念无宽表热度数据
+                concepts.append({"name": name,
+                                 "heat": hm.get("heat") if hm else None,
+                                 "rising": bool(hm.get("rising")) if hm else False})
         catalyst = str(item.get("catalyst", "")).strip()
         if not catalyst or not concepts:
             continue
@@ -327,12 +338,46 @@ def _normalize_catalysts(raw: list, vocab: set, heat_map: dict) -> list[dict]:
             "catalyst": catalyst,
             "type": str(item.get("type", "")).strip() or "题材",
             "related_concepts": concepts,
-            "evidence": [str(e).strip() for e in (item.get("evidence") or []) if str(e).strip()][:4],
+            "evidence": _enrich_evidence(item.get("evidence") or [], news or []),
             "rising": any(c["rising"] for c in concepts),
         })
         if len(out) >= _MAX_CATALYSTS:
             break
     return out
+
+
+def _enrich_evidence(titles: list, news: list[dict]) -> list[dict]:
+    """把 LLM 引用的新闻标题回连到原始新闻（含 url/site/date·可点击溯源）。匹配不到则仅留标题。"""
+    by_title = {(n.get("title") or "").strip(): n for n in news if (n.get("title") or "").strip()}
+    out: list[dict] = []
+    for e in titles:
+        t = str(e).strip()
+        if not t:
+            continue
+        n = by_title.get(t) or _best_news_match(t, news)
+        out.append({"title": t,
+                    "url": (n or {}).get("url", ""),
+                    "site": (n or {}).get("site", ""),
+                    "date": (n or {}).get("date", "")})
+        if len(out) >= 4:
+            break
+    return out
+
+
+def _best_news_match(title: str, news: list[dict]) -> dict | None:
+    """LLM 可能轻微改写标题→用序列相似度找最接近的原始新闻（阈值 0.6，防乱配）。"""
+    import difflib
+    best, best_r = None, 0.0
+    for n in news:
+        nt = (n.get("title") or "").strip()
+        if not nt:
+            continue
+        if title in nt or nt in title:    # 子串命中直接认
+            return n
+        r = difflib.SequenceMatcher(None, title, nt).ratio()
+        if r > best_r:
+            best, best_r = n, r
+    return best if best_r >= 0.6 else None
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -429,8 +474,11 @@ def _concept_context(provider: CompositeProvider, concept: str, date: str,
     ctx = {"heat": 0.0, "rising": False, "delta": 0.0, "net_flow_in": None,
            "in_catalyst": bool(in_catalyst)}
     try:
-        from app.data.theme_heat_db import get_theme
+        from app.data.theme_heat_db import get_theme, latest_trade_date
         row = get_theme(date, concept, "concept")
+        if not row:                        # 该日无宽表→退到最近有热度的交易日
+            ld = latest_trade_date("concept")
+            row = get_theme(ld, concept, "concept") if ld else None
         if row:
             ctx["heat"] = round(_num(row.get("heat_score")) or 0.0, 1)
             ctx["delta"] = round(_num(row.get("heat_score_delta_3d")) or 0.0, 1)
