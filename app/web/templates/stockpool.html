@@ -379,10 +379,10 @@ function renderPoolKline(cid, kl){
            {gridIndex:1,axisLabel:{show:false},splitLine:{show:false}}],
     series:[
       {type:'candlestick',data:kl.candle,itemStyle:{color:'#f6465d',color0:'#2ebd85',borderColor:'#f6465d',borderColor0:'#2ebd85'}},
-      {name:'MA5',type:'line',data:kl.ma5,smooth:true,symbol:'none',lineStyle:{width:1,color:'#e5c07b'}},
-      {name:'MA10',type:'line',data:ma10,smooth:true,symbol:'none',lineStyle:{width:1,color:'#4ade80'}},
-      {name:'MA20',type:'line',data:kl.ma20,smooth:true,symbol:'none',lineStyle:{width:1,color:'#7c9ef8'}},
-      {name:'MA60',type:'line',data:kl.ma60,smooth:true,symbol:'none',lineStyle:{width:1,color:'#c084fc'}},
+      {name:'MA5',type:'line',data:kl.ma5,smooth:true,symbol:'none',itemStyle:{color:'#e5c07b'},lineStyle:{width:1,color:'#e5c07b'}},
+      {name:'MA10',type:'line',data:ma10,smooth:true,symbol:'none',itemStyle:{color:'#4ade80'},lineStyle:{width:1,color:'#4ade80'}},
+      {name:'MA20',type:'line',data:kl.ma20,smooth:true,symbol:'none',itemStyle:{color:'#7c9ef8'},lineStyle:{width:1,color:'#7c9ef8'}},
+      {name:'MA60',type:'line',data:kl.ma60,smooth:true,symbol:'none',itemStyle:{color:'#c084fc'},lineStyle:{width:1,color:'#c084fc'}},
       {type:'bar',xAxisIndex:1,yAxisIndex:1,data:kl.vol,itemStyle:{color:'#3a3f5c'}}
     ]
   });
