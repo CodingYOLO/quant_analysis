@@ -537,7 +537,7 @@ function render(d){
       +'<td>'+pct(t.day_pct)+'</td><td class="'+vrc+'">'+(t.vol_ratio??'—')+'</td>'
       +'<td><span class="'+regimeCls(t.regime)+'">'+(t.regime||'—')+'</span></td>'
       +'<td>'+pct(t.t1)+'</td><td>'+pct(t.t3)+'</td><td>'+pct(t.t5)+'</td><td>'+pct(t.t10)+'</td>'
-      +'<td>'+(t.win?'<span class="up">胜</span>':'<span class="down">负</span>')+'</td></tr>';
+      +'<td>'+(t.win==null?'<span class="neu2">—</span>':(t.win?'<span class="up">胜</span>':'<span class="down">负</span>'))+'</td></tr>';
   });
   document.getElementById('trades').innerHTML=h+'</tbody>';
 }

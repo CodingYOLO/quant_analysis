@@ -189,7 +189,8 @@ def backtest_stock_signal(ts_code: str, signal_key: str, start: str, end: str,
             "signal_date": dates[i], "buy_date": dates[i + 1], "entry": round(entry, 2),
             "day_pct": round(pcts[i], 2), "vol_ratio": vr, "regime": regime,
             "t1": rets.get(1), "t3": rets.get(3), "t5": rets.get(5), "t10": rets.get(10),
-            "win": rets.get(_EQUITY_HORIZON, 0) > 0,
+            # 胜负看 T+5；未满 5 个交易日(无 T+5 数据)→ None(待定)，避免误判为"负"
+            "win": (rets[_EQUITY_HORIZON] > 0) if _EQUITY_HORIZON in rets else None,
         })
 
     by_regime = {r: {"n": regime_n[r],
