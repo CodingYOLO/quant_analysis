@@ -812,7 +812,7 @@ function exportName(ext){
   const r=lastResult||{};
   const nm=(lastProfile&&lastProfile.name)||'';
   const code=r.ts_code||document.getElementById('code').value.trim()||'stock';
-  const period=(r.start&&r.end)?(r.start+'-'+r.end):'';
+  const period=(r.start&&r.end)?('('+r.start+'-'+r.end+')'):'';   // 回测区间加括号，与生成日区分
   const today=new Date().toISOString().slice(0,10).replace(/-/g,'');
   return ['个股分析',nm,code,period,today].filter(Boolean).join('_')+'.'+ext;
 }
