@@ -101,7 +101,7 @@ td { padding:7px 9px; border-bottom:1px solid #1e2138; white-space:nowrap; }
 </div>
 
 <!-- 回测历史：每次回测自动记录，可搜索/查看/删除 -->
-<div class="card" id="histcard">
+<div class="card export-hide" id="histcard">
   <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px">
     <div class="meta" style="margin:0">🕘 回测历史 <span class="neu2" id="hist-count" style="font-size:12px"></span></div>
     <div style="display:flex;gap:8px;align-items:center">
@@ -807,6 +807,15 @@ function restoreCharts(restore){
   restore.forEach(el=>el.style.display='');
 }
 // 导出前清场：藏掉交互按钮/提示，未生成内容的卡整张藏掉，导出图只留分析内容
+// 导出文件名：个股分析_名称_代码_区间_生成日.<ext>（一目了然）
+function exportName(ext){
+  const r=lastResult||{};
+  const nm=(lastProfile&&lastProfile.name)||'';
+  const code=r.ts_code||document.getElementById('code').value.trim()||'stock';
+  const period=(r.start&&r.end)?(r.start+'-'+r.end):'';
+  const today=new Date().toISOString().slice(0,10).replace(/-/g,'');
+  return ['个股分析',nm,code,period,today].filter(Boolean).join('_')+'.'+ext;
+}
 function prepExport(){
   const hidden=[];
   const hide=el=>{ if(el && el.style.display!=='none'){ hidden.push([el, el.style.display]); el.style.display='none'; } };
@@ -826,7 +835,7 @@ document.getElementById('btn-img').addEventListener('click', async ()=>{
     const node=document.getElementById('bt-capture');
     const canvas=await html2canvas(node,{scale:2,backgroundColor:'#0f1117',useCORS:true,windowWidth:node.scrollWidth});
     const a=document.createElement('a');
-    a.download='个股分析_'+(document.getElementById('code').value.trim()||'stock')+'.png';
+    a.download=exportName('png');   // 个股分析_名称_代码_区间_生成日.png
     a.href=canvas.toDataURL('image/png'); a.click();
   }catch(e){ alert('长图生成失败：'+e); }
   finally{
@@ -837,6 +846,10 @@ document.getElementById('btn-img').addEventListener('click', async ()=>{
     btn.disabled=false; btn.textContent=old;
   }
 });
-document.getElementById('btn-pdf').addEventListener('click', ()=>window.print());
+document.getElementById('btn-pdf').addEventListener('click', ()=>{
+  const old=document.title; document.title=exportName('').replace(/\.$/,'');  // PDF默认名用此
+  window.print();
+  setTimeout(()=>{document.title=old;}, 1000);
+});
 </script>
 {% endblock %}
