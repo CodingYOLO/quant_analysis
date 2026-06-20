@@ -241,8 +241,23 @@ from app.data.cache import cached_daily
 
 # 概念成分过滤：剔除过宽(>300,如国企改革)与过窄(<5)，聚焦真题材
 _CONCEPT_MIN, _CONCEPT_MAX = 5, 300
+# 概念垃圾黑名单：剔除"非题材"概念（指数成份/交易机制/持股状态/交易状态），
+# 它们不是可炒作的催化主题，留着会污染热点/低吸判断。命中任一关键词即剔除。
+_CONCEPT_DENY = (
+    "成份", "成分", "样本股", "指数",                       # 指数成份（上证180成份股等）
+    "融资融券", "沪股通", "深股通", "转融", "QFII", "存托凭证", "GDR",  # 交易机制
+    "MSCI", "富时", "标普", "道琼斯",                        # 境外指数纳入
+    "证金持股", "汇金", "国家队", "社保重仓", "险资举牌",      # 持股状态（非题材）
+    "昨日涨停", "昨日连板", "今日涨停",                       # 交易状态（非题材）
+    "ST板块", "破净", "高送转",                              # 财务/分配状态
+)
 # heat 权重（与 PRD §4.2 默认一致，可校准）
 _HEAT_W = {"money": 0.40, "ret": 0.25, "breadth": 0.20, "top": 0.15}
+
+
+def _is_junk_concept(name: str) -> bool:
+    """概念名是否命中垃圾黑名单（非题材，应剔除）。纯函数，便于单测。"""
+    return any(k in name for k in _CONCEPT_DENY)
 
 
 def build_concept_wide(
@@ -328,6 +343,8 @@ def _fetch_concept_members(provider: CompositeProvider) -> "pd.DataFrame":
     idx = idx.copy()
     idx["count"] = pd.to_numeric(idx.get("count"), errors="coerce")
     idx = idx[(idx["count"] >= _CONCEPT_MIN) & (idx["count"] <= _CONCEPT_MAX)]
+    # 剔除非题材垃圾概念（指数成份/交易机制/持股状态等），聚焦可炒作主题
+    idx = idx[~idx["name"].astype(str).apply(_is_junk_concept)]
 
     rows = []
     for _, r in idx.iterrows():

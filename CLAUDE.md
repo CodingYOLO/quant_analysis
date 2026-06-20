@@ -21,9 +21,10 @@
 |---|---|---|---|
 | 全市场日线/复权/指数/每日指标 | ✅ Tushare | `daily`/`adj_factor`/`index_daily`/`daily_basic` | 120分 |
 | 个股资金流 / 龙虎榜 / 北向 | ✅ Tushare | `moneyflow`/`top_list`/`moneyflow_hsgt` | 5100实测可用 |
-| **同花顺概念列表/成分** | ✅ Tushare | `ths_index`(type=N)/`ths_member` | **生产口径**(theme_wide)；5100实测可用 |
+| **同花顺概念列表/成分** | ✅ Tushare | `ths_index`(type=N)/`ths_member` | **生产口径**(theme_wide)；5100实测可用。已加垃圾黑名单 `_CONCEPT_DENY`(剔除指数成份/融资融券/沪股通/证金持股/昨日涨停等非题材) |
 | **同花顺概念资金流** | ✅ Tushare | `moneyflow_cnt_ths` | concept_flow 页用 |
-| 行业资金流 | ✅ Tushare(聚合) | 按 stock_basic.industry 聚合 `moneyflow` | industry_flow 页；非 Akshare |
+| **行业分类(全系统口径)** | ✅ Tushare | `index_classify`+`index_member_all`(申万SW2021) | **2026-06-20 升级**：`get_stock_basic().industry` 已覆盖为**申万一级**(31个·机构标准)，原Tushare值留 `industry_src`、申万二级在 `industry_l2`；映射失败优雅回退。所有按 industry 聚合的板块分析(行业资金/宽表/全景看板/广度雷达/同类回测/选股池)统一升级 |
+| 行业资金流 | ✅ Tushare(聚合) | 按 `industry`(=申万一级) 聚合 `moneyflow` | industry_flow 页；非 Akshare |
 | 财务指标(ROE/同比/负债率) | ✅ Tushare | `fina_indicator` | 2000分 |
 | 筹码分布(成本/获利盘) | ✅ Tushare | `cyq_perf` | 5100实测可用；股性页用 |
 | 单股区间日线/复权(回测) | ✅ Tushare | `daily`/`adj_factor` by ts_code | kline_loader |

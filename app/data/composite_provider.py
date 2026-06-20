@@ -80,6 +80,10 @@ class CompositeProvider(DataProvider):
     def get_stock_basic(self) -> pd.DataFrame:
         return self._ts.get_stock_basic()
 
+    def get_sw_industry_map(self) -> pd.DataFrame:
+        """全市场个股 → 申万行业映射（当前成分），供需要直接用申万分类的模块。"""
+        return self._ts.get_sw_industry_map()
+
     def get_trade_cal(self, start_date: str, end_date: str) -> pd.DataFrame:
         return self._ts.get_trade_cal(start_date, end_date)
 
