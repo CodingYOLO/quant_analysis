@@ -24,6 +24,11 @@ tr.datarow:hover td { background:#1e2138; cursor:pointer; }
 .amber { color:#f0a020; }
 .starrow { background:rgba(74,222,128,.06); }   /* 重点Top10高亮 */
 .fs-pill { font-weight:700; font-size:13px; }
+/* 板块标签：科创/创业/北交(20~30%涨跌幅·需开通权限)，主板不标 */
+.bd { font-size:9px; padding:1px 5px; border-radius:6px; margin-left:5px; vertical-align:middle; white-space:nowrap; }
+.bd-kc { background:#3a2410; color:#f0a020; border:1px solid #5a4018; }
+.bd-cy { background:#1a2b4a; color:#7c9ef8; border:1px solid #2d4a7a; }
+.bd-bj { background:#0e2a1a; color:#2ebd85; border:1px solid #1a4a30; }
 .src { font-size:10px; padding:1px 6px; border-radius:8px; margin:1px 2px 1px 0; display:inline-block; }
 .src-最关注 { background:#143b28; color:#4ade80; } .src-策略候选 { background:#2a2440; color:#b794f6; }
 .src-主题选股 { background:#2a2410; color:#fbbf24; } .src-规则已选 { background:#1a2b4a; color:#7c9ef8; } .src-规则候选 { background:#262a3e; color:#9ca3af; }
@@ -139,6 +144,12 @@ function vpCell(r){ const vr=r.vol_ratio;
   return '<span class="'+c+'">'+lbl+vr+'</span> '+pct(r.pct_chg); }
 function fsCell(v){ const s=v||0, c=s>=70?'up':(s>=50?'amber':'neu2');
   return '<b class="fs-pill '+c+'">'+s.toFixed(0)+'</b>'; }
+// 板块标签（按代码前缀；主板不标）
+function boardBadge(code){ const c=(code||'').slice(0,6);
+  if(c.startsWith('688')) return '<span class="bd bd-kc" title="科创板·涨跌幅±20%·需开通科创板权限">科创</span>';
+  if(c.startsWith('300')||c.startsWith('301')) return '<span class="bd bd-cy" title="创业板·涨跌幅±20%·需开通创业板权限">创业</span>';
+  if(c.startsWith('8')||c.startsWith('4')||c.startsWith('920')) return '<span class="bd bd-bj" title="北交所·涨跌幅±30%·需开通北交所权限">北交</span>';
+  return ''; }
 
 function render(){
   const kw=(document.getElementById('search').value||'').trim();
@@ -159,7 +170,8 @@ function render(){
     const buy=(r.buy_low&&r.buy_high)?r.buy_low.toFixed(2)+'~'+r.buy_high.toFixed(2):'<span class="miss">—</span>';
     h+='<tr class="datarow'+(r.star?' starrow':'')+'" data-i="'+i+'">'
       +'<td>'+starCell(r)+'</td>'
-      +'<td style="color:#7c9ef8">'+r.ts_code.slice(0,6)+'</td><td>'+(r.name||'')+'</td>'
+      +'<td style="color:#7c9ef8">'+r.ts_code.slice(0,6)+'</td>'
+      +'<td>'+(r.name||'')+boardBadge(r.ts_code)+'</td>'
       +'<td>'+(r.theme||'未归类')+heat+'</td>'
       +'<td>'+fsCell(r.focus_score)+'</td>'
       +'<td>'+flowCell(r.main_flow_3d)+'</td>'
