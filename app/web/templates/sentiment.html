@@ -46,6 +46,11 @@
     <div class="kpi"><div class="label">涨跌比</div><div class="big" id="k-ad">--</div><div class="sub" id="k-ad-sub"></div></div>
   </div>
 
+  <div class="chart-card chart-full" id="limit-card" style="display:none;margin-bottom:18px">
+    <h3>🔥 打板情绪（官方 limit_list_d，比日线推断更准）· <span id="lim-date" class="neu" style="font-weight:400"></span></h3>
+    <div id="lim-body" style="font-size:13px;line-height:2;color:#cdd6f4"></div>
+  </div>
+
   <div class="chart-grid">
     <div class="chart-card"><h3>大盘成交额趋势（万亿）</h3><div id="c-amount" class="chart"></div></div>
     <div class="chart-card"><h3>市场广度·站上5日线占比（%）</h3><div id="c-breadth" class="chart"></div></div>
@@ -115,6 +120,25 @@ document.querySelectorAll('.preset').forEach(p=>p.addEventListener('click', ()=>
   load();
 }));
 
+// 🔥 打板情绪（官方 limit_list_d：炸板率/连板天梯/封单额）
+function renderLimit(lo, date){
+  const card=document.getElementById('limit-card');
+  if(!lo || !lo.limit_up){ card.style.display='none'; return; }
+  document.getElementById('lim-date').textContent=date||'';
+  const dist=Object.entries(lo.lianban_dist||{}).sort((a,b)=>b[0]-a[0])
+    .map(([k,v])=>k+'板 '+v+'家').join(' · ');
+  const seal=(lo.top_seal||[]).map(s=>s.name+'('+s.limit_times+'板·封'+s.fd_yi+'亿)').join('　');
+  const zbCls=lo.zhaban_rate>=30?'down':(lo.zhaban_rate<=15?'up':'amber');
+  document.getElementById('lim-body').innerHTML=
+    '涨停 <b class="up">'+lo.limit_up+'</b> · 跌停 <b class="down">'+lo.limit_down+'</b> · 炸板 <b>'+lo.zhaban
+    +'</b> · 炸板率 <b class="'+zbCls+'">'+lo.zhaban_rate+'%</b> <span class="neu" style="font-size:11px">（越低情绪越强）</span><br>'
+    +'最高连板 <b class="amber">'+(lo.max_lianban||0)+'板</b>'
+    +(lo.top_lianban_stocks&&lo.top_lianban_stocks.length?' <span class="neu" style="font-size:12px">'+lo.top_lianban_stocks.join('、')+'</span>':'')+'<br>'
+    +(dist?'<span class="neu">连板天梯：</span>'+dist+'<br>':'')
+    +(seal?'<span class="neu">封单额Top（人气）：</span>'+seal:'');
+  card.style.display='block';
+}
+
 function render(d){
   // 行情类型徽章
   if(d.regime){
@@ -135,6 +159,8 @@ function render(d){
     '<span class="tag tag-red">涨停'+k.limit_up+'</span><span class="tag tag-green">跌停'+k.limit_down+'</span> 三板'+k.b3+' 四板'+k.b4+' 五板+:'+k.b5p;
   document.getElementById('k-ad').innerHTML = '<span class="'+(k.ad_ratio>=1?'up':'down')+'">'+k.ad_ratio+'</span>';
   document.getElementById('k-ad-sub').textContent = '涨'+k.up_count+' / 跌'+k.down_count+'　'+k.date;
+
+  renderLimit(d.limit_official, k.date);
 
   const dates = d.dates.map(s=>s.slice(4,6)+'-'+s.slice(6));
 

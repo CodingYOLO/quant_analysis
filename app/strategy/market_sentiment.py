@@ -158,6 +158,14 @@ def build_dashboard(end_date: str, days: int = 22, start_date: str = "", force: 
     # —— 区间行情类型判断（震荡/牛市/熊市）——
     regime = _classify_market_regime(indices, breadth, per_day, range_dates)
 
+    # 官方打板情绪（limit_list_d）：炸板率/连板天梯/封单额 Top，比日线推断更准
+    try:
+        from app.strategy.market_extras import get_limit_analysis
+        limit_official = get_limit_analysis(range_dates[-1]) if range_dates else {}
+    except Exception:
+        logger.warning("[sentiment] 官方打板数据获取失败", exc_info=True)
+        limit_official = {}
+
     result = {
         "end_date": end_date,
         "regime": regime,
@@ -169,6 +177,7 @@ def build_dashboard(end_date: str, days: int = 22, start_date: str = "", force: 
         "lianban": lianban_series,
         "breadth": breadth,
         "indices": indices,
+        "limit_official": limit_official,
     }
     path.write_text(json.dumps(result, ensure_ascii=False), encoding="utf-8")
     return result
