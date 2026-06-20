@@ -214,7 +214,10 @@ _RISK_BIAS = (8.0, 28.0, 12.0)    # 20日乖离率：8%起、28%封顶 → 0~12
 _RISK_CHASE = (15.0, 38.0, 8.0)   # 7日涨幅：15%起、38%封顶 → 0~8（追高）
 _RISK_HIGH = (-6.0, 0.0, 6.0)     # 距120日高：跌破6%内开始、新高封顶 → 0~6（高位）
 _RISK_WINNER = (85.0, 96.0, 6.0)  # 获利盘：85%起、96%封顶 → 0~6（普遍获利=抛压）
-_RISK_BLOCK = (2.0, 9.0, 5.0)     # 大宗折价幅度：2%起、9%封顶 → 0~5（折价出货）
+# 获利盘抛压的"位置门控"：仅高位才算抛压（距120日高 -15%→-3% 把扣分从0放大到满）。
+# 低位/中位的高获利盘可能是主力吸筹/突破，不该当风险——保护"筹码集中=拉升前"那类票。
+_WINNER_POS_GATE = (-15.0, -3.0)
+_RISK_BLOCK = (2.0, 9.0, 5.0)     # 大宗折价幅度：2%起、9%封顶 → 0~5（折价出货·直接卖压不门控）
 _RISK_MAX = 30.0                   # 风险扣分上限
 # 质量门槛：只留重点分≥此值的"真正强的"，收紧池子(对标吴川·宁缺毋滥)。
 # 数量随行情变：弱市少(诚实)；普涨强势日再加 _POOL_MAX 封顶，避免爆量(对标吴川精选感)。
@@ -267,9 +270,12 @@ def _risk_penalty(rec: dict) -> float:
     """
     lo, hi, w = _RISK_BIAS;  p_bias = _ramp(rec.get("bias20", 0.0), lo, hi) * w
     lo, hi, w = _RISK_CHASE; p_chase = _ramp(rec.get("change_7d", 0.0), lo, hi) * w
-    lo, hi, w = _RISK_HIGH;  p_high = _ramp(rec.get("dist_high", -100.0), lo, hi) * w
+    dist_h = rec.get("dist_high", -100.0)
+    lo, hi, w = _RISK_HIGH;  p_high = _ramp(dist_h, lo, hi) * w
+    # 获利盘抛压：×位置门控 → 仅高位才算（低位高获利盘=吸筹/突破，不罚）
     lo, hi, w = _RISK_WINNER; p_win = _ramp(rec.get("winner_rate") or 0.0, lo, hi) * w
-    # 大宗折价：block_discount 负=折价；取折价幅度(正值)罚
+    p_win *= _ramp(dist_h, *_WINNER_POS_GATE)
+    # 大宗折价：block_discount 负=折价；取折价幅度(正值)罚（直接卖压，不门控）
     disc = -(rec.get("block_discount") or 0.0)
     lo, hi, w = _RISK_BLOCK; p_blk = _ramp(disc, lo, hi) * w
     return round(min(p_bias + p_chase + p_high + p_win + p_blk, _RISK_MAX), 1)

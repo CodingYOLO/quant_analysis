@@ -62,8 +62,10 @@ def test_ramp_and_risk_penalty() -> None:
     # 赶顶(高乖离+追高+新高) → 重罚，且封顶 _RISK_MAX
     p = SP._risk_penalty({"bias20": 24.0, "change_7d": 26.0, "dist_high": 0.0})
     assert 12 < p <= SP._RISK_MAX
-    # 抛压(高获利盘)/出货(大宗折价) 也计入风险
-    assert SP._risk_penalty({"winner_rate": 95.0}) > 0          # 获利盘95%→抛压扣分
+    # 抛压(高获利盘)：仅高位才计——位置门控保护低位吸筹股
+    assert SP._risk_penalty({"winner_rate": 95.0, "dist_high": -2.0}) > 0    # 高位+高获利盘→抛压扣分
+    assert SP._risk_penalty({"winner_rate": 95.0, "dist_high": -25.0}) == 0.0  # 低位高获利盘(吸筹)→不罚
+    # 出货(大宗折价)：直接卖压·不门控
     assert SP._risk_penalty({"block_discount": -8.0}) > 0       # 大宗折价8%→出货扣分
     assert SP._risk_penalty({"winner_rate": 60.0, "block_discount": 1.0}) == 0.0  # 健康→不罚
     # 缺字段安全(默认不罚)
