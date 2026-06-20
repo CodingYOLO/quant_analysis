@@ -438,6 +438,46 @@ async def api_pool_eval(_user: str = Depends(require_auth)):
         return {"ok": False, "error": str(e)}
 
 
+@app.get("/bull", response_class=HTMLResponse)
+async def bull_page(request: Request, _user: str = Depends(require_auth)):
+    """🐂 牛股发掘：左侧埋伏引擎（政策/新闻催化 → 板块 → 埋伏票）。"""
+    return templates.TemplateResponse(request=request, name="bull.html", context={"page": "bull"})
+
+
+@app.get("/api/bull/catalysts")
+async def api_bull_catalysts(date: str = "", refresh: bool = False,
+                             _user: str = Depends(require_auth)):
+    """催化层：真实新闻→LLM抽取→映射到库内真实概念（按日缓存；refresh=1 强制重算）。较重→线程池。"""
+    try:
+        from fastapi.concurrency import run_in_threadpool
+
+        from app.strategy.bull_hunter import discover_catalysts
+        d = (date or "").replace("-", "") or _last_trade_date()
+        return await run_in_threadpool(discover_catalysts, d, None, None, bool(refresh))
+    except Exception as e:
+        logger.exception("牛股发掘·催化层失败")
+        return {"ok": False, "msg": str(e)}
+
+
+@app.get("/api/bull/ambush")
+async def api_bull_ambush(concept: str = "", date: str = "",
+                          in_catalyst: bool = True, refresh: bool = False,
+                          _user: str = Depends(require_auth)):
+    """埋伏层：概念成分批量预筛→逐只真业绩+避雷→埋伏分排名（按日+概念缓存）。首次较重→线程池。"""
+    if not concept:
+        return {"ok": False, "msg": "缺少 concept 参数"}
+    try:
+        from fastapi.concurrency import run_in_threadpool
+
+        from app.strategy.bull_hunter import find_ambush_stocks
+        d = (date or "").replace("-", "") or _last_trade_date()
+        return await run_in_threadpool(
+            find_ambush_stocks, concept, d, None, bool(in_catalyst), bool(refresh))
+    except Exception as e:
+        logger.exception("牛股发掘·埋伏层失败")
+        return {"ok": False, "msg": str(e)}
+
+
 @app.get("/stockpool", response_class=HTMLResponse)
 async def stockpool_page(request: Request, _user: str = Depends(require_auth)):
     """Tab2 选股池（内置策略每日盘后自动选股）。"""

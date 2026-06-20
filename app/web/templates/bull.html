@@ -1,0 +1,251 @@
+{% extends "base.html" %}
+{% block title %}牛股发掘 — A股Agent{% endblock %}
+
+{% block extra_style %}
+h1 { font-size:22px; text-align:center; margin-bottom:4px; }
+h2.sec { font-size:16px; color:#cdd6f4; margin:22px 0 10px; border-left:3px solid #3358e0; padding-left:10px; }
+.redline { background:linear-gradient(90deg,#3a1a1a,#2a1518); border:1px solid #7a3a3a; border-radius:10px;
+  padding:11px 16px; margin-bottom:14px; font-size:13px; line-height:1.7; color:#f0c0c0; }
+.redline b { color:#f87171; }
+.toolbar { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:12px; }
+.toolbar input,.toolbar button { background:#0f1117; color:#e8e8e8; border:1px solid #2d3052; border-radius:6px; padding:7px 10px; font-size:13px; }
+.toolbar button { cursor:pointer; color:#7c9ef8; }
+.neu2 { color:#9ca3af; } .up { color:#f6465d; } .down { color:#2ebd85; } .amber { color:#f0a020; } .miss { color:#6b7280; }
+/* 催化卡 */
+.cat-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(330px,1fr)); gap:12px; }
+.cat-card { background:#141729; border:1px solid #242842; border-radius:10px; padding:13px 15px; }
+.cat-type { font-size:10px; padding:2px 8px; border-radius:8px; margin-right:6px; vertical-align:middle; }
+.t-政策 { background:#143b28; color:#4ade80; border:1px solid #1f5a3a; }
+.t-新闻 { background:#1a2b4a; color:#7c9ef8; border:1px solid #2d4a7a; }
+.t-题材 { background:#3b2a18; color:#f0a020; border:1px solid #5a4018; }
+.cat-text { font-size:13.5px; color:#e8e8e8; line-height:1.6; margin:4px 0 8px; }
+.cat-ev { font-size:11px; color:#7e8497; line-height:1.5; margin-bottom:9px; }
+.cchip { display:inline-block; background:#1a2140; border:1px solid #2a3a6a; color:#cdd6f4; border-radius:8px;
+  padding:4px 10px; font-size:12px; margin:3px 5px 3px 0; cursor:pointer; }
+.cchip:hover, .cchip.active { background:#2742a8; border-color:#3358e0; color:#fff; }
+.cchip .ht { color:#f0a020; font-size:10px; margin-left:4px; }
+.cchip .ris { color:#4ade80; font-size:10px; }
+/* 埋伏表 */
+.ctx { background:#161929; border:1px solid #242842; border-radius:8px; padding:9px 14px; font-size:12.5px; color:#cdd6f4; margin-bottom:10px; }
+.ctx b { color:#7c9ef8; }
+table { width:100%; border-collapse:collapse; font-size:12.5px; }
+th { background:#232640; color:#9ca3af; font-weight:500; padding:8px 9px; text-align:left; white-space:nowrap; }
+td { padding:8px 9px; border-bottom:1px solid #1e2138; white-space:nowrap; vertical-align:top; }
+tr.datarow:hover td { background:#1e2138; cursor:pointer; }
+.bd { font-size:9px; padding:1px 5px; border-radius:6px; margin-left:5px; vertical-align:middle; }
+.bd-kc { background:#3a2410; color:#f0a020; border:1px solid #5a4018; }
+.bd-cy { background:#1a2b4a; color:#7c9ef8; border:1px solid #2d4a7a; }
+.bd-bj { background:#0e2a1a; color:#2ebd85; border:1px solid #1a4a30; }
+.score-pill { font-weight:700; font-size:14px; color:#4ade80; }
+.rk { color:#f87171; font-size:11px; }
+.detail { padding:12px 16px; background:#141729; font-size:12.5px; line-height:1.8; }
+.detail b { color:#7c9ef8; }
+.falsify { color:#f0a020; }
+{% endblock %}
+
+{% block content %}
+<h1>🐂 牛股发掘</h1>
+<div class="redline">
+  ⚠️ <b>左侧埋伏 ≠ 右侧追强</b>：本工具趁「还没涨太快」时潜伏有催化预期的板块龙头，<b>赌的是催化兑现，胜率天然低</b>。
+  已用<b>三重硬门槛</b>（真业绩 + 资金已有迹象 + 催化真实可核）硬过滤价值陷阱/纯题材，但请务必
+  <b>轻仓 · 分散 · 催化证伪即走</b>。所有数据真实可溯，<b>不预测涨跌、不构成投资建议</b>。
+</div>
+
+<div class="toolbar">
+  <label class="neu2" style="font-size:13px">数据日</label>
+  <input type="date" id="date" title="留空=最近交易日">
+  <button id="refresh" title="强制重新联网检索+重算催化">🔄 刷新催化</button>
+  <span id="genmeta" class="neu2" style="font-size:12px"></span>
+</div>
+
+<h2 class="sec">① 政策 / 热点催化 → 板块（点击板块标签看埋伏候选）</h2>
+<div id="cat-loading" class="neu2" style="padding:14px">⏳ 正在联网检索政策/新闻并映射真实板块…（首次约 10-20 秒）</div>
+<div id="catalysts" class="cat-grid"></div>
+<div id="cat-empty" class="neu2" style="display:none;padding:12px"></div>
+
+<h2 class="sec">② 板块内埋伏候选（真业绩 + 资金初入 + 还没涨太快）</h2>
+<div id="ambush-hint" class="neu2" style="padding:10px">↑ 点击上方任一<b>板块标签</b>，扫描该板块的埋伏候选股</div>
+<div id="ctx" class="ctx" style="display:none"></div>
+<div id="ambush-loading" class="neu2" style="display:none;padding:12px">⏳ 扫描板块成分（批量预筛 → 逐只取真业绩 + 避雷 + 评分·首次约 15-20 秒）…</div>
+<div id="ambush" style="display:none;overflow-x:auto"><table id="atbl"></table></div>
+{% endblock %}
+
+{% block extra_script %}
+<script src="/static/echarts.min.js"></script>
+<script>
+const $=id=>document.getElementById(id);
+function esc(s){ return (s==null?'':String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function boardTag(code){
+  const c=(code||'').slice(0,3);
+  if(c==='688'||c==='689') return '<span class="bd bd-kc">科创</span>';
+  if(c==='300'||c==='301') return '<span class="bd bd-cy">创业</span>';
+  const p1=(code||'').slice(0,1);
+  if(p1==='8'||p1==='4') return '<span class="bd bd-bj">北交</span>';
+  return '';
+}
+function sign(v,suf){ if(v==null) return '<span class="miss">—</span>';
+  const cls=v>0?'up':(v<0?'down':'neu2'); return '<span class="'+cls+'">'+(v>0?'+':'')+(+v).toFixed(0)+(suf||'')+'</span>'; }
+
+// ── ① 催化层 ──────────────────────────────────────────────────────────────
+async function loadCatalysts(refresh){
+  $('cat-loading').style.display='block'; $('catalysts').innerHTML=''; $('cat-empty').style.display='none';
+  const d=$('date').value.replace(/-/g,'');
+  try{
+    const r=await fetch('/api/bull/catalysts?date='+d+(refresh?'&refresh=1':''));
+    const j=await r.json();
+    $('cat-loading').style.display='none';
+    $('genmeta').textContent=(j.date?('数据日 '+j.date):'')+(j.cached?'（缓存）':(j.generated_at?('　生成于 '+j.generated_at):''));
+    if(!j.ok||!(j.catalysts||[]).length){
+      $('cat-empty').style.display='block';
+      $('cat-empty').textContent='ℹ️ '+(j.msg||'今日未抽取到可映射的催化（可能新闻源/概念数据未就绪）');
+      return;
+    }
+    $('catalysts').innerHTML=j.catalysts.map(renderCatCard).join('');
+  }catch(e){ $('cat-loading').textContent='❌ 催化加载失败：'+e; }
+}
+function renderCatCard(c){
+  const chips=c.related_concepts.map(x=>
+    '<span class="cchip" onclick="selectConcept(this,'+JSON.stringify(esc(x.name)).replace(/"/g,'&quot;')+')">'
+    +esc(x.name)+'<span class="ht">热'+(x.heat||0).toFixed(0)+'</span>'
+    +(x.rising?'<span class="ris"> ↑</span>':'')+'</span>').join('');
+  const ev=(c.evidence||[]).map(e=>'· '+esc(e)).join('<br>');
+  return '<div class="cat-card"><div><span class="cat-type t-'+esc(c.type)+'">'+esc(c.type)+'</span>'
+    +(c.rising?'<span class="ris" style="font-size:10px">板块热度上升中</span>':'')+'</div>'
+    +'<div class="cat-text">'+esc(c.catalyst)+'</div>'
+    +(ev?'<div class="cat-ev">📰 依据：<br>'+ev+'</div>':'')
+    +'<div>'+chips+'</div></div>';
+}
+
+// ── ② 埋伏层 ──────────────────────────────────────────────────────────────
+function selectConcept(el, concept){
+  document.querySelectorAll('.cchip.active').forEach(x=>x.classList.remove('active'));
+  el.classList.add('active');
+  loadAmbush(concept);
+}
+async function loadAmbush(concept){
+  $('ambush-hint').style.display='none'; $('ctx').style.display='none';
+  $('ambush').style.display='none'; $('ambush-loading').style.display='block';
+  const d=$('date').value.replace(/-/g,'');
+  try{
+    const r=await fetch('/api/bull/ambush?concept='+encodeURIComponent(concept)+'&date='+d);
+    const j=await r.json();
+    $('ambush-loading').style.display='none';
+    renderCtx(concept, j);
+    if(!j.ok||!(j.candidates||[]).length){
+      $('ambush').style.display='block';
+      $('atbl').innerHTML='<tr><td class="neu2" style="padding:14px">ℹ️ '+esc(j.msg||'该板块无满足三重门槛的埋伏标的——宁可不埋伏')+'</td></tr>';
+      return;
+    }
+    renderAmbushTable(j.candidates);
+  }catch(e){ $('ambush-loading').textContent='❌ 埋伏扫描失败：'+e; }
+}
+function renderCtx(concept, j){
+  const c=j.concept_ctx||{};
+  const flow=c.net_flow_in===true?'<span class="up">净流入</span>':(c.net_flow_in===false?'<span class="down">净流出</span>':'<span class="miss">—</span>');
+  $('ctx').style.display='block';
+  $('ctx').innerHTML='<b>'+esc(concept)+'</b>　热度 '+(c.heat||0).toFixed(0)
+    +(c.rising?' <span class="up">↑上升</span>':' <span class="neu2">持平/回落</span>')
+    +' ｜ 概念资金 '+flow
+    +' ｜ 成分 '+(j.n_members||0)+' → 可交易 '+(j.n_in_range||0)+' → 预筛 '+(j.n_prescreened||0)+' → 候选 '+(j.candidates||[]).length;
+}
+function renderAmbushTable(cands){
+  $('ambush').style.display='block';
+  let h='<tr><th>埋伏分</th><th>代码</th><th>名称</th><th>真业绩</th><th>资金(主力3日)</th><th>位置</th><th>量能</th><th>避雷</th></tr>';
+  cands.forEach((c,i)=>{
+    const cid='k'+i;
+    const perf='净利'+sign(c.np_yoy,'%')+(c.forecast_type?' <span class="amber" style="font-size:11px">'+esc(c.forecast_type)+'</span>':'');
+    const flow='<span class="'+(c.main_flow_3d>0?'up':'down')+'">'+(c.main_flow_3d>0?'+':'')+(c.main_flow_3d||0).toFixed(1)+'亿</span>';
+    const pos='乖离'+sign(c.bias20,'%')+'·距高'+sign(c.dist_high,'%');
+    const rk=(c.risk_flags||[]).length?'<span class="rk">'+c.risk_flags.map(esc).join('；')+'</span>':'<span class="neu2">—</span>';
+    h+='<tr class="datarow" onclick="toggle(\''+cid+'\','+i+')">'
+      +'<td><span class="score-pill">'+(c.score||0).toFixed(0)+'</span></td>'
+      +'<td>'+esc(c.ts_code)+'</td>'
+      +'<td>'+esc(c.name)+boardTag(c.ts_code)+'</td>'
+      +'<td>'+perf+'</td><td>'+flow+'</td><td>'+pos+'</td>'
+      +'<td class="neu2">'+esc(c.evidence.vol)+'</td><td>'+rk+'</td></tr>';
+    h+='<tr id="row_'+cid+'" style="display:none"><td colspan="8" style="padding:0">'
+      +'<div class="detail" id="d_'+cid+'"></div></td></tr>';
+  });
+  $('atbl').innerHTML=h; window._cands=cands;
+}
+function toggle(cid,i){
+  const row=$('row_'+cid); const open=row.style.display!=='none';
+  row.style.display=open?'none':'';
+  if(open) return;
+  const c=window._cands[i]; const dv=$('d_'+cid);
+  const dm=c.dims;
+  let h='<b>埋伏分 '+(c.score||0).toFixed(0)+'</b> = 真业绩 '+dm.perf+' + 催化 '+dm.cata+' + 资金 '+dm.flow
+    +' + 位置 '+dm.pos+' + 量能 '+dm.vol+(dm.penalty>0?' − 避雷 '+dm.penalty:'')
+    +' <span class="neu2" style="font-size:11px">(满分 30/25/20/15/10)</span><br>';
+  h+='<b>真业绩</b>：'+esc(c.evidence.perf)+'<br>';
+  h+='<b>催化</b>：'+esc(c.evidence.cata)+'<br>';
+  h+='<b>资金</b>：'+esc(c.evidence.flow)+' ｜ <b>位置</b>：'+esc(c.evidence.pos)+' ｜ <b>量能</b>：'+esc(c.evidence.vol)+'<br>';
+  h+='<b>因子</b>：RPS50 '+c.rps50+' ｜ 近7日 '+(c.change_7d||0).toFixed(1)+'% ｜ 换手 '+c.turnover+'% ｜ 量比 '+c.vol_ratio+' ｜ 当日 '+(c.pct_chg||0).toFixed(1)+'% ｜ 市值 '+c.circ_mv_yi+'亿<br>';
+  if((c.risk_flags||[]).length) h+='<span class="rk"><b>⚠️ 避雷</b>：'+c.risk_flags.map(esc).join('；')+'</span><br>';
+  h+='<span class="falsify"><b>🛑 '+esc(c.falsify)+'</b></span>';
+  h+='<div id="ext_'+cid+'" class="neu2" style="margin:8px 0;font-size:12px">⏳ 加载K线/指标…</div>';
+  h+='<div id="'+cid+'" style="height:340px"></div>';
+  dv.innerHTML=h;
+  loadKline(c.ts_code, cid);
+}
+
+// ── K线（复用 /api/stock/profile，与选股池一致）─────────────────────────────
+const _kcharts={};
+async function loadKline(code, cid){
+  const ext=$('ext_'+cid);
+  try{
+    const r=await fetch('/api/stock/profile?code='+code.slice(0,6));
+    const d=await r.json();
+    if(!d.ok||!d.kline){ if(ext) ext.textContent='ℹ️ 无K线/筹码数据'; return; }
+    if(ext) ext.innerHTML=extIndicators(d);
+    renderKline(cid, d.kline);
+  }catch(e){ if(ext) ext.textContent='❌ K线加载失败：'+e; }
+}
+function extIndicators(d){
+  const kl=d.kline, n=(kl.vol||[]).length;
+  const avg=(a,m)=>{ const s=a.slice(-m).filter(x=>x!=null); return s.length? s.reduce((x,y)=>x+y,0)/s.length : null; };
+  const vma5=avg(kl.vol,5), curVol=kl.vol[n-1];
+  const volX=vma5? (curVol/vma5) : null;
+  const close=kl.candle[n-1]?kl.candle[n-1][1]:null;
+  const bias=(maArr)=>{ const ma=maArr[n-1]; return (ma&&close)? ((close-ma)/ma*100):null; };
+  const b20=bias(kl.ma20);
+  const s=v=>v==null?'<span class="miss">—</span>':'<span class="'+(v>=0?'up':'down')+'">'+(v>=0?'+':'')+v.toFixed(1)+'%</span>';
+  let h='<b style="color:#7c9ef8">📐 20日乖离</b> '+s(b20)+' <span style="font-size:11px">(负=低于均线·埋伏低位)</span>'
+    +' ｜ <b style="color:#7c9ef8">当前量/VMA5</b> '+(volX==null?'—':volX.toFixed(2)+'×');
+  const c=d.chips;
+  if(c){ h+='<br><b style="color:#e5c07b">🎯 筹码</b>：集中度 '+(c.concentration==null?'—':c.concentration+'%')
+      +' ｜ 主力成本 '+(c.weight_avg??'—')+'（溢价 '+s(c.premium)+'）'
+      +' ｜ 获利盘 '+(c.winner_rate==null?'—':c.winner_rate+'%'); }
+  return h;
+}
+function smaFromCandle(candle,m){ const out=[]; for(let i=0;i<candle.length;i++){ if(i<m-1){out.push(null);continue;}
+  let s=0; for(let j=i-m+1;j<=i;j++) s+=candle[j][1]; out.push(+(s/m).toFixed(2)); } return out; }
+function renderKline(cid, kl){
+  const el=$(cid); if(!el||typeof echarts==='undefined') return;
+  const c=echarts.init(el); _kcharts[cid]=c; const ma10=smaFromCandle(kl.candle,10);
+  c.setOption({
+    backgroundColor:'transparent', tooltip:{trigger:'axis',axisPointer:{type:'cross'}},
+    legend:{data:['MA5','MA10','MA20','MA60'],textStyle:{color:'#9ca3af'},right:10,top:0},
+    grid:[{left:50,right:20,top:30,height:'60%'},{left:50,right:20,top:'76%',height:'15%'}],
+    xAxis:[{type:'category',data:kl.dates,axisLabel:{color:'#9ca3af'}},
+           {type:'category',data:kl.dates,gridIndex:1,axisLabel:{show:false}}],
+    yAxis:[{scale:true,axisLabel:{color:'#9ca3af'},splitLine:{lineStyle:{color:'#1a1d2e'}}},
+           {gridIndex:1,axisLabel:{show:false},splitLine:{show:false}}],
+    series:[
+      {type:'candlestick',data:kl.candle,itemStyle:{color:'#f6465d',color0:'#2ebd85',borderColor:'#f6465d',borderColor0:'#2ebd85'}},
+      {name:'MA5',type:'line',data:kl.ma5,smooth:true,symbol:'none',lineStyle:{width:1,color:'#e5c07b'}},
+      {name:'MA10',type:'line',data:ma10,smooth:true,symbol:'none',lineStyle:{width:1,color:'#4ade80'}},
+      {name:'MA20',type:'line',data:kl.ma20,smooth:true,symbol:'none',lineStyle:{width:1,color:'#7c9ef8'}},
+      {name:'MA60',type:'line',data:kl.ma60,smooth:true,symbol:'none',lineStyle:{width:1,color:'#c084fc'}},
+      {type:'bar',xAxisIndex:1,yAxisIndex:1,data:kl.vol,itemStyle:{color:'#3a3f5c'}}
+    ]
+  });
+  requestAnimationFrame(()=>c.resize()); setTimeout(()=>c.resize(),120);
+}
+
+$('refresh').onclick=()=>loadCatalysts(true);
+$('date').onchange=()=>{ loadCatalysts(false);
+  $('ambush').style.display='none'; $('ctx').style.display='none'; $('ambush-hint').style.display='block'; };
+loadCatalysts(false);
+</script>
+{% endblock %}
