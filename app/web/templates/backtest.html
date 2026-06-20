@@ -44,7 +44,7 @@ td { padding:7px 9px; border-bottom:1px solid #1e2138; white-space:nowrap; }
 .exportbtn:disabled { opacity:.6; cursor:wait; }
 /* 打印(导出PDF)：隐藏导航/输入/按钮，仅留分析内容 */
 @media print {
-  nav, .toolbar, #export-bar, #presets, #status, #alert-btn { display:none !important; }
+  nav, .toolbar, #export-bar, #presets, #status, #alert-btn, .export-hide { display:none !important; }
   body, .container { background:#0f1117 !important; padding:0 !important; max-width:none !important; }
   #cap-head, #cap-foot { display:block !important; }
   .card { break-inside:avoid; border-color:#2d3052; }
@@ -133,7 +133,7 @@ td { padding:7px 9px; border-bottom:1px solid #1e2138; white-space:nowrap; }
 <div class="card" id="fundcard" style="display:none">
   <div class="meta">📑 基本面速览 · <span id="fund-sum"></span></div>
   <div style="overflow-x:auto"><table id="fund-table"></table></div>
-  <div style="margin-top:14px;display:flex;align-items:center;gap:10px">
+  <div class="export-hide" style="margin-top:14px;display:flex;align-items:center;gap:10px">
     <button class="runbtn" id="alert-btn" style="padding:6px 14px;font-size:13px">🤖 AI 近期提示</button>
     <span class="neu2" style="font-size:12px">（博查真实新闻 + v4-flash 接地总结，每日缓存）</span>
   </div>
@@ -150,7 +150,7 @@ td { padding:7px 9px; border-bottom:1px solid #1e2138; white-space:nowrap; }
   <div style="font-size:13px;color:#9ca3af;margin:6px 0">同一只票 · 同一信号在不同大盘状态下的 T+5 表现</div>
   <div class="cards" id="rg-cards"></div>
   <div id="rg-takeaway" style="display:none;font-size:13px;line-height:1.7;background:#12161f;border:1px solid #2a3a5a;border-radius:10px;padding:10px 13px;margin-top:10px"></div>
-  <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:12px;padding:10px 12px;border:1px solid #2a3a5a;border-radius:10px">
+  <div class="export-hide" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:12px;padding:10px 12px;border:1px solid #2a3a5a;border-radius:10px">
     <span style="font-size:13px;color:#cdd6f4">🎯 入场过滤：</span>
     <button class="rgbtn active" data-rg="">不限</button>
     <button class="rgbtn" data-rg="强势">只在大盘强势</button>
@@ -172,10 +172,10 @@ td { padding:7px 9px; border-bottom:1px solid #1e2138; white-space:nowrap; }
 <div class="card" id="sectorcard" style="display:none">
   <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px">
     <div class="meta" style="margin:0">🧩 同类 / 板块分析</div>
-    <button class="runbtn" id="sector-btn" style="padding:6px 14px;font-size:13px">算同类/板块</button>
-    <span class="neu2" style="font-size:12px">同行业市值前30只 · 首次约1分钟、之后命中缓存秒开</span>
+    <button class="runbtn export-hide" id="sector-btn" style="padding:6px 14px;font-size:13px">算同类/板块</button>
+    <span class="neu2 export-hide" style="font-size:12px">同行业市值前30只 · 首次约1分钟、之后命中缓存秒开</span>
   </div>
-  <div id="sector-status" class="neu2" style="font-size:13px"></div>
+  <div id="sector-status" class="neu2 export-hide" style="font-size:13px"></div>
   <div id="sector-body" style="display:none">
     <div class="meta" id="sector-head" style="margin:8px 0"></div>
     <div style="font-size:13px;color:#9ca3af;margin:6px 0">③ 同类基准 vs 本股 —— 这个 edge 是本股独有 alpha，还是板块共性？</div>
@@ -193,10 +193,10 @@ td { padding:7px 9px; border-bottom:1px solid #1e2138; white-space:nowrap; }
 <div class="card" id="briefcard" style="display:none">
   <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px">
     <div class="meta" style="margin:0">🧠 AI 综合研判 <span class="neu2" style="font-size:11px">（deepseek-v4-pro · 只解读已算数据，不预测涨跌、不荐买卖）</span></div>
-    <button class="runbtn" id="brief-btn" style="padding:6px 14px;font-size:13px">生成研判</button>
-    <span class="neu2" style="font-size:12px">建议先「算同类/板块」，研判更全面</span>
+    <button class="runbtn export-hide" id="brief-btn" style="padding:6px 14px;font-size:13px">生成研判</button>
+    <span class="neu2 export-hide" style="font-size:12px">建议先「算同类/板块」，研判更全面</span>
   </div>
-  <div id="brief-status" class="neu2" style="font-size:13px"></div>
+  <div id="brief-status" class="neu2 export-hide" style="font-size:13px"></div>
   <div id="brief-body" style="display:none">
     <div id="brief-stance" style="font-size:15px;font-weight:600;margin:10px 0 6px;color:#e8e8e8;line-height:1.6"></div>
     <div id="brief-summary" style="font-size:13.5px;line-height:1.95;margin:0 0 6px;color:#cdd6f4"></div>
@@ -702,11 +702,21 @@ function restoreCharts(restore){
   document.querySelectorAll('._capimg').forEach(i=>i.remove());
   restore.forEach(el=>el.style.display='');
 }
+// 导出前清场：藏掉交互按钮/提示，未生成内容的卡整张藏掉，导出图只留分析内容
+function prepExport(){
+  const hidden=[];
+  const hide=el=>{ if(el && el.style.display!=='none'){ hidden.push([el, el.style.display]); el.style.display='none'; } };
+  document.querySelectorAll('.export-hide').forEach(hide);
+  if(document.getElementById('sector-body').style.display==='none') hide(document.getElementById('sectorcard'));
+  if(document.getElementById('brief-body').style.display==='none') hide(document.getElementById('briefcard'));
+  return ()=>hidden.forEach(([el,d])=>el.style.display=d);
+}
 document.getElementById('btn-img').addEventListener('click', async ()=>{
   if(typeof html2canvas==='undefined'){ alert('图片库未加载，请刷新重试'); return; }
   const btn=document.getElementById('btn-img'); const old=btn.textContent; btn.disabled=true; btn.textContent='⏳ 生成中…';
   document.getElementById('cap-head').style.display='block';
   document.getElementById('cap-foot').style.display='block';
+  const restoreUI=prepExport();
   const restore=chartsToImg();
   try{
     const node=document.getElementById('bt-capture');
@@ -717,6 +727,7 @@ document.getElementById('btn-img').addEventListener('click', async ()=>{
   }catch(e){ alert('长图生成失败：'+e); }
   finally{
     restoreCharts(restore);
+    restoreUI();
     document.getElementById('cap-head').style.display='none';
     document.getElementById('cap-foot').style.display='none';
     btn.disabled=false; btn.textContent=old;
