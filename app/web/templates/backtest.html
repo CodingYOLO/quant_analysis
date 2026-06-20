@@ -24,6 +24,9 @@ td { padding:7px 9px; border-bottom:1px solid #1e2138; white-space:nowrap; }
 .ptag.warn { background:#3a2a10; color:#f0a020; border-color:#5a4018; }
 .ptag.calm { background:#0e2a1a; color:#2ebd85; border-color:#1a4a30; }
 .ptag.info { background:#161929; color:#9ca3af; border-color:#2a2e44; }
+.ppreset { background:#1a1d2e; color:#c9d2f8; border:1px solid #2d3052; border-radius:14px; padding:4px 11px; font-size:12px; cursor:pointer; }
+.ppreset:hover { background:#2742a8; color:#fff; }
+#presets { display:none; flex-wrap:wrap; align-items:center; }
 {% endblock %}
 
 {% block content %}
@@ -33,12 +36,28 @@ td { padding:7px 9px; border-bottom:1px solid #1e2138; white-space:nowrap; }
 <div class="card">
   <div class="toolbar">
     <input type="text" id="code" placeholder="股票代码/名称，如 600519 或 贵州茅台" style="min-width:220px">
-    <select id="signal">
-      {% for s in signals %}<option value="{{ s.key }}">{{ s.label }}</option>{% endfor %}
+    <select id="mode">
+      <option value="signal">技术信号</option>
+      <option value="custom">自定义涨跌幅</option>
     </select>
+    <span id="sig-wrap"><select id="signal">
+      {% for s in signals %}<option value="{{ s.key }}">{{ s.label }}</option>{% endfor %}
+    </select></span>
+    <span id="custom-wrap" style="display:none">
+      当日涨跌<input type="number" id="pmin" value="-7" step="0.5" style="width:62px">~<input type="number" id="pmax" value="-3" step="0.5" style="width:62px">%
+      量能<select id="vmode"><option value="any">不限</option><option value="up">放量</option><option value="down">缩量</option></select>
+    </span>
     <label class="neu2" style="font-size:13px">起</label><input type="date" id="start">
     <label class="neu2" style="font-size:13px">止</label><input type="date" id="end">
     <button class="runbtn" id="run">🚀 开始回测</button>
+  </div>
+  <div id="presets" style="display:none;gap:8px;margin-bottom:6px">
+    <span class="neu2" style="font-size:12px">快捷：</span>
+    <button class="ppreset" data-min="-7" data-max="-3" data-v="any">跌3~7%买(低吸)</button>
+    <button class="ppreset" data-min="-9.9" data-max="-7" data-v="any">大跌7%+买(超跌)</button>
+    <button class="ppreset" data-min="3" data-max="7" data-v="up">涨3~7%放量买(追涨)</button>
+    <button class="ppreset" data-min="9.5" data-max="10.5" data-v="any">涨停买(打板)</button>
+    <button class="ppreset" data-min="-1.5" data-max="1.5" data-v="down">平盘缩量买(蓄势)</button>
   </div>
   <div id="status" class="neu2" style="font-size:13px"></div>
 </div>
@@ -86,6 +105,21 @@ td { padding:7px 9px; border-bottom:1px solid #1e2138; white-space:nowrap; }
 
 function pct(v){ if(v===null||v===undefined) return '<span class="neu2">—</span>'; const c=v>0?'up':(v<0?'down':'neu2'); return '<span class="'+c+'">'+(v>0?'+':'')+v+'%</span>'; }
 
+// 模式切换：技术信号 / 自定义涨跌幅
+const modeEl=document.getElementById('mode');
+function syncMode(){
+  const custom=modeEl.value==='custom';
+  document.getElementById('sig-wrap').style.display=custom?'none':'';
+  document.getElementById('custom-wrap').style.display=custom?'':'none';
+  document.getElementById('presets').style.display=custom?'flex':'none';
+}
+modeEl.addEventListener('change', syncMode); syncMode();
+document.querySelectorAll('.ppreset').forEach(b=>b.addEventListener('click',()=>{
+  document.getElementById('pmin').value=b.dataset.min;
+  document.getElementById('pmax').value=b.dataset.max;
+  document.getElementById('vmode').value=b.dataset.v;
+}));
+
 let chart=null;
 document.getElementById('run').addEventListener('click', async () => {
   const btn=document.getElementById('run'), st=document.getElementById('status');
@@ -93,10 +127,15 @@ document.getElementById('run').addEventListener('click', async () => {
   if(!code){ st.textContent='⚠️ 请输入股票代码或名称'; return; }
   btn.disabled=true; st.textContent='⏳ 分析中（首次拉取该股历史 ~数秒）...';
   loadProfile(code);   // 并行加载股性速览
+  const body={code, start:document.getElementById('start').value, end:document.getElementById('end').value};
+  if(modeEl.value==='custom'){
+    body.custom={ pct_min:parseFloat(document.getElementById('pmin').value),
+                  pct_max:parseFloat(document.getElementById('pmax').value),
+                  vol_mode:document.getElementById('vmode').value };
+  }else{ body.signal=document.getElementById('signal').value; }
   try{
     const r=await fetch('/api/backtest/stock',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({code, signal:document.getElementById('signal').value,
-        start:document.getElementById('start').value, end:document.getElementById('end').value})});
+      body:JSON.stringify(body)});
     const d=await r.json();
     if(!d.ok){ st.textContent='❌ '+(d.msg||'回测失败'); btn.disabled=false; return; }
     if(d.n_signals===0){ st.textContent='ℹ️ '+d.ts_code+' 在该区间内未出现「'+d.signal_label+'」信号（换个信号或拉长区间）'; document.getElementById('rescard').style.display='none'; btn.disabled=false; return; }
@@ -113,9 +152,10 @@ function render(d){
   // 胜率卡片 T+1/3/5/10
   const cardsEl=document.getElementById('cards'); cardsEl.innerHTML='';
   [1,3,5,10].forEach(h=>{
-    const s=d.horizons[h]; const wr=Math.round(s.win_rate*100);
-    const cls=wr>=50?'win-hi':'win-lo';
-    cardsEl.innerHTML+='<div class="kcard"><div class="h">T+'+h+' 胜率</div>'
+    const s=d.horizons[h];
+    if(!s||s.n===0){ cardsEl.innerHTML+='<div class="kcard"><div class="h">T+'+h+' 胜率</div><div class="v neu2">—</div><div class="s">样本不足</div></div>'; return; }
+    const wr=Math.round(s.win_rate*100); const cls=wr>=50?'win-hi':'win-lo';
+    cardsEl.innerHTML+='<div class="kcard"><div class="h">T+'+h+' 胜率（'+s.n+'次）</div>'
       +'<div class="v '+cls+'">'+wr+'%</div>'
       +'<div class="s">均收益 '+(s.avg_return>0?'+':'')+s.avg_return+'% · 盈亏比 '+s.profit_factor+'</div>'
       +'<div class="s">最好 +'+s.best+'% / 最差 '+s.worst+'%</div></div>';
@@ -132,10 +172,11 @@ function render(d){
       markLine:{silent:true,data:[{yAxis:1}],lineStyle:{color:'#6b7280',type:'dashed'}}}],
   });
   // 明细表（倒序，最新在上）
-  const COLS=[['signal_date','信号日'],['buy_date','买入日(T+1)'],['entry','买入价'],['t1','T+1'],['t3','T+3'],['t5','T+5'],['t10','T+10'],['win','T+5']];
-  let h='<thead><tr>'+COLS.map(c=>'<th>'+c[1]+'</th>').join('')+'</tr></thead><tbody>';
+  let h='<thead><tr><th>信号日</th><th>买入日(T+1)</th><th>买入价</th><th>当日涨跌</th><th>量比</th><th>T+1</th><th>T+3</th><th>T+5</th><th>T+10</th><th>T+5</th></tr></thead><tbody>';
   d.trades.slice().reverse().forEach(t=>{
+    const vrc=t.vol_ratio>=1.5?'up':(t.vol_ratio<=0.7?'down':'neu2');
     h+='<tr><td>'+t.signal_date+'</td><td>'+t.buy_date+'</td><td>'+t.entry+'</td>'
+      +'<td>'+pct(t.day_pct)+'</td><td class="'+vrc+'">'+(t.vol_ratio??'—')+'</td>'
       +'<td>'+pct(t.t1)+'</td><td>'+pct(t.t3)+'</td><td>'+pct(t.t5)+'</td><td>'+pct(t.t10)+'</td>'
       +'<td>'+(t.win?'<span class="up">胜</span>':'<span class="down">负</span>')+'</td></tr>';
   });

@@ -80,31 +80,68 @@ class BacktestResult:
     msg: str = ""
 
 
+# ── 自定义涨跌幅 + 量能 买入条件（实操向，可调）──────────────────────────────
+def _custom_signal_def(c: dict) -> dict:
+    """
+    自定义入场：当日涨跌幅 ∈ [pct_min, pct_max]，可叠加量能（放量/缩量/不限）。
+    例：跌3~7%买 → {pct_min:-7,pct_max:-3}；涨3~7%放量买 → {pct_min:3,pct_max:7,vol_mode:'up'}。
+    """
+    pmin = float(c.get("pct_min", -100))
+    pmax = float(c.get("pct_max", 100))
+    vmode = c.get("vol_mode", "any")
+
+    def detect(o):
+        last_pct = float(pd.to_numeric(o["pct_chg"].iloc[-1], errors="coerce"))
+        if pd.isna(last_pct) or not (pmin <= last_pct <= pmax):
+            return False
+        if vmode in ("up", "down"):
+            vr = F.volume_ratio(o["vol"], 5)
+            if vmode == "up" and vr < 1.5:
+                return False
+            if vmode == "down" and vr > 0.7:
+                return False
+        return True
+
+    suffix = {"up": " + 放量(量比≥1.5)", "down": " + 缩量(量比≤0.7)"}.get(vmode, "")
+    return {"label": f"当日涨跌 {pmin:+g}~{pmax:+g}%{suffix}", "min_bars": 6, "detect": detect}
+
+
 # ── 回测主入口 ──────────────────────────────────────────────────────────────
 def backtest_stock_signal(ts_code: str, signal_key: str, start: str, end: str,
-                          provider: CompositeProvider | None = None) -> dict:
-    """对单股单信号做历史回测，返回 dict（供 API / 前端）。"""
-    defs = _signal_defs()
-    sd = defs.get(signal_key)
+                          provider: CompositeProvider | None = None,
+                          custom: dict | None = None) -> dict:
+    """
+    单股回测。signal_key=技术信号；或 custom={pct_min,pct_max,vol_mode} 自定义涨跌幅入场。
+    [start,end]=评估窗口（找买点的区间）；引擎自动多取约200日历史用于指标计算，
+    故可放心只测「近1个月」。买入=次日开盘，卖出=T+N收盘；近端信号按可得持有期统计。
+    """
+    sd = _custom_signal_def(custom) if custom else _signal_defs().get(signal_key)
     if not sd:
         return _err(ts_code, signal_key, "未知信号")
 
     provider = provider or CompositeProvider()
-    k = load_kline(ts_code, start, end, provider, adj="qfq")
-    if k.empty or len(k) < sd["min_bars"] + max(HORIZONS) + 2:
-        return _err(ts_code, signal_key, f"{ts_code} 区间数据不足（需 ≥{sd['min_bars'] + max(HORIZONS) + 2} 根K线）")
+    import datetime
+    buf_start = (datetime.datetime.strptime(start, "%Y%m%d")
+                 - datetime.timedelta(days=200)).strftime("%Y%m%d")
+    k = load_kline(ts_code, buf_start, end, provider, adj="qfq")
+    if k.empty or len(k) < sd["min_bars"] + 2:
+        return _err(ts_code, signal_key, f"{ts_code} 历史数据不足")
 
     opens = k["open"].astype(float).tolist()
     closes = k["close"].astype(float).tolist()
     dates = k["trade_date"].astype(str).tolist()
+    pcts = pd.to_numeric(k["pct_chg"], errors="coerce").fillna(0.0).tolist()
+    vols = k["vol"].astype(float)
     n = len(k)
 
     hret: dict[int, list[float]] = {h: [] for h in HORIZONS}
     trades, equity = [], []
     eq = 1.0
 
-    # 遍历：i=信号日（用 0..i 历史判定，防未来函数）；买入=open[i+1]，卖出=close[i+h]
-    for i in range(sd["min_bars"] - 1, n - max(HORIZONS) - 1):
+    # i=信号日（0..i 历史判定，防未来函数）；只统计落在评估窗口 [start,end] 内的信号
+    for i in range(sd["min_bars"] - 1, n - 1):
+        if dates[i] < start:
+            continue
         hist = k.iloc[: i + 1]
         try:
             if not sd["detect"](hist):
@@ -115,27 +152,30 @@ def backtest_stock_signal(ts_code: str, signal_key: str, start: str, end: str,
         if entry <= 0:
             continue
         rets = {}
-        for h in HORIZONS:
-            exit_p = closes[i + h]
-            r = (exit_p - entry) / entry * 100 if exit_p > 0 else 0.0
-            rets[h] = round(r, 2)
-            hret[h].append(r)
-        eq *= (1 + rets[_EQUITY_HORIZON] / 100)
-        equity.append({"date": dates[i + 1], "equity": round(eq, 4)})
+        for h in HORIZONS:           # 近端信号：只统计已有数据的持有期
+            if i + h < n and closes[i + h] > 0:
+                rets[h] = round((closes[i + h] - entry) / entry * 100, 2)
+                hret[h].append(rets[h])
+        if not rets:
+            continue
+        vr = round(F.volume_ratio(vols.iloc[: i + 1], 5), 2)
+        if _EQUITY_HORIZON in rets:
+            eq *= (1 + rets[_EQUITY_HORIZON] / 100)
+            equity.append({"date": dates[i + 1], "equity": round(eq, 4)})
         trades.append({
             "signal_date": dates[i], "buy_date": dates[i + 1], "entry": round(entry, 2),
-            "t1": rets[1], "t3": rets[3], "t5": rets[5], "t10": rets[10],
-            "win": rets[_EQUITY_HORIZON] > 0,
+            "day_pct": round(pcts[i], 2), "vol_ratio": vr,
+            "t1": rets.get(1), "t3": rets.get(3), "t5": rets.get(5), "t10": rets.get(10),
+            "win": rets.get(_EQUITY_HORIZON, 0) > 0,
         })
 
-    res = BacktestResult(
+    return BacktestResult(
         ts_code=ts_code, signal=signal_key, signal_label=sd["label"],
-        start=dates[0], end=dates[-1], bars=n, n_signals=len(trades),
+        start=start, end=dates[-1], bars=n, n_signals=len(trades),
         horizons={h: _agg(h, hret[h]).__dict__ for h in HORIZONS},
-        trades=trades[-60:],   # 明细只回传最近60条，避免过大
+        trades=trades[-80:],
         equity=equity,
-    )
-    return res.__dict__
+    ).__dict__
 
 
 def _agg(h: int, rets: list[float]) -> HorizonStat:

@@ -619,7 +619,8 @@ async def api_backtest_stock(request: Request, _user: str = Depends(require_auth
         end = (body.get("end") or "").replace("-", "")
         if not start or not end:
             return {"ok": False, "msg": "请选择回测起止日期"}
-        return backtest_stock_signal(ts_code, body.get("signal", ""), start, end)
+        return backtest_stock_signal(ts_code, body.get("signal", ""), start, end,
+                                     custom=body.get("custom"))
     except Exception as e:
         logger.exception("个股回测失败")
         return {"ok": False, "msg": str(e)}

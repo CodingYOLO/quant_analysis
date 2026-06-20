@@ -9,7 +9,7 @@ from __future__ import annotations
 import pandas as pd
 
 from app.data.kline_loader import apply_qfq
-from app.backtest.signal_backtest import backtest_stock_signal, _agg
+from app.backtest.signal_backtest import backtest_stock_signal, _agg, _custom_signal_def
 
 
 # ── 前复权纯函数 ──
@@ -70,6 +70,24 @@ def test_backtest_no_future_leak_and_returns() -> None:
     # 明细字段齐全
     t = r["trades"][-1]
     assert {"signal_date", "buy_date", "entry", "t1", "t5", "win"} <= set(t.keys())
+
+
+def test_custom_signal_def() -> None:
+    # 当日跌3~7%买：detect 看最后一根 pct_chg
+    sd = _custom_signal_def({"pct_min": -7, "pct_max": -3})
+    assert "当日涨跌 -7~-3%" in sd["label"]
+    o_hit = pd.DataFrame({"pct_chg": [1, 2, -5], "vol": [1000, 1000, 1000]})
+    o_miss = pd.DataFrame({"pct_chg": [1, 2, -1], "vol": [1000, 1000, 1000]})
+    assert sd["detect"](o_hit) is True
+    assert sd["detect"](o_miss) is False     # 跌1%不在区间
+
+    # 叠加放量：量比需≥1.5
+    sd2 = _custom_signal_def({"pct_min": -7, "pct_max": -3, "vol_mode": "up"})
+    assert "放量" in sd2["label"]
+    o_vol = pd.DataFrame({"pct_chg": [1] * 5 + [-5], "vol": [1000] * 5 + [3000]})   # 放量
+    o_novol = pd.DataFrame({"pct_chg": [1] * 5 + [-5], "vol": [1000] * 6})           # 不放量
+    assert sd2["detect"](o_vol) is True
+    assert sd2["detect"](o_novol) is False
 
 
 def _run_all() -> None:
