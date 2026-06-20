@@ -406,6 +406,8 @@ def save_pool(run_date: str, records: list[dict]) -> int:
     ph = ",".join("?" for _ in _POOL_COLS)
     upd = ",".join(f"{c}=excluded.{c}" for c in _POOL_COLS if c not in ("run_date", "ts_code"))
     with _conn() as con:
+        # 真·覆盖写入：先清当日旧池，避免改选/换行业口径后残留陈股（否则旧选股会以旧数据滞留）
+        con.execute("DELETE FROM stock_pool WHERE run_date=?", (run_date,))
         for r in records:
             vals = []
             for c in _POOL_COLS:
