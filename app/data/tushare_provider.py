@@ -203,6 +203,20 @@ class TushareProvider(DataProvider):
             start_date=(t - datetime.timedelta(days=400)).strftime("%Y%m%d"),
             end_date=t.strftime("%Y%m%d"))
 
+    def get_block_trade(self, ts_code: str) -> pd.DataFrame:
+        """单股大宗交易（近180天，含成交价/金额/买卖席位）。缓存一天。"""
+        return cached_daily("tushare_block_trade", self._today_key(ts_code),
+                            lambda: self._fetch_block_trade(ts_code))
+
+    @_RETRY
+    def _fetch_block_trade(self, ts_code: str) -> pd.DataFrame:
+        import datetime
+        t = datetime.date.today()
+        return rate_limited_call(
+            "tushare_block_trade", self._api.block_trade, ts_code=ts_code,
+            start_date=(t - datetime.timedelta(days=180)).strftime("%Y%m%d"),
+            end_date=t.strftime("%Y%m%d"))
+
     def get_cyq_perf(self, ts_code: str, start_date: str, end_date: str) -> pd.DataFrame:
         """单股筹码分布（每日：加权平均成本/获利盘比例/各分位成本）。缓存一天。"""
         import datetime

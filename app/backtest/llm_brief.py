@@ -120,6 +120,13 @@ def build_facts(p: dict) -> str:
         hn = ev.get("holdernum")
         if hn:
             bits.append(f"股东户数{hn['latest']}（{hn.get('trend') or ''}）")
+        bk = ev.get("block")
+        if bk:
+            pm = bk.get("premium_avg")
+            tag = ("折价抛压" if pm is not None and pm < -1 else
+                   "溢价接盘" if pm is not None and pm > 1 else "平价")
+            bits.append(f"近180天大宗{bk['count']}笔/{bk['amount_yi']}亿，平均折溢价{pm}%（{tag}），"
+                        f"机构接盘{bk['inst_buy']}笔")
         if bits:
             lines.append("【事件/避雷面(已取官方数据，请据此直接核查解禁/减持，不要再列为待确认)】" + "；".join(bits))
 

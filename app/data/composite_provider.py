@@ -62,6 +62,9 @@ class CompositeProvider(DataProvider):
     def get_holder_number(self, ts_code: str) -> pd.DataFrame:
         return self._ts.get_holder_number(ts_code)
 
+    def get_block_trade(self, ts_code: str) -> pd.DataFrame:
+        return self._ts.get_block_trade(ts_code)
+
     def get_adj_factor_series(self, ts_code: str, start_date: str, end_date: str) -> pd.DataFrame:
         return self._ts.get_adj_factor_series(ts_code, start_date, end_date)
 

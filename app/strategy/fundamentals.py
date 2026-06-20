@@ -93,7 +93,46 @@ def _events_summary(ts_code: str, provider: CompositeProvider) -> dict | None:
     hn = _holdernum_summary(_safe_fetch(provider, "get_holder_number", ts_code))
     if hn:
         out["holdernum"] = hn
+    bl = _block_trade_summary(ts_code, provider)
+    if bl:
+        out["block"] = bl
     return out or None
+
+
+def _block_trade_summary(ts_code: str, provider: CompositeProvider) -> dict | None:
+    """取大宗交易 + 当日收盘 → 折溢价（关键信号），best-effort。"""
+    bt = _safe_fetch(provider, "get_block_trade", ts_code)
+    if bt is None or bt.empty:
+        return None
+    import datetime
+    t = datetime.date.today()
+    try:
+        daily = provider.get_stock_daily(
+            ts_code, (t - datetime.timedelta(days=185)).strftime("%Y%m%d"), t.strftime("%Y%m%d"))
+    except Exception:
+        daily = None
+    return _block_trade_calc(bt, daily)
+
+
+def _block_trade_calc(bt_df, daily_df) -> dict | None:
+    """大宗交易：近180天 笔数/总额(亿)/平均折溢价(折价=抛压·溢价=接盘)/机构接盘笔数。"""
+    if bt_df is None or bt_df.empty or "trade_date" not in bt_df.columns:
+        return None
+    bt = bt_df.copy()
+    bt["trade_date"] = bt["trade_date"].astype(str)
+    close_map = {}
+    if daily_df is not None and not daily_df.empty and "close" in daily_df.columns:
+        close_map = dict(zip(daily_df["trade_date"].astype(str),
+                             pd.to_numeric(daily_df["close"], errors="coerce")))
+    price = pd.to_numeric(bt.get("price"), errors="coerce")
+    close = bt["trade_date"].map(close_map)
+    prem = (price - close) / close * 100
+    amt = round(float(pd.to_numeric(bt.get("amount"), errors="coerce").fillna(0).sum()) / 1e4, 2)  # 万元→亿
+    prem_avg = round(float(prem.dropna().mean()), 2) if prem.notna().any() else None
+    inst = int(bt.get("buyer", pd.Series(dtype=str)).astype(str).str.contains("机构专用").sum())
+    latest = bt.sort_values("trade_date", ascending=False).iloc[0]
+    return {"count": int(len(bt)), "amount_yi": amt, "premium_avg": prem_avg,
+            "inst_buy": inst, "latest_date": _fmt_date(str(latest["trade_date"]))}
 
 
 def _float_summary(df) -> dict | None:

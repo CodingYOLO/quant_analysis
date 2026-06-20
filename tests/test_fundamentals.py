@@ -11,9 +11,9 @@ import pandas as pd
 import datetime
 
 from app.strategy.fundamentals import (
-    _analyst_summary, _events_summary, _express_summary, _fina_summary, _float_summary,
-    _fmt_period, _holder_trade_summary, _holdernum_summary, _is_quality, _latest_forecast,
-    _survey_summary, get_analyst_rc,
+    _analyst_summary, _block_trade_calc, _events_summary, _express_summary, _fina_summary,
+    _float_summary, _fmt_period, _holder_trade_summary, _holdernum_summary, _is_quality,
+    _latest_forecast, _survey_summary, get_analyst_rc,
 )
 
 
@@ -109,6 +109,18 @@ def test_holdernum_summary() -> None:
                        "holder_num": [45000, 50000]})
     s = _holdernum_summary(df)
     assert s["latest"] == 45000 and s["chg_pct"] == -10.0 and "集中" in s["trend"]
+
+
+def test_block_trade_calc() -> None:
+    bt = pd.DataFrame({"trade_date": ["20260616", "20260610", "20260616"],
+                       "price": [90.0, 110.0, 95.0], "amount": [5000.0, 3000.0, 2000.0],  # 万元
+                       "buyer": ["机构专用", "XX营业部", "机构专用"]})
+    daily = pd.DataFrame({"trade_date": ["20260616", "20260610"], "close": [100.0, 100.0]})
+    s = _block_trade_calc(bt, daily)
+    assert s["count"] == 3 and s["amount_yi"] == 1.0       # 1万亿元换算：1万元单位求和→亿
+    assert s["inst_buy"] == 2                              # 两笔机构专用接盘
+    assert s["premium_avg"] == -1.67                       # 折溢价均值 (-10-5+10)/3
+    assert _block_trade_calc(pd.DataFrame(), None) is None
 
 
 def test_events_summary_bundles_present_only() -> None:
