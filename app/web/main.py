@@ -536,6 +536,19 @@ def _resolve_ts_code(raw: str) -> str:
     return ""
 
 
+def _stock_name(ts_code: str) -> str:
+    """由 ts_code 反查股票名称（用缓存的 stock_basic，失败返回空串）。"""
+    try:
+        from app.data.composite_provider import CompositeProvider
+        sb = CompositeProvider().get_stock_basic()
+        hit = sb[sb["ts_code"].astype(str) == ts_code]
+        if not hit.empty:
+            return str(hit.iloc[0]["name"])
+    except Exception:
+        pass
+    return ""
+
+
 @app.get("/backtest", response_class=HTMLResponse)
 async def backtest_page(request: Request, _user: str = Depends(require_auth)):
     """个股回测页：选票+选信号+区间 → 历史胜率/收益/资金曲线。"""
@@ -619,11 +632,60 @@ async def api_backtest_stock(request: Request, _user: str = Depends(require_auth
         end = (body.get("end") or "").replace("-", "")
         if not start or not end:
             return {"ok": False, "msg": "请选择回测起止日期"}
-        return backtest_stock_signal(ts_code, body.get("signal", ""), start, end,
-                                     custom=body.get("custom"))
+        custom = body.get("custom")
+        result = backtest_stock_signal(ts_code, body.get("signal", ""), start, end,
+                                       custom=custom)
+        # 自动落历史（best-effort，失败不影响回测返回）。仅记录出过信号的有效回测。
+        if result.get("ok") and result.get("n_signals"):
+            try:
+                from app.backtest.history import record
+                record(_user, result, name=_stock_name(ts_code), custom=custom)
+            except Exception:
+                logger.exception("回测历史记录写入失败（忽略）")
+        return result
     except Exception as e:
         logger.exception("个股回测失败")
         return {"ok": False, "msg": str(e)}
+
+
+@app.get("/api/backtest/history")
+async def api_backtest_history(q: str = "", limit: int = 100,
+                               _user: str = Depends(require_auth)):
+    """个股回测历史列表（仅本人，时间倒序）。q 模糊搜索票/信号。"""
+    try:
+        from app.backtest.history import list_records
+        rows = list_records(creator=_user, q=q.strip(), limit=limit)
+        return {"ok": True, "rows": rows}
+    except Exception as e:
+        logger.exception("回测历史列表失败")
+        return {"ok": False, "error": str(e)}
+
+
+@app.get("/api/backtest/history/get")
+async def api_backtest_history_get(id: int, _user: str = Depends(require_auth)):
+    """取单条回测历史的完整结果（用于点开还原整页）。"""
+    try:
+        from app.backtest.history import get_record
+        rec = get_record(int(id), creator=_user)
+        if not rec:
+            return {"ok": False, "error": "记录不存在或无权查看"}
+        return {"ok": True, "rec": rec}
+    except Exception as e:
+        logger.exception("回测历史取详情失败")
+        return {"ok": False, "error": str(e)}
+
+
+@app.post("/api/backtest/history/delete")
+async def api_backtest_history_delete(request: Request, _user: str = Depends(require_auth)):
+    """删除一条回测历史（仅本人可删）。"""
+    try:
+        from app.backtest.history import delete
+        body = await request.json()
+        ok = delete(int(body.get("id", 0)), _user)
+        return {"ok": ok, "error": "" if ok else "无权删除或记录不存在"}
+    except Exception as e:
+        logger.exception("删除回测历史失败")
+        return {"ok": False, "error": str(e)}
 
 
 @app.post("/api/strategy/save")

@@ -82,6 +82,19 @@ td { padding:7px 9px; border-bottom:1px solid #1e2138; white-space:nowrap; }
   </div>
 </div>
 
+<!-- 回测历史：每次回测自动记录，可搜索/查看/删除 -->
+<div class="card" id="histcard">
+  <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px">
+    <div class="meta" style="margin:0">🕘 回测历史 <span class="neu2" id="hist-count" style="font-size:12px"></span></div>
+    <div style="display:flex;gap:8px;align-items:center">
+      <input type="text" id="hist-q" placeholder="搜索 票/信号" style="width:130px;background:#0f1117;color:#e8e8e8;border:1px solid #2d3052;border-radius:6px;padding:6px 9px;font-size:12px">
+      <button class="exportbtn" id="hist-refresh" style="padding:5px 12px;font-size:12px">↻ 刷新</button>
+    </div>
+  </div>
+  <div style="overflow-x:auto"><table id="hist-table"></table></div>
+  <div id="hist-empty" class="neu2" style="font-size:12.5px;display:none">暂无回测历史 —— 跑一次回测会自动记录在这里。</div>
+</div>
+
 <div id="bt-capture">
 <div id="cap-head" style="display:none;padding:4px 2px 14px;border-bottom:1px solid #2d3052;margin-bottom:14px">
   <b style="color:#7c9ef8;font-size:16px">📊 A股Agent · 个股分析</b>
@@ -172,13 +185,19 @@ document.getElementById('run').addEventListener('click', async () => {
     if(!d.ok){ st.textContent='❌ '+(d.msg||'回测失败'); btn.disabled=false; return; }
     if(d.n_signals===0){ st.textContent='ℹ️ '+d.ts_code+' 在该区间内未出现「'+d.signal_label+'」信号（换个信号或拉长区间）'; document.getElementById('rescard').style.display='none'; btn.disabled=false; return; }
     st.textContent='✅ 完成';
-    document.getElementById('rescard').style.display='block';   // 先显示再渲染图表(避免0尺寸)
-    render(d);
-    document.getElementById('cap-head-sub').textContent=d.ts_code+' · 信号「'+d.signal_label+'」 · '+d.start+'~'+d.end;
-    document.getElementById('export-bar').style.display='flex';
+    displayResult(d);
+    loadHistory();   // 已自动落库 → 刷新历史列表
   }catch(e){ st.textContent='❌ '+e; }
   finally{ btn.disabled=false; }
 });
+
+// 展示一份回测结果（新跑 / 历史载入共用）
+function displayResult(d){
+  document.getElementById('rescard').style.display='block';   // 先显示再渲染图表(避免0尺寸)
+  render(d);
+  document.getElementById('cap-head-sub').textContent=d.ts_code+' · 信号「'+d.signal_label+'」 · '+d.start+'~'+d.end;
+  document.getElementById('export-bar').style.display='flex';
+}
 
 function render(d){
   document.getElementById('meta').innerHTML='<b>'+d.ts_code+'</b> · 信号「<b>'+d.signal_label+'</b>」 · 区间 '+d.start+'~'+d.end
@@ -217,6 +236,68 @@ function render(d){
   });
   document.getElementById('trades').innerHTML=h+'</tbody>';
 }
+
+// ── 回测历史 ──
+async function loadHistory(){
+  try{
+    const q=document.getElementById('hist-q').value.trim();
+    const r=await fetch('/api/backtest/history?limit=100'+(q?'&q='+encodeURIComponent(q):''));
+    const d=await r.json();
+    const tbl=document.getElementById('hist-table'), empty=document.getElementById('hist-empty');
+    const rows=(d.ok&&d.rows)?d.rows:[];
+    document.getElementById('hist-count').textContent=rows.length?('· '+rows.length+' 条'):'';
+    if(!rows.length){ tbl.innerHTML=''; empty.style.display='block'; return; }
+    empty.style.display='none';
+    let h='<thead><tr><th>回测时间</th><th>股票</th><th>信号/条件</th><th>区间</th><th>信号数</th><th>头条胜率</th><th>操作</th></tr></thead><tbody>';
+    rows.forEach(row=>{
+      const wr=(row.win_rate==null)?'—':(Math.round(row.win_rate*100)+'%');
+      const wrc=(row.win_rate!=null&&row.win_rate>=0.5)?'up':'down';
+      const hh=row.head_horizon?('T+'+row.head_horizon):'';
+      h+='<tr><td class="neu2">'+row.created_at+'</td>'
+        +'<td><b>'+(row.name||'')+'</b> '+row.ts_code+'</td>'
+        +'<td>'+row.signal_label+'</td>'
+        +'<td class="neu2">'+row.start+'~'+row.end+'</td>'
+        +'<td>'+row.n_signals+'</td>'
+        +'<td><span class="'+wrc+'">'+wr+'</span> <span class="neu2" style="font-size:11px">'+hh+'</span></td>'
+        +'<td><a href="#" class="hist-view" data-id="'+row.id+'" style="color:#7c9ef8">查看</a> · '
+        +'<a href="#" class="hist-del" data-id="'+row.id+'" style="color:#8a90a0">删除</a></td></tr>';
+    });
+    tbl.innerHTML=h+'</tbody>';
+  }catch(e){ /* 静默：历史不影响主流程 */ }
+}
+async function viewHistory(id){
+  const st=document.getElementById('status'); st.textContent='⏳ 载入历史回测…';
+  try{
+    const r=await fetch('/api/backtest/history/get?id='+id);
+    const d=await r.json();
+    if(!d.ok){ st.textContent='❌ '+(d.error||'载入失败'); return; }
+    const rec=d.rec, res=rec.result;
+    const toISO=s=>(s||'').replace(/(\d{4})(\d{2})(\d{2})/,'$1-$2-$3');
+    document.getElementById('code').value=(rec.name||rec.ts_code);   // 回填便于重跑/微调
+    if(res.start) document.getElementById('start').value=toISO(res.start);
+    if(res.end) document.getElementById('end').value=toISO(res.end);
+    st.textContent='✅ 已载入历史回测（'+rec.created_at+'）';
+    displayResult(res);
+    loadProfile(rec.ts_code);   // 同步股性/基本面，整页还原
+    document.getElementById('rescard').scrollIntoView({behavior:'smooth',block:'start'});
+  }catch(e){ st.textContent='❌ '+e; }
+}
+async function delHistory(id){
+  try{
+    const r=await fetch('/api/backtest/history/delete',{method:'POST',
+      headers:{'Content-Type':'application/json'},body:JSON.stringify({id:parseInt(id)})});
+    const d=await r.json();
+    if(d.ok) loadHistory(); else alert(d.error||'删除失败');
+  }catch(e){ alert('删除失败：'+e); }
+}
+document.getElementById('hist-table').addEventListener('click', ev=>{
+  const v=ev.target.closest('.hist-view'), del=ev.target.closest('.hist-del');
+  if(v){ ev.preventDefault(); viewHistory(v.dataset.id); }
+  else if(del){ ev.preventDefault(); if(confirm('删除这条回测历史？')) delHistory(del.dataset.id); }
+});
+document.getElementById('hist-refresh').addEventListener('click', loadHistory);
+document.getElementById('hist-q').addEventListener('keydown', e=>{ if(e.key==='Enter') loadHistory(); });
+loadHistory();   // 进页即加载历史
 
 // ── 股性速览 ──
 let klineChart=null;
