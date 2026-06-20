@@ -270,7 +270,8 @@ async function doFetch(body){
   try{
     const r=await fetch('/api/backtest/stock',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify(body)});
-    const d=await r.json();
+    const d=await r.json().catch(()=>null);   // 空/截断响应不抛JS错
+    if(!d){ st.textContent='⚠️ 服务繁忙或超时，请稍候重试'; return; }
     if(!d.ok){ st.textContent='❌ '+(d.msg||'回测失败'); return; }
     renderRegime(d);   // 市场背景/三态对比（始终为全样本，过滤不影响）
     if(d.n_signals===0){
@@ -370,7 +371,8 @@ async function runSector(){
   try{
     const r=await fetch('/api/backtest/sector',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({...baseParams, history_id:currentHistoryId})});
-    const s=await r.json();
+    const s=await r.json().catch(()=>null);   // 空/截断响应不抛JS错
+    if(!s){ st.textContent='⚠️ 同类分析超时/服务繁忙，请稍候重试（缓存后会很快）'; return null; }
     if(!s.ok){ st.textContent='ℹ️ '+(s.msg||'同类分析失败'); return null; }
     st.textContent='✅ 同类 '+s.n_peers+' 只 · 信号样本 '+s.n_occ+' 次';
     renderSector(s);
@@ -479,7 +481,8 @@ document.getElementById('brief-btn').addEventListener('click', async ()=>{
         name:(lastProfile&&lastProfile.name)||'', signal_label:lastResult.signal_label,
         result:lastResult, sector:lastSector, profile:lastProfile, fundamentals:lastFund,
         history_id:currentHistoryId})});
-    const d=await r.json();
+    const d=await r.json().catch(()=>null);   // 空/截断响应不抛JS错
+    if(!d){ st.textContent='⚠️ 研判服务繁忙或超时（大行业首次算同类较慢），请稍候再点一次（同类已缓存，重试更快）'; return; }
     if(!d.ok){ st.textContent='ℹ️ '+(d.msg||'研判失败'); return; }
     st.textContent='✅ 完成';
     renderBrief(d);
