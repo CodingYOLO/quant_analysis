@@ -203,6 +203,8 @@ def init_db() -> None:
                 above_ma5     INTEGER, -- 短线均线结构
                 above_ma10    INTEGER,
                 ma_bull_short INTEGER,  -- MA5>MA10>MA20 短期多头排列
+                winner_rate   REAL,    -- 获利盘%(抛压)
+                block_discount REAL,    -- 近10日大宗量加权折溢价%(负=出货)
                 created_at    TEXT DEFAULT (datetime('now','localtime')),
                 UNIQUE(run_date, ts_code)
             );
@@ -414,6 +416,7 @@ _POOL_COLS = [
     "above_ma20", "above_ma60", "slope_up", "focus_score", "star",
     "bias20", "dist_high", "risk_penalty",
     "above_ma5", "above_ma10", "ma_bull_short",
+    "winner_rate", "block_discount",
 ]
 
 # 旧库兼容：新增列（init_db 幂等补列，避免改 CREATE TABLE 后旧库缺列）
@@ -422,6 +425,7 @@ _POOL_NEW_COLS = [
     ("focus_score", "REAL"), ("star", "INTEGER DEFAULT 0"),
     ("bias20", "REAL"), ("dist_high", "REAL"), ("risk_penalty", "REAL"),
     ("above_ma5", "INTEGER"), ("above_ma10", "INTEGER"), ("ma_bull_short", "INTEGER"),
+    ("winner_rate", "REAL"), ("block_discount", "REAL"),
 ]
 _POOL_JSON = {"sources", "strategies", "risk_flags"}
 

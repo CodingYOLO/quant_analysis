@@ -267,6 +267,18 @@ class TushareProvider(DataProvider):
             ts_code=ts_code, start_date=start_date, end_date=end_date,
         )
 
+    def get_cyq_perf_by_date(self, trade_date: str) -> pd.DataFrame:
+        """**全市场**某交易日筹码分布（含 winner_rate 获利盘）。一次取全市场，缓存一天。"""
+        return cached_daily("tushare_cyq_perf_date", trade_date,
+                            lambda: rate_limited_call("tushare_cyq_perf_date",
+                                                      self._api.cyq_perf, trade_date=trade_date))
+
+    def get_block_trade_by_date(self, trade_date: str) -> pd.DataFrame:
+        """**全市场**某交易日大宗交易（成交价/金额/买卖席位）。一次取全市场，缓存一天。"""
+        return cached_daily("tushare_block_trade_date", trade_date,
+                            lambda: rate_limited_call("tushare_block_trade_date",
+                                                      self._api.block_trade, trade_date=trade_date))
+
     def get_fina_indicator(self, ts_code: str) -> pd.DataFrame:
         """单股财务指标（ROE/营收净利同比/负债率/毛利率等，多期）。缓存一天。"""
         import datetime

@@ -12,6 +12,7 @@ import logging
 import pandas as pd
 
 from app.data.composite_provider import CompositeProvider
+from app.factors.breadth_qfq import _recent_trade_dates
 from app.factors.core import calc_position_pct
 from app.strategy.signals import build_signal_table
 
@@ -72,7 +73,9 @@ def build_stock_pool(trade_date: str, provider: CompositeProvider | None = None,
 
     # 风控：单主题上限 + 涨停溢价预警 + 大盘
     records = _apply_risk(records, market_label, zhaban_warn)
-    # 重点分(区分度高·替代饱和置信度) + 星标本池最强 Top5（始终标，供观察名单）
+    # 风险评分附加数据：批量取筹码获利盘 + 近10日大宗折价（出货/抛压信号）
+    _load_risk_extras(records, trade_date, provider)
+    # 重点分(强度−风险) + 星标本池最强 Top5（始终标，供观察名单）
     _compute_focus_scores(records)
     # 质量门槛收紧：只留重点分≥阈值的强票（宁缺毋滥·对标吴川的精选感）
     n_all = len(records)
@@ -183,8 +186,9 @@ def _assemble(ts, r, strategies: list[str], hot: dict, market_label: str) -> dic
         "above_ma5": int(bool(r.get("above_ma5"))), "above_ma10": int(bool(r.get("above_ma10"))),
         "above_ma20": int(bool(r["above_ma20"])), "above_ma60": int(bool(r["above_ma60"])),
         "ma_bull_short": int(bool(r.get("ma_bull_short"))), "slope_up": int(bool(r["slope_up"])),
-        # 风险/位置（供重点分做风险调整：过热/高位）
+        # 风险/位置（供重点分做风险调整：过热/高位；获利盘/大宗折价后批量挂）
         "bias20": r.get("bias20", 0.0), "dist_high": r.get("dist_high", -100.0),
+        "winner_rate": None, "block_discount": None,
         "is_focus": False,     # 风控后定
         "focus_score": 0.0, "star": 0, "risk_penalty": 0.0,   # 重点分/风险扣分/星标后算
         "risk_flags": [],
@@ -209,7 +213,9 @@ _STAR_TOPN = 5
 _RISK_BIAS = (8.0, 28.0, 12.0)    # 20日乖离率：8%起、28%封顶 → 0~12
 _RISK_CHASE = (15.0, 38.0, 8.0)   # 7日涨幅：15%起、38%封顶 → 0~8（追高）
 _RISK_HIGH = (-6.0, 0.0, 6.0)     # 距120日高：跌破6%内开始、新高封顶 → 0~6（高位）
-_RISK_MAX = 24.0                   # 风险扣分上限
+_RISK_WINNER = (85.0, 96.0, 6.0)  # 获利盘：85%起、96%封顶 → 0~6（普遍获利=抛压）
+_RISK_BLOCK = (2.0, 9.0, 5.0)     # 大宗折价幅度：2%起、9%封顶 → 0~5（折价出货）
+_RISK_MAX = 30.0                   # 风险扣分上限
 # 质量门槛：只留重点分≥此值的"真正强的"，收紧池子(对标吴川·宁缺毋滥)。
 # 数量随行情变：弱市少(诚实)；普涨强势日再加 _POOL_MAX 封顶，避免爆量(对标吴川精选感)。
 _POOL_MIN_FOCUS = 60.0
@@ -256,13 +262,65 @@ def _ramp(v: float, lo: float, hi: float) -> float:
 
 def _risk_penalty(rec: dict) -> float:
     """
-    过热/高位风险扣分（0~_RISK_MAX）：乖离过高 + 近期追高 + 逼近历史高位。
-    只罚极端过热（坡度起点之内不罚），尊重主升浪"强者恒强"，不一刀切毙高位龙头。
+    风险扣分（0~_RISK_MAX）：过热(乖离) + 追高(7日) + 高位(距高) + 抛压(获利盘) + 出货(大宗折价)。
+    只罚极端（坡度起点之内不罚），尊重主升浪"强者恒强"，不一刀切毙高位龙头。
     """
     lo, hi, w = _RISK_BIAS;  p_bias = _ramp(rec.get("bias20", 0.0), lo, hi) * w
     lo, hi, w = _RISK_CHASE; p_chase = _ramp(rec.get("change_7d", 0.0), lo, hi) * w
     lo, hi, w = _RISK_HIGH;  p_high = _ramp(rec.get("dist_high", -100.0), lo, hi) * w
-    return round(min(p_bias + p_chase + p_high, _RISK_MAX), 1)
+    lo, hi, w = _RISK_WINNER; p_win = _ramp(rec.get("winner_rate") or 0.0, lo, hi) * w
+    # 大宗折价：block_discount 负=折价；取折价幅度(正值)罚
+    disc = -(rec.get("block_discount") or 0.0)
+    lo, hi, w = _RISK_BLOCK; p_blk = _ramp(disc, lo, hi) * w
+    return round(min(p_bias + p_chase + p_high + p_win + p_blk, _RISK_MAX), 1)
+
+
+def _load_risk_extras(records: list[dict], trade_date: str, provider: CompositeProvider) -> None:
+    """批量取筹码获利盘 + 近10日大宗折价，挂到 records（供风险扣分）。全市场批量·失败不阻塞。"""
+    winner: dict[str, float] = {}
+    try:
+        cyq = provider.get_cyq_perf_by_date(trade_date)
+        if cyq is not None and not cyq.empty and "winner_rate" in cyq.columns:
+            winner = dict(zip(cyq["ts_code"].astype(str),
+                              pd.to_numeric(cyq["winner_rate"], errors="coerce")))
+    except Exception as e:
+        logger.debug("[选股池] 筹码批量获取失败（忽略）: %s", e)
+    block = _recent_block_discount(provider, trade_date)
+    for r in records:
+        ts = r["ts_code"]
+        wr = winner.get(ts)
+        r["winner_rate"] = round(float(wr), 1) if wr is not None and not pd.isna(wr) else None
+        b = block.get(ts)
+        r["block_discount"] = b if b is not None else None      # 量加权平均折溢价(%)，负=折价
+
+
+def _recent_block_discount(provider: CompositeProvider, end_date: str, n: int = 10) -> dict[str, float]:
+    """近 n 个交易日大宗交易的量加权平均折溢价（%，负=折价/出货）。{ts_code: prem}。"""
+    agg: dict[str, list[float]] = {}    # ts -> [Σ(prem×amount), Σamount]
+    try:
+        dates = _recent_trade_dates(provider, end_date, n)
+    except Exception:
+        return {}
+    for d in dates:
+        try:
+            bt = provider.get_block_trade_by_date(d)
+            daily = provider.get_daily(d)
+        except Exception:
+            continue
+        if bt is None or bt.empty or daily is None or daily.empty:
+            continue
+        close = dict(zip(daily["ts_code"].astype(str), pd.to_numeric(daily["close"], errors="coerce")))
+        for ts, price, amt in zip(bt["ts_code"].astype(str),
+                                  pd.to_numeric(bt["price"], errors="coerce"),
+                                  pd.to_numeric(bt["amount"], errors="coerce")):
+            c = close.get(ts)
+            if not c or c <= 0 or pd.isna(price) or price <= 0 or pd.isna(amt) or amt <= 0:
+                continue
+            prem = (price / c - 1) * 100
+            s = agg.setdefault(ts, [0.0, 0.0])
+            s[0] += prem * amt
+            s[1] += amt
+    return {ts: round(s[0] / s[1], 2) for ts, s in agg.items() if s[1] > 0}
 
 
 def _compute_focus_scores(records: list[dict]) -> None:

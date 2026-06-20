@@ -38,6 +38,14 @@ class CompositeProvider(DataProvider):
     def get_cyq_perf(self, ts_code: str, start_date: str, end_date: str) -> pd.DataFrame:
         return self._ts.get_cyq_perf(ts_code, start_date, end_date)
 
+    def get_cyq_perf_by_date(self, trade_date: str) -> pd.DataFrame:
+        """全市场某日筹码分布（含获利盘 winner_rate），供选股池风险评分批量取。"""
+        return self._ts.get_cyq_perf_by_date(trade_date)
+
+    def get_block_trade_by_date(self, trade_date: str) -> pd.DataFrame:
+        """全市场某日大宗交易，供选股池大宗折价风险评分批量取。"""
+        return self._ts.get_block_trade_by_date(trade_date)
+
     def get_forecast(self, ts_code: str) -> pd.DataFrame:
         return self._ts.get_forecast(ts_code)
 

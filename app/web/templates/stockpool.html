@@ -42,7 +42,7 @@ tr.datarow:hover td { background:#1e2138; cursor:pointer; }
 
 {% block content %}
 <div style="text-align:center;margin-bottom:6px"><h1 style="font-size:22px">LLM 分析</h1></div>
-<div class="disclaim">选股池：内置 5 套科学策略每日盘后自动选股，多路交叉验证，<b>仅留重点分≥60的精选强票（弱市少·宁缺毋滥，普涨日最多60只）·可按板块筛选只看主板</b>。<b style="color:#4ade80">⭐ 标注最强 Top5（重点分=强度−风险：强度[RPS/主力/板块/量价/均线] 扣 过热/追高/高位 风险，避免追在山顶）</b>。仅供研究，不构成投资建议。</div>
+<div class="disclaim">选股池：内置 5 套科学策略每日盘后自动选股，多路交叉验证，<b>仅留重点分≥60的精选强票（弱市少·宁缺毋滥，普涨日最多60只）·可按板块筛选只看主板</b>。<b style="color:#4ade80">⭐ 标注最强 Top5（重点分=强度−风险：强度[RPS/主力/板块/量价/均线] 扣 过热/追高/高位/获利盘抛压/大宗折价出货 风险，避免追在山顶）</b>。仅供研究，不构成投资建议。</div>
 
 <div class="subtabs">
   <div class="subtab" onclick="location.href='/llm'">主题热点</div>
@@ -361,7 +361,10 @@ function detail(r){
     const bc=r.bias20>=15?'down':(r.bias20>=8?'amber':'neu2');
     h+='<span class="amber">⚠️ 风险扣分 '+risk.toFixed(0)+'</span>：20日乖离 <span class="'+bc+'">'+(r.bias20>0?'+':'')+(r.bias20||0).toFixed(1)+'%</span>(过热)'
       +' ｜ 7日涨幅 '+(r.change_7d>=18?'<span class="down">':'<span class="neu2">')+(r.change_7d>0?'+':'')+(r.change_7d||0).toFixed(1)+'%</span>(追高)'
-      +' ｜ 距120日高 '+(r.dist_high>=-6?'<span class="down">':'<span class="neu2">')+(r.dist_high||0).toFixed(1)+'%</span>(越近0越高位)<br>';
+      +' ｜ 距120日高 '+(r.dist_high>=-6?'<span class="down">':'<span class="neu2">')+(r.dist_high||0).toFixed(1)+'%</span>(高位)'
+      +(r.winner_rate!=null?' ｜ 获利盘 <span class="'+(r.winner_rate>=85?'down':'neu2')+'">'+r.winner_rate+'%</span>(抛压)':'')
+      +(r.block_discount!=null&&r.block_discount<-1?' ｜ 🔻大宗折价 <span class="down">'+r.block_discount+'%</span>(出货)':'')
+      +'<br>';
   }
   h+='<b>量化因子</b>：RPS50 '+r.rps50+' ｜ 3日主力 '+r.main_flow_3d+'亿 ｜ 均线 '+ma+' ｜ 7日涨幅 '+r.change_7d+'% ｜ 换手 '+r.turnover+'% ｜ 量比 '+r.vol_ratio+' ｜ 当日 '+r.pct_chg+'% ｜ 市值 '+r.circ_mv_yi+'亿<br>';
   h+='<b>交易计划</b>：买点 '+(r.buy_low||'-')+'~'+(r.buy_high||'-')+' ｜ 🛑止损 '+(r.stop_loss||'-')+' ｜ 🎯止盈 '+(r.take_profit_1||'-')+'/'+(r.take_profit_2||'-')+' ｜ 建议仓位 '+(r.position_pct?(r.position_pct*100).toFixed(0)+'%':'—')+'<br>';
