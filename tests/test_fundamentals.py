@@ -6,7 +6,9 @@
 
 from __future__ import annotations
 
-from app.strategy.fundamentals import _fmt_period, _fina_summary, _is_quality
+import pandas as pd
+
+from app.strategy.fundamentals import _fmt_period, _fina_summary, _is_quality, _latest_forecast
 
 
 def test_fmt_period() -> None:
@@ -35,6 +37,37 @@ def test_news_quality_filter() -> None:
     # 实质性新闻 → 保留
     assert _is_quality({"title": "沪电股份:2026年6月16日投资者关系活动记录表", "site": "中国财经信息网"}) is True
     assert _is_quality({"title": "沪电股份扩产旨在提前卡位优质产能", "site": "财闻网"}) is True
+
+
+class _FakeProvider:
+    def __init__(self, rows):
+        self._rows = rows
+    def get_forecast(self, ts_code):
+        return pd.DataFrame(self._rows)
+
+
+def test_forecast_classification() -> None:
+    def fc(t, lo=None, hi=None):
+        p = _FakeProvider([{"ann_date": "20260414", "end_date": "20260331",
+                            "type": t, "p_change_min": lo, "p_change_max": hi, "summary": "x"}])
+        return _latest_forecast("002463.SZ", p)
+
+    assert fc("预增", 54.76, 65.25)["level"] == "good"
+    assert fc("预增", 54.76, 65.25)["net_change"] == "+55~+65%"
+    assert fc("预亏")["level"] == "bad" and fc("预亏")["net_change"] is None
+    assert fc("扭亏")["level"] == "good"          # 扭亏=利好
+    assert fc("增亏", -50, -40)["level"] == "bad"   # 增亏=亏损扩大=利空
+    assert fc("减亏", -10, -5)["level"] == "good"   # 减亏=亏损收窄=向好
+    # 取最新公告日
+    p = _FakeProvider([
+        {"ann_date": "20260101", "end_date": "20251231", "type": "预减", "p_change_min": -20, "p_change_max": -10, "summary": "旧"},
+        {"ann_date": "20260414", "end_date": "20260331", "type": "预增", "p_change_min": 50, "p_change_max": 60, "summary": "新"},
+    ])
+    assert _latest_forecast("x", p)["type"] == "预增"   # 取 ann_date 最新
+
+
+def test_forecast_none_safe() -> None:
+    assert _latest_forecast("x", _FakeProvider([])) is None
 
 
 def _run_all() -> None:

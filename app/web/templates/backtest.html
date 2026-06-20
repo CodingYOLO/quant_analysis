@@ -211,7 +211,17 @@ async function loadFinancials(code){
     const r=await fetch('/api/stock/financials?code='+encodeURIComponent(code));
     const d=await r.json();
     if(!d.ok){ card.style.display='none'; return; }
-    document.getElementById('fund-sum').textContent=d.summary||'';
+    // 业绩预告（前瞻信号）
+    const fc=d.forecast; let fcHtml='';
+    if(fc){
+      const col=fc.level==='good'?'#f6465d':(fc.level==='bad'?'#2ebd85':'#9ca3af');
+      const icon=fc.level==='good'?'📈':(fc.level==='bad'?'📉':'📊');
+      fcHtml='<div style="margin-bottom:8px;padding:8px 12px;background:#12161f;border:1px solid '+col+'55;border-radius:8px;font-size:13px">'
+        +icon+' <b>业绩预告</b>　<span style="color:'+col+';font-weight:700">'+fc.type+'</span>'
+        +(fc.net_change?'　净利变动 <b style="color:'+col+'">'+fc.net_change+'</b>':'')
+        +'　<span class="neu2" style="font-size:11px">'+fc.period+'（公告 '+fc.ann_date+'）'+(fc.summary?'·'+fc.summary:'')+'</span></div>';
+    }
+    document.getElementById('fund-sum').innerHTML=fcHtml+'<span>'+(d.summary||'')+'</span>';
     const fields=d.fields;
     let h='<thead><tr><th>报告期</th>'+fields.map(f=>'<th>'+f.label+'</th>').join('')+'</tr></thead><tbody>';
     d.rows.forEach(row=>{

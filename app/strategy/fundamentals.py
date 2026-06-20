@@ -62,7 +62,44 @@ def get_financials(ts_code: str, provider: CompositeProvider | None = None,
         "rows": rows,                          # 新→旧
         "summary": _fina_summary(rows),
         "latest_period": latest["period"],
+        "forecast": _latest_forecast(ts_code, provider),
     }
+
+
+# 业绩预告类型 → 多空倾向（红=利好/绿=利空，对标A股涨红跌绿）
+_FORECAST_GOOD = ("预增", "略增", "续盈", "扭亏", "减亏")          # 减亏=亏损收窄(向好)
+_FORECAST_BAD = ("预减", "略减", "首亏", "续亏", "预亏", "增亏")   # 增亏=亏损扩大(向坏)
+
+
+def _latest_forecast(ts_code: str, provider: CompositeProvider) -> dict | None:
+    """最新一期业绩预告（前瞻信号：预增/预亏/扭亏 + 净利变动幅度）。"""
+    try:
+        df = provider.get_forecast(ts_code)
+    except Exception:
+        return None
+    if df is None or df.empty:
+        return None
+    df = df.copy()
+    df["ann_date"] = df["ann_date"].astype(str)
+    r = df.sort_values("ann_date", ascending=False).iloc[0]
+    ftype = str(r.get("type") or "")
+    pmin = pd.to_numeric(r.get("p_change_min"), errors="coerce")
+    pmax = pd.to_numeric(r.get("p_change_max"), errors="coerce")
+    rng = None
+    if pd.notna(pmin) or pd.notna(pmax):
+        lo = f"{float(pmin):+.0f}" if pd.notna(pmin) else "?"
+        hi = f"{float(pmax):+.0f}" if pd.notna(pmax) else "?"
+        rng = f"{lo}~{hi}%" if lo != hi else f"{lo}%"
+    level = "bad" if ftype in _FORECAST_BAD else ("good" if ftype in _FORECAST_GOOD else "neutral")
+    return {
+        "type": ftype, "period": _fmt_period(str(r.get("end_date") or "")),
+        "ann_date": _fmt_date(r["ann_date"]), "net_change": rng,
+        "summary": str(r.get("summary") or "")[:60], "level": level,
+    }
+
+
+def _fmt_date(d: str) -> str:
+    return f"{d[:4]}-{d[4:6]}-{d[6:]}" if len(d) == 8 else d
 
 
 def _fmt_period(end_date: str) -> str:

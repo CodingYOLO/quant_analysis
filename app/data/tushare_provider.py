@@ -67,6 +67,25 @@ class TushareProvider(DataProvider):
             trade_date=trade_date,
         )
 
+    def get_forecast(self, ts_code: str) -> pd.DataFrame:
+        """单股业绩预告（预增/预减/扭亏/首亏等 + 净利变动幅度）。缓存一天。"""
+        import datetime
+        key = f"{ts_code}_{datetime.date.today().strftime('%Y%m%d')}"
+        return cached_daily(
+            name="tushare_forecast",
+            date_key=key,
+            fetch_fn=lambda: self._fetch_forecast(ts_code),
+        )
+
+    @_RETRY
+    def _fetch_forecast(self, ts_code: str) -> pd.DataFrame:
+        return rate_limited_call(
+            "tushare_forecast",
+            self._api.forecast,
+            ts_code=ts_code,
+            fields="ts_code,ann_date,end_date,type,p_change_min,p_change_max,summary,change_reason",
+        )
+
     def get_cyq_perf(self, ts_code: str, start_date: str, end_date: str) -> pd.DataFrame:
         """单股筹码分布（每日：加权平均成本/获利盘比例/各分位成本）。缓存一天。"""
         import datetime
