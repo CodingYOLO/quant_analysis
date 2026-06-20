@@ -219,12 +219,67 @@ function render(){
     const cid='k_'+r.ts_code.slice(0,6);
     const td=document.createElement('td'); td.colSpan=COLS.length;
     td.innerHTML=detail(r)
+      +'<div id="fin_'+cid+'" class="neu2" style="font-size:12px;margin:6px 0">⏳ 加载 财务 / 事件避雷 / 大宗…</div>'
       +'<div id="ext_'+cid+'" class="neu2" style="font-size:12px;margin:6px 0 2px">⏳ 加载 K线 / VMA / 乖离 / 筹码…</div>'
       +'<div id="'+cid+'" style="height:300px"></div>';
     dr.appendChild(td); tr.after(dr);
-    loadPoolKline(r.ts_code, cid);   // 异步加 K线(含量柱) + 扩展指标
+    loadPoolKline(r.ts_code, cid);              // K线(含量柱) + 量价/筹码指标
+    loadPoolFundamentals(r.ts_code, cid, r.name);  // 财务 + 事件避雷(大宗等) + 新闻/政策催化按钮
   }));
 }
+
+// ── 展开行：财务 + 事件避雷(大宗/解禁/减持/两融/回购) + 新闻/政策催化(按需LLM)──
+async function loadPoolFundamentals(code, cid, name){
+  const el=document.getElementById('fin_'+cid); const c6=code.slice(0,6);
+  try{
+    const d=await (await fetch('/api/stock/financials?code='+c6)).json();
+    let h='';
+    if(d.ok&&d.summary) h+='<b style="color:#7c9ef8">💼 财务</b>：'+d.summary;
+    if(d.forecast){ const f=d.forecast, col=f.level==='good'?'#f6465d':(f.level==='bad'?'#2ebd85':'#9ca3af');
+      h+='　<b>业绩预告</b> <span style="color:'+col+'">'+f.type+(f.net_change?' '+f.net_change:'')+'</span>'; }
+    if(d.survey&&d.survey.count_180d) h+='　🏢调研 近90天<b>'+d.survey.count_90d+'</b>次(关注度'+d.survey.heat+')';
+    if(h) h+='<br>';
+    const ev=poolEventsHtml(d.events);
+    if(ev) h+='<b style="color:#e5c07b">🛡️ 事件/避雷</b>：'+ev+'<br>';
+    h+='<button class="alertbtn" data-code="'+c6+'" data-name="'+(name||'')+'" data-cid="'+cid+'"'
+      +' style="background:#1a2b4a;color:#7c9ef8;border:1px solid #2d4a7a;border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer;margin-top:2px">🤖 看最新新闻/政策催化（AI·联网）</button>'
+      +'<span id="news_'+cid+'" style="font-size:12px"></span>';
+    el.innerHTML=h;
+  }catch(e){ el.textContent='ℹ️ 财务/事件加载失败'; }
+}
+// 事件/避雷面紧凑串（含大宗折溢价=核心信号），复用个股回测页口径
+function poolEventsHtml(ev){
+  if(!ev) return '';
+  const bits=[];
+  if(ev.float){ const f=ev.float, w=f.next_days<=60;
+    bits.push('<span class="'+(w?'down':'neu2')+'">解禁'+f.next_date+'(距'+f.next_days+'天·'+f.next_ratio+')</span>'); }
+  if(ev.holder_trade){ const t=ev.holder_trade, c=t.de_count>t.in_count?'down':(t.in_count>t.de_count?'up':'neu2');
+    bits.push('<span class="'+c+'">减持'+t.de_count+'/增持'+t.in_count+'次</span>'); }
+  if(ev.block){ const b=ev.block, p=b.premium_avg, c=(p!=null&&p<-1)?'down':(p!=null&&p>1?'up':'neu2');
+    const lbl=(p!=null&&p<-1)?'折价·抛压':(p!=null&&p>1?'溢价·接盘':'平价');
+    bits.push('🔻大宗'+b.count+'笔/'+b.amount_yi+'亿 折溢价<span class="'+c+'">'+(p>0?'+':'')+(p??'—')+'%</span>('+lbl+')'); }
+  if(ev.express){ const e=ev.express, c=(e.net_profit_yoy>0?'up':'down');
+    bits.push('快报'+e.period+'净利同比<span class="'+c+'">'+(e.net_profit_yoy>0?'+':'')+(e.net_profit_yoy??'—')+'%</span>'); }
+  if(ev.margin){ const m=ev.margin, c=(m.chg_pct>0?'up':'down');
+    bits.push('融资'+m.rzye_yi+'亿(近5日<span class="'+c+'">'+(m.chg_pct>0?'+':'')+m.chg_pct+'%</span>)'); }
+  if(ev.repurchase){ const r=ev.repurchase; bits.push('回购'+r.proc+(r.is_real?'(已落地)':'(预案)')); }
+  if(ev.holdernum){ const n=ev.holdernum; bits.push('户数'+(n.latest||0).toLocaleString()+(n.trend?'('+n.trend+')':'')); }
+  return bits.join('　|　');
+}
+// 新闻/政策催化按钮（委托·一次绑定；按需触发LLM，避免每次展开都花钱）
+document.getElementById('tbl').addEventListener('click', async ev=>{
+  const b=ev.target.closest('.alertbtn'); if(!b||b.disabled) return;
+  ev.stopPropagation();
+  const out=document.getElementById('news_'+b.dataset.cid);
+  b.disabled=true; b.textContent='⏳ AI 检索新闻/政策催化中（约5-10秒）…';
+  try{
+    const d=await (await fetch('/api/stock/alert?code='+b.dataset.code)).json();
+    if(d.ok){ let s='<div style="margin-top:5px;color:#cdd6f4;line-height:1.75">🤖 <b style="color:#7c9ef8">新闻/政策催化：</b>'+d.summary+'</div>';
+      if(d.sources&&d.sources.length) s+='<div class="neu2" style="font-size:11px;margin-top:2px">📎 '+d.sources.map(x=>x.site+' '+x.date).join(' · ')+'</div>';
+      out.innerHTML=s; b.style.display='none'; }
+    else { out.textContent=' ℹ️ '+(d.msg||'暂无相关新闻'); b.disabled=false; b.textContent='🤖 重试'; }
+  }catch(e){ out.textContent=' ❌ '+e; b.disabled=false; b.textContent='🤖 重试'; }
+});
 
 // ── 展开行：K线(含量柱·MA5/20/60) + VMA/乖离率/筹码集中度（复用 /api/stock/profile）──
 const _kcharts={};
