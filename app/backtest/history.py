@@ -72,6 +72,8 @@ def init() -> None:
                 avg_return    REAL,                -- 头条均收益（%）
                 profit_factor REAL,
                 result        TEXT NOT NULL,       -- 完整回测结果 json
+                brief         TEXT,                -- AI 综合研判 json（生成后回填，避免重算重花钱）
+                sector        TEXT,                -- 同类/板块分析 json（同上）
                 created_at    TEXT DEFAULT (datetime('now','localtime')),
                 -- 完全相同的回测覆盖（刷新时间），避免反复试验刷屏
                 UNIQUE(creator, ts_code, signal_key, start, end, custom)
@@ -81,6 +83,11 @@ def init() -> None:
         con.execute(
             "CREATE INDEX IF NOT EXISTS idx_bthist_creator ON backtest_history(creator)"
         )
+        for col in ("brief", "sector"):     # 旧库补列（幂等迁移）
+            try:
+                con.execute(f"ALTER TABLE backtest_history ADD COLUMN {col} TEXT")
+            except Exception:
+                pass
 
 
 # ──────────────────────────────────────────────
@@ -185,8 +192,31 @@ def list_records(creator: str | None = None, q: str = "", limit: int = 100) -> l
     return [dict(r) for r in rows]
 
 
+def save_analysis(record_id: int, creator: str,
+                  brief: dict | None = None, sector: dict | None = None) -> bool:
+    """
+    把已生成的 AI 研判 / 同类分析回填进历史记录，使点开历史可原样还原、永不重算重花钱。
+    仅更新传入的字段；仅本人记录可写。返回是否更新成功。
+    """
+    init()
+    sets, params = [], []
+    if brief is not None:
+        sets.append("brief=?")
+        params.append(json.dumps(brief, ensure_ascii=False))
+    if sector is not None:
+        sets.append("sector=?")
+        params.append(json.dumps(sector, ensure_ascii=False))
+    if not sets:
+        return False
+    params += [int(record_id), creator]
+    with _conn() as con:
+        cur = con.execute(
+            f"UPDATE backtest_history SET {','.join(sets)} WHERE id=? AND creator=?", params)
+    return cur.rowcount > 0
+
+
 def get_record(record_id: int, creator: str | None = None) -> dict | None:
-    """取单条历史完整结果（含 result，已解析为 dict）。creator 非空时校验归属。"""
+    """取单条历史完整结果（result/brief/sector 已解析为 dict）。creator 非空时校验归属。"""
     init()
     sql = "SELECT * FROM backtest_history WHERE id = ?"
     params: list[Any] = [int(record_id)]
@@ -202,6 +232,11 @@ def get_record(record_id: int, creator: str | None = None) -> dict | None:
         rec["result"] = json.loads(rec["result"])
     except Exception:
         rec["result"] = {}
+    for k in ("brief", "sector"):           # 可选字段：未生成或解析失败则为 None
+        try:
+            rec[k] = json.loads(rec[k]) if rec.get(k) else None
+        except Exception:
+            rec[k] = None
     return rec
 
 

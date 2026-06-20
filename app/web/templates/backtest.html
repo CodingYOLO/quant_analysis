@@ -277,7 +277,7 @@ async function doFetch(body){
     }
     st.textContent= filtered ? '✅ 已只统计大盘「'+body.regime_filter+'」时的信号' : '✅ 完成';
     displayResult(d);
-    if(!filtered) loadHistory();   // 基准跑已自动落库 → 刷新历史列表
+    if(!filtered){ currentHistoryId=d.history_id||null; loadHistory(); }   // 记录本条历史id + 刷新列表
   }catch(e){ st.textContent='❌ '+e; }
   finally{ btn.disabled=false; }
 }
@@ -297,7 +297,7 @@ function applyFilter(rg){
 document.querySelectorAll('.rgbtn').forEach(b=>b.addEventListener('click',()=>applyFilter(b.dataset.rg||'')));
 
 // 展示一份回测结果（新跑 / 历史载入共用）
-let lastResult=null, lastSector=null, lastProfile=null, lastFund=null;
+let lastResult=null, lastSector=null, lastProfile=null, lastFund=null, currentHistoryId=null;
 function displayResult(d){
   lastResult=d;
   document.getElementById('rescard').style.display='block';   // 先显示再渲染图表(避免0尺寸)
@@ -365,7 +365,7 @@ async function runSector(){
   st.textContent='⏳ 拉取同行业成分并逐只回测（首次约1分钟，之后命中缓存秒开）…';
   try{
     const r=await fetch('/api/backtest/sector',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({...baseParams})});
+      body:JSON.stringify({...baseParams, history_id:currentHistoryId})});
     const s=await r.json();
     if(!s.ok){ st.textContent='ℹ️ '+(s.msg||'同类分析失败'); return null; }
     st.textContent='✅ 同类 '+s.n_peers+' 只 · 信号样本 '+s.n_occ+' 次';
@@ -473,7 +473,8 @@ document.getElementById('brief-btn').addEventListener('click', async ()=>{
     const r=await fetch('/api/backtest/brief',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({code:(baseParams&&baseParams.code)||lastResult.ts_code,
         name:(lastProfile&&lastProfile.name)||'', signal_label:lastResult.signal_label,
-        result:lastResult, sector:lastSector, profile:lastProfile, fundamentals:lastFund})});
+        result:lastResult, sector:lastSector, profile:lastProfile, fundamentals:lastFund,
+        history_id:currentHistoryId})});
     const d=await r.json();
     if(!d.ok){ st.textContent='ℹ️ '+(d.msg||'研判失败'); return; }
     st.textContent='✅ 完成';
@@ -578,10 +579,15 @@ async function viewHistory(id){
     baseParams={code:rec.ts_code, start:res.start, end:res.end, index_code:res.index_code||''};
     if(rec.custom){ try{ baseParams.custom=JSON.parse(rec.custom); }catch(e){} }
     else { baseParams.signal=res.signal; }
-    st.textContent='✅ 已载入历史回测（'+rec.created_at+'）';
+    currentHistoryId=rec.id;    // 后续重算/回填仍指向本条历史
     renderRegime(res);          // 还原市场背景/三态对比
     displayResult(res);
     loadProfile(rec.ts_code);   // 同步股性/基本面，整页还原
+    // 还原已保存的同类分析 + AI 研判（点开历史即原样呈现，永不重算重花钱）
+    if(rec.sector){ lastSector=rec.sector; renderSector(rec.sector); }
+    if(rec.brief){ renderBrief(rec.brief); }
+    const saved=(rec.brief?'·含AI研判':'')+(rec.sector?'·含同类':'');
+    st.textContent='✅ 已载入历史回测（'+rec.created_at+'）'+saved;
     document.getElementById('regimecard').scrollIntoView({behavior:'smooth',block:'start'});
   }catch(e){ st.textContent='❌ '+e; }
 }

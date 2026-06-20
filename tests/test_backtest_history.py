@@ -66,6 +66,29 @@ def test_record_list_get_delete_flow() -> None:
     assert H.list_records(creator="admin") == []
 
 
+def test_save_and_restore_analysis() -> None:
+    """AI 研判/同类回填进历史 → 点开历史可原样还原（不重算重花钱）。"""
+    _use_temp_db()
+    rid = H.record("admin", _mk_result(), name="贵州茅台")
+    assert H.save_analysis(rid, "admin",
+                           brief={"stance": "中性偏谨慎", "summary": "x"},
+                           sector={"industry": "白酒", "n_occ": 314})
+    full = H.get_record(rid, creator="admin")
+    assert full["brief"]["stance"] == "中性偏谨慎"      # 研判还原
+    assert full["sector"]["n_occ"] == 314               # 同类还原
+
+    # 未回填的记录 brief/sector 为 None
+    rid2 = H.record("admin", _mk_result(ts_code="000001.SZ"), name="平安银行")
+    full2 = H.get_record(rid2, creator="admin")
+    assert full2["brief"] is None and full2["sector"] is None
+
+    # 他人不可回填
+    assert H.save_analysis(rid, "someone", brief={"stance": "x"}) is False
+    # 仅回填 sector 不动 brief
+    assert H.save_analysis(rid2, "admin", sector={"industry": "银行"})
+    assert H.get_record(rid2, "admin")["sector"]["industry"] == "银行"
+
+
 def test_same_condition_overwrites() -> None:
     """同票·同信号·同区间·同自定义 → 覆盖更新（不新增行）。"""
     _use_temp_db()

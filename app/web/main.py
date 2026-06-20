@@ -644,7 +644,9 @@ async def api_backtest_stock(request: Request, _user: str = Depends(require_auth
         if result.get("ok") and result.get("n_signals") and not regime_filter:
             try:
                 from app.backtest.history import record
-                record(_user, result, name=_stock_name(ts_code), custom=custom)
+                hid = record(_user, result, name=_stock_name(ts_code), custom=custom)
+                if hid:
+                    result["history_id"] = hid   # 前端据此把研判/同类回填到本条历史
             except Exception:
                 logger.exception("回测历史记录写入失败（忽略）")
         return result
@@ -668,9 +670,17 @@ async def api_backtest_sector(request: Request, _user: str = Depends(require_aut
         end = (body.get("end") or "").replace("-", "")
         if not start or not end:
             return {"ok": False, "msg": "请选择回测起止日期"}
-        return await run_in_threadpool(
+        result = await run_in_threadpool(
             analyze_sector, ts_code, body.get("signal", ""), start, end,
             custom=body.get("custom"))
+        hid = body.get("history_id")          # 回填同类到对应历史记录，点开历史可还原
+        if hid and result.get("ok"):
+            try:
+                from app.backtest.history import save_analysis
+                save_analysis(int(hid), _user, sector=result)
+            except Exception:
+                logger.exception("同类回填历史失败（忽略）")
+        return result
     except Exception as e:
         logger.exception("同类/板块分析失败")
         return {"ok": False, "msg": str(e)}
@@ -697,7 +707,15 @@ async def api_backtest_brief(request: Request, _user: str = Depends(require_auth
                                        "sources": alert.get("sources", [])}
         except Exception:
             logger.exception("研判注入新闻失败（忽略）")
-        return await run_in_threadpool(generate_brief, payload)
+        out = await run_in_threadpool(generate_brief, payload)
+        hid = payload.get("history_id")       # 回填研判(+同类)到对应历史记录，永不重算重花钱
+        if hid and out.get("ok"):
+            try:
+                from app.backtest.history import save_analysis
+                save_analysis(int(hid), _user, brief=out, sector=payload.get("sector"))
+            except Exception:
+                logger.exception("研判回填历史失败（忽略）")
+        return out
     except Exception as e:
         logger.exception("AI 综合研判失败")
         return {"ok": False, "msg": str(e)}
