@@ -210,10 +210,10 @@ function render(d){
   chart('c-breadth',Object.assign(baseOpt(),{
     xAxis:{type:'category',data:dates,...AX}, yAxis:{type:'value',max:100,...AX},
     series:[
-      {name:'全市场',type:'line',data:b.all,smooth:true,symbol:'circle',symbolSize:4,itemStyle:{color:RED},lineStyle:{color:RED,width:3}},
-      {name:'微盘股',type:'line',data:b.micro,smooth:true,symbol:'none',itemStyle:{color:'#f0a020'},lineStyle:{color:'#f0a020',type:'dashed'}},
-      {name:'中盘股',type:'line',data:b.mid,smooth:true,symbol:'none',itemStyle:{color:'#3b9eff'},lineStyle:{color:'#3b9eff',type:'dashed'}},
-      {name:'大盘股',type:'line',data:b.large,smooth:true,symbol:'none',itemStyle:{color:GREEN},lineStyle:{color:GREEN,type:'dashed'}}
+      {name:'全市场',type:'line',data:b.all,smooth:true,symbol:'none',itemStyle:{color:RED},lineStyle:{color:RED,width:3}},
+      {name:'微盘股',type:'line',data:b.micro,smooth:true,symbol:'none',itemStyle:{color:'#f0a020'},lineStyle:{color:'#f0a020',width:1.8}},
+      {name:'中盘股',type:'line',data:b.mid,smooth:true,symbol:'none',itemStyle:{color:'#3b9eff'},lineStyle:{color:'#3b9eff',width:1.8}},
+      {name:'大盘股',type:'line',data:b.large,smooth:true,symbol:'none',itemStyle:{color:GREEN},lineStyle:{color:GREEN,width:1.8}}
     ]
   }));
 
