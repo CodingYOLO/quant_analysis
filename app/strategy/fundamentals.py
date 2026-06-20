@@ -64,7 +64,115 @@ def get_financials(ts_code: str, provider: CompositeProvider | None = None,
         "latest_period": latest["period"],
         "forecast": _latest_forecast(ts_code, provider),
         "survey": _survey_summary(ts_code, provider),   # 机构调研热度（关注度信号）
+        "events": _events_summary(ts_code, provider),   # 事件/避雷面：解禁/增减持/快报/户数
     }
+
+
+# ── 事件/避雷面（解禁 / 增减持 / 业绩快报 / 股东户数）──────────────────────────
+
+def _safe_fetch(provider: CompositeProvider, method: str, ts_code: str):
+    """取数 best-effort：失败返回 None，避免单接口异常拖垮整个基本面。"""
+    try:
+        return getattr(provider, method)(ts_code)
+    except Exception:
+        return None
+
+
+def _events_summary(ts_code: str, provider: CompositeProvider) -> dict | None:
+    """汇总事件面：解禁(抛压)/增减持(利空利好)/业绩快报(前瞻)/户数(筹码集中)。全空返回 None。"""
+    out: dict = {}
+    fl = _float_summary(_safe_fetch(provider, "get_share_float", ts_code))
+    if fl:
+        out["float"] = fl
+    ht = _holder_trade_summary(_safe_fetch(provider, "get_holder_trade", ts_code))
+    if ht:
+        out["holder_trade"] = ht
+    ex = _express_summary(_safe_fetch(provider, "get_express", ts_code))
+    if ex:
+        out["express"] = ex
+    hn = _holdernum_summary(_safe_fetch(provider, "get_holder_number", ts_code))
+    if hn:
+        out["holdernum"] = hn
+    return out or None
+
+
+def _float_summary(df) -> dict | None:
+    """限售解禁：聚合到解禁日，给出下一次解禁(日期/比例/距今天数) + 未来解禁场次。"""
+    import datetime
+    if df is None or df.empty or "float_date" not in df.columns:
+        return None
+    df = df.copy()
+    df["float_date"] = df["float_date"].astype(str)
+    df["_fr"] = pd.to_numeric(df.get("float_ratio"), errors="coerce").fillna(0.0)
+    today = datetime.date.today().strftime("%Y%m%d")
+    by_date = df.groupby("float_date")["_fr"].sum().sort_index()
+    upcoming = by_date[by_date.index >= today]
+    if upcoming.empty:
+        return None
+    d = upcoming.index[0]
+    days = (datetime.datetime.strptime(d, "%Y%m%d").date() - datetime.date.today()).days
+    return {"next_date": _fmt_date(d), "next_ratio": round(float(upcoming.iloc[0]), 4),
+            "next_days": int(days), "upcoming_count": int(len(upcoming))}
+
+
+def _holder_trade_summary(df) -> dict | None:
+    """股东增减持：近180天 减持/增持 次数 + 最近一条（谁/增减/比例）。"""
+    if df is None or df.empty or "in_de" not in df.columns:
+        return None
+    df = df.copy()
+    df["ann_date"] = df["ann_date"].astype(str)
+    de = int((df["in_de"] == "DE").sum())
+    inn = int((df["in_de"] == "IN").sum())
+    r = df.sort_values("ann_date", ascending=False).iloc[0]
+    ratio = pd.to_numeric(r.get("change_ratio"), errors="coerce")
+    return {"de_count": de, "in_count": inn,
+            "latest": {"date": _fmt_date(str(r.get("ann_date") or "")),
+                       "holder": str(r.get("holder_name") or "")[:16],
+                       "type": "减持" if r.get("in_de") == "DE" else "增持",
+                       "ratio": round(float(ratio), 2) if pd.notna(ratio) else None}}
+
+
+def _express_summary(df) -> dict | None:
+    """业绩快报：最新一期 净利同比/营收(亿)/ROE（比业绩预告更接近真实）。"""
+    if df is None or df.empty:
+        return None
+    df = df.copy()
+    df["ann_date"] = df["ann_date"].astype(str)
+    r = df.sort_values("ann_date", ascending=False).iloc[0]
+
+    def _num(k):
+        v = pd.to_numeric(r.get(k), errors="coerce")
+        return round(float(v), 2) if pd.notna(v) else None
+
+    rev = _num("revenue")
+    ni = _num("n_income")             # 本期净利润
+    prev = _num("yoy_net_profit")     # ⚠️Tushare express 此字段是「去年同期净利润」，非百分比
+    yoy = round((ni - prev) / abs(prev) * 100, 1) if (ni is not None and prev) else None
+    return {"period": _fmt_period(str(r.get("end_date") or "")),
+            "ann_date": _fmt_date(str(r.get("ann_date") or "")),
+            "net_profit_yoy": yoy,                                     # 真实净利同比%
+            "net_profit_yi": round(ni / 1e8, 2) if ni else None,
+            "revenue_yi": round(rev / 1e8, 2) if rev else None,
+            "roe": _num("diluted_roe")}
+
+
+def _holdernum_summary(df) -> dict | None:
+    """股东户数：最新户数 + 环比（户数减少=筹码集中，向好）。"""
+    if df is None or df.empty or "holder_num" not in df.columns:
+        return None
+    df = df.copy()
+    df["end_date"] = df["end_date"].astype(str)
+    df = df.sort_values("end_date", ascending=False).drop_duplicates("end_date")
+    nums = pd.to_numeric(df["holder_num"], errors="coerce").dropna().tolist()
+    if not nums:
+        return None
+    latest = int(nums[0])
+    chg, trend = None, ""
+    if len(nums) >= 2 and nums[1] > 0:
+        chg = round((nums[0] - nums[1]) / nums[1] * 100, 1)
+        trend = "户数减少·筹码集中" if chg < 0 else "户数增加·筹码分散"
+    return {"latest": latest, "chg_pct": chg, "trend": trend,
+            "date": _fmt_date(str(df["end_date"].iloc[0]))}
 
 
 def _survey_summary(ts_code: str, provider: CompositeProvider) -> dict | None:

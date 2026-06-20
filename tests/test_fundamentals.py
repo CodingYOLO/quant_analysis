@@ -11,7 +11,8 @@ import pandas as pd
 import datetime
 
 from app.strategy.fundamentals import (
-    _analyst_summary, _fina_summary, _fmt_period, _is_quality, _latest_forecast,
+    _analyst_summary, _events_summary, _express_summary, _fina_summary, _float_summary,
+    _fmt_period, _holder_trade_summary, _holdernum_summary, _is_quality, _latest_forecast,
     _survey_summary, get_analyst_rc,
 )
 
@@ -60,6 +61,68 @@ class _FakeProvider:
         if self._rc_exc:
             raise Exception("您访问接口(report_rc)频率超限(1次/小时)")
         return pd.DataFrame(self._rc) if self._rc is not None else pd.DataFrame()
+
+    # 事件面（默认空，测试时按需注入）
+    _ev: dict = {}
+
+    def get_share_float(self, c):
+        return self._ev.get("float", pd.DataFrame())
+
+    def get_holder_trade(self, c):
+        return self._ev.get("trade", pd.DataFrame())
+
+    def get_express(self, c):
+        return self._ev.get("express", pd.DataFrame())
+
+    def get_holder_number(self, c):
+        return self._ev.get("num", pd.DataFrame())
+
+
+def test_float_summary() -> None:
+    fut, past = _d(-20), _d(10)   # 20天后解禁、10天前已解禁
+    df = pd.DataFrame({"float_date": [fut, fut, past], "float_ratio": [1.5, 0.5, 3.0]})
+    s = _float_summary(df)
+    assert s["next_ratio"] == 2.0 and s["upcoming_count"] == 1   # 同日聚合1.5+0.5；过去的不算
+    assert 18 <= s["next_days"] <= 21
+    assert _float_summary(pd.DataFrame()) is None
+
+
+def test_holder_trade_summary() -> None:
+    df = pd.DataFrame({"ann_date": ["20260601", "20260610", "20260605"], "in_de": ["DE", "IN", "DE"],
+                       "change_ratio": [1.2, 0.5, 2.0], "holder_name": ["张三", "李四", "王五"]})
+    s = _holder_trade_summary(df)
+    assert s["de_count"] == 2 and s["in_count"] == 1
+    assert s["latest"]["date"] == "2026-06-10" and s["latest"]["type"] == "增持"   # 取最新公告
+
+
+def test_express_summary() -> None:
+    # yoy_net_profit=去年同期净利(1亿)，本期净利2亿 → 同比+100%
+    df = pd.DataFrame({"ann_date": ["20260415"], "end_date": ["20260331"], "revenue": [1.2e9],
+                       "n_income": [2.0e8], "yoy_net_profit": [1.0e8], "diluted_roe": [8.1]})
+    s = _express_summary(df)
+    assert s["period"] == "2026一季报" and s["revenue_yi"] == 12.0
+    assert s["net_profit_yi"] == 2.0 and s["net_profit_yoy"] == 100.0
+
+
+def test_holdernum_summary() -> None:
+    df = pd.DataFrame({"end_date": ["20260331", "20251231"], "ann_date": ["x", "y"],
+                       "holder_num": [45000, 50000]})
+    s = _holdernum_summary(df)
+    assert s["latest"] == 45000 and s["chg_pct"] == -10.0 and "集中" in s["trend"]
+
+
+def test_events_summary_bundles_present_only() -> None:
+    fp = _FakeProvider()
+    fp._ev = {
+        "float": pd.DataFrame({"float_date": [_d(-20)], "float_ratio": [2.0]}),
+        "num": pd.DataFrame({"end_date": ["20260331", "20251231"], "ann_date": ["x", "y"],
+                             "holder_num": [40000, 50000]}),
+        # trade/express 留空 → 不应出现在结果
+    }
+    ev = _events_summary("x", fp)
+    assert "float" in ev and "holdernum" in ev
+    assert "holder_trade" not in ev and "express" not in ev
+    assert _events_summary("x", _FakeProvider()) is None     # 全空
 
 
 def test_survey_summary() -> None:

@@ -134,6 +134,7 @@ td { padding:7px 9px; border-bottom:1px solid #1e2138; white-space:nowrap; }
   <div class="meta">📑 基本面速览 · <span id="fund-sum"></span></div>
   <div style="overflow-x:auto"><table id="fund-table"></table></div>
   <div id="fund-survey" style="display:none;font-size:12.5px;color:#cdd6f4;margin-top:10px"></div>
+  <div id="fund-events" style="display:none;font-size:12.5px;color:#cdd6f4;margin-top:8px;line-height:1.95"></div>
   <div id="analyst-box" style="display:none;margin-top:10px;background:#12161f;border:1px solid #2a3a5a;border-radius:10px;padding:10px 13px;font-size:13px;line-height:1.85"></div>
   <div class="export-hide" style="margin-top:14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
     <button class="runbtn" id="alert-btn" style="padding:6px 14px;font-size:13px">🤖 AI 近期提示</button>
@@ -631,17 +632,37 @@ async function loadProfile(code){
 }
 
 let curCode='';
+// 🛡️ 事件/避雷面（A股配色：解禁临近/减持=利空绿，增持/业绩增=利好红）
+function renderEvents(ev){
+  const el=document.getElementById('fund-events');
+  if(!ev){ el.style.display='none'; return; }
+  const bits=[];
+  if(ev.float){ const f=ev.float, warn=f.next_days<=60;
+    bits.push('<span class="'+(warn?'down':'neu2')+'">⚠️ 下次解禁 '+f.next_date+'（距今'+f.next_days+'天·比例'+f.next_ratio+'·未来'+f.upcoming_count+'场）</span>'); }
+  if(ev.holder_trade){ const h=ev.holder_trade, lt=h.latest, c=h.de_count>h.in_count?'down':(h.in_count>h.de_count?'up':'neu2');
+    bits.push('<span class="'+c+'">股东 减持'+h.de_count+'/增持'+h.in_count+' 次</span>（最近 '+lt.date+' '+lt.holder+' '+lt.type+(lt.ratio?' '+lt.ratio+'%':'')+'）'); }
+  if(ev.express){ const e=ev.express, c=(e.net_profit_yoy>0?'up':(e.net_profit_yoy<0?'down':'neu2'));
+    bits.push('📋 快报 '+e.period+' 净利 '+(e.net_profit_yi??'—')+'亿 同比 <span class="'+c+'">'+(e.net_profit_yoy>0?'+':'')+(e.net_profit_yoy??'—')+'%</span>'); }
+  if(ev.holdernum){ const n=ev.holdernum;
+    bits.push('股东户数 '+(n.latest||0).toLocaleString()+(n.chg_pct!=null?'（'+(n.chg_pct>0?'+':'')+n.chg_pct+'%·'+(n.trend||'')+'）':'')); }
+  if(!bits.length){ el.style.display='none'; return; }
+  el.innerHTML='<b style="color:#e5c07b">🛡️ 事件/避雷面</b>　'+bits.join('　|　');
+  el.style.display='block';
+}
+
 async function loadFinancials(code){
   curCode=code;
   const card=document.getElementById('fundcard');
   document.getElementById('alert-box').style.display='none';
   document.getElementById('analyst-box').style.display='none';   // 切票重置盈利预期
   document.getElementById('fund-survey').style.display='none';
+  document.getElementById('fund-events').style.display='none';
   try{
     const r=await fetch('/api/stock/financials?code='+encodeURIComponent(code));
     const d=await r.json();
     if(!d.ok){ card.style.display='none'; lastFund=null; return; }
-    lastFund={summary:d.summary, forecast:d.forecast, survey:d.survey};   // 供 AI 研判
+    lastFund={summary:d.summary, forecast:d.forecast, survey:d.survey, events:d.events};   // 供 AI 研判
+    renderEvents(d.events);   // 事件/避雷面：解禁/增减持/快报/户数
     // 机构调研热度（关注度信号）
     const sv=d.survey, svEl=document.getElementById('fund-survey');
     if(sv && sv.count_180d){

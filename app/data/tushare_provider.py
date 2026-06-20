@@ -141,6 +141,68 @@ class TushareProvider(DataProvider):
             trade_date=trade_date, limit_type=limit_type,
         )
 
+    # ---- 事件/避雷面（解禁/增减持/快报/户数）----
+
+    def _today_key(self, ts_code: str) -> str:
+        import datetime
+        return f"{ts_code}_{datetime.date.today().strftime('%Y%m%d')}"
+
+    def get_share_float(self, ts_code: str) -> pd.DataFrame:
+        """单股限售解禁（近30天~未来约1年，float_date=解禁日）。缓存一天。"""
+        return cached_daily("tushare_share_float", self._today_key(ts_code),
+                            lambda: self._fetch_share_float(ts_code))
+
+    @_RETRY
+    def _fetch_share_float(self, ts_code: str) -> pd.DataFrame:
+        import datetime
+        t = datetime.date.today()
+        return rate_limited_call(
+            "tushare_share_float", self._api.share_float, ts_code=ts_code,
+            start_date=(t - datetime.timedelta(days=30)).strftime("%Y%m%d"),
+            end_date=(t + datetime.timedelta(days=400)).strftime("%Y%m%d"))
+
+    def get_holder_trade(self, ts_code: str) -> pd.DataFrame:
+        """单股股东增减持（近180天，in_de=IN增持/DE减持）。缓存一天。"""
+        return cached_daily("tushare_holdertrade", self._today_key(ts_code),
+                            lambda: self._fetch_holder_trade(ts_code))
+
+    @_RETRY
+    def _fetch_holder_trade(self, ts_code: str) -> pd.DataFrame:
+        import datetime
+        t = datetime.date.today()
+        return rate_limited_call(
+            "tushare_holdertrade", self._api.stk_holdertrade, ts_code=ts_code,
+            start_date=(t - datetime.timedelta(days=180)).strftime("%Y%m%d"),
+            end_date=t.strftime("%Y%m%d"))
+
+    def get_express(self, ts_code: str) -> pd.DataFrame:
+        """单股业绩快报（近400天，比业绩预告更接近真实）。缓存一天。"""
+        return cached_daily("tushare_express", self._today_key(ts_code),
+                            lambda: self._fetch_express(ts_code))
+
+    @_RETRY
+    def _fetch_express(self, ts_code: str) -> pd.DataFrame:
+        import datetime
+        t = datetime.date.today()
+        return rate_limited_call(
+            "tushare_express", self._api.express, ts_code=ts_code,
+            start_date=(t - datetime.timedelta(days=400)).strftime("%Y%m%d"),
+            end_date=t.strftime("%Y%m%d"))
+
+    def get_holder_number(self, ts_code: str) -> pd.DataFrame:
+        """单股股东户数（近400天，户数减少=筹码集中）。缓存一天。"""
+        return cached_daily("tushare_holdernum", self._today_key(ts_code),
+                            lambda: self._fetch_holder_number(ts_code))
+
+    @_RETRY
+    def _fetch_holder_number(self, ts_code: str) -> pd.DataFrame:
+        import datetime
+        t = datetime.date.today()
+        return rate_limited_call(
+            "tushare_holdernum", self._api.stk_holdernumber, ts_code=ts_code,
+            start_date=(t - datetime.timedelta(days=400)).strftime("%Y%m%d"),
+            end_date=t.strftime("%Y%m%d"))
+
     def get_cyq_perf(self, ts_code: str, start_date: str, end_date: str) -> pd.DataFrame:
         """单股筹码分布（每日：加权平均成本/获利盘比例/各分位成本）。缓存一天。"""
         import datetime

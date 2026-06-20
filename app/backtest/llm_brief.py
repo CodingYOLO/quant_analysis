@@ -102,6 +102,26 @@ def build_facts(p: dict) -> str:
         rt = "、".join(f"{k}{v}" for k, v in (an.get("ratings") or {}).items())
         lines.append(f"【券商盈利预测】目标价均值 {an.get('target_avg')}（区间 {an.get('target_low')}~"
                      f"{an.get('target_high')}）、覆盖 {an.get('n_org')} 家、评级 {rt}")
+    ev = fund.get("events") or {}
+    if ev:
+        bits = []
+        fl = ev.get("float")
+        if fl:
+            bits.append(f"下次解禁 {fl['next_date']}（距今{fl['next_days']}天，比例{fl['next_ratio']}，"
+                        f"未来{fl['upcoming_count']}场）")
+        ht = ev.get("holder_trade")
+        if ht:
+            lt = ht["latest"]
+            bits.append(f"近180天股东减持{ht['de_count']}次/增持{ht['in_count']}次，"
+                        f"最近{lt['date']}{lt['holder']}{lt['type']}{lt.get('ratio') or ''}%")
+        ex = ev.get("express")
+        if ex:
+            bits.append(f"业绩快报{ex['period']} 净利{ex.get('net_profit_yi')}亿(同比{ex.get('net_profit_yoy')}%)")
+        hn = ev.get("holdernum")
+        if hn:
+            bits.append(f"股东户数{hn['latest']}（{hn.get('trend') or ''}）")
+        if bits:
+            lines.append("【事件/避雷面(已取官方数据，请据此直接核查解禁/减持，不要再列为待确认)】" + "；".join(bits))
 
     news = p.get("news") or {}
     if news.get("summary"):
