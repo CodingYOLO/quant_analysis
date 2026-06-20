@@ -356,7 +356,11 @@ def build_wide_cmd(trade_date: str) -> None:
     ind = build_industry_wide(td, persist=True)
     console.print(f"[green]✅ 行业：{len(ind)} 个[/green]")
     con = build_concept_wide(td, persist=True)
-    console.print(f"[green]✅ 概念：{len(con)} 个 → data_cache/theme_heat.db[/green]\n")
+    console.print(f"[green]✅ 概念：{len(con)} 个 → data_cache/theme_heat.db[/green]")
+    # 预算各板块广度时序（复用全市场面板）→ 前端切板块秒开
+    from app.factors.board_breadth import precompute_board_breadth
+    nb = precompute_board_breadth(td)
+    console.print(f"[green]✅ 板块广度预算：{nb} 个 → data_cache/board_breadth/[/green]\n")
 
 
 @cli.command("signal-eval")

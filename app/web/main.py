@@ -397,10 +397,14 @@ async def api_sector_radar(date: str = "", type: str = "concept",
 @app.get("/api/sector/breadth")
 async def api_sector_breadth(name: str = "", type: str = "concept", days: int = 45,
                              _user: str = Depends(require_auth)):
-    """单板块广度时序（成分股实时算·缓存）。首次稍慢 → 跑线程池避免阻塞。"""
+    """单板块广度时序。优先读盘后预算缓存(秒开)；缺则实时算(线程池·首次稍慢)。"""
     if not name:
         return {"ok": False, "msg": "缺少 name 参数"}
     try:
+        from app.factors.board_breadth import load_cached_breadth
+        cached = load_cached_breadth(type, name, int(days))
+        if cached:                                  # 命中预算缓存 → 秒回
+            return cached
         from fastapi.concurrency import run_in_threadpool
 
         from app.strategy.sector_radar import compute_board_breadth
