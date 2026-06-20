@@ -28,6 +28,14 @@ td { padding:7px 9px; border-bottom:1px solid #1e2138; white-space:nowrap; }
 .ppreset:hover { background:#2742a8; color:#fff; }
 #presets { display:none; flex-wrap:wrap; align-items:center; }
 #export-bar { display:none; }
+/* 导出按钮：实心/描边按钮，明显区别于灰色小标签chip */
+.exportbtn { display:inline-flex; align-items:center; gap:5px; padding:8px 18px; font-size:13.5px;
+  font-weight:600; border-radius:9px; cursor:pointer; transition:all .15s;
+  background:transparent; color:#7c9ef8; border:1.5px solid #3358e0; }
+.exportbtn:hover { background:rgba(51,88,224,.15); }
+.exportbtn.primary { background:#2742a8; color:#fff; border-color:#3358e0; box-shadow:0 2px 8px rgba(51,88,224,.3); }
+.exportbtn.primary:hover { background:#3358e0; }
+.exportbtn:disabled { opacity:.6; cursor:wait; }
 /* 打印(导出PDF)：隐藏导航/输入/按钮，仅留分析内容 */
 @media print {
   nav, .toolbar, #export-bar, #presets, #status, #alert-btn { display:none !important; }
@@ -68,9 +76,9 @@ td { padding:7px 9px; border-bottom:1px solid #1e2138; white-space:nowrap; }
     <button class="ppreset" data-min="-1.5" data-max="1.5" data-v="down">平盘缩量买(蓄势)</button>
   </div>
   <div id="status" class="neu2" style="font-size:13px"></div>
-  <div id="export-bar" style="display:none;gap:10px;margin-top:10px">
-    <button class="ppreset" id="btn-img">📷 导出长图（发给家人讨论）</button>
-    <button class="ppreset" id="btn-pdf">📄 导出 PDF</button>
+  <div id="export-bar" style="display:none;gap:10px;margin-top:12px">
+    <button class="exportbtn primary" id="btn-img">📷 导出长图</button>
+    <button class="exportbtn" id="btn-pdf">📄 导出 PDF</button>
   </div>
 </div>
 
