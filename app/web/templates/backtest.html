@@ -27,6 +27,14 @@ td { padding:7px 9px; border-bottom:1px solid #1e2138; white-space:nowrap; }
 .ppreset { background:#1a1d2e; color:#c9d2f8; border:1px solid #2d3052; border-radius:14px; padding:4px 11px; font-size:12px; cursor:pointer; }
 .ppreset:hover { background:#2742a8; color:#fff; }
 #presets { display:none; flex-wrap:wrap; align-items:center; }
+#export-bar { display:none; }
+/* 打印(导出PDF)：隐藏导航/输入/按钮，仅留分析内容 */
+@media print {
+  nav, .toolbar, #export-bar, #presets, #status, #alert-btn { display:none !important; }
+  body, .container { background:#0f1117 !important; padding:0 !important; max-width:none !important; }
+  #cap-head, #cap-foot { display:block !important; }
+  .card { break-inside:avoid; border-color:#2d3052; }
+}
 {% endblock %}
 
 {% block content %}
@@ -60,6 +68,16 @@ td { padding:7px 9px; border-bottom:1px solid #1e2138; white-space:nowrap; }
     <button class="ppreset" data-min="-1.5" data-max="1.5" data-v="down">平盘缩量买(蓄势)</button>
   </div>
   <div id="status" class="neu2" style="font-size:13px"></div>
+  <div id="export-bar" style="display:none;gap:10px;margin-top:10px">
+    <button class="ppreset" id="btn-img">📷 导出长图（发给家人讨论）</button>
+    <button class="ppreset" id="btn-pdf">📄 导出 PDF</button>
+  </div>
+</div>
+
+<div id="bt-capture">
+<div id="cap-head" style="display:none;padding:4px 2px 14px;border-bottom:1px solid #2d3052;margin-bottom:14px">
+  <b style="color:#7c9ef8;font-size:16px">📊 A股Agent · 个股分析</b>
+  <span id="cap-head-sub" class="neu2" style="font-size:12px;margin-left:8px"></span>
 </div>
 
 <!-- 股性速览 -->
@@ -94,8 +112,13 @@ td { padding:7px 9px; border-bottom:1px solid #1e2138; white-space:nowrap; }
   <div style="font-size:13px;color:#9ca3af;margin:14px 0 6px">📋 历史信号明细（最近 60 次）</div>
   <div style="overflow-x:auto"><table id="trades"></table></div>
 </div>
+<div id="cap-foot" style="display:none;margin-top:10px;font-size:11px;color:#6b7280;text-align:center">
+  由 A股Agent 生成 · 历史回测≠未来收益，仅供研究讨论，不构成投资建议
+</div>
+</div><!-- /bt-capture -->
 
 <script src="/static/echarts.min.js"></script>
+<script src="/static/html2canvas.min.js"></script>
 <script>
 // 默认区间：近3年
 (function(){
@@ -143,6 +166,8 @@ document.getElementById('run').addEventListener('click', async () => {
     st.textContent='✅ 完成';
     document.getElementById('rescard').style.display='block';   // 先显示再渲染图表(避免0尺寸)
     render(d);
+    document.getElementById('cap-head-sub').textContent=d.ts_code+' · 信号「'+d.signal_label+'」 · '+d.start+'~'+d.end;
+    document.getElementById('export-bar').style.display='flex';
   }catch(e){ st.textContent='❌ '+e; }
   finally{ btn.disabled=false; }
 });
@@ -291,5 +316,46 @@ function renderKline(kl){
 }
 // 窗口缩放时图表自适应
 window.addEventListener('resize', ()=>{ if(chart) chart.resize(); if(klineChart) klineChart.resize(); });
+
+// ── 导出长图 / PDF（发给家人讨论）──
+// ECharts 是 canvas，html2canvas 有时抓不全 → 截图前把图表转成 <img> 覆盖，截完还原
+function chartsToImg(){
+  const restore=[];
+  [['equity',chart],['kline',klineChart]].forEach(([id,c])=>{
+    if(!c) return;
+    const el=document.getElementById(id);
+    const img=document.createElement('img');
+    img.src=c.getDataURL({pixelRatio:2,backgroundColor:'#12141c'});
+    img.style.width='100%'; img.style.height=el.offsetHeight+'px'; img.className='_capimg';
+    el.style.display='none'; el.parentNode.insertBefore(img,el.nextSibling);
+    restore.push(el);
+  });
+  return restore;
+}
+function restoreCharts(restore){
+  document.querySelectorAll('._capimg').forEach(i=>i.remove());
+  restore.forEach(el=>el.style.display='');
+}
+document.getElementById('btn-img').addEventListener('click', async ()=>{
+  if(typeof html2canvas==='undefined'){ alert('图片库未加载，请刷新重试'); return; }
+  const btn=document.getElementById('btn-img'); const old=btn.textContent; btn.disabled=true; btn.textContent='⏳ 生成中…';
+  document.getElementById('cap-head').style.display='block';
+  document.getElementById('cap-foot').style.display='block';
+  const restore=chartsToImg();
+  try{
+    const node=document.getElementById('bt-capture');
+    const canvas=await html2canvas(node,{scale:2,backgroundColor:'#0f1117',useCORS:true,windowWidth:node.scrollWidth});
+    const a=document.createElement('a');
+    a.download='个股分析_'+(document.getElementById('code').value.trim()||'stock')+'.png';
+    a.href=canvas.toDataURL('image/png'); a.click();
+  }catch(e){ alert('长图生成失败：'+e); }
+  finally{
+    restoreCharts(restore);
+    document.getElementById('cap-head').style.display='none';
+    document.getElementById('cap-foot').style.display='none';
+    btn.disabled=false; btn.textContent=old;
+  }
+});
+document.getElementById('btn-pdf').addEventListener('click', ()=>window.print());
 </script>
 {% endblock %}
