@@ -42,7 +42,7 @@ tr.datarow:hover td { background:#1e2138; cursor:pointer; }
 
 {% block content %}
 <div style="text-align:center;margin-bottom:6px"><h1 style="font-size:22px">LLM 分析</h1></div>
-<div class="disclaim">选股池：内置 5 套科学策略每日盘后自动选股，多路交叉验证，<b>仅留重点分≥60的精选强票（弱市少·宁缺毋滥，普涨日最多40只）</b>。<b style="color:#4ade80">⭐ 标注最强 Top5（重点分=强度+主力资金+板块热度+多路交叉+量价+均线）供重点观察</b>。仅供研究，不构成投资建议。</div>
+<div class="disclaim">选股池：内置 5 套科学策略每日盘后自动选股，多路交叉验证，<b>仅留重点分≥60的精选强票（弱市少·宁缺毋滥，普涨日最多60只）·可按板块筛选只看主板</b>。<b style="color:#4ade80">⭐ 标注最强 Top5（重点分=强度+主力资金+板块热度+多路交叉+量价+均线）供重点观察</b>。仅供研究，不构成投资建议。</div>
 
 <div class="subtabs">
   <div class="subtab" onclick="location.href='/llm'">主题热点</div>
@@ -57,6 +57,7 @@ tr.datarow:hover td { background:#1e2138; cursor:pointer; }
   <input type="text" id="search" placeholder="代码/名称/主题" style="min-width:160px">
   <select id="fsource"><option value="">来源(全部)</option><option>最关注</option><option>策略候选</option><option>主题选股</option><option>规则已选</option></select>
   <select id="fstrat"><option value="">策略(全部)</option><option>主升突破</option><option>资金回调低吸</option><option>资金跟随</option><option>反转低吸</option><option>主题选股</option></select>
+  <select id="fboard"><option value="">板块(全部)</option><option value="主板">主板(可交易)</option><option value="科创">科创</option><option value="创业">创业</option><option value="北交">北交</option></select>
   <select id="sortby"><option value="focus">默认(⭐重点优先)</option><option value="confidence">重点分</option><option value="pct_chg">当日涨跌</option></select>
   <button class="chip" id="reload" style="cursor:pointer;color:#7c9ef8">🔄 加载</button>
 </div>
@@ -66,6 +67,7 @@ tr.datarow:hover td { background:#1e2138; cursor:pointer; }
 <div id="loading" class="neu2" style="font-size:14px;padding:16px">⏳ 加载中…</div>
 <div id="dash" style="display:none;overflow-x:auto"><table id="tbl"></table></div>
 
+<script src="/static/echarts.min.js"></script>
 <script>
 let rows=[];
 // 数据日默认留空 → 后端返回最新已生成的选股池（避免卡在浏览器“今天”而误报未生成）。
@@ -122,7 +124,7 @@ async function load(){
 }
 document.getElementById('reload').addEventListener('click', load);
 document.getElementById('date').addEventListener('change', load);
-['search','fsource','fstrat','sortby'].forEach(id=>document.getElementById(id).addEventListener('input', render));
+['search','fsource','fstrat','fboard','sortby'].forEach(id=>document.getElementById(id).addEventListener('input', render));
 
 const COLS=[['⭐'],['代码'],['名称'],['🔥板块'],['重点分'],['💰资金(3日主力)'],['📈均线'],['📊量价'],['策略'],['买点价'],['T+5']];
 
@@ -144,20 +146,27 @@ function vpCell(r){ const vr=r.vol_ratio;
   return '<span class="'+c+'">'+lbl+vr+'</span> '+pct(r.pct_chg); }
 function fsCell(v){ const s=v||0, c=s>=70?'up':(s>=50?'amber':'neu2');
   return '<b class="fs-pill '+c+'">'+s.toFixed(0)+'</b>'; }
-// 板块标签（按代码前缀；主板不标）
-function boardBadge(code){ const c=(code||'').slice(0,6);
-  if(c.startsWith('688')) return '<span class="bd bd-kc" title="科创板·涨跌幅±20%·需开通科创板权限">科创</span>';
-  if(c.startsWith('300')||c.startsWith('301')) return '<span class="bd bd-cy" title="创业板·涨跌幅±20%·需开通创业板权限">创业</span>';
-  if(c.startsWith('8')||c.startsWith('4')||c.startsWith('920')) return '<span class="bd bd-bj" title="北交所·涨跌幅±30%·需开通北交所权限">北交</span>';
+// 板块判定（按代码前缀）
+function boardOf(code){ const c=(code||'').slice(0,6);
+  if(c.startsWith('688')) return '科创';
+  if(c.startsWith('300')||c.startsWith('301')) return '创业';
+  if(c.startsWith('8')||c.startsWith('4')||c.startsWith('920')) return '北交';
+  return '主板'; }
+function boardBadge(code){ const b=boardOf(code);
+  if(b==='科创') return '<span class="bd bd-kc" title="科创板·涨跌幅±20%·需开通科创板权限">科创</span>';
+  if(b==='创业') return '<span class="bd bd-cy" title="创业板·涨跌幅±20%·需开通创业板权限">创业</span>';
+  if(b==='北交') return '<span class="bd bd-bj" title="北交所·涨跌幅±30%·需开通北交所权限">北交</span>';
   return ''; }
 
 function render(){
   const kw=(document.getElementById('search').value||'').trim();
-  const fs=document.getElementById('fsource').value, ft=document.getElementById('fstrat').value, sb=document.getElementById('sortby').value;
+  const fs=document.getElementById('fsource').value, ft=document.getElementById('fstrat').value;
+  const fb=document.getElementById('fboard').value, sb=document.getElementById('sortby').value;
   let data=rows.filter(r=>{
     if(kw && !(r.ts_code.includes(kw)||(r.name||'').includes(kw)||(r.theme||'').includes(kw))) return false;
     if(fs && !(r.sources||[]).includes(fs)) return false;
     if(ft && !(r.strategy_label||'').includes(ft)) return false;
+    if(fb && boardOf(r.ts_code)!==fb) return false;   // 板块筛选(如只看可交易的主板)
     return true;
   });
   if(sb==='confidence') data.sort((a,b)=>(b.focus_score||0)-(a.focus_score||0));
@@ -189,9 +198,74 @@ function render(){
     if(nx&&nx.classList.contains('exp')){ nx.remove(); return; }
     t.querySelectorAll('tr.exp').forEach(e=>e.remove());
     const r=data[i], dr=document.createElement('tr'); dr.className='exp';
-    const td=document.createElement('td'); td.colSpan=COLS.length; td.innerHTML=detail(r);
+    const cid='k_'+r.ts_code.slice(0,6);
+    const td=document.createElement('td'); td.colSpan=COLS.length;
+    td.innerHTML=detail(r)
+      +'<div id="ext_'+cid+'" class="neu2" style="font-size:12px;margin:6px 0 2px">⏳ 加载 K线 / VMA / 乖离 / 筹码…</div>'
+      +'<div id="'+cid+'" style="height:300px"></div>';
     dr.appendChild(td); tr.after(dr);
+    loadPoolKline(r.ts_code, cid);   // 异步加 K线(含量柱) + 扩展指标
   }));
+}
+
+// ── 展开行：K线(含量柱·MA5/20/60) + VMA/乖离率/筹码集中度（复用 /api/stock/profile）──
+const _kcharts={};
+async function loadPoolKline(code, cid){
+  const ext=document.getElementById('ext_'+cid);
+  try{
+    const r=await fetch('/api/stock/profile?code='+code.slice(0,6));
+    const d=await r.json();
+    if(!d.ok||!d.kline){ if(ext) ext.textContent='ℹ️ 无K线/筹码数据'; return; }
+    if(ext) ext.innerHTML=extIndicators(d);
+    renderPoolKline(cid, d.kline);
+  }catch(e){ if(ext) ext.textContent='❌ K线加载失败：'+e; }
+}
+// 扩展指标：VMA5/10(量能) + 5/10/20日乖离率(BIAS) + 筹码集中度/获利盘/主力成本
+function extIndicators(d){
+  const kl=d.kline, n=(kl.vol||[]).length;
+  const avg=(a,m)=>{ const s=a.slice(-m).filter(x=>x!=null); return s.length? s.reduce((x,y)=>x+y,0)/s.length : null; };
+  const vma5=avg(kl.vol,5), vma10=avg(kl.vol,10), curVol=kl.vol[n-1];
+  const volX=vma5? (curVol/vma5) : null;   // 当前量 / VMA5
+  const close=kl.candle[n-1]?kl.candle[n-1][1]:null;
+  const bias=(maArr)=>{ const ma=maArr[n-1]; return (ma&&close)? ((close-ma)/ma*100):null; };
+  const b5=bias(kl.ma5), b20=bias(kl.ma20);
+  const fmtW=v=>v==null?'—':(v/1e4).toFixed(0)+'万手';
+  const sign=v=>v==null?'<span class="miss">—</span>':'<span class="'+(v>=0?'up':'down')+'">'+(v>=0?'+':'')+v.toFixed(1)+'%</span>';
+  let h='<b style="color:#7c9ef8">📊 量能</b>：VMA5 '+fmtW(vma5)+' / VMA10 '+fmtW(vma10)
+    +' ｜ 当前量/VMA5 '+(volX==null?'—':'<span class="'+(volX>=1.5?'up':(volX<=0.7?'down':'neu2'))+'">'+volX.toFixed(2)+'×</span>')
+    +' <span class="neu2" style="font-size:11px">(≥1.5放量/≤0.7缩量)</span><br>';
+  h+='<b style="color:#7c9ef8">📐 乖离率(BIAS)</b>：5日 '+sign(b5)+' ｜ 20日 '+sign(b20)
+    +' <span class="neu2" style="font-size:11px">(正=高于均线·偏热，负=低于·超跌低吸位)</span><br>';
+  const c=d.chips;
+  if(c){
+    h+='<b style="color:#e5c07b">🎯 筹码</b>：集中度 '+(c.concentration==null?'—':c.concentration+'%')
+      +' <span class="neu2" style="font-size:11px">(越小越集中·分歧小)</span>'
+      +' ｜ 主力成本 '+(c.weight_avg??'—')+'（现价溢价 '+sign(c.premium)+'）'
+      +' ｜ 获利盘 '+(c.winner_rate==null?'—':c.winner_rate+'%')
+      +' <span class="neu2" style="font-size:11px">（截至'+(c.date||'')+'）</span>';
+  } else { h+='<span class="neu2">（无筹码数据）</span>'; }
+  return h;
+}
+function renderPoolKline(cid, kl){
+  const el=document.getElementById(cid); if(!el||typeof echarts==='undefined') return;
+  const c=echarts.init(el); _kcharts[cid]=c;
+  c.setOption({
+    backgroundColor:'transparent', tooltip:{trigger:'axis',axisPointer:{type:'cross'}},
+    legend:{data:['MA5','MA20','MA60'],textStyle:{color:'#9ca3af'},right:10,top:0},
+    grid:[{left:50,right:20,top:30,height:'60%'},{left:50,right:20,top:'76%',height:'15%'}],
+    xAxis:[{type:'category',data:kl.dates,axisLabel:{color:'#9ca3af'}},
+           {type:'category',data:kl.dates,gridIndex:1,axisLabel:{show:false}}],
+    yAxis:[{scale:true,axisLabel:{color:'#9ca3af'},splitLine:{lineStyle:{color:'#1a1d2e'}}},
+           {gridIndex:1,axisLabel:{show:false},splitLine:{show:false}}],
+    series:[
+      {type:'candlestick',data:kl.candle,itemStyle:{color:'#f6465d',color0:'#2ebd85',borderColor:'#f6465d',borderColor0:'#2ebd85'}},
+      {name:'MA5',type:'line',data:kl.ma5,smooth:true,symbol:'none',lineStyle:{width:1,color:'#e5c07b'}},
+      {name:'MA20',type:'line',data:kl.ma20,smooth:true,symbol:'none',lineStyle:{width:1,color:'#7c9ef8'}},
+      {name:'MA60',type:'line',data:kl.ma60,smooth:true,symbol:'none',lineStyle:{width:1,color:'#c084fc'}},
+      {type:'bar',xAxisIndex:1,yAxisIndex:1,data:kl.vol,itemStyle:{color:'#3a3f5c'}}
+    ]
+  });
+  requestAnimationFrame(()=>c.resize()); setTimeout(()=>c.resize(),120);
 }
 function detail(r){
   const ma=(r.above_ma20&&r.above_ma60&&r.slope_up)?'多头排列(MA20/60上+斜率向上)':(r.above_ma20?'站上MA20':'破位MA20');

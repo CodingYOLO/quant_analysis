@@ -200,7 +200,7 @@ _STAR_TOPN = 5
 # 质量门槛：只留重点分≥此值的"真正强的"，收紧池子(对标吴川·宁缺毋滥)。
 # 数量随行情变：弱市少(诚实)；普涨强势日再加 _POOL_MAX 封顶，避免爆量(对标吴川精选感)。
 _POOL_MIN_FOCUS = 60.0
-_POOL_MAX = 40
+_POOL_MAX = 60
 
 
 def _vol_health(vr: float) -> float:
