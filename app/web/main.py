@@ -714,6 +714,37 @@ async def api_stock_analyst(code: str = "", _user: str = Depends(require_auth)):
         return {"ok": False, "msg": str(e)}
 
 
+@app.get("/api/sector/heat")
+async def api_sector_heat(name: str = "", type: str = "industry", date: str = "",
+                         _user: str = Depends(require_auth)):
+    """单个板块(行业/概念)的热度+资金概览（读宽表 theme_heat_all_in_one），供展开行显示板块温度。"""
+    if not name:
+        return {"ok": False, "msg": "缺少 name 参数"}
+    try:
+        from app.data.theme_heat_db import get_theme, latest_trade_date
+        d = (date or "").replace("-", "")
+        row = get_theme(d, name, type) if d else None
+        if not row:                                   # 该日无→退到最近有宽表的交易日
+            ld = latest_trade_date(type)
+            row = get_theme(ld, name, type) if ld else None
+        if not row:
+            return {"ok": False, "msg": f"板块「{name}」无宽表数据"}
+        delta = row.get("heat_score_delta_3d") or 0.0
+        return {
+            "ok": True, "name": name, "type": type,
+            "heat": round(row.get("heat_score") or 0.0, 1),
+            "delta": round(delta, 1), "rising": delta > 0,
+            "money_flow_3d": row.get("money_flow_3d"),
+            "pct_chg_3d": row.get("pct_chg_3d"),
+            "breadth_ma20": row.get("breadth_ma20"),
+            "phase": row.get("phase"), "tier": row.get("tier"),
+            "trade_date": row.get("trade_date"),
+        }
+    except Exception as e:
+        logger.exception("板块热度查询失败")
+        return {"ok": False, "msg": str(e)}
+
+
 @app.get("/api/stock/alert")
 async def api_stock_alert(code: str = "", _user: str = Depends(require_auth)):
     """LLM 近期提示：博查真实新闻 → v4-flash 接地总结（按日缓存）。"""
