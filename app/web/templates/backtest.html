@@ -168,6 +168,27 @@ td { padding:7px 9px; border-bottom:1px solid #1e2138; white-space:nowrap; }
   <div style="font-size:13px;color:#9ca3af;margin:14px 0 6px">📋 历史信号明细（最近 60 次）</div>
   <div style="overflow-x:auto"><table id="trades"></table></div>
 </div>
+<!-- ③ 同类对比 + ④ 板块广度（较慢·按需触发）-->
+<div class="card" id="sectorcard" style="display:none">
+  <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px">
+    <div class="meta" style="margin:0">🧩 同类 / 板块分析</div>
+    <button class="runbtn" id="sector-btn" style="padding:6px 14px;font-size:13px">算同类/板块</button>
+    <span class="neu2" style="font-size:12px">同行业市值前30只 · 首次约1分钟、之后命中缓存秒开</span>
+  </div>
+  <div id="sector-status" class="neu2" style="font-size:13px"></div>
+  <div id="sector-body" style="display:none">
+    <div class="meta" id="sector-head" style="margin:8px 0"></div>
+    <div style="font-size:13px;color:#9ca3af;margin:6px 0">③ 同类基准 vs 本股 —— 这个 edge 是本股独有 alpha，还是板块共性？</div>
+    <div style="overflow-x:auto"><table id="sector-cmp"></table></div>
+    <div id="sector-verdict" style="display:none;font-size:13px;line-height:1.7;background:#12161f;border:1px solid #2a3a5a;border-radius:10px;padding:10px 13px;margin:10px 0"></div>
+    <div style="font-size:13px;color:#9ca3af;margin:12px 0 4px">④ 板块广度（成分中 % 站上 MA20/MA5，戳穿"指数被权重股顶住的虚强"）· 当前 <span id="sector-curbreadth"></span></div>
+    <div id="breadth-chart" style="height:240px"></div>
+    <div style="font-size:13px;color:#9ca3af;margin:14px 0 4px">④ 同类信号在不同板块广度下的 T+5 表现（汇总大样本，统计更稳）</div>
+    <div class="cards" id="breadth-cards"></div>
+    <div class="neu2" style="font-size:11px;margin-top:8px">同类=当前同行业市值前N、非ST，含一定幸存者偏差，作参考；买入次日开盘·卖出T+N收盘。</div>
+  </div>
+</div>
+
 <div id="cap-foot" style="display:none;margin-top:10px;font-size:11px;color:#6b7280;text-align:center">
   由 A股Agent 生成 · 历史回测≠未来收益，仅供研究讨论，不构成投资建议
 </div>
@@ -259,11 +280,17 @@ function applyFilter(rg){
 document.querySelectorAll('.rgbtn').forEach(b=>b.addEventListener('click',()=>applyFilter(b.dataset.rg||'')));
 
 // 展示一份回测结果（新跑 / 历史载入共用）
+let lastResult=null;
 function displayResult(d){
+  lastResult=d;
   document.getElementById('rescard').style.display='block';   // 先显示再渲染图表(避免0尺寸)
   render(d);
   document.getElementById('cap-head-sub').textContent=d.ts_code+' · 信号「'+d.signal_label+'」 · '+d.start+'~'+d.end;
   document.getElementById('export-bar').style.display='flex';
+  // 同类/板块分析按钮就绪，重置上次结果
+  document.getElementById('sectorcard').style.display='block';
+  document.getElementById('sector-body').style.display='none';
+  document.getElementById('sector-status').textContent='';
 }
 
 // 大盘状态分层（A股配色：强势=红 up / 弱势=绿 down / 震荡=灰）
@@ -305,6 +332,85 @@ function renderRegime(d){
   document.getElementById('rg-filter-note').textContent= rf ? ('已只统计大盘「'+rf+'」时的信号（上方胜率/资金曲线已据此重算）')
     : '点开关只统计某状态下的信号，看纪律化后的胜率/收益变化';
   card.style.display='block';
+}
+
+// ── 同类/板块分析（③同类对比 + ④板块广度）──
+let breadthChart=null;
+document.getElementById('sector-btn').addEventListener('click', async ()=>{
+  if(!baseParams) return;
+  const btn=document.getElementById('sector-btn'), st=document.getElementById('sector-status');
+  const old=btn.textContent; btn.disabled=true; btn.textContent='⏳ 分析中…';
+  st.textContent='⏳ 拉取同行业成分并逐只回测（首次约1分钟，之后命中缓存秒开）…';
+  try{
+    const r=await fetch('/api/backtest/sector',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({...baseParams})});
+    const s=await r.json();
+    if(!s.ok){ st.textContent='ℹ️ '+(s.msg||'同类分析失败'); return; }
+    st.textContent='✅ 同类 '+s.n_peers+' 只 · 信号样本 '+s.n_occ+' 次';
+    renderSector(s);
+  }catch(e){ st.textContent='❌ '+e; }
+  finally{ btn.disabled=false; btn.textContent=old; }
+});
+
+function _avg(s){ return (s&&s.n)? ((s.avg_return>0?'+':'')+s.avg_return+'%') : '—'; }
+function _wrCell(s){
+  if(!s||!s.n) return '<td class="neu2">—</td>';
+  return '<td><span class="'+(s.win_rate>=0.5?'up':'down')+'">'+Math.round(s.win_rate*100)
+    +'%</span> <span class="neu2" style="font-size:11px">'+_avg(s)+'</span></td>';
+}
+
+function renderSector(s){
+  document.getElementById('sector-body').style.display='block';
+  document.getElementById('sector-head').innerHTML='行业「<b>'+s.industry+'</b>」· 同类 <b>'+s.n_peers
+    +'</b> 只 · 信号样本 <b>'+s.n_occ+'</b> 次　<span class="neu2" style="font-size:11px">'+(s.peers_sample||[]).slice(0,8).join('、')+'…</span>';
+  // ③ 本股 vs 同类基准
+  const me=(lastResult&&lastResult.horizons)||{}, peer=s.pooled||{};
+  let h='<thead><tr><th></th><th>T+1</th><th>T+3</th><th>T+5</th><th>T+10</th></tr></thead><tbody>';
+  const rowFor=(label,src)=>'<tr><td>'+label+'</td>'+[1,3,5,10].map(hz=>_wrCell(src[hz])).join('')+'</tr>';
+  document.getElementById('sector-cmp').innerHTML=h+rowFor('本股',me)+rowFor('同类基准',peer)+'</tbody>';
+  // ③ 结论（T+5）
+  const m5=me[5], p5=peer[5], vd=document.getElementById('sector-verdict');
+  if(m5&&m5.n&&p5&&p5.n){
+    const mw=Math.round(m5.win_rate*100), pw=Math.round(p5.win_rate*100), diff=mw-pw;
+    let txt;
+    if(diff>=8) txt='本股 T+5 胜率 <b>'+mw+'%</b> 明显高于同类 <b>'+pw+'%</b>（+'+diff+'pt）→ 这个 edge 含本股自身 alpha，本股是同类里的强者。';
+    else if(diff<=-8) txt='本股 <b>'+mw+'%</b> 低于同类 <b>'+pw+'%</b>（'+diff+'pt）→ 打法在同类更灵、本股偏弱，可考虑换更强的同类标的。';
+    else txt='本股 <b>'+mw+'%</b> ≈ 同类 <b>'+pw+'%</b> → 这个打法是<b>板块共性</b>、非本股特长（信号有效，但选这只票无明显超额）。';
+    vd.innerHTML='📌 '+txt; vd.style.display='block';
+  } else vd.style.display='none';
+  // ④ 当前广度 + 曲线
+  const cb=s.current_breadth||{};
+  document.getElementById('sector-curbreadth').innerHTML='站上MA20 <b class="'+(cb.pct_ma20>=50?'up':'down')+'">'
+    +(cb.pct_ma20==null?'—':cb.pct_ma20+'%')+'</b>　站上MA5 '+(cb.pct_ma5==null?'—':cb.pct_ma5+'%');
+  renderBreadth(s.breadth_curve||[]);
+  // ④ 信号 × 广度分桶（T+5）
+  const cardsEl=document.getElementById('breadth-cards'); cardsEl.innerHTML='';
+  ['板块强(≥60%)','板块中性(40-60%)','板块弱(<40%)'].forEach(lbl=>{
+    const b=s.by_breadth[lbl], st5=(b&&b.horizons&&b.horizons[5]);
+    if(!st5||!st5.n){ cardsEl.innerHTML+='<div class="kcard"><div class="h">'+lbl+'</div><div class="v neu2">—</div><div class="s">样本不足</div></div>'; return; }
+    const wr=Math.round(st5.win_rate*100), cls=wr>=50?'win-hi':'win-lo';
+    cardsEl.innerHTML+='<div class="kcard"><div class="h">'+lbl+'（'+st5.n+'次）</div>'
+      +'<div class="v '+cls+'">'+wr+'%</div><div class="s">T+5 均收益 '+(st5.avg_return>0?'+':'')+st5.avg_return+'%</div></div>';
+  });
+  document.getElementById('sectorcard').scrollIntoView({behavior:'smooth',block:'start'});
+}
+
+function renderBreadth(curve){
+  if(!breadthChart) breadthChart=echarts.init(document.getElementById('breadth-chart'));
+  breadthChart.setOption({
+    backgroundColor:'transparent', grid:{left:48,right:20,top:28,bottom:35},
+    legend:{data:['%站上MA20','%站上MA5'],textStyle:{color:'#9ca3af'},right:10,top:0},
+    tooltip:{trigger:'axis'},
+    xAxis:{type:'category',data:curve.map(c=>c.date),axisLabel:{color:'#9ca3af'}},
+    yAxis:{type:'value',min:0,max:100,axisLabel:{color:'#9ca3af',formatter:'{value}%'},splitLine:{lineStyle:{color:'#1e2138'}}},
+    series:[
+      {name:'%站上MA20',type:'line',data:curve.map(c=>c.ma20),smooth:true,symbol:'none',
+        lineStyle:{color:'#7c9ef8',width:2},areaStyle:{color:'rgba(124,158,248,.10)'},
+        markLine:{silent:true,symbol:'none',data:[{yAxis:50}],lineStyle:{color:'#6b7280',type:'dashed'}}},
+      {name:'%站上MA5',type:'line',data:curve.map(c=>c.ma5),smooth:true,symbol:'none',lineStyle:{color:'#e5c07b',width:1}},
+    ],
+  });
+  requestAnimationFrame(()=>breadthChart.resize());
 }
 
 function render(d){
@@ -519,13 +625,13 @@ function renderKline(kl){
   requestAnimationFrame(()=>klineChart.resize());
 }
 // 窗口缩放时图表自适应
-window.addEventListener('resize', ()=>{ if(chart) chart.resize(); if(klineChart) klineChart.resize(); });
+window.addEventListener('resize', ()=>{ if(chart) chart.resize(); if(klineChart) klineChart.resize(); if(breadthChart) breadthChart.resize(); });
 
 // ── 导出长图 / PDF（发给家人讨论）──
 // ECharts 是 canvas，html2canvas 有时抓不全 → 截图前把图表转成 <img> 覆盖，截完还原
 function chartsToImg(){
   const restore=[];
-  [['equity',chart],['kline',klineChart]].forEach(([id,c])=>{
+  [['equity',chart],['kline',klineChart],['breadth-chart',breadthChart]].forEach(([id,c])=>{
     if(!c) return;
     const el=document.getElementById(id);
     const img=document.createElement('img');

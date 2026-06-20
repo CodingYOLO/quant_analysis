@@ -653,6 +653,29 @@ async def api_backtest_stock(request: Request, _user: str = Depends(require_auth
         return {"ok": False, "msg": str(e)}
 
 
+@app.post("/api/backtest/sector")
+async def api_backtest_sector(request: Request, _user: str = Depends(require_auth)):
+    """同类/板块分析：同类基准胜率(③) + 板块广度曲线 + 信号×广度分桶(④)。较慢→跑线程池。"""
+    try:
+        from fastapi.concurrency import run_in_threadpool
+
+        from app.backtest.sector_backtest import analyze_sector
+        body = await request.json()
+        ts_code = _resolve_ts_code(body.get("code", ""))
+        if not ts_code:
+            return {"ok": False, "msg": "无法识别股票（请输入6位代码/完整代码/名称）"}
+        start = (body.get("start") or "").replace("-", "")
+        end = (body.get("end") or "").replace("-", "")
+        if not start or not end:
+            return {"ok": False, "msg": "请选择回测起止日期"}
+        return await run_in_threadpool(
+            analyze_sector, ts_code, body.get("signal", ""), start, end,
+            custom=body.get("custom"))
+    except Exception as e:
+        logger.exception("同类/板块分析失败")
+        return {"ok": False, "msg": str(e)}
+
+
 @app.get("/api/backtest/history")
 async def api_backtest_history(q: str = "", limit: int = 100,
                                _user: str = Depends(require_auth)):
