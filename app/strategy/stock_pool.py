@@ -29,6 +29,9 @@ _W = {"strategy": 0.35, "theme": 0.15, "rule_selected": 0.08, "factor": 0.30}
 _THEME_HEAT_MIN = 60.0       # 主题选股：热度下限
 _MAX_PER_THEME = 3           # 单主题入选上限（风控）
 _FOCUS_CONF_MIN = 0.55       # 最关注置信度下限
+# 弱市板块感知开仓（A股结构化·弱市≠没机会）：板块热度≥此值+资金流入+本股多头→可试仓
+_WEAK_BOARD_HEAT_MIN = 70.0
+_WEAK_TRIAL_POS = 0.03       # 弱市强板块龙头的降仓试仓仓位（标准档）
 
 # 历史主题胜率前向闸门（对标吴川：低胜率主题禁追涨）
 _WINRATE_MIN_SAMPLES = 10    # 闸门生效的最小历史样本数（不足则不判，避免小样本误杀）
@@ -246,10 +249,30 @@ def _compute_focus_scores(records: list[dict]) -> None:
 # 风控
 # ──────────────────────────────────────────────
 
+def _open_gate(rec: dict, market_label: str) -> tuple[bool, float]:
+    """
+    开仓闸门（板块感知·A股结构化）：返回 (是否可开, 建议仓位)。
+
+    - 强势/震荡市：正常开仓，仓位按大盘。
+    - **弱市不一刀切**：板块强（热度≥阈值 + 主力资金流入 + 本股多头排列）的主线龙头
+      仍可做，但**降仓试仓**（弱市β逆风，控风险）；板块也弱→观察。
+    - 数据缺失：一律不开（无可靠依据）。
+    """
+    if market_label == "数据缺失":
+        return False, 0.0
+    if market_label not in ("弱势", "衰退"):
+        return True, calc_position_pct(market_label)
+    board_strong = (rec["theme_heat"] >= _WEAK_BOARD_HEAT_MIN
+                    and rec["main_flow_3d"] > 0 and rec["above_ma20"])
+    if board_strong:
+        rec["risk_flags"].append("弱市·强板块龙头·降仓试仓")
+        return True, _WEAK_TRIAL_POS
+    rec["risk_flags"].append(f"大盘{market_label}·板块未走强·仅观察")
+    return False, 0.0
+
+
 def _apply_risk(records: list[dict], market_label: str, zhaban_warn: bool) -> list[dict]:
-    """单主题上限 + 涨停溢价预警 + 历史胜率闸门 + 大盘仓位；定 is_focus。"""
-    can_open = market_label not in ("弱势", "衰退", "数据缺失")
-    pos = calc_position_pct(market_label)
+    """单主题上限 + 涨停溢价预警 + 历史胜率闸门 + 板块感知开仓闸门；定 is_focus。"""
     focus_conf = _FOCUS_CONF_MIN + (0.1 if zhaban_warn else 0)  # 预警时抬高门槛
     win_rates = _theme_win_rates_safe()        # {theme: {win_rate, samples, avg_return}}
 
@@ -259,6 +282,7 @@ def _apply_risk(records: list[dict], market_label: str, zhaban_warn: bool) -> li
         veto = _apply_winrate_gate(rec, win_rates)   # 低胜率主题 → 降级"仅观察"
         # 最关注须有真实策略信号(①~④)，仅蹭热门主题不够
         strat_hit = any(s != "theme_pick" for s in rec["strategies"])
+        can_open, pos = _open_gate(rec, market_label)   # 板块感知：弱市强板块仍可试仓
         focus = (strat_hit and rec["confidence"] >= focus_conf and can_open and not veto)
         if focus:
             c = per_theme.get(rec["theme"], 0)
@@ -272,8 +296,6 @@ def _apply_risk(records: list[dict], market_label: str, zhaban_warn: bool) -> li
             rec["position_pct"] = pos
         if zhaban_warn:
             rec["risk_flags"].append("昨日涨停溢价转负·需复核")
-        if not can_open:
-            rec["risk_flags"].append(f"大盘{market_label}·仅观察")
     return records
 
 

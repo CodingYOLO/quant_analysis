@@ -440,8 +440,13 @@ async def api_stockpool(date: str = "", _user: str = Depends(require_auth)):
         focus = sum(1 for r in rows if r.get("is_focus"))
         # 日期语义：data_date=分析所用收盘数据日；next_date=推荐观察/买入日（下一交易日）
         latest = _last_trade_date()                       # 最新「应有数据」的交易日
+        try:
+            from app.strategy.stock_pool import infer_market_label
+            market_label = infer_market_label(d)          # 大盘状态(轻量·缓存)，供前端横幅
+        except Exception:
+            market_label = ""
         return {
-            "ok": True, "available": True, "date": d,
+            "ok": True, "available": True, "date": d, "market_label": market_label,
             "total": len(rows), "focus": focus, "rows": rows,
             "next_date": _next_trade_date(d),             # 推荐买入日
             "gen_time": pool_gen_time(d),                 # 选股池生成时间（北京时间）

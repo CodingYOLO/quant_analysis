@@ -47,6 +47,24 @@ def test_focus_score_fewer_than_5() -> None:
     assert SP._compute_focus_scores([]) is None  # 空安全
 
 
+def test_open_gate_board_aware() -> None:
+    strong = lambda: {"theme_heat": 85.0, "main_flow_3d": 5.0, "above_ma20": 1, "risk_flags": []}
+    weak = lambda: {"theme_heat": 50.0, "main_flow_3d": -1.0, "above_ma20": 0, "risk_flags": []}
+    # 强势/震荡市：正常开仓
+    assert SP._open_gate(strong(), "震荡") == (True, 0.03)
+    assert SP._open_gate(strong(), "主升") == (True, 0.05)
+    # 弱市 + 强板块龙头(热度≥70+资金流入+多头) → 可做·试仓3%
+    ok, pos = SP._open_gate(strong(), "弱势")
+    assert ok is True and pos == SP._WEAK_TRIAL_POS
+    # 弱市 + 弱板块 → 不开(观察)
+    assert SP._open_gate(weak(), "弱势")[0] is False
+    # 弱市 + 热度够但资金流出 → 不开(必须真有资金)
+    r = strong(); r["main_flow_3d"] = -0.5
+    assert SP._open_gate(r, "弱势")[0] is False
+    # 数据缺失 → 一律不开
+    assert SP._open_gate(strong(), "数据缺失")[0] is False
+
+
 def _run_all() -> None:
     fns = [v for k, v in sorted(globals().items())
            if k.startswith("test_") and callable(v)]

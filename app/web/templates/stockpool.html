@@ -62,6 +62,7 @@ tr.datarow:hover td { background:#1e2138; cursor:pointer; }
   <button class="chip" id="reload" style="cursor:pointer;color:#7c9ef8">🔄 加载</button>
 </div>
 <div class="databar" id="databar" style="display:none"></div>
+<div id="mktbanner" style="display:none;margin:8px 0;padding:9px 14px;border-radius:8px;font-size:13px;line-height:1.7"></div>
 <div class="meta" id="meta"></div>
 
 <div id="loading" class="neu2" style="font-size:14px;padding:16px">⏳ 加载中…</div>
@@ -113,6 +114,7 @@ async function load(){
     // 回填日期框为实际数据日（默认进来时为空，此处显示后端选定的最新池日期）
     if(j.date&&j.date.length===8){ document.getElementById('date').value=j.date.replace(/(\d{4})(\d{2})(\d{2})/,'$1-$2-$3'); }
     renderDatabar(j);
+    renderMktBanner(j.market_label);
     const nstar=rows.filter(r=>r.star).length;
     document.getElementById('meta').innerHTML='<span class="chip">总数 '+j.total+'</span>'
       +'<span class="chip" style="color:#4ade80">⭐ 重点 '+nstar+'</span>'
@@ -157,6 +159,22 @@ function boardBadge(code){ const b=boardOf(code);
   if(b==='创业') return '<span class="bd bd-cy" title="创业板·涨跌幅±20%·需开通创业板权限">创业</span>';
   if(b==='北交') return '<span class="bd bd-bj" title="北交所·涨跌幅±30%·需开通北交所权限">北交</span>';
   return ''; }
+
+// 大盘状态横幅：弱市说明"板块感知"风控(强板块龙头仍可试仓)，一眼懂全局不必每行重复
+function renderMktBanner(lbl){
+  const el=document.getElementById('mktbanner');
+  if(!lbl){ el.style.display='none'; return; }
+  if(lbl==='弱势'||lbl==='衰退'){
+    el.style.background='#2a1d0a'; el.style.border='1px solid #5a4018'; el.style.color='#f0a020';
+    el.innerHTML='⚠️ 今日大盘【'+lbl+'】 · <b>弱市≠没机会（A股结构化）</b>：仅<b>强板块龙头</b>'
+      +'（板块热度≥70 + 主力资金流入 + 多头排列）给「可关注·<b>降仓试仓3%</b>」，板块也弱的仅观察。'
+      +'<br><span style="opacity:.85;font-size:12px">★绿=风控通过可试仓；★观=最强但板块未走强→先观察。弱市β逆风，务必严格止损。</span>';
+  }else{
+    el.style.background='#0e2a1a'; el.style.border='1px solid #1a4a30'; el.style.color='#2ebd85';
+    el.innerHTML='✅ 今日大盘【'+lbl+'】 · 可正常开仓（仓位按大盘：升温/主升5% · 震荡3%）。';
+  }
+  el.style.display='block';
+}
 
 function render(){
   const kw=(document.getElementById('search').value||'').trim();
