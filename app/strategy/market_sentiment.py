@@ -141,8 +141,16 @@ def build_dashboard(end_date: str, days: int = 22, start_date: str = "", force: 
     else:
         range_dates = [d for d in all_dates if d in per_day][-days:]
 
-    # —— 连板梯队（每日 2板/3板/4板/5板+ 家数 + 最高板）——
+    # —— 连板梯队 + 涨跌停：优先官方 limit_list_d（准确·含炸板），失败回退日线推断 ——
     lianban_series = _lianban_series(all_dates, limit_sets, range_dates)
+    official = _official_limit_series(provider, range_dates)
+    if official:
+        for i, d in enumerate(range_dates):
+            if d in per_day:
+                per_day[d]["limit_up"] = official["limit_up"][i]
+                per_day[d]["limit_down"] = official["limit_down"][i]
+        lianban_series = official["lianban"]
+    limit_official = (official or {}).get("latest", {})
 
     # —— 市场广度（5日线占比，全市场+大中小盘）——
     breadth = _breadth_series(provider, end_date, range_dates)
@@ -150,21 +158,13 @@ def build_dashboard(end_date: str, days: int = 22, start_date: str = "", force: 
     # —— 指数涨跌幅 ——
     indices = _index_series(provider, end_date, range_dates)
 
-    # —— KPI（最新交易日）——
+    # —— KPI（最新交易日，连板/涨跌停已用官方）——
     last = range_dates[-1]
     prev = range_dates[-2] if len(range_dates) >= 2 else last
     kpi = _build_kpi(per_day, lianban_series, breadth, last, prev)
 
     # —— 区间行情类型判断（震荡/牛市/熊市）——
     regime = _classify_market_regime(indices, breadth, per_day, range_dates)
-
-    # 官方打板情绪（limit_list_d）：炸板率/连板天梯/封单额 Top，比日线推断更准
-    try:
-        from app.strategy.market_extras import get_limit_analysis
-        limit_official = get_limit_analysis(range_dates[-1]) if range_dates else {}
-    except Exception:
-        logger.warning("[sentiment] 官方打板数据获取失败", exc_info=True)
-        limit_official = {}
 
     result = {
         "end_date": end_date,
@@ -240,6 +240,46 @@ def _lianban_series(all_dates: list[str], limit_sets: dict[str, set],
         b5p.append(sum(c for hh, c in hcount.items() if hh >= 5))
         heights.append(max(hcount.keys()) if hcount else 0)
     return {"b3": b3, "b4": b4, "b5p": b5p, "height": heights}
+
+
+def _lianban_dist(up_df) -> tuple[dict, int]:
+    """官方涨停榜 DataFrame → ({连板数: 家数}, 最高连板)。limit_times 即连板数。"""
+    if up_df is None or up_df.empty or "limit_times" not in up_df.columns:
+        return {}, 0
+    lt = pd.to_numeric(up_df["limit_times"], errors="coerce").fillna(1).astype(int)
+    dist: dict[int, int] = {}
+    for v in lt:
+        if v >= 2:
+            dist[int(v)] = dist.get(int(v), 0) + 1
+    return dist, int(lt.max()) if len(lt) else 0
+
+
+def _official_limit_series(provider, range_dates: list[str]) -> dict | None:
+    """
+    官方 limit_list_d 逐日序列：涨停/跌停家数 + 连板梯队(b3/b4/b5p/height) + 最新日完整(含炸板)。
+    比日线"±涨幅推断"准（能分清涨停/炸板、连板晋级）。任一日失败即回退日线（返回 None）。
+    """
+    if not range_dates:
+        return None
+    lu, ld, b3, b4, b5p, height = ([] for _ in range(6))
+    try:
+        for d in range_dates:
+            up = provider.get_limit_list(d, "U")
+            down = provider.get_limit_list(d, "D")
+            lu.append(int(len(up)) if up is not None else 0)
+            ld.append(int(len(down)) if down is not None else 0)
+            dist, mx = _lianban_dist(up)
+            b3.append(dist.get(3, 0))
+            b4.append(dist.get(4, 0))
+            b5p.append(sum(c for h, c in dist.items() if h >= 5))
+            height.append(mx)
+    except Exception:
+        logger.warning("[sentiment] 官方连板序列失败，回退日线推断", exc_info=True)
+        return None
+    from app.strategy.market_extras import get_limit_analysis
+    latest = get_limit_analysis(range_dates[-1], provider) or {}
+    return {"limit_up": lu, "limit_down": ld,
+            "lianban": {"b3": b3, "b4": b4, "b5p": b5p, "height": height}, "latest": latest}
 
 
 def _breadth_series(provider, end_date: str, range_dates: list[str]) -> dict:

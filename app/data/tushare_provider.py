@@ -126,6 +126,21 @@ class TushareProvider(DataProvider):
             ts_code=ts_code, start_date=start, end_date=end,
         )
 
+    def get_limit_list(self, trade_date: str, limit_type: str = "U") -> pd.DataFrame:
+        """官方涨跌停/炸板榜（limit_list_d）。limit_type: U涨停/D跌停/Z炸板。按(日期+类型)缓存。"""
+        return cached_daily(
+            name=f"tushare_limit_{limit_type}",
+            date_key=trade_date,
+            fetch_fn=lambda: self._fetch_limit_list(trade_date, limit_type),
+        )
+
+    @_RETRY
+    def _fetch_limit_list(self, trade_date: str, limit_type: str) -> pd.DataFrame:
+        return rate_limited_call(
+            "tushare_limit_list", self._api.limit_list_d,
+            trade_date=trade_date, limit_type=limit_type,
+        )
+
     def get_cyq_perf(self, ts_code: str, start_date: str, end_date: str) -> pd.DataFrame:
         """单股筹码分布（每日：加权平均成本/获利盘比例/各分位成本）。缓存一天。"""
         import datetime

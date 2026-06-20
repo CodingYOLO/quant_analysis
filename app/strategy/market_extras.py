@@ -78,12 +78,11 @@ def get_limit_analysis(date: str, provider: CompositeProvider | None = None) -> 
     返回：涨停数/跌停数/炸板数/炸板率/连板分布/最高连板/封单额Top。
     """
     provider = provider or CompositeProvider()
-    pro = provider._ts._api  # TushareProvider 内部 pro_api
     out: dict = {}
     try:
-        up = pro.limit_list_d(trade_date=date, limit_type="U")
-        down = pro.limit_list_d(trade_date=date, limit_type="D")
-        zhaban = pro.limit_list_d(trade_date=date, limit_type="Z")  # 炸板
+        up = provider.get_limit_list(date, "U")        # 缓存+限频
+        down = provider.get_limit_list(date, "D")
+        zhaban = provider.get_limit_list(date, "Z")    # 炸板
     except Exception as e:
         logger.warning("[limit] 涨停板数据失败: %s", e)
         return out

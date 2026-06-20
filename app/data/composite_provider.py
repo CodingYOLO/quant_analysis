@@ -47,6 +47,9 @@ class CompositeProvider(DataProvider):
     def get_report_rc(self, ts_code: str) -> pd.DataFrame:
         return self._ts.get_report_rc(ts_code)
 
+    def get_limit_list(self, trade_date: str, limit_type: str = "U") -> pd.DataFrame:
+        return self._ts.get_limit_list(trade_date, limit_type)
+
     def get_adj_factor_series(self, ts_code: str, start_date: str, end_date: str) -> pd.DataFrame:
         return self._ts.get_adj_factor_series(ts_code, start_date, end_date)
 

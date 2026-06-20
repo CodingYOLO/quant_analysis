@@ -91,7 +91,7 @@ window.addEventListener('resize', ()=>{ Object.values(_charts).forEach(c=>c.resi
 async function load(){
   const loadingEl = document.getElementById('loading');
   loadingEl.style.display='block';
-  loadingEl.textContent='⏳ 正在加载大盘情绪数据（首次约30-60秒）...';
+  loadingEl.textContent='⏳ 正在加载大盘情绪数据（含官方连板/涨跌停，首次约1-2分钟，之后命中缓存秒开）...';
   document.getElementById('dash').style.display='none';
   const start = (document.getElementById('d-start').value||'').replace(/-/g,'');
   const end = (document.getElementById('d-end').value||'').replace(/-/g,'');
