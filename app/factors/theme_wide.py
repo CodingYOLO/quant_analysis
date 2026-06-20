@@ -295,6 +295,11 @@ def build_concept_wide(
     return rows
 
 
+def concept_members_map(provider: CompositeProvider) -> dict[str, list[str]]:
+    """公开口径：{概念名: [成分 ts_code]}（周缓存）。供板块广度雷达等模块复用。"""
+    return _load_concept_members(provider)
+
+
 def _load_concept_members(provider: CompositeProvider) -> dict[str, list[str]]:
     """
     {概念名: [成分 ts_code]}，按 ISO 周缓存（成分变动慢）。

@@ -18,6 +18,12 @@
 @media (max-width: 900px){ .kpi-row{grid-template-columns:repeat(2,1fr)} .chart-grid{grid-template-columns:1fr} }
 .preset { background:#0f1117; border:1px solid #2d3052; color:#9ca3af; border-radius:14px; padding:4px 12px; font-size:12px; cursor:pointer; transition:all .15s; }
 .preset:hover, .preset.active { background:#2742a8; color:#fff; border-color:#3358e0; }
+.radar-grid { display:grid; grid-template-columns:1.05fr .95fr; gap:18px; }
+.radar-item { cursor:pointer; padding:5px 6px; border-radius:6px; border-bottom:1px solid #1e2138; transition:background .12s; }
+.radar-item:hover { background:#1a1d2e; }
+.radar-item.sel { background:#11261c; }
+.radar-sel { background:#0f1117; color:#e8e8e8; border:1px solid #2d3052; border-radius:6px; padding:6px 9px; font-size:12.5px; max-width:280px; }
+@media (max-width: 900px){ .radar-grid{ grid-template-columns:1fr } }
 {% endblock %}
 
 {% block content %}
@@ -62,6 +68,37 @@
     <div class="chart-card chart-full"><h3>涨跌停分布对比</h3><div id="c-limit" class="chart"></div></div>
     <div class="chart-card"><h3>连板梯队结构</h3><div id="c-lianban" class="chart"></div></div>
     <div class="chart-card"><h3>指数累计涨跌幅（%，区间内）</h3><div id="c-index" class="chart"></div></div>
+  </div>
+</div>
+
+<!-- 🔭 板块广度雷达：切板块看广度趋势 + 今日低吸雷达（已过滤无催化烂板块）-->
+<div class="chart-card chart-full" id="radar-card" style="margin-top:18px">
+  <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px">
+    <h3 style="margin:0;text-align:left">🔭 板块广度雷达
+      <span class="neu" style="font-weight:400;font-size:12px">（切板块看广度趋势 + 今日低吸雷达·烂板块已过滤）</span></h3>
+    <span style="margin-left:auto"></span>
+    <span class="preset rtype active" data-t="concept">概念</span>
+    <span class="preset rtype" data-t="industry">行业</span>
+  </div>
+  <div id="radar-status" class="neu" style="font-size:13px;padding:6px 0">⏳ 加载板块雷达…</div>
+  <div id="radar-body" style="display:none">
+    <div class="radar-grid">
+      <!-- 左：可切换板块的广度时序 -->
+      <div>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px">
+          <select id="radar-board" class="radar-sel"></select>
+          <span id="radar-breadth-cur" class="neu" style="font-size:12px"></span>
+        </div>
+        <div id="c-radar-breadth" class="chart" style="height:280px"></div>
+      </div>
+      <!-- 右：三栏诊断（低吸为主）-->
+      <div style="font-size:13px">
+        <div id="radar-dip"></div>
+        <div id="radar-rotate"></div>
+        <div id="radar-risk"></div>
+        <div id="radar-note" class="neu" style="font-size:11px;margin-top:10px;line-height:1.6"></div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -253,6 +290,93 @@ function render(d){
     series:idxSeries
   }));
 }
+
+// ── 🔭 板块广度雷达（独立加载，不依赖情绪主数据）──
+let radarType='concept';
+async function loadRadar(){
+  const st=document.getElementById('radar-status');
+  st.style.display='block'; st.textContent='⏳ 加载板块雷达…';
+  document.getElementById('radar-body').style.display='none';
+  try{
+    const r=await fetch('/api/sector/radar?type='+radarType);
+    const d=await r.json().catch(()=>null);
+    if(!d||!d.ok){ st.textContent='❌ '+((d&&d.error)||'雷达加载失败'); return; }
+    if(!d.available){ st.textContent='ℹ️ '+(d.msg||'板块宽表尚未计算（盘后 wide 任务生成）'); return; }
+    st.style.display='none';
+    document.getElementById('radar-body').style.display='block';
+    renderRadar(d);
+  }catch(e){ st.textContent='❌ '+e; }
+}
+
+function radarItem(r){
+  return '<div class="radar-item" data-name="'+r.name+'"><b style="color:#c9d2f8">'+r.name
+    +'</b> <span class="neu" style="font-size:11px">'+r.reason+'</span></div>';
+}
+function bucketHtml(title,color,rows,emptyMsg){
+  let h='<div style="font-weight:600;color:'+color+';margin:8px 0 4px">'+title
+    +' <span class="neu" style="font-weight:400;font-size:11px">('+(rows?rows.length:0)+')</span></div>';
+  if(!rows||!rows.length) return h+'<div class="neu" style="font-size:12px;padding:2px 0">'+emptyMsg+'</div>';
+  return h+rows.slice(0,6).map(radarItem).join('');
+}
+function renderRadar(d){
+  const sel=document.getElementById('radar-board');
+  sel.innerHTML=d.boards.map(b=>'<option value="'+b.name+'">'+b.name
+    +(b.signal?' ['+b.signal+']':'')+' · 热'+(b.heat_score!=null?Math.round(b.heat_score):'—')+'</option>').join('');
+  document.getElementById('radar-dip').innerHTML=
+    bucketHtml('🎯 今日低吸雷达（值得抄·点查广度）','#2ebd85',d.dip,'今日该类型无值得低吸的板块 —— 宁可不抄，可切换上方「行业/概念」看看');
+  document.getElementById('radar-rotate').innerHTML=
+    bucketHtml('🚀 轮动上行（在途主线·可追）','#f6465d',d.rotate,'今日无轮动上行板块');
+  document.getElementById('radar-risk').innerHTML=
+    bucketHtml('⚠️ 高位风险（拥挤·防接盘）','#f0a020',d.risk,'今日无高位拥挤板块');
+  document.getElementById('radar-note').textContent='ℹ️ '+(d.note||'');
+  if(d.default){ sel.value=d.default; loadBreadth(d.default); }
+}
+
+async function loadBreadth(name){
+  const cur=document.getElementById('radar-breadth-cur');
+  // 高亮当前选中的三栏条目
+  document.querySelectorAll('.radar-item').forEach(it=>it.classList.toggle('sel',it.dataset.name===name));
+  cur.textContent='⏳ 计算「'+name+'」广度（首次约数十秒，之后秒回）…';
+  try{
+    const r=await fetch('/api/sector/breadth?type='+radarType+'&name='+encodeURIComponent(name)+'&days=45');
+    const d=await r.json().catch(()=>null);
+    if(!d||!d.ok){ cur.textContent='ℹ️ '+((d&&d.msg)||'无数据'); return; }
+    const m20=d.current&&d.current.ma20;
+    cur.innerHTML='成分 '+d.n_members+' 只 · 当前站上MA20 <b class="'+((m20||0)>=50?'up':'down')+'">'
+      +(m20==null?'—':Math.round(m20)+'%')+'</b> <span class="neu" style="font-size:11px">（市值前N代表性成分·前复权实时算）</span>';
+    renderBreadthChart(d);
+  }catch(e){ cur.textContent='❌ '+e; }
+}
+function renderBreadthChart(d){
+  const dates=(d.curve||[]).map(c=>c.date.slice(4,6)+'-'+c.date.slice(6));
+  chart('c-radar-breadth',Object.assign(baseOpt(),{
+    legend:{data:['%站上MA20','%站上MA5'],textStyle:{color:'#9ca3af',fontSize:11},top:0},
+    xAxis:{type:'category',data:dates,...AX},
+    yAxis:{type:'value',min:0,max:100,axisLabel:{formatter:'{value}%',color:'#9ca3af'},splitLine:{lineStyle:{color:'#1e2138'}}},
+    series:[
+      {name:'%站上MA20',type:'line',data:d.curve.map(c=>c.ma20),smooth:true,symbol:'none',
+        lineStyle:{color:'#7c9ef8',width:2.5},areaStyle:{color:'rgba(124,158,248,.10)'},
+        markLine:{silent:true,symbol:'none',data:[{yAxis:50}],lineStyle:{color:'#6b7280',type:'dashed'},label:{formatter:'50%',color:'#6b7280'}}},
+      {name:'%站上MA5',type:'line',data:d.curve.map(c=>c.ma5),smooth:true,symbol:'none',lineStyle:{color:'#e5c07b',width:1.5}}
+    ]
+  }));
+  requestAnimationFrame(()=>{ if(_charts['c-radar-breadth']) _charts['c-radar-breadth'].resize(); });
+}
+
+// 点三栏条目 → 载入其广度；切下拉 → 载入；切类型 → 重载雷达
+document.getElementById('radar-body').addEventListener('click', ev=>{
+  const it=ev.target.closest('.radar-item'); if(!it) return;
+  document.getElementById('radar-board').value=it.dataset.name;
+  loadBreadth(it.dataset.name);
+});
+document.getElementById('radar-board').addEventListener('change', e=>loadBreadth(e.target.value));
+document.querySelectorAll('.rtype').forEach(p=>p.addEventListener('click', ()=>{
+  if(p.classList.contains('active')) return;
+  document.querySelectorAll('.rtype').forEach(x=>x.classList.remove('active'));
+  p.classList.add('active'); radarType=p.dataset.t; loadRadar();
+}));
+
 load();
+loadRadar();   // 雷达独立加载（不等情绪主数据）
 </script>
 {% endblock %}

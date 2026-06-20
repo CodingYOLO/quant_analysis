@@ -382,6 +382,34 @@ async def api_theme_detail(date: str = "", name: str = "", type: str = "industry
         return {"ok": False, "error": str(e)}
 
 
+@app.get("/api/sector/radar")
+async def api_sector_radar(date: str = "", type: str = "concept",
+                           _user: str = Depends(require_auth)):
+    """板块雷达：下拉列表 + 三栏诊断（低吸/轮动/高位风险，读宽表已过滤）。"""
+    try:
+        from app.strategy.sector_radar import build_sector_radar
+        return build_sector_radar(date, theme_type=type)
+    except Exception as e:
+        logger.exception("板块雷达失败")
+        return {"ok": False, "error": str(e)}
+
+
+@app.get("/api/sector/breadth")
+async def api_sector_breadth(name: str = "", type: str = "concept", days: int = 45,
+                             _user: str = Depends(require_auth)):
+    """单板块广度时序（成分股实时算·缓存）。首次稍慢 → 跑线程池避免阻塞。"""
+    if not name:
+        return {"ok": False, "msg": "缺少 name 参数"}
+    try:
+        from fastapi.concurrency import run_in_threadpool
+
+        from app.strategy.sector_radar import compute_board_breadth
+        return await run_in_threadpool(compute_board_breadth, name, type, int(days))
+    except Exception as e:
+        logger.exception("板块广度时序失败")
+        return {"ok": False, "msg": str(e)}
+
+
 @app.get("/stockpool", response_class=HTMLResponse)
 async def stockpool_page(request: Request, _user: str = Depends(require_auth)):
     """Tab2 选股池（内置策略每日盘后自动选股）。"""

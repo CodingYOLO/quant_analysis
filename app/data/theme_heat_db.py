@@ -341,6 +341,36 @@ def get_theme(trade_date: str, theme_name: str, theme_type: str) -> dict | None:
     return dict(row) if row else None
 
 
+def get_theme_series(theme_name: str, theme_type: str, days: int = 45,
+                     end_date: str = "") -> list[dict]:
+    """
+    查询单个主题的【跨日时序】（用于板块广度切换图），按交易日升序。
+
+    Args:
+        theme_name: 主题名（如「共封装光学(CPO)」）。
+        theme_type: industry / concept。
+        days: 取最近多少个已落库交易日（默认 45，够看回踩位置）。
+        end_date: 截止日 YYYYMMDD；空则到最新已落库日。
+    Returns:
+        [{trade_date, breadth_ma5, breadth_ma20, pct_chg_1d, money_flow_1d, heat_score}...]
+        无数据返回空列表（不补零、不造数据）。
+    """
+    init_db()
+    where = "WHERE theme_name=? AND theme_type=?"
+    params: list = [theme_name, theme_type]
+    if end_date:
+        where += " AND trade_date<=?"
+        params.append(end_date)
+    with _conn() as con:
+        rows = con.execute(
+            f"SELECT trade_date, breadth_ma5, breadth_ma20, pct_chg_1d, "
+            f"money_flow_1d, heat_score FROM theme_heat_all_in_one {where} "
+            f"ORDER BY trade_date DESC LIMIT ?",
+            params + [int(days)],
+        ).fetchall()
+    return [dict(r) for r in reversed(rows)]   # 升序返回，便于直接画图
+
+
 def latest_trade_date(theme_type: str | None = None) -> str | None:
     """宽表中最近一个已落库的交易日。"""
     init_db()
