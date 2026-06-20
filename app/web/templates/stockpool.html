@@ -139,9 +139,11 @@ function starCell(r){
 }
 function flowCell(v){ if(v===null||v===undefined) return '<span class="miss">—</span>';
   return '<span class="'+(v>=0?'up':'down')+'">'+(v>=0?'+':'')+v+'亿</span>'; }
-function maCell(r){
-  if(r.above_ma20&&r.above_ma60&&r.slope_up) return '<span class="up">多头排列</span>';
-  if(r.above_ma20) return '<span class="neu2">站上MA20</span>';
+function maCell(r){   // 短线口径：MA5/10/20 结构一眼看清
+  if(r.above_ma5&&r.above_ma10&&r.above_ma20&&r.above_ma60&&r.ma_bull_short) return '<span class="up">完整多头</span>';
+  if(r.above_ma5&&r.above_ma10&&r.ma_bull_short) return '<span class="up">短期多头</span>';
+  if(r.above_ma5&&r.above_ma10) return '<span class="neu2">站上MA5/10</span>';
+  if(r.above_ma20) return '<span class="amber">跌破MA5/10</span>';
   return '<span class="down">破位MA20</span>'; }
 function vpCell(r){ const vr=r.vol_ratio;
   const c=vr>=1.5?'up':(vr<=0.7?'down':'neu2'), lbl=vr>=1.5?'放量':(vr<=0.7?'缩量':'平');
@@ -319,12 +321,16 @@ function extIndicators(d){
   } else { h+='<span class="neu2">（无筹码数据）</span>'; }
   return h;
 }
+function smaFromCandle(candle,m){   // 收盘价(candle[i][1])算m日均线(profile无MA10→前端补)
+  const out=[]; for(let i=0;i<candle.length;i++){ if(i<m-1){out.push(null);continue;}
+    let s=0; for(let j=i-m+1;j<=i;j++) s+=candle[j][1]; out.push(+(s/m).toFixed(2)); } return out; }
 function renderPoolKline(cid, kl){
   const el=document.getElementById(cid); if(!el||typeof echarts==='undefined') return;
   const c=echarts.init(el); _kcharts[cid]=c;
+  const ma10=smaFromCandle(kl.candle,10);
   c.setOption({
     backgroundColor:'transparent', tooltip:{trigger:'axis',axisPointer:{type:'cross'}},
-    legend:{data:['MA5','MA20','MA60'],textStyle:{color:'#9ca3af'},right:10,top:0},
+    legend:{data:['MA5','MA10','MA20','MA60'],textStyle:{color:'#9ca3af'},right:10,top:0},
     grid:[{left:50,right:20,top:30,height:'60%'},{left:50,right:20,top:'76%',height:'15%'}],
     xAxis:[{type:'category',data:kl.dates,axisLabel:{color:'#9ca3af'}},
            {type:'category',data:kl.dates,gridIndex:1,axisLabel:{show:false}}],
@@ -333,6 +339,7 @@ function renderPoolKline(cid, kl){
     series:[
       {type:'candlestick',data:kl.candle,itemStyle:{color:'#f6465d',color0:'#2ebd85',borderColor:'#f6465d',borderColor0:'#2ebd85'}},
       {name:'MA5',type:'line',data:kl.ma5,smooth:true,symbol:'none',lineStyle:{width:1,color:'#e5c07b'}},
+      {name:'MA10',type:'line',data:ma10,smooth:true,symbol:'none',lineStyle:{width:1,color:'#4ade80'}},
       {name:'MA20',type:'line',data:kl.ma20,smooth:true,symbol:'none',lineStyle:{width:1,color:'#7c9ef8'}},
       {name:'MA60',type:'line',data:kl.ma60,smooth:true,symbol:'none',lineStyle:{width:1,color:'#c084fc'}},
       {type:'bar',xAxisIndex:1,yAxisIndex:1,data:kl.vol,itemStyle:{color:'#3a3f5c'}}
@@ -341,7 +348,10 @@ function renderPoolKline(cid, kl){
   requestAnimationFrame(()=>c.resize()); setTimeout(()=>c.resize(),120);
 }
 function detail(r){
-  const ma=(r.above_ma20&&r.above_ma60&&r.slope_up)?'多头排列(MA20/60上+斜率向上)':(r.above_ma20?'站上MA20':'破位MA20');
+  const ma=(r.above_ma5&&r.above_ma10&&r.above_ma20&&r.above_ma60&&r.ma_bull_short)?'完整多头排列(MA5>10>20>60·趋势向上)'
+    :(r.above_ma5&&r.above_ma10&&r.ma_bull_short)?'短期多头(MA5>MA10>MA20)'
+    :(r.above_ma5&&r.above_ma10)?'站上MA5/MA10(短期偏强)'
+    :(r.above_ma20)?'跌破MA5/MA10·守住MA20(短期转弱)':'破位MA20';
   let h='<div class="detail">';
   const risk=r.risk_penalty||0, strength=(r.focus_score||0)+risk;
   h+='<b>重点分 '+(r.focus_score||0).toFixed(0)+'</b> = 强度 '+strength.toFixed(0)+' − 风险 '+risk.toFixed(0)

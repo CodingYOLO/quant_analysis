@@ -18,9 +18,16 @@ def _rec(rps, flow, heat, n_strat=1, vr=1.5, ma20=1, ma60=1, slope=1):
 
 def test_vol_health_and_ma_score() -> None:
     assert SP._vol_health(1.5) == 1.0 and SP._vol_health(3.0) == 0.5 and SP._vol_health(6.0) == 0.2
-    assert SP._ma_score({"above_ma20": 1, "above_ma60": 1, "slope_up": 1}) == 1.0
-    assert SP._ma_score({"above_ma20": 1, "above_ma60": 0, "slope_up": 0}) == 0.5
-    assert SP._ma_score({"above_ma20": 0, "above_ma60": 0, "slope_up": 0}) == 0.0
+    full = {"above_ma5": 1, "above_ma10": 1, "above_ma20": 1, "above_ma60": 1,
+            "ma_bull_short": 1, "slope_up": 1}
+    assert SP._ma_score(full) == 1.0                                  # 完整多头排列
+    assert SP._ma_score({**full, "above_ma60": 0, "slope_up": 0}) == 0.85   # 短期多头
+    assert SP._ma_score({"above_ma5": 1, "above_ma10": 1, "above_ma20": 0,
+                         "above_ma60": 0, "ma_bull_short": 0, "slope_up": 0}) == 0.65  # 站上MA5/10
+    assert SP._ma_score({"above_ma5": 0, "above_ma10": 0, "above_ma20": 1,
+                         "above_ma60": 0, "slope_up": 0}) == 0.4       # 跌破MA5/10·守MA20
+    assert SP._ma_score({"above_ma5": 0, "above_ma10": 0, "above_ma20": 0,
+                         "above_ma60": 0, "slope_up": 0}) == 0.0       # 破位
 
 
 def test_focus_score_discriminates_and_stars_top10() -> None:

@@ -179,9 +179,10 @@ def _assemble(ts, r, strategies: list[str], hot: dict, market_label: str) -> dic
         "rps50": r["rps50"], "main_flow_3d": r["main_flow_3d"], "change_7d": r["change_7d"],
         "turnover": r["turnover"], "vol_ratio": r["vol_ratio"], "pct_chg": r["pct_chg"],
         "circ_mv_yi": r["circ_mv_yi"], "close": r["close"],
-        # 均线结构（供前端一眼看清趋势 + 重点分）
+        # 均线结构（短线口径·含MA5/10·供前端一眼看清 + 重点分）
+        "above_ma5": int(bool(r.get("above_ma5"))), "above_ma10": int(bool(r.get("above_ma10"))),
         "above_ma20": int(bool(r["above_ma20"])), "above_ma60": int(bool(r["above_ma60"])),
-        "slope_up": int(bool(r["slope_up"])),
+        "ma_bull_short": int(bool(r.get("ma_bull_short"))), "slope_up": int(bool(r["slope_up"])),
         # 风险/位置（供重点分做风险调整：过热/高位）
         "bias20": r.get("bias20", 0.0), "dist_high": r.get("dist_high", -100.0),
         "is_focus": False,     # 风控后定
@@ -225,10 +226,23 @@ def _vol_health(vr: float) -> float:
 
 
 def _ma_score(rec: dict) -> float:
-    """均线结构 0-1：多头排列(站上MA20+MA60+斜率向上)=1，仅站上MA20=0.5，破位=0。"""
-    if rec["above_ma20"] and rec["above_ma60"] and rec["slope_up"]:
+    """
+    均线结构 0-1（短线口径·含 MA5/MA10）：
+      完整多头排列(MA5>10>20>60 + 趋势向上)=1 ＞ 短期多头(MA5>10>20)=0.85
+      ＞ 站上MA5/MA10=0.65 ＞ 仅站上MA20(短期交织)=0.4 ＞ 跌破=0.15/破位=0。
+    """
+    a5, a10 = rec.get("above_ma5", 0), rec.get("above_ma10", 0)
+    a20, a60 = rec["above_ma20"], rec["above_ma60"]
+    bull_s = rec.get("ma_bull_short", 0)        # MA5>MA10>MA20
+    if a5 and a10 and a20 and a60 and bull_s and rec["slope_up"]:
         return 1.0
-    return 0.5 if rec["above_ma20"] else 0.0
+    if a5 and a10 and a20 and bull_s:
+        return 0.85
+    if a5 and a10:
+        return 0.65
+    if a20:
+        return 0.4
+    return 0.15 if a60 else 0.0
 
 
 def _ramp(v: float, lo: float, hi: float) -> float:

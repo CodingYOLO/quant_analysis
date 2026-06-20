@@ -200,6 +200,9 @@ def init_db() -> None:
                 bias20        REAL,    -- 20日乖离率(过热)
                 dist_high     REAL,    -- 距120日高(高位)
                 risk_penalty  REAL,    -- 风险扣分
+                above_ma5     INTEGER, -- 短线均线结构
+                above_ma10    INTEGER,
+                ma_bull_short INTEGER,  -- MA5>MA10>MA20 短期多头排列
                 created_at    TEXT DEFAULT (datetime('now','localtime')),
                 UNIQUE(run_date, ts_code)
             );
@@ -410,6 +413,7 @@ _POOL_COLS = [
     # 2026-06-20 新增：均线结构 + 重点分(风险调整) + 星标 + 风险/位置(乖离/距高点/风险扣分)
     "above_ma20", "above_ma60", "slope_up", "focus_score", "star",
     "bias20", "dist_high", "risk_penalty",
+    "above_ma5", "above_ma10", "ma_bull_short",
 ]
 
 # 旧库兼容：新增列（init_db 幂等补列，避免改 CREATE TABLE 后旧库缺列）
@@ -417,6 +421,7 @@ _POOL_NEW_COLS = [
     ("above_ma20", "INTEGER"), ("above_ma60", "INTEGER"), ("slope_up", "INTEGER"),
     ("focus_score", "REAL"), ("star", "INTEGER DEFAULT 0"),
     ("bias20", "REAL"), ("dist_high", "REAL"), ("risk_penalty", "REAL"),
+    ("above_ma5", "INTEGER"), ("above_ma10", "INTEGER"), ("ma_bull_short", "INTEGER"),
 ]
 _POOL_JSON = {"sources", "strategies", "risk_flags"}
 

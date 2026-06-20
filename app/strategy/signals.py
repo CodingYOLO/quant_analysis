@@ -125,10 +125,15 @@ def build_signal_table(
 def _stock_signals(close, vol, open_, low, today_open, today_low, today_close) -> dict:
     """单只股票的信号位（close 等为按日期升序的不复权序列）。"""
     cur = float(close.iloc[-1])
+    ma5 = float(close.tail(5).mean())
+    ma10 = float(close.tail(10).mean())
     ma20 = float(close.tail(20).mean())
     ma60 = float(close.tail(60).mean())
+    above5 = cur >= ma5
+    above10 = cur >= ma10
     above20 = cur >= ma20
     above60 = cur >= ma60
+    ma_bull_short = ma5 > ma10 > ma20   # 短期多头排列（短线核心结构）
 
     # MA60 斜率（较 N 日前）
     ma60_prev = float(close.tail(60 + _MA60_SLOPE_LOOKBACK).head(60).mean()) if len(close) >= 60 + _MA60_SLOPE_LOOKBACK else ma60
@@ -166,8 +171,11 @@ def _stock_signals(close, vol, open_, low, today_open, today_low, today_close) -
     return {
         "buy_low": round(buy_low, 2), "buy_high": round(buy_high, 2),
         "stop_loss": round(stop, 2), "take_profit_1": round(tp1, 2), "take_profit_2": round(tp2, 2),
-        "close": round(cur, 2), "ma20": round(ma20, 2), "ma60": round(ma60, 2),
+        "close": round(cur, 2), "ma5": round(ma5, 2), "ma10": round(ma10, 2),
+        "ma20": round(ma20, 2), "ma60": round(ma60, 2),
+        "above_ma5": bool(above5), "above_ma10": bool(above10),
         "above_ma20": bool(above20), "above_ma60": bool(above60),
+        "ma_bull_short": bool(ma_bull_short),
         "ma60_slope": round(ma60_slope, 2), "slope_up": bool(slope_up),
         "new_high20": bool(new_high20), "macd_gold": bool(macd_gold), "vol_ratio": round(vr, 2),
         "breakout": bool(breakout), "near_ma20": bool(near_ma20),
