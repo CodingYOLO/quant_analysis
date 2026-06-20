@@ -21,6 +21,9 @@ th { background:#232640; color:#9ca3af; font-weight:500; padding:8px 9px; text-a
 td { padding:8px 9px; border-bottom:1px solid #1e2138; white-space:nowrap; vertical-align:top; }
 tr.datarow:hover td { background:#1e2138; cursor:pointer; }
 .up { color:#f6465d; } .down { color:#2ebd85; } .neu2 { color:#9ca3af; } .miss { color:#6b7280; }
+.amber { color:#f0a020; }
+.starrow { background:rgba(74,222,128,.06); }   /* 重点Top10高亮 */
+.fs-pill { font-weight:700; font-size:13px; }
 .src { font-size:10px; padding:1px 6px; border-radius:8px; margin:1px 2px 1px 0; display:inline-block; }
 .src-最关注 { background:#143b28; color:#4ade80; } .src-策略候选 { background:#2a2440; color:#b794f6; }
 .src-主题选股 { background:#2a2410; color:#fbbf24; } .src-规则已选 { background:#1a2b4a; color:#7c9ef8; } .src-规则候选 { background:#262a3e; color:#9ca3af; }
@@ -34,7 +37,7 @@ tr.datarow:hover td { background:#1e2138; cursor:pointer; }
 
 {% block content %}
 <div style="text-align:center;margin-bottom:6px"><h1 style="font-size:22px">LLM 分析</h1></div>
-<div class="disclaim">选股池：内置 5 套科学策略（主升突破/资金回调低吸/资金跟随/反转低吸/主题选股）每日盘后自动选股，多路交叉验证。仅供研究，不构成投资建议。</div>
+<div class="disclaim">选股池：内置 5 套科学策略（主升突破/资金回调低吸/资金跟随/反转低吸/主题选股）每日盘后自动选股，多路交叉验证。<b style="color:#4ade80">⭐ 标注本池最强 Top10（按重点分：强度+主力资金+板块热度+多路交叉+量价+均线）供重点观察</b>。仅供研究，不构成投资建议。</div>
 
 <div class="subtabs">
   <div class="subtab" onclick="location.href='/llm'">主题热点</div>
@@ -49,7 +52,7 @@ tr.datarow:hover td { background:#1e2138; cursor:pointer; }
   <input type="text" id="search" placeholder="代码/名称/主题" style="min-width:160px">
   <select id="fsource"><option value="">来源(全部)</option><option>最关注</option><option>策略候选</option><option>主题选股</option><option>规则已选</option></select>
   <select id="fstrat"><option value="">策略(全部)</option><option>主升突破</option><option>资金回调低吸</option><option>资金跟随</option><option>反转低吸</option><option>主题选股</option></select>
-  <select id="sortby"><option value="focus">默认(关注优先)</option><option value="confidence">置信度</option><option value="pct_chg">当日涨跌</option></select>
+  <select id="sortby"><option value="focus">默认(⭐重点优先)</option><option value="confidence">重点分</option><option value="pct_chg">当日涨跌</option></select>
   <button class="chip" id="reload" style="cursor:pointer;color:#7c9ef8">🔄 加载</button>
 </div>
 <div class="databar" id="databar" style="display:none"></div>
@@ -103,7 +106,11 @@ async function load(){
     // 回填日期框为实际数据日（默认进来时为空，此处显示后端选定的最新池日期）
     if(j.date&&j.date.length===8){ document.getElementById('date').value=j.date.replace(/(\d{4})(\d{2})(\d{2})/,'$1-$2-$3'); }
     renderDatabar(j);
-    document.getElementById('meta').innerHTML='<span class="chip">总数 '+j.total+'</span><span class="chip" style="color:#4ade80">关注 '+j.focus+'</span>';
+    const nstar=rows.filter(r=>r.star).length;
+    document.getElementById('meta').innerHTML='<span class="chip">总数 '+j.total+'</span>'
+      +'<span class="chip" style="color:#4ade80">⭐ 重点 '+nstar+'</span>'
+      +'<span class="chip" style="color:#9ca3af">其中风控通过(可关注) '+j.focus+'</span>'
+      +'<span class="chip neu2" style="font-size:11px">★观=重点但弱市/风控未过·仅观察</span>';
     L.style.display='none'; document.getElementById('dash').style.display='block';
     render();
   }catch(e){ L.textContent='❌ '+e; }
@@ -112,7 +119,26 @@ document.getElementById('reload').addEventListener('click', load);
 document.getElementById('date').addEventListener('change', load);
 ['search','fsource','fstrat','sortby'].forEach(id=>document.getElementById(id).addEventListener('input', render));
 
-const COLS=[['代码'],['名称'],['主题'],['来源'],['策略'],['阶段'],['仓位'],['置信度'],['买点价'],['T+1'],['T+3'],['T+5'],['关注']];
+const COLS=[['⭐'],['代码'],['名称'],['🔥板块'],['重点分'],['💰资金(3日主力)'],['📈均线'],['📊量价'],['策略'],['买点价'],['T+5']];
+
+// 一眼看清的小标签
+function starCell(r){
+  if(!r.star) return '<span class="star-off">☆</span>';
+  return r.is_focus
+    ? '<span class="star" title="重点·风控通过·可关注">★</span>'
+    : '<span class="amber" title="重点Top10·但弱市/风控未过→观察、非买入">★<sup style="font-size:9px">观</sup></span>';
+}
+function flowCell(v){ if(v===null||v===undefined) return '<span class="miss">—</span>';
+  return '<span class="'+(v>=0?'up':'down')+'">'+(v>=0?'+':'')+v+'亿</span>'; }
+function maCell(r){
+  if(r.above_ma20&&r.above_ma60&&r.slope_up) return '<span class="up">多头排列</span>';
+  if(r.above_ma20) return '<span class="neu2">站上MA20</span>';
+  return '<span class="down">破位MA20</span>'; }
+function vpCell(r){ const vr=r.vol_ratio;
+  const c=vr>=1.5?'up':(vr<=0.7?'down':'neu2'), lbl=vr>=1.5?'放量':(vr<=0.7?'缩量':'平');
+  return '<span class="'+c+'">'+lbl+vr+'</span> '+pct(r.pct_chg); }
+function fsCell(v){ const s=v||0, c=s>=70?'up':(s>=50?'amber':'neu2');
+  return '<b class="fs-pill '+c+'">'+s.toFixed(0)+'</b>'; }
 
 function render(){
   const kw=(document.getElementById('search').value||'').trim();
@@ -123,24 +149,25 @@ function render(){
     if(ft && !(r.strategy_label||'').includes(ft)) return false;
     return true;
   });
-  if(sb==='confidence') data.sort((a,b)=>b.confidence-a.confidence);
+  if(sb==='confidence') data.sort((a,b)=>(b.focus_score||0)-(a.focus_score||0));
   else if(sb==='pct_chg') data.sort((a,b)=>b.pct_chg-a.pct_chg);
-  else data.sort((a,b)=>(b.is_focus-a.is_focus)||(b.confidence-a.confidence));
+  else data.sort((a,b)=>(b.star-a.star)||((b.focus_score||0)-(a.focus_score||0)));
 
   let h='<thead><tr>'+COLS.map(c=>'<th>'+c[0]+'</th>').join('')+'</tr></thead><tbody>';
   data.forEach((r,i)=>{
-    const srcs=(r.sources||[]).map(s=>'<span class="src src-'+s+'">'+s+'</span>').join('');
-    const heat=r.theme_heat?'<span class="hbadge">热度 '+Math.round(r.theme_heat)+'</span>':'';
+    const heat=r.theme_heat?'<span class="hbadge">'+Math.round(r.theme_heat)+'</span>':'';
     const buy=(r.buy_low&&r.buy_high)?r.buy_low.toFixed(2)+'~'+r.buy_high.toFixed(2):'<span class="miss">—</span>';
-    const pos=r.is_focus&&r.position_pct?(r.position_pct*100).toFixed(0)+'%':'<span class="miss">—</span>';
-    h+='<tr class="datarow" data-i="'+i+'">'
+    h+='<tr class="datarow'+(r.star?' starrow':'')+'" data-i="'+i+'">'
+      +'<td>'+starCell(r)+'</td>'
       +'<td style="color:#7c9ef8">'+r.ts_code.slice(0,6)+'</td><td>'+(r.name||'')+'</td>'
-      +'<td>'+(r.theme||'未归类')+heat+'</td><td>'+srcs+'</td>'
-      +'<td>'+(r.strategy_label||'<span class="miss">—</span>')+'</td>'
-      +'<td class="phase-'+(r.phase||'观察')+'">'+(r.phase||'—')+'</td>'
-      +'<td>'+pos+'</td><td><b>'+r.confidence.toFixed(2)+'</b></td><td>'+buy+'</td>'
-      +'<td>'+pct(r.t1_return)+'</td><td>'+pct(r.t3_return)+'</td><td>'+pct(r.t5_return)+'</td>'
-      +'<td class="'+(r.is_focus?'star':'star-off')+'">'+(r.is_focus?'★':'☆')+'</td></tr>';
+      +'<td>'+(r.theme||'未归类')+heat+'</td>'
+      +'<td>'+fsCell(r.focus_score)+'</td>'
+      +'<td>'+flowCell(r.main_flow_3d)+'</td>'
+      +'<td>'+maCell(r)+'</td>'
+      +'<td>'+vpCell(r)+'</td>'
+      +'<td style="font-size:11px">'+(r.strategy_label||'<span class="miss">—</span>')+'</td>'
+      +'<td>'+buy+'</td>'
+      +'<td>'+pct(r.t5_return)+'</td></tr>';
   });
   h+='</tbody>';
   const t=document.getElementById('tbl'); t.innerHTML=h;
@@ -155,8 +182,11 @@ function render(){
   }));
 }
 function detail(r){
+  const ma=(r.above_ma20&&r.above_ma60&&r.slope_up)?'多头排列(MA20/60上+斜率向上)':(r.above_ma20?'站上MA20':'破位MA20');
   let h='<div class="detail">';
-  h+='<b>量化因子</b>：RPS50 '+r.rps50+' ｜ 3日主力 '+r.main_flow_3d+'亿 ｜ 7日涨幅 '+r.change_7d+'% ｜ 换手 '+r.turnover+'% ｜ 量比 '+r.vol_ratio+' ｜ 当日 '+r.pct_chg+'% ｜ 市值 '+r.circ_mv_yi+'亿<br>';
+  h+='<b>重点分 '+(r.focus_score||0).toFixed(0)+'</b> <span class="neu2" style="font-size:11px">(强度RPS30+主力资金25+板块热度15+多路交叉15+量价10+均线5)</span>'
+    +(r.star?(r.is_focus?' ｜ <span class="star">⭐重点·风控通过</span>':' ｜ <span class="amber">⭐重点·弱市/风控未过→观察非买入</span>'):'')+'<br>';
+  h+='<b>量化因子</b>：RPS50 '+r.rps50+' ｜ 3日主力 '+r.main_flow_3d+'亿 ｜ 均线 '+ma+' ｜ 7日涨幅 '+r.change_7d+'% ｜ 换手 '+r.turnover+'% ｜ 量比 '+r.vol_ratio+' ｜ 当日 '+r.pct_chg+'% ｜ 市值 '+r.circ_mv_yi+'亿<br>';
   h+='<b>交易计划</b>：买点 '+(r.buy_low||'-')+'~'+(r.buy_high||'-')+' ｜ 🛑止损 '+(r.stop_loss||'-')+' ｜ 🎯止盈 '+(r.take_profit_1||'-')+'/'+(r.take_profit_2||'-')+' ｜ 建议仓位 '+(r.position_pct?(r.position_pct*100).toFixed(0)+'%':'—')+'<br>';
   if(r.reason) h+='<b>分析理由</b>：'+r.reason+'<br>';
   if(r.risk_flags&&r.risk_flags.length) h+='<span class="rk"><b>⚠️ 风控</b>：'+r.risk_flags.join('；')+'</span>';

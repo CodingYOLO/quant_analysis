@@ -69,10 +69,12 @@ def build_stock_pool(trade_date: str, provider: CompositeProvider | None = None,
 
     # 风控：单主题上限 + 涨停溢价预警 + 大盘
     records = _apply_risk(records, market_label, zhaban_warn)
-    # 排序：关注优先 → 置信度
-    records.sort(key=lambda x: (x["is_focus"], x["confidence"]), reverse=True)
-    logger.info("[选股池] %s 候选 %d 只（最关注 %d）", trade_date,
-                len(records), sum(r["is_focus"] for r in records))
+    # 重点分(区分度高·替代饱和置信度) + 星标本池最强 Top10（始终标，供观察名单）
+    _compute_focus_scores(records)
+    # 排序：星标优先 → 重点分
+    records.sort(key=lambda x: (x["star"], x["focus_score"]), reverse=True)
+    logger.info("[选股池] %s 候选 %d 只（星标 %d / 最关注 %d）", trade_date,
+                len(records), sum(r["star"] for r in records), sum(r["is_focus"] for r in records))
 
     if persist:
         _persist(trade_date, records, market_label)
@@ -169,7 +171,11 @@ def _assemble(ts, r, strategies: list[str], hot: dict, market_label: str) -> dic
         "rps50": r["rps50"], "main_flow_3d": r["main_flow_3d"], "change_7d": r["change_7d"],
         "turnover": r["turnover"], "vol_ratio": r["vol_ratio"], "pct_chg": r["pct_chg"],
         "circ_mv_yi": r["circ_mv_yi"], "close": r["close"],
+        # 均线结构（供前端一眼看清趋势 + 重点分）
+        "above_ma20": int(bool(r["above_ma20"])), "above_ma60": int(bool(r["above_ma60"])),
+        "slope_up": int(bool(r["slope_up"])),
         "is_focus": False,     # 风控后定
+        "focus_score": 0.0, "star": 0,   # 重点分/星标后算
         "risk_flags": [],
     }
 
@@ -181,6 +187,50 @@ def _factor_score_norm(r) -> float:
     s += 0.3 if r["main_flow_3d"] > 0 else 0.0                  # 资金
     s += 0.2 if (r["breakout"] or r["is_pullback"]) else 0.0    # 形态
     return min(s, 1.0)
+
+
+# ── 重点分（0-100·区分度高，替代饱和的0.98置信度）+ 星标 Top10 ──────────────
+# 权重：强度30 + 主力资金25 + 板块热度15 + 多路交叉15 + 量价健康10 + 均线多头5
+_STAR_TOPN = 10
+
+
+def _vol_health(vr: float) -> float:
+    """量价健康度 0-1：量比 1~2.5 最佳(放量不过热)，过度放量/缩量降权。"""
+    if 1.0 <= vr <= 2.5:
+        return 1.0
+    if 2.5 < vr <= 4.0 or 0.7 <= vr < 1.0:
+        return 0.5
+    return 0.2
+
+
+def _ma_score(rec: dict) -> float:
+    """均线结构 0-1：多头排列(站上MA20+MA60+斜率向上)=1，仅站上MA20=0.5，破位=0。"""
+    if rec["above_ma20"] and rec["above_ma60"] and rec["slope_up"]:
+        return 1.0
+    return 0.5 if rec["above_ma20"] else 0.0
+
+
+def _compute_focus_scores(records: list[dict]) -> None:
+    """就地计算重点分(0-100)并星标本池最强 Top10。资金按当日横截面分位归一。"""
+    if not records:
+        return
+    flows = sorted(r["main_flow_3d"] for r in records)
+    n = len(flows)
+
+    def flow_pct(v: float) -> float:                 # 主力资金当日排名分位 0-1
+        import bisect
+        return bisect.bisect_right(flows, v) / n
+
+    for r in records:
+        rps = min(max(r["rps50"], 0), 100) / 100
+        cross = min(len([s for s in r["strategies"] if s != "theme_pick"]), 4) / 4
+        heat = min(max(r["theme_heat"], 0), 100) / 100
+        score = (rps * 30 + flow_pct(r["main_flow_3d"]) * 25 + heat * 15
+                 + cross * 15 + _vol_health(r["vol_ratio"]) * 10 + _ma_score(r) * 5)
+        r["focus_score"] = round(score, 1)
+
+    for i, r in enumerate(sorted(records, key=lambda x: x["focus_score"], reverse=True)):
+        r["star"] = 1 if i < _STAR_TOPN else 0
 
 
 # ──────────────────────────────────────────────

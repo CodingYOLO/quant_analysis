@@ -192,11 +192,21 @@ def init_db() -> None:
                 is_focus      INTEGER DEFAULT 0,
                 risk_flags    TEXT,    -- json[]
                 reason        TEXT,    -- LLM 接地理由(S5)
+                above_ma20    INTEGER, -- 均线结构
+                above_ma60    INTEGER,
+                slope_up      INTEGER,
+                focus_score   REAL,    -- 重点分 0-100(区分度高)
+                star          INTEGER DEFAULT 0,  -- 本池最强Top10
                 created_at    TEXT DEFAULT (datetime('now','localtime')),
                 UNIQUE(run_date, ts_code)
             );
             CREATE INDEX IF NOT EXISTS idx_pool_date ON stock_pool(run_date);
         """)
+        # 旧库幂等补列（CREATE TABLE IF NOT EXISTS 不会给已存在的表加列）
+        existing = {row[1] for row in con.execute("PRAGMA table_info(stock_pool)")}
+        for col, typ in _POOL_NEW_COLS:
+            if col not in existing:
+                con.execute(f"ALTER TABLE stock_pool ADD COLUMN {col} {typ}")
     logger.debug("strategy.db 初始化完成: %s", _get_db_path())
 
 
@@ -394,6 +404,14 @@ _POOL_COLS = [
     "strategy_label", "phase", "confidence", "position_pct", "buy_low", "buy_high",
     "stop_loss", "take_profit_1", "take_profit_2", "rps50", "main_flow_3d", "change_7d",
     "turnover", "vol_ratio", "pct_chg", "circ_mv_yi", "close", "is_focus", "risk_flags", "reason",
+    # 2026-06-20 新增：均线结构 + 重点分(0-100·区分度高) + 星标(本池最强Top10·始终标)
+    "above_ma20", "above_ma60", "slope_up", "focus_score", "star",
+]
+
+# 旧库兼容：新增列（init_db 幂等补列，避免改 CREATE TABLE 后旧库缺列）
+_POOL_NEW_COLS = [
+    ("above_ma20", "INTEGER"), ("above_ma60", "INTEGER"), ("slope_up", "INTEGER"),
+    ("focus_score", "REAL"), ("star", "INTEGER DEFAULT 0"),
 ]
 _POOL_JSON = {"sources", "strategies", "risk_flags"}
 
