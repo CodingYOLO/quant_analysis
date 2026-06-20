@@ -32,7 +32,7 @@ def test_focus_score_discriminates_and_stars_top10() -> None:
     scores = [r["focus_score"] for r in recs]
     assert len(set(scores)) > 5                 # 有区分度（不像 0.98 那样饱和）
     assert all(0 <= s <= 100 for s in scores)
-    assert sum(r["star"] for r in recs) == 10   # 恰好星标 Top10
+    assert sum(r["star"] for r in recs) == 5    # 恰好星标 Top5
 
     strong = max(recs, key=lambda r: r["focus_score"])
     weak = min(recs, key=lambda r: r["focus_score"])
@@ -40,10 +40,10 @@ def test_focus_score_discriminates_and_stars_top10() -> None:
     assert strong["rps50"] >= weak["rps50"]
 
 
-def test_focus_score_fewer_than_10() -> None:
-    recs = [_rec(rps=80 - i * 5, flow=3 - i, heat=60) for i in range(4)]
+def test_focus_score_fewer_than_5() -> None:
+    recs = [_rec(rps=80 - i * 5, flow=3 - i, heat=60) for i in range(3)]
     SP._compute_focus_scores(recs)
-    assert sum(r["star"] for r in recs) == 4     # 不足10只 → 全标
+    assert sum(r["star"] for r in recs) == 3     # 不足5只 → 全标
     assert SP._compute_focus_scores([]) is None  # 空安全
 
 

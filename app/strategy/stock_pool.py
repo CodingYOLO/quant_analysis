@@ -69,12 +69,17 @@ def build_stock_pool(trade_date: str, provider: CompositeProvider | None = None,
 
     # 风控：单主题上限 + 涨停溢价预警 + 大盘
     records = _apply_risk(records, market_label, zhaban_warn)
-    # 重点分(区分度高·替代饱和置信度) + 星标本池最强 Top10（始终标，供观察名单）
+    # 重点分(区分度高·替代饱和置信度) + 星标本池最强 Top5（始终标，供观察名单）
     _compute_focus_scores(records)
-    # 排序：星标优先 → 重点分
+    # 质量门槛收紧：只留重点分≥阈值的强票（宁缺毋滥·对标吴川的精选感）
+    n_all = len(records)
+    records = [r for r in records if r["focus_score"] >= _POOL_MIN_FOCUS]
+    # 排序：星标优先 → 重点分；普涨强势日再封顶 _POOL_MAX，避免爆量
     records.sort(key=lambda x: (x["star"], x["focus_score"]), reverse=True)
-    logger.info("[选股池] %s 候选 %d 只（星标 %d / 最关注 %d）", trade_date,
-                len(records), sum(r["star"] for r in records), sum(r["is_focus"] for r in records))
+    records = records[:_POOL_MAX]
+    logger.info("[选股池] %s 候选 %d→精选 %d 只（门槛%.0f·封顶%d｜星标 %d / 最关注 %d）", trade_date,
+                n_all, len(records), _POOL_MIN_FOCUS, _POOL_MAX,
+                sum(r["star"] for r in records), sum(r["is_focus"] for r in records))
 
     if persist:
         _persist(trade_date, records, market_label)
@@ -189,9 +194,13 @@ def _factor_score_norm(r) -> float:
     return min(s, 1.0)
 
 
-# ── 重点分（0-100·区分度高，替代饱和的0.98置信度）+ 星标 Top10 ──────────────
+# ── 重点分（0-100·区分度高，替代饱和的0.98置信度）+ 星标 Top5 ───────────────
 # 权重：强度30 + 主力资金25 + 板块热度15 + 多路交叉15 + 量价健康10 + 均线多头5
-_STAR_TOPN = 10
+_STAR_TOPN = 5
+# 质量门槛：只留重点分≥此值的"真正强的"，收紧池子(对标吴川·宁缺毋滥)。
+# 数量随行情变：弱市少(诚实)；普涨强势日再加 _POOL_MAX 封顶，避免爆量(对标吴川精选感)。
+_POOL_MIN_FOCUS = 60.0
+_POOL_MAX = 40
 
 
 def _vol_health(vr: float) -> float:
