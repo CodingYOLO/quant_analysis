@@ -29,6 +29,9 @@ td { padding:7px 9px; border-bottom:1px solid #1e2138; white-space:nowrap; }
 .rgbtn { background:#161929; color:#9ca3af; border:1px solid #2d3052; border-radius:14px; padding:5px 13px; font-size:12px; cursor:pointer; }
 .rgbtn:hover { border-color:#3358e0; color:#c9d2f8; }
 .rgbtn.active { background:#2742a8; color:#fff; border-color:#3358e0; }
+.rngbtn { background:#1a1d2e; color:#c9d2f8; border:1px solid #2d3052; border-radius:14px; padding:4px 11px; font-size:12px; cursor:pointer; }
+.rngbtn:hover { background:#2742a8; color:#fff; }
+.rngbtn.active { background:#2742a8; color:#fff; border-color:#3358e0; }
 #presets { display:none; flex-wrap:wrap; align-items:center; }
 #export-bar { display:none; }
 /* 导出按钮：实心/描边按钮，明显区别于灰色小标签chip */
@@ -73,6 +76,14 @@ td { padding:7px 9px; border-bottom:1px solid #1e2138; white-space:nowrap; }
     <label class="neu2" style="font-size:13px">起</label><input type="date" id="start">
     <label class="neu2" style="font-size:13px">止</label><input type="date" id="end">
     <button class="runbtn" id="run">🚀 开始回测</button>
+  </div>
+  <div style="display:flex;gap:7px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
+    <span class="neu2" style="font-size:12px">快捷区间：</span>
+    <button class="rngbtn" data-m="1">近1月</button>
+    <button class="rngbtn" data-m="3">近3月</button>
+    <button class="rngbtn" data-m="6">近6月</button>
+    <button class="rngbtn" data-m="12">近1年</button>
+    <button class="rngbtn" data-m="36">近3年</button>
   </div>
   <div id="presets" style="display:none;gap:8px;margin-bottom:6px">
     <span class="neu2" style="font-size:12px">快捷：</span>
@@ -165,12 +176,15 @@ td { padding:7px 9px; border-bottom:1px solid #1e2138; white-space:nowrap; }
 <script src="/static/echarts.min.js"></script>
 <script src="/static/html2canvas.min.js"></script>
 <script>
-// 默认区间：近3年
-(function(){
-  const e=new Date(), s=new Date(); s.setFullYear(s.getFullYear()-3);
+// 区间：止=今天，起=N个月前；快捷按钮一键设置（默认近1月，免去手动改年份）
+function setRange(months){
+  const e=new Date(), s=new Date(); s.setMonth(s.getMonth()-months);
   document.getElementById('end').value=e.toISOString().slice(0,10);
   document.getElementById('start').value=s.toISOString().slice(0,10);
-})();
+  document.querySelectorAll('.rngbtn').forEach(b=>b.classList.toggle('active',parseInt(b.dataset.m)===months));
+}
+document.querySelectorAll('.rngbtn').forEach(b=>b.addEventListener('click',()=>setRange(parseInt(b.dataset.m))));
+setRange(1);   // 默认近1月
 
 function pct(v){ if(v===null||v===undefined) return '<span class="neu2">—</span>'; const c=v>0?'up':(v<0?'down':'neu2'); return '<span class="'+c+'">'+(v>0?'+':'')+v+'%</span>'; }
 
