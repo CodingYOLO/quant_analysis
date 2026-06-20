@@ -51,6 +51,21 @@ def test_official_limit_series() -> None:
     assert MS._official_limit_series(_FakeProv(m), []) is None     # 空安全
 
 
+def test_lhb_summary() -> None:
+    dt = {
+        "600111.SH": {"dominant": "游资", "net_buy_yi": 2.5, "seats": [{"tag": "🔥游资·赵老哥"}]},
+        "000001.SZ": {"dominant": "机构", "net_buy_yi": 1.2, "seats": [{"tag": "机构专用"}]},
+        "300750.SZ": {"dominant": "游资", "net_buy_yi": -0.8, "seats": [{"tag": "🔥游资·章盟主"}]},
+    }
+    c2n = {"600111.SH": "北方稀土", "000001.SZ": "平安银行", "300750.SZ": "宁德时代"}
+    s = MS._lhb_summary(dt, c2n)
+    assert s["n"] == 3
+    assert s["dominant_dist"] == {"游资": 2, "机构": 1}        # 游资2家/机构1家
+    assert s["famous"]["赵老哥"] == ["北方稀土"]                # 知名游资动向带股名
+    assert s["top_net"][0]["name"] == "北方稀土" and s["top_net"][0]["net_yi"] == 2.5  # 净买额降序
+    assert MS._lhb_summary({}, c2n) == {}                       # 空安全
+
+
 def _run_all() -> None:
     fns = [v for k, v in sorted(globals().items())
            if k.startswith("test_") and callable(v)]

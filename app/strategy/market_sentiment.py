@@ -166,6 +166,14 @@ def build_dashboard(end_date: str, days: int = 22, start_date: str = "", force: 
     # —— 区间行情类型判断（震荡/牛市/熊市）——
     regime = _classify_market_regime(indices, breadth, per_day, range_dates)
 
+    # —— 龙虎榜 / 游资席位（官方 top_inst）——
+    try:
+        from app.strategy.market_extras import get_dragon_tiger
+        lhb = _lhb_summary(get_dragon_tiger(range_dates[-1], provider), code2name)
+    except Exception:
+        logger.warning("[sentiment] 龙虎榜数据失败", exc_info=True)
+        lhb = {}
+
     result = {
         "end_date": end_date,
         "regime": regime,
@@ -178,6 +186,7 @@ def build_dashboard(end_date: str, days: int = 22, start_date: str = "", force: 
         "breadth": breadth,
         "indices": indices,
         "limit_official": limit_official,
+        "lhb": lhb,
     }
     path.write_text(json.dumps(result, ensure_ascii=False), encoding="utf-8")
     return result
@@ -280,6 +289,31 @@ def _official_limit_series(provider, range_dates: list[str]) -> dict | None:
     latest = get_limit_analysis(range_dates[-1], provider) or {}
     return {"limit_up": lu, "limit_down": ld,
             "lianban": {"b3": b3, "b4": b4, "b5p": b5p, "height": height}, "latest": latest}
+
+
+def _lhb_summary(dt: dict, code2name: dict) -> dict:
+    """龙虎榜明细 → 上榜家数 + 主导力量分布 + 知名游资动向 + 净买额榜(前8)。"""
+    if not dt:
+        return {}
+    dominant_dist: dict[str, int] = {}
+    famous: dict[str, list] = {}
+    rows = []
+    for code, info in dt.items():
+        dom = info.get("dominant", "营业部")
+        dominant_dist[dom] = dominant_dist.get(dom, 0) + 1
+        name = code2name.get(code, "") or code.split(".")[0]
+        rows.append({"code": code.split(".")[0], "name": name,
+                     "net_yi": info.get("net_buy_yi", 0), "dominant": dom})
+        for s in info.get("seats", []):
+            if "游资·" in s.get("tag", ""):
+                famous.setdefault(s["tag"].replace("🔥游资·", ""), []).append(name)
+    rows.sort(key=lambda x: x["net_yi"], reverse=True)
+    return {
+        "n": len(dt),
+        "dominant_dist": dict(sorted(dominant_dist.items(), key=lambda kv: -kv[1])),
+        "famous": {k: list(dict.fromkeys(v))[:3] for k, v in list(famous.items())[:6]},  # 去重股名
+        "top_net": rows[:8],
+    }
 
 
 def _breadth_series(provider, end_date: str, range_dates: list[str]) -> dict:

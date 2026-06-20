@@ -51,6 +51,11 @@
     <div id="lim-body" style="font-size:13px;line-height:2;color:#cdd6f4"></div>
   </div>
 
+  <div class="chart-card chart-full" id="lhb-card" style="display:none;margin-bottom:18px">
+    <h3>🐲 龙虎榜 · 游资席位（官方 top_inst）· <span id="lhb-date" class="neu" style="font-weight:400"></span></h3>
+    <div id="lhb-body" style="font-size:13px;line-height:2;color:#cdd6f4"></div>
+  </div>
+
   <div class="chart-grid">
     <div class="chart-card"><h3>大盘成交额趋势（万亿）</h3><div id="c-amount" class="chart"></div></div>
     <div class="chart-card"><h3>市场广度·站上5日线占比（%）</h3><div id="c-breadth" class="chart"></div></div>
@@ -142,6 +147,25 @@ function renderLimit(lo, date){
   card.style.display='block';
 }
 
+// 🐲 龙虎榜 / 游资席位（官方 top_inst）
+function renderLHB(lhb, date){
+  const card=document.getElementById('lhb-card');
+  if(!lhb || !lhb.n){ card.style.display='none'; return; }
+  document.getElementById('lhb-date').textContent=date||'';
+  const dom=Object.entries(lhb.dominant_dist||{}).map(([k,v])=>k+' '+v+'家').join(' · ');
+  const fam=Object.entries(lhb.famous||{}).map(([k,v])=>'<span class="amber">'+k+'</span>('+v.join('、')+')').join('　');
+  const top=(lhb.top_net||[]).map(r=>{
+    const c=r.net_yi>=0?'up':'down';
+    return (r.name||r.code)+' <span class="'+c+'">'+(r.net_yi>=0?'+':'')+r.net_yi+'亿</span>'
+      +'<span class="neu" style="font-size:11px">('+r.dominant+')</span>';
+  }).join('　');
+  document.getElementById('lhb-body').innerHTML=
+    '今日上榜 <b>'+lhb.n+'</b> 家 · 主导力量：'+dom+'<br>'
+    +(fam?'<span class="neu">知名游资动向：</span>'+fam+'<br>':'')
+    +'<span class="neu">净买额榜：</span>'+top;
+  card.style.display='block';
+}
+
 function render(d){
   // 行情类型徽章
   if(d.regime){
@@ -164,6 +188,7 @@ function render(d){
   document.getElementById('k-ad-sub').textContent = '涨'+k.up_count+' / 跌'+k.down_count+'　'+k.date;
 
   renderLimit(d.limit_official, k.date);
+  renderLHB(d.lhb, k.date);
 
   const dates = d.dates.map(s=>s.slice(4,6)+'-'+s.slice(6));
 
