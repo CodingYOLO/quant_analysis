@@ -64,12 +64,14 @@ def build_facts(p: dict) -> str:
         for rg in ("强势", "震荡", "弱势"):
             b = byr.get(rg)
             if b and b.get("n"):
-                lines.append(f"  大盘{rg}: T+5 {_hz_line(_hz(b.get('horizons', {}), 5))}")
+                hh = b.get("horizons", {})
+                lines.append(f"  大盘{rg}: T+3 {_hz_line(_hz(hh, 3))}；T+5 {_hz_line(_hz(hh, 5))}")
 
     s = p.get("sector")
     if s and s.get("n_occ"):
         lines.append(f"【同类对比】行业「{s.get('industry')}」 同类 {s.get('n_peers')} 只 / 样本 {s.get('n_occ')} 次")
-        lines.append(f"  同类基准 T+5: {_hz_line(_hz(s.get('pooled', {}), 5))}（本股见上方回测）")
+        pl = s.get("pooled", {})
+        lines.append(f"  同类基准 T+3 {_hz_line(_hz(pl, 3))}；T+5 {_hz_line(_hz(pl, 5))}（本股见上方回测）")
         cb = s.get("current_breadth") or {}
         lines.append(f"【板块广度】当前 站上MA20 {cb.get('pct_ma20')}% / 站上MA5 {cb.get('pct_ma5')}%")
         for lbl, b in (s.get("by_breadth") or {}).items():
@@ -101,8 +103,10 @@ def build_facts(p: dict) -> str:
 _SCHEMA = (
     '{\n'
     ' "stance": "<一句话定调：偏多/中性偏多/中性/中性偏谨慎/偏空 之一，必须基于数据>",\n'
-    ' "supports": ["<支持该定调的理由，每条须引用具体数字>", "..."],\n'
-    ' "risks": ["<矛盾点与风险，含样本量/幸存者偏差提醒>", "..."],\n'
+    ' "summary": "<2-4 句综合研判正文：把回测/大盘状态/同类/板块广度/基本面串起来，'
+    '讲清当下这只票+这个打法该不该做、为什么；可有层次、引用数字>",\n'
+    ' "supports": ["<支持该定调的理由，每条1-2句、引用具体数字>", "..."],\n'
+    ' "risks": ["<矛盾点与风险，每条1-2句、含样本量/幸存者偏差提醒>", "..."],\n'
     ' "todos": ["<还需人工确认什么，如业绩雷/解禁/消息面>", "..."]\n'
     '}'
 )
@@ -121,7 +125,8 @@ def build_prompt(name: str, code: str, signal_label: str, facts: str) -> str:
         "4. 每条理由与风险都要引用具体数字；若样本偏小（同类样本<50、单票信号<10、或某分桶<10）"
         "必须显式提示“样本薄、仅供参考”；\n"
         "5. 要把多个维度串起来看矛盾（如回测胜率高但盈亏比低=胜小亏大；本股强但板块退潮）。\n"
-        "6. 每条要点一句话、≤40字、精炼；supports 2-4 条，risks 2-4 条，todos 2-3 条。\n\n"
+        "6. 力求专业、有深度：supports 3-6 条、risks 3-6 条、todos 2-4 条；每条 1-2 句把依据讲透"
+        "（带数字），不必强行精简；summary 写 2-4 句连贯总评。\n\n"
         f"数据：\n{facts}\n\n"
         f"只输出严格的 JSON（不要任何额外文字、不要代码块标记、不要省略号截断），结构如下：\n{_SCHEMA}"
     )
@@ -136,13 +141,14 @@ def parse_brief(raw: str) -> dict:
             d = json.loads(m.group(0))
             return {
                 "stance": str(d.get("stance", "")).strip(),
+                "summary": str(d.get("summary", "")).strip(),
                 "supports": [str(x) for x in (d.get("supports") or [])],
                 "risks": [str(x) for x in (d.get("risks") or [])],
                 "todos": [str(x) for x in (d.get("todos") or [])],
             }
         except Exception:
             pass
-    return {"stance": "", "supports": [txt[:600]] if txt else [], "risks": [], "todos": []}
+    return {"stance": "", "summary": "", "supports": [txt[:800]] if txt else [], "risks": [], "todos": []}
 
 
 # ──────────────────────────────────────────────
@@ -174,7 +180,7 @@ def generate_brief(payload: dict, client=None) -> dict:
         from app.llm.client import LLMClient
         client = LLMClient()
     raw = client.chat([{"role": "user", "content": prompt}],
-                      task_type="pro", max_tokens=4000, temperature=0.2)
+                      task_type="pro", max_tokens=8000, temperature=0.2)
 
     st = get_settings()
     model = st.claude_model if st.llm_provider == "claude" else st.deepseek_pro_model

@@ -48,7 +48,8 @@ class _FakeLLM:
         return self.reply
 
 
-_GOOD_JSON = ('{"stance":"中性偏谨慎","supports":["同类T+5胜率44.9%(n=314)偏低"],'
+_GOOD_JSON = ('{"stance":"中性偏谨慎","summary":"回测胜率尚可但盈亏比偏低，叠加板块深度走弱，'
+              '当下宜观望。","supports":["同类T+5胜率44.9%(n=314)偏低"],'
               '"risks":["板块广度仅11%，样本薄需谨慎"],"todos":["确认有无业绩雷"]}')
 
 
@@ -69,7 +70,8 @@ def test_build_facts_covers_all_blocks() -> None:
 
 def test_parse_brief_clean_and_messy() -> None:
     d = B.parse_brief(_GOOD_JSON)
-    assert d["stance"] == "中性偏谨慎" and len(d["supports"]) == 1 and len(d["risks"]) == 1
+    assert d["stance"] == "中性偏谨慎" and "观望" in d["summary"]
+    assert len(d["supports"]) == 1 and len(d["risks"]) == 1
     # 带代码块/前后缀也能提取
     d2 = B.parse_brief("```json\n" + _GOOD_JSON + "\n```  以上。")
     assert d2["stance"] == "中性偏谨慎"
@@ -82,7 +84,7 @@ def test_generate_brief_and_cache() -> None:
     _use_temp_cache()
     fake = _FakeLLM(_GOOD_JSON)
     out = B.generate_brief(_payload(), client=fake)
-    assert out["ok"] and out["stance"] == "中性偏谨慎"
+    assert out["ok"] and out["stance"] == "中性偏谨慎" and "观望" in out["summary"]
     assert out["risks"] and out["model"] and out["disclaimer"]
     assert fake.calls == 1
     # 相同 facts → 命中缓存，不再调用模型
