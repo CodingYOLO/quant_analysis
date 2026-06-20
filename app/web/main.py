@@ -569,6 +569,43 @@ async def api_stock_profile(code: str = "", _user: str = Depends(require_auth)):
         return {"ok": False, "msg": str(e)}
 
 
+@app.get("/api/stock/financials")
+async def api_stock_financials(code: str = "", _user: str = Depends(require_auth)):
+    """财报跟踪：ROE/营收净利同比/负债率/毛利率 近几期趋势（Tushare）。"""
+    try:
+        from app.strategy.fundamentals import get_financials
+        ts_code = _resolve_ts_code(code)
+        if not ts_code:
+            return {"ok": False, "msg": "无法识别股票"}
+        return get_financials(ts_code)
+    except Exception as e:
+        logger.exception("财报跟踪失败")
+        return {"ok": False, "msg": str(e)}
+
+
+@app.get("/api/stock/alert")
+async def api_stock_alert(code: str = "", _user: str = Depends(require_auth)):
+    """LLM 近期提示：博查真实新闻 → v4-flash 接地总结（按日缓存）。"""
+    try:
+        from app.strategy.fundamentals import get_recent_alert
+        ts_code = _resolve_ts_code(code)
+        if not ts_code:
+            return {"ok": False, "msg": "无法识别股票"}
+        name = ""
+        try:
+            from app.data.composite_provider import CompositeProvider
+            sb = CompositeProvider().get_stock_basic()
+            hit = sb[sb["ts_code"] == ts_code]
+            if not hit.empty:
+                name = str(hit.iloc[0]["name"])
+        except Exception:
+            pass
+        return get_recent_alert(ts_code, name)
+    except Exception as e:
+        logger.exception("近期提示失败")
+        return {"ok": False, "msg": str(e)}
+
+
 @app.post("/api/backtest/stock")
 async def api_backtest_stock(request: Request, _user: str = Depends(require_auth)):
     """单股单信号回测。Body: {code, signal, start, end}。"""

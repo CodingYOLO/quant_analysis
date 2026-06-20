@@ -67,6 +67,25 @@ class TushareProvider(DataProvider):
             trade_date=trade_date,
         )
 
+    def get_fina_indicator(self, ts_code: str) -> pd.DataFrame:
+        """单股财务指标（ROE/营收净利同比/负债率/毛利率等，多期）。缓存一天。"""
+        import datetime
+        key = f"{ts_code}_{datetime.date.today().strftime('%Y%m%d')}"
+        return cached_daily(
+            name="tushare_fina_indicator",
+            date_key=key,
+            fetch_fn=lambda: self._fetch_fina_indicator(ts_code),
+        )
+
+    @_RETRY
+    def _fetch_fina_indicator(self, ts_code: str) -> pd.DataFrame:
+        return rate_limited_call(
+            "tushare_fina_indicator",
+            self._api.fina_indicator,
+            ts_code=ts_code,
+            fields="ts_code,end_date,roe,roe_dt,netprofit_yoy,or_yoy,debt_to_assets,grossprofit_margin",
+        )
+
     def get_stock_daily(self, ts_code: str, start_date: str, end_date: str) -> pd.DataFrame:
         """单股区间日线（按 ts_code 一次拉全，用于个股回测/形态）。列同 daily。"""
         key = f"{ts_code}_{start_date}_{end_date}"

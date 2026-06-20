@@ -52,6 +52,20 @@ td { padding:7px 9px; border-bottom:1px solid #1e2138; white-space:nowrap; }
   <div id="kline" style="height:340px"></div>
 </div>
 
+<!-- 基本面 + 消息面速览 -->
+<div class="card" id="fundcard" style="display:none">
+  <div class="meta">📑 基本面速览 · <span id="fund-sum"></span></div>
+  <div style="overflow-x:auto"><table id="fund-table"></table></div>
+  <div style="margin-top:14px;display:flex;align-items:center;gap:10px">
+    <button class="runbtn" id="alert-btn" style="padding:6px 14px;font-size:13px">🤖 AI 近期提示</button>
+    <span class="neu2" style="font-size:12px">（博查真实新闻 + v4-flash 接地总结，每日缓存）</span>
+  </div>
+  <div id="alert-box" style="display:none;margin-top:10px;background:#12161f;border:1px solid #2a3a6a;border-radius:10px;padding:12px 14px">
+    <div id="alert-text" style="font-size:13px;line-height:1.85;white-space:pre-wrap"></div>
+    <div id="alert-src" style="font-size:11px;color:#8a90a0;margin-top:8px"></div>
+  </div>
+</div>
+
 <div class="card" id="rescard" style="display:none">
   <div class="meta" id="meta"></div>
   <div class="cards" id="cards"></div>
@@ -141,8 +155,53 @@ async function loadProfile(code){
     document.getElementById('prof-hints').innerHTML='<b style="color:#7c9ef8">当前形态提示：</b><br>'+(d.hints||[]).map(h=>'· '+h).join('<br>');
     renderKline(d.kline);
     card.style.display='block';
+    loadFinancials(code);
   }catch(e){ card.style.display='none'; }
 }
+
+let curCode='';
+async function loadFinancials(code){
+  curCode=code;
+  const card=document.getElementById('fundcard');
+  document.getElementById('alert-box').style.display='none';
+  try{
+    const r=await fetch('/api/stock/financials?code='+encodeURIComponent(code));
+    const d=await r.json();
+    if(!d.ok){ card.style.display='none'; return; }
+    document.getElementById('fund-sum').textContent=d.summary||'';
+    const fields=d.fields;
+    let h='<thead><tr><th>报告期</th>'+fields.map(f=>'<th>'+f.label+'</th>').join('')+'</tr></thead><tbody>';
+    d.rows.forEach(row=>{
+      h+='<tr><td>'+row.period+'</td>'+fields.map(f=>{
+        const v=row[f.key]; if(v===null||v===undefined) return '<td class=\"neu2\">—</td>';
+        const signed=(f.key==='netprofit_yoy'||f.key==='or_yoy');
+        const cls=signed?(v>0?'up':(v<0?'down':'neu2')):'';
+        return '<td class=\"'+cls+'\">'+(signed&&v>0?'+':'')+v+'</td>';
+      }).join('')+'</tr>';
+    });
+    document.getElementById('fund-table').innerHTML=h+'</tbody>';
+    card.style.display='block';
+  }catch(e){ card.style.display='none'; }
+}
+
+document.getElementById('alert-btn').addEventListener('click', async ()=>{
+  const btn=document.getElementById('alert-btn'), box=document.getElementById('alert-box');
+  if(!curCode) return;
+  btn.disabled=true; const old=btn.textContent; btn.textContent='⏳ 检索分析中…';
+  box.style.display='block';
+  document.getElementById('alert-text').textContent='正在联网检索真实新闻并由 v4-flash 总结（首次约5-10秒）…';
+  document.getElementById('alert-src').textContent='';
+  try{
+    const r=await fetch('/api/stock/alert?code='+encodeURIComponent(curCode));
+    const d=await r.json();
+    if(!d.ok){ document.getElementById('alert-text').textContent='ℹ️ '+(d.msg||'暂无'); }
+    else{
+      document.getElementById('alert-text').textContent=d.summary;
+      document.getElementById('alert-src').innerHTML='📎 来源：'+(d.sources||[]).map(s=>'<a href=\"'+s.url+'\" target=\"_blank\" style=\"color:#7c9ef8\">'+s.site+' '+s.date+'</a>').join(' · ');
+    }
+  }catch(e){ document.getElementById('alert-text').textContent='❌ '+e; }
+  finally{ btn.disabled=false; btn.textContent=old; }
+});
 function renderKline(kl){
   if(!klineChart) klineChart=echarts.init(document.getElementById('kline'));
   klineChart.setOption({
