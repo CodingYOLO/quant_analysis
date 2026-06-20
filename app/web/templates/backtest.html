@@ -141,8 +141,8 @@ document.getElementById('run').addEventListener('click', async () => {
     if(!d.ok){ st.textContent='❌ '+(d.msg||'回测失败'); btn.disabled=false; return; }
     if(d.n_signals===0){ st.textContent='ℹ️ '+d.ts_code+' 在该区间内未出现「'+d.signal_label+'」信号（换个信号或拉长区间）'; document.getElementById('rescard').style.display='none'; btn.disabled=false; return; }
     st.textContent='✅ 完成';
+    document.getElementById('rescard').style.display='block';   // 先显示再渲染图表(避免0尺寸)
     render(d);
-    document.getElementById('rescard').style.display='block';
   }catch(e){ st.textContent='❌ '+e; }
   finally{ btn.disabled=false; }
 });
@@ -172,6 +172,7 @@ function render(d){
       lineStyle:{color:'#7c9ef8',width:2}, areaStyle:{color:'rgba(124,158,248,.12)'},
       markLine:{silent:true,data:[{yAxis:1}],lineStyle:{color:'#6b7280',type:'dashed'}}}],
   });
+  requestAnimationFrame(()=>chart.resize());
   // 明细表（倒序，最新在上）
   let h='<thead><tr><th>信号日</th><th>买入日(T+1)</th><th>买入价</th><th>当日涨跌</th><th>量比</th><th>T+1</th><th>T+3</th><th>T+5</th><th>T+10</th><th>T+5</th></tr></thead><tbody>';
   d.trades.slice().reverse().forEach(t=>{
@@ -196,8 +197,8 @@ async function loadProfile(code){
     document.getElementById('prof-tags').innerHTML=(d.tags||[]).map(t=>'<span class="ptag '+t.level+'">'+t.text+'</span>').join('');
     renderChips(d.chips);
     document.getElementById('prof-hints').innerHTML='<b style="color:#7c9ef8">当前形态提示：</b><br>'+(d.hints||[]).map(h=>'· '+h).join('<br>');
+    card.style.display='block';     // 先显示再画K线(避免0尺寸空白)
     renderKline(d.kline);
-    card.style.display='block';
     loadFinancials(code);
   }catch(e){ card.style.display='none'; }
 }
@@ -286,6 +287,9 @@ function renderKline(kl){
       {type:'bar',xAxisIndex:1,yAxisIndex:1,data:kl.vol,itemStyle:{color:'#3a3f5c'}},
     ],
   });
+  requestAnimationFrame(()=>klineChart.resize());
 }
+// 窗口缩放时图表自适应
+window.addEventListener('resize', ()=>{ if(chart) chart.resize(); if(klineChart) klineChart.resize(); });
 </script>
 {% endblock %}
