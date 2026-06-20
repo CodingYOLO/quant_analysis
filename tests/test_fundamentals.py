@@ -13,7 +13,7 @@ import datetime
 from app.strategy.fundamentals import (
     _analyst_summary, _block_trade_calc, _events_summary, _express_summary, _fina_summary,
     _float_summary, _fmt_period, _holder_trade_summary, _holdernum_summary, _is_quality,
-    _latest_forecast, _survey_summary, get_analyst_rc,
+    _latest_forecast, _margin_summary, _repurchase_summary, _survey_summary, get_analyst_rc,
 )
 
 
@@ -121,6 +121,22 @@ def test_block_trade_calc() -> None:
     assert s["inst_buy"] == 2                              # 两笔机构专用接盘
     assert s["premium_avg"] == -1.67                       # 折溢价均值 (-10-5+10)/3
     assert _block_trade_calc(pd.DataFrame(), None) is None
+
+
+def test_margin_summary() -> None:
+    df = pd.DataFrame({"trade_date": ["20260610", "20260618", "20260612", "20260616", "20260611", "20260617"],
+                       "rzye": [100e8, 110e8, 102e8, 108e8, 101e8, 109e8]})
+    s = _margin_summary(df)
+    assert s["rzye_yi"] == 110.0 and s["chg_pct"] == 10.0 and "加仓" in s["trend"]   # 最新110亿·近5日+10%
+    assert _margin_summary(pd.DataFrame()) is None
+
+
+def test_repurchase_summary() -> None:
+    df = pd.DataFrame({"ann_date": [_d(20), _d(300)], "proc": ["实施中", "预案"], "amount": [3e8, 2e7]})
+    s = _repurchase_summary(df)
+    assert s["proc"] == "实施中" and s["amount_yi"] == 3.0 and s["is_real"] is True   # 取最新·实施中=实
+    # 仅数年前的旧回购 → 过滤
+    assert _repurchase_summary(pd.DataFrame({"ann_date": ["20210101"], "proc": ["完成"], "amount": [1e8]})) is None
 
 
 def test_events_summary_bundles_present_only() -> None:

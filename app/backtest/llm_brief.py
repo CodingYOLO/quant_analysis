@@ -127,6 +127,14 @@ def build_facts(p: dict) -> str:
                    "溢价接盘" if pm is not None and pm > 1 else "平价")
             bits.append(f"近180天大宗{bk['count']}笔/{bk['amount_yi']}亿，平均折溢价{pm}%（{tag}），"
                         f"机构接盘{bk['inst_buy']}笔")
+        mg = ev.get("margin")
+        if mg:
+            bits.append(f"融资余额{mg['rzye_yi']}亿（近5日{mg.get('chg_pct')}%·{mg.get('trend') or ''}）")
+        rp = ev.get("repurchase")
+        if rp:
+            real = "已落地" if rp.get("is_real") else "仅预案(可能喊话，勿当实利好)"
+            amt = f"·{rp['amount_yi']}亿" if rp.get("amount_yi") else ""
+            bits.append(f"回购{rp['proc']}{amt}（{real}）")
         if bits:
             lines.append("【事件/避雷面(已取官方数据，请据此直接核查解禁/减持，不要再列为待确认)】" + "；".join(bits))
 

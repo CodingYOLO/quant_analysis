@@ -68,6 +68,12 @@ class CompositeProvider(DataProvider):
     def get_block_trade(self, ts_code: str) -> pd.DataFrame:
         return self._ts.get_block_trade(ts_code)
 
+    def get_margin_detail(self, ts_code: str) -> pd.DataFrame:
+        return self._ts.get_margin_detail(ts_code)
+
+    def get_repurchase(self, ts_code: str) -> pd.DataFrame:
+        return self._ts.get_repurchase(ts_code)
+
     def get_adj_factor_series(self, ts_code: str, start_date: str, end_date: str) -> pd.DataFrame:
         return self._ts.get_adj_factor_series(ts_code, start_date, end_date)
 

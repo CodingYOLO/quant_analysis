@@ -648,6 +648,10 @@ function renderEvents(ev){
   if(ev.block){ const b=ev.block, p=b.premium_avg, c=(p!=null&&p<-1)?'down':(p!=null&&p>1?'up':'neu2');
     const lbl=(p!=null&&p<-1)?'折价·抛压':(p!=null&&p>1?'溢价·接盘':'平价');
     bits.push('🔻 大宗 '+b.count+'笔/'+b.amount_yi+'亿 折溢价 <span class="'+c+'">'+(p>0?'+':'')+(p??'—')+'%</span>('+lbl+')'+(b.inst_buy?' · 机构接盘'+b.inst_buy+'笔':'')); }
+  if(ev.margin){ const m=ev.margin, c=(m.chg_pct>0?'up':(m.chg_pct<0?'down':'neu2'));
+    bits.push('💰 融资余额 '+m.rzye_yi+'亿'+(m.chg_pct!=null?' 近5日 <span class="'+c+'">'+(m.chg_pct>0?'+':'')+m.chg_pct+'%</span>（'+(m.trend||'')+'）':'')); }
+  if(ev.repurchase){ const r=ev.repurchase;
+    bits.push('🔁 回购 <span class="'+(r.is_real?'up':'neu2')+'">'+r.proc+'</span>'+(r.amount_yi?' '+r.amount_yi+'亿':'')+(r.is_real?'':' <span class="neu" style="font-size:11px">(仅预案·或喊话)</span>')); }
   if(!bits.length){ el.style.display='none'; return; }
   el.innerHTML='<b style="color:#e5c07b">🛡️ 事件/避雷面</b>　'+bits.join('　|　');
   el.style.display='block';

@@ -96,7 +96,50 @@ def _events_summary(ts_code: str, provider: CompositeProvider) -> dict | None:
     bl = _block_trade_summary(ts_code, provider)
     if bl:
         out["block"] = bl
+    mg = _margin_summary(_safe_fetch(provider, "get_margin_detail", ts_code))
+    if mg:
+        out["margin"] = mg
+    rp = _repurchase_summary(_safe_fetch(provider, "get_repurchase", ts_code))
+    if rp:
+        out["repurchase"] = rp
     return out or None
+
+
+def _margin_summary(df) -> dict | None:
+    """个股两融：最新融资余额(亿) + 近~5日变化%（增=杠杆加仓·减=撤离/踩踏风险）。"""
+    if df is None or df.empty or "rzye" not in df.columns:
+        return None
+    df = df.copy()
+    df["trade_date"] = df["trade_date"].astype(str)
+    df = df.sort_values("trade_date")
+    rz = pd.to_numeric(df["rzye"], errors="coerce").dropna().tolist()
+    if not rz:
+        return None
+    chg, trend = None, ""
+    if len(rz) >= 6 and rz[-6] > 0:
+        chg = round((rz[-1] - rz[-6]) / rz[-6] * 100, 2)
+        trend = "杠杆资金加仓" if chg > 0 else "杠杆资金撤离"
+    return {"rzye_yi": round(rz[-1] / 1e8, 2), "chg_pct": chg, "trend": trend,
+            "date": _fmt_date(str(df["trade_date"].iloc[-1]))}
+
+
+def _repurchase_summary(df) -> dict | None:
+    """股份回购：近~13个月最新一条 进度(完成/实施中/预案) + 金额(亿)。预案=可能喊话，实施中/完成才实。"""
+    import datetime
+    if df is None or df.empty or "ann_date" not in df.columns:
+        return None
+    df = df.copy()
+    df["ann_date"] = df["ann_date"].astype(str)
+    cutoff = (datetime.date.today() - datetime.timedelta(days=400)).strftime("%Y%m%d")
+    df = df[df["ann_date"] >= cutoff]
+    if df.empty:
+        return None
+    r = df.sort_values("ann_date", ascending=False).iloc[0]
+    amt = pd.to_numeric(r.get("amount"), errors="coerce")
+    proc = str(r.get("proc") or "")
+    return {"proc": proc, "ann_date": _fmt_date(str(r.get("ann_date") or "")),
+            "amount_yi": round(float(amt) / 1e8, 2) if pd.notna(amt) else None,
+            "is_real": proc in ("完成", "实施中", "股东大会通过")}
 
 
 def _block_trade_summary(ts_code: str, provider: CompositeProvider) -> dict | None:

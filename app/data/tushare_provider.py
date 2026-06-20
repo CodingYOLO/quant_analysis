@@ -226,6 +226,29 @@ class TushareProvider(DataProvider):
             start_date=(t - datetime.timedelta(days=180)).strftime("%Y%m%d"),
             end_date=t.strftime("%Y%m%d"))
 
+    def get_margin_detail(self, ts_code: str) -> pd.DataFrame:
+        """单股融资融券明细（近25天，rzye=融资余额）。缓存一天。"""
+        return cached_daily("tushare_margin_detail", self._today_key(ts_code),
+                            lambda: self._fetch_margin_detail(ts_code))
+
+    @_RETRY
+    def _fetch_margin_detail(self, ts_code: str) -> pd.DataFrame:
+        import datetime
+        t = datetime.date.today()
+        return rate_limited_call(
+            "tushare_margin_detail", self._api.margin_detail, ts_code=ts_code,
+            start_date=(t - datetime.timedelta(days=25)).strftime("%Y%m%d"),
+            end_date=t.strftime("%Y%m%d"))
+
+    def get_repurchase(self, ts_code: str) -> pd.DataFrame:
+        """单股股份回购（proc=进度: 完成/实施中/预案）。缓存一天。"""
+        return cached_daily("tushare_repurchase", self._today_key(ts_code),
+                            lambda: self._fetch_repurchase(ts_code))
+
+    @_RETRY
+    def _fetch_repurchase(self, ts_code: str) -> pd.DataFrame:
+        return rate_limited_call("tushare_repurchase", self._api.repurchase, ts_code=ts_code)
+
     def get_cyq_perf(self, ts_code: str, start_date: str, end_date: str) -> pd.DataFrame:
         """单股筹码分布（每日：加权平均成本/获利盘比例/各分位成本）。缓存一天。"""
         import datetime
