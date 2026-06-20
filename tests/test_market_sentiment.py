@@ -66,6 +66,17 @@ def test_lhb_summary() -> None:
     assert MS._lhb_summary({}, c2n) == {}                       # 空安全
 
 
+def test_hot_themes() -> None:
+    df = pd.DataFrame({"name": ["A", "B", "C", "D"], "tag": ["涨停", "涨停", "涨停", "跌停"],
+                       "theme": ["环保、钠电池", "环保", "钠电池、固态电池", "环保"]})
+    s = MS._hot_themes(df)
+    themes = {t["theme"]: t["count"] for t in s}
+    assert themes["环保"] == 2 and themes["钠电池"] == 2 and themes["固态电池"] == 1   # 跌停D不计
+    huan = next(t for t in s if t["theme"] == "环保")
+    assert "A" in huan["stocks"] and "B" in huan["stocks"]
+    assert MS._hot_themes(pd.DataFrame()) == []
+
+
 def _run_all() -> None:
     fns = [v for k, v in sorted(globals().items())
            if k.startswith("test_") and callable(v)]

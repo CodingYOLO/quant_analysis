@@ -128,8 +128,8 @@ document.querySelectorAll('.preset').forEach(p=>p.addEventListener('click', ()=>
   load();
 }));
 
-// 🔥 打板情绪（官方 limit_list_d：炸板率/连板天梯/封单额）
-function renderLimit(lo, date){
+// 🔥 打板情绪（官方 limit_list_d：炸板率/连板天梯/封单额 + 热点题材）
+function renderLimit(lo, date, themes){
   const card=document.getElementById('limit-card');
   if(!lo || !lo.limit_up){ card.style.display='none'; return; }
   document.getElementById('lim-date').textContent=date||'';
@@ -137,12 +137,15 @@ function renderLimit(lo, date){
     .map(([k,v])=>k+'板 '+v+'家').join(' · ');
   const seal=(lo.top_seal||[]).map(s=>s.name+'('+s.limit_times+'板·封'+s.fd_yi+'亿)').join('　');
   const zbCls=lo.zhaban_rate>=30?'down':(lo.zhaban_rate<=15?'up':'amber');
+  const hot=(themes||[]).map(t=>'<span class="amber">'+t.theme+'</span> '+t.count+'家'
+    +(t.stocks&&t.stocks.length?'<span class="neu" style="font-size:11px">('+t.stocks.slice(0,3).join('、')+')</span>':'')).join('　');
   document.getElementById('lim-body').innerHTML=
     '涨停 <b class="up">'+lo.limit_up+'</b> · 跌停 <b class="down">'+lo.limit_down+'</b> · 炸板 <b>'+lo.zhaban
     +'</b> · 炸板率 <b class="'+zbCls+'">'+lo.zhaban_rate+'%</b> <span class="neu" style="font-size:11px">（越低情绪越强）</span><br>'
     +'最高连板 <b class="amber">'+(lo.max_lianban||0)+'板</b>'
     +(lo.top_lianban_stocks&&lo.top_lianban_stocks.length?' <span class="neu" style="font-size:12px">'+lo.top_lianban_stocks.join('、')+'</span>':'')+'<br>'
     +(dist?'<span class="neu">连板天梯：</span>'+dist+'<br>':'')
+    +(hot?'<span class="neu">🔥 热点题材：</span>'+hot+'<br>':'')
     +(seal?'<span class="neu">封单额Top（人气）：</span>'+seal:'');
   card.style.display='block';
 }
@@ -187,7 +190,7 @@ function render(d){
   document.getElementById('k-ad').innerHTML = '<span class="'+(k.ad_ratio>=1?'up':'down')+'">'+k.ad_ratio+'</span>';
   document.getElementById('k-ad-sub').textContent = '涨'+k.up_count+' / 跌'+k.down_count+'　'+k.date;
 
-  renderLimit(d.limit_official, k.date);
+  renderLimit(d.limit_official, k.date, d.hot_themes);
   renderLHB(d.lhb, k.date);
 
   const dates = d.dates.map(s=>s.slice(4,6)+'-'+s.slice(6));

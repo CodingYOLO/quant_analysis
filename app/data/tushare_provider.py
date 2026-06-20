@@ -141,6 +141,15 @@ class TushareProvider(DataProvider):
             trade_date=trade_date, limit_type=limit_type,
         )
 
+    def get_kpl_list(self, trade_date: str) -> pd.DataFrame:
+        """开盘啦打板榜单（涨停/连板个股 + 题材/封板时间）。按日缓存。"""
+        return cached_daily("tushare_kpl_list", trade_date,
+                            lambda: self._fetch_kpl_list(trade_date))
+
+    @_RETRY
+    def _fetch_kpl_list(self, trade_date: str) -> pd.DataFrame:
+        return rate_limited_call("tushare_kpl_list", self._api.kpl_list, trade_date=trade_date)
+
     # ---- 事件/避雷面（解禁/增减持/快报/户数）----
 
     def _today_key(self, ts_code: str) -> str:

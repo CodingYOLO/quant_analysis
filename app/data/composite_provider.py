@@ -50,6 +50,9 @@ class CompositeProvider(DataProvider):
     def get_limit_list(self, trade_date: str, limit_type: str = "U") -> pd.DataFrame:
         return self._ts.get_limit_list(trade_date, limit_type)
 
+    def get_kpl_list(self, trade_date: str) -> pd.DataFrame:
+        return self._ts.get_kpl_list(trade_date)
+
     def get_share_float(self, ts_code: str) -> pd.DataFrame:
         return self._ts.get_share_float(ts_code)
 

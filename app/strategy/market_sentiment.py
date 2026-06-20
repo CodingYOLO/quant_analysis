@@ -174,6 +174,13 @@ def build_dashboard(end_date: str, days: int = 22, start_date: str = "", force: 
         logger.warning("[sentiment] 龙虎榜数据失败", exc_info=True)
         lhb = {}
 
+    # —— 今日热点题材（开盘啦打板榜单 kpl_list）——
+    try:
+        hot_themes = _hot_themes(provider.get_kpl_list(range_dates[-1]))
+    except Exception:
+        logger.warning("[sentiment] 热点题材数据失败", exc_info=True)
+        hot_themes = []
+
     result = {
         "end_date": end_date,
         "regime": regime,
@@ -187,6 +194,7 @@ def build_dashboard(end_date: str, days: int = 22, start_date: str = "", force: 
         "indices": indices,
         "limit_official": limit_official,
         "lhb": lhb,
+        "hot_themes": hot_themes,
     }
     path.write_text(json.dumps(result, ensure_ascii=False), encoding="utf-8")
     return result
@@ -314,6 +322,26 @@ def _lhb_summary(dt: dict, code2name: dict) -> dict:
         "famous": {k: list(dict.fromkeys(v))[:3] for k, v in list(famous.items())[:6]},  # 去重股名
         "top_net": rows[:8],
     }
+
+
+def _hot_themes(df, top_n: int = 6) -> list[dict]:
+    """开盘啦打板榜单 → 今日热点题材榜：按涨停个股的题材出现次数排名 + 代表股。"""
+    if df is None or df.empty or "theme" not in df.columns:
+        return []
+    up = df[df["tag"] == "涨停"] if "tag" in df.columns else df
+    cnt: dict[str, int] = {}
+    stocks: dict[str, list] = {}
+    for _, r in up.iterrows():
+        name = str(r.get("name") or "")
+        themes = str(r.get("theme") or "").replace("，", "、").replace(",", "、")
+        for t in themes.split("、"):
+            t = t.strip()
+            if not t or t == "nan":
+                continue
+            cnt[t] = cnt.get(t, 0) + 1
+            stocks.setdefault(t, []).append(name)
+    ranked = sorted(cnt.items(), key=lambda kv: -kv[1])[:top_n]
+    return [{"theme": t, "count": c, "stocks": list(dict.fromkeys(stocks[t]))[:4]} for t, c in ranked]
 
 
 def _breadth_series(provider, end_date: str, range_dates: list[str]) -> dict:
