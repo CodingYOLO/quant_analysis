@@ -45,6 +45,12 @@
 .up   { color: #f6465d; font-weight: 600; }   /* 红涨 */
 .down { color: #2ebd85; font-weight: 600; }   /* 绿跌 */
 .code { color: #7c9ef8; font-family: ui-monospace, monospace; }
+/* 展开行（点击任一结果行 → 看 K线 + 量能/乖离/筹码，复用 /api/stock/profile） */
+#restable tr.datarow { cursor: pointer; }
+#restable tr.datarow:hover td { background: #1e2138; }
+.detail { padding: 12px 16px; background: #141729; font-size: 12.5px; line-height: 1.7; white-space: normal; }
+.detail b { color: #7c9ef8; }
+.detail .miss { color: #6b7280; } .detail .neu2 { color: #9ca3af; }
 {% endblock %}
 
 {% block content %}
@@ -129,6 +135,7 @@
   <div class="reswrap"><table id="restable"></table></div>
 </div>
 
+<script src="/static/echarts.min.js"></script>
 <script>
 const selected = new Set();
 document.querySelectorAll('.fbtn').forEach(b => {
@@ -205,10 +212,15 @@ function renderTable() {
     return '<th data-key="' + c.key + '" style="' + (sortable ? 'cursor:pointer;user-select:none' : '') + '">'
       + c.label + (sortable ? '<span style="color:#7c9ef8">' + arrow(c.key) + '</span>' : '') + '</th>';
   }).join('') + '</tr></thead><tbody>';
-  sorted.forEach(r => {
-    html += '<tr>' + columns.map(c => fmtCell(c.key, r[c.key])).join('') + '</tr>';
+  const colspan = columns.length;
+  sorted.forEach((r, i) => {
+    html += '<tr class="datarow" onclick="toggleScr(' + i + ')">'
+      + columns.map(c => fmtCell(c.key, r[c.key])).join('') + '</tr>';
+    html += '<tr id="exr_' + i + '" style="display:none"><td colspan="' + colspan
+      + '" style="padding:0"><div class="detail" id="exd_' + i + '"></div></td></tr>';
   });
   html += '</tbody>';
+  window._scrRows = sorted;          // 供展开行按行号取 ts_code
   const tbl = document.getElementById('restable');
   tbl.innerHTML = html;
   // 绑定表头点击排序
@@ -221,6 +233,77 @@ function renderTable() {
       renderTable();
     });
   });
+}
+
+// ── 展开行：K线(含量柱·MA5/10/20/60) + 量能/乖离/筹码（复用 /api/stock/profile，与选股池一致）──
+const _scrCharts = {};
+function toggleScr(i) {
+  const row = document.getElementById('exr_' + i);
+  const open = row.style.display !== 'none';
+  row.style.display = open ? 'none' : '';
+  if (open) return;
+  const r = (window._scrRows || [])[i];
+  if (!r || !r.ts_code) { document.getElementById('exd_' + i).textContent = 'ℹ️ 无代码'; return; }
+  loadScrKline(r.ts_code, i);
+}
+async function loadScrKline(code, i) {
+  const dv = document.getElementById('exd_' + i);
+  dv.innerHTML = '<div class="neu2" id="ext_' + i + '">⏳ 加载K线/指标…</div><div id="kc_' + i + '" style="height:340px"></div>';
+  try {
+    const resp = await fetch('/api/stock/profile?code=' + String(code).slice(0, 6));
+    const d = await resp.json();
+    if (!d.ok || !d.kline) { document.getElementById('ext_' + i).textContent = 'ℹ️ 无K线/筹码数据'; return; }
+    document.getElementById('ext_' + i).innerHTML = extScrIndicators(d);
+    renderScrKline('kc_' + i, d.kline);
+  } catch (e) { document.getElementById('ext_' + i).textContent = '❌ K线加载失败：' + e; }
+}
+function extScrIndicators(d) {
+  const kl = d.kline, n = (kl.vol || []).length;
+  const avg = (a, m) => { const s = a.slice(-m).filter(x => x != null); return s.length ? s.reduce((x, y) => x + y, 0) / s.length : null; };
+  const vma5 = avg(kl.vol, 5), curVol = kl.vol[n - 1];
+  const volX = vma5 ? (curVol / vma5) : null;
+  const close = kl.candle[n - 1] ? kl.candle[n - 1][1] : null;
+  const bias = (maArr) => { const ma = maArr[n - 1]; return (ma && close) ? ((close - ma) / ma * 100) : null; };
+  const b5 = bias(kl.ma5), b20 = bias(kl.ma20);
+  const s = v => v == null ? '<span class="miss">—</span>' : '<span class="' + (v >= 0 ? 'up' : 'down') + '">' + (v >= 0 ? '+' : '') + v.toFixed(1) + '%</span>';
+  let h = '<b style="color:#7c9ef8">📊 量能</b> 当前量/VMA5 ' + (volX == null ? '—' : volX.toFixed(2) + '×')
+    + ' <span class="neu2" style="font-size:11px">(≥1.5放量/≤0.7缩量)</span>'
+    + ' ｜ <b style="color:#7c9ef8">📐 乖离</b> 5日 ' + s(b5) + ' / 20日 ' + s(b20)
+    + ' <span class="neu2" style="font-size:11px">(正=偏热·负=低吸位)</span>';
+  const c = d.chips;
+  if (c) {
+    h += '<br><b style="color:#e5c07b">🎯 筹码</b> 集中度 ' + (c.concentration == null ? '—' : c.concentration + '%')
+      + ' <span class="neu2" style="font-size:11px">(越小越集中)</span>'
+      + ' ｜ 主力成本 ' + (c.weight_avg ?? '—') + '（溢价 ' + s(c.premium) + '）'
+      + ' ｜ 获利盘 ' + (c.winner_rate == null ? '—' : c.winner_rate + '%');
+  }
+  return h;
+}
+function smaScr(candle, m) {
+  const out = []; for (let i = 0; i < candle.length; i++) { if (i < m - 1) { out.push(null); continue; }
+    let s = 0; for (let j = i - m + 1; j <= i; j++) s += candle[j][1]; out.push(+(s / m).toFixed(2)); } return out;
+}
+function renderScrKline(cid, kl) {
+  const el = document.getElementById(cid); if (!el || typeof echarts === 'undefined') return;
+  const c = echarts.init(el); _scrCharts[cid] = c; const ma10 = smaScr(kl.candle, 10);
+  c.setOption({
+    backgroundColor: 'transparent', tooltip: { trigger: 'axis', axisPointer: { type: 'cross' } },
+    legend: { data: ['MA5', 'MA10', 'MA20', 'MA60'], textStyle: { color: '#9ca3af' }, right: 10, top: 0 },
+    grid: [{ left: 50, right: 20, top: 30, height: '60%' }, { left: 50, right: 20, top: '76%', height: '15%' }],
+    xAxis: [{ type: 'category', data: kl.dates, axisLabel: { color: '#9ca3af' } },
+            { type: 'category', data: kl.dates, gridIndex: 1, axisLabel: { show: false } }],
+    yAxis: [{ scale: true, axisLabel: { color: '#9ca3af' }, splitLine: { lineStyle: { color: '#1a1d2e' } } },
+            { gridIndex: 1, axisLabel: { show: false }, splitLine: { show: false } }],
+    series: [
+      { type: 'candlestick', data: kl.candle, itemStyle: { color: '#f6465d', color0: '#2ebd85', borderColor: '#f6465d', borderColor0: '#2ebd85' } },
+      { name: 'MA5', type: 'line', data: kl.ma5, smooth: true, symbol: 'none', lineStyle: { width: 1, color: '#e5c07b' } },
+      { name: 'MA10', type: 'line', data: ma10, smooth: true, symbol: 'none', lineStyle: { width: 1, color: '#4ade80' } },
+      { name: 'MA20', type: 'line', data: kl.ma20, smooth: true, symbol: 'none', lineStyle: { width: 1, color: '#7c9ef8' } },
+      { name: 'MA60', type: 'line', data: kl.ma60, smooth: true, symbol: 'none', lineStyle: { width: 1, color: '#c084fc' } },
+      { type: 'bar', xAxisIndex: 1, yAxisIndex: 1, data: kl.vol, itemStyle: { color: '#3a3f5c' } }
+    ]
+  });
+  requestAnimationFrame(() => c.resize()); setTimeout(() => c.resize(), 120);
 }
 
 document.getElementById('run').addEventListener('click', async () => {
