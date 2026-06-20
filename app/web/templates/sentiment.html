@@ -103,6 +103,9 @@ async function load(){
     loadingEl.style.display='none';
     document.getElementById('dash').style.display='block';
     render(j.data);
+    // 布局完成后统一 resize：修复首屏图表按0宽度渲染导致的"广度显示不全/串图"
+    requestAnimationFrame(()=>Object.values(_charts).forEach(c=>c.resize()));
+    setTimeout(()=>Object.values(_charts).forEach(c=>c.resize()), 200);
   }catch(e){ loadingEl.textContent='❌ 请求出错：'+e; }
 }
 document.getElementById('reload').addEventListener('click', ()=>{ clearPreset(); load(); });
