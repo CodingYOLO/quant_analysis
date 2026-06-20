@@ -97,7 +97,9 @@ async function loadCatalysts(refresh){
     const r=await fetch('/api/bull/catalysts?date='+d+(refresh?'&refresh=1':''));
     const j=await r.json();
     $('cat-loading').style.display='none';
-    $('genmeta').textContent=(j.date?('数据日 '+j.date):'')+(j.cached?'（缓存）':(j.generated_at?('　生成于 '+j.generated_at):''));
+    // 把后端解析出的实际数据日回填到选择框（默认空→展示最近交易日，而非光秃秃的"年/月/日"）
+    if(j.date&&j.date.length===8) $('date').value=j.date.slice(0,4)+'-'+j.date.slice(4,6)+'-'+j.date.slice(6,8);
+    $('genmeta').textContent=j.cached?'（缓存）':(j.generated_at?('生成于 '+j.generated_at):'');
     if(!j.ok||!(j.catalysts||[]).length){
       $('cat-empty').style.display='block';
       $('cat-empty').textContent='ℹ️ '+(j.msg||'今日未抽取到可映射的催化（可能新闻源/概念数据未就绪）');
