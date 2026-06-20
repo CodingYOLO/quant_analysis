@@ -64,6 +64,8 @@ tr.datarow:hover td { background:#1e2138; cursor:pointer; }
 <div class="databar" id="databar" style="display:none"></div>
 <div id="mktbanner" style="display:none;margin:8px 0;padding:9px 14px;border-radius:8px;font-size:13px;line-height:1.7"></div>
 <div class="meta" id="meta"></div>
+<div style="margin:6px 0"><button id="eval-btn" class="chip" style="cursor:pointer;color:#7c9ef8;border-color:#3358e0">📊 评分回测验证 —— 这套重点分到底灵不灵？</button></div>
+<div id="evalcard" class="chart-card" style="display:none;margin-bottom:14px;text-align:left"></div>
 
 <div id="loading" class="neu2" style="font-size:14px;padding:16px">⏳ 加载中…</div>
 <div id="dash" style="display:none;overflow-x:auto"><table id="tbl"></table></div>
@@ -176,6 +178,45 @@ function renderMktBanner(lbl){
     el.innerHTML='✅ 今日大盘【'+lbl+'】 · 可正常开仓（仓位按大盘：升温/主升5% · 震荡3%）。';
   }
   el.style.display='block';
+}
+
+// ── 📊 评分回测验证（这套重点分灵不灵）──
+let _evalLoaded=false;
+document.getElementById('eval-btn').addEventListener('click', async ()=>{
+  const card=document.getElementById('evalcard');
+  if(card.style.display!=='none'){ card.style.display='none'; return; }
+  card.style.display='block';
+  if(_evalLoaded) return;
+  card.innerHTML='⏳ 加载评分回测…';
+  try{ const d=await (await fetch('/api/pool/eval')).json();
+    card.innerHTML = d.ok ? renderEval(d) : ('❌ '+(d.error||'失败')); if(d.ok) _evalLoaded=true;
+  }catch(e){ card.innerHTML='❌ '+e; }
+});
+function evalBanner(agg, sLbl, wLbl, title, emptyNote){
+  if(!agg||!agg.n_days) return '<div class="neu2" style="font-size:12px;padding:4px 0">'+title+'：'+emptyNote+'</div>';
+  const ok=agg.spread>0;
+  return '<div style="padding:8px 12px;border-radius:8px;margin:4px 0;background:'+(ok?'#0e2a1a':'#2a1d0a')+';border:1px solid '+(ok?'#1a4a30':'#5a4018')+'">'
+    +'<b style="color:'+(ok?'#2ebd85':'#f0a020')+'">'+title+'</b>：'+sLbl+' T+5胜率 <b>'+agg.strong_win+'%</b> vs '+wLbl+' <b>'+agg.weak_win+'%</b>'
+    +' ｜ 差 <b class="'+(ok?'up':'down')+'">'+(agg.spread>0?'+':'')+agg.spread+'pt</b> ｜ '+sLbl+'>'+wLbl+' 占 <b>'+agg.beat_ratio+'%</b> 的交易日 ｜ 样本 '+agg.n_days+' 天'
+    +'<div class="neu2" style="font-size:11px;margin-top:3px">'+(ok?'✅ 评分有效：分越高·T+5胜率越高':'⚠️ 区分度不明显，需校准')+'</div></div>';
+}
+function evalRows(evals, keys){
+  if(!evals||!evals.length) return '<div class="neu2" style="font-size:12px;padding:4px">暂无数据</div>';
+  const cell=s=>(s&&s.win_rate!=null)?('<span class="'+(s.win_rate>=50?'up':'down')+'">'+s.win_rate+'%</span> <span class="neu2" style="font-size:10px">'+(s.avg_return>0?'+':'')+(s.avg_return??'')+'%·n'+s.n+'</span>'):'<span class="miss">—</span>';
+  let h='<table style="font-size:12px"><thead><tr><th>交易日</th>'+keys.map(k=>'<th>'+k+'</th>').join('')+'</tr></thead><tbody>';
+  evals.slice().reverse().forEach(e=>{ h+='<tr><td class="neu2">'+e.run_date+'</td>'+keys.map(k=>'<td>'+cell(e.tiers[k])+'</td>').join('')+'</tr>'; });
+  return h+'</tbody></table>';
+}
+function renderEval(d){
+  let h='<h3 style="text-align:left;margin-bottom:4px">📊 评分回测验证</h3>';
+  h+='<div style="font-weight:600;color:#7c9ef8;margin:8px 0 2px">① 前向验证（真实选股池·完整评分·最准）</div>';
+  h+=evalBanner(d.forward_agg,'高分(≥75)','其余','前向(B)','数据累积中——需选股池逐日积累 + T+5到期(约1周后渐显)');
+  h+='<div style="overflow-x:auto">'+evalRows(d.forward,['⭐重点','高分(≥75)','其余(<75)'])+'</div>';
+  h+='<div style="font-weight:600;color:#7c9ef8;margin:14px 0 2px">② 历史回测（价格结构评分·马上有结果）</div>';
+  h+=evalBanner(d.backtest_agg,'强档','弱档','历史(A)','服务器尚未跑——执行 python -m app.run pool-eval 后即有');
+  h+='<div style="overflow-x:auto">'+evalRows(d.backtest,['强','中','弱'])+'</div>';
+  h+='<div class="neu2" style="font-size:11px;margin-top:8px">说明：A=按「价格结构评分」(RPS强度+乖离/追高/高位风险)分三档，**不含资金/板块/筹码**(无历史)；B=真实选股池的完整评分。口径：买次日收盘/卖T+5收盘。历史≠未来。</div>';
+  return h;
 }
 
 function render(){

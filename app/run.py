@@ -363,6 +363,24 @@ def build_wide_cmd(trade_date: str) -> None:
     console.print(f"[green]✅ 板块广度预算：{nb} 个 → data_cache/board_breadth/[/green]\n")
 
 
+@cli.command("pool-eval")
+@click.option("--lookback", default=145, show_default=True, help="面板回看交易日")
+@click.option("--step", default=3, show_default=True, help="采样步长(每N个交易日测一次)")
+def pool_eval_cmd(lookback: int, step: int) -> None:
+    """评分回测(A·历史价格结构)：对过去采样日按重点分分档统计 T+5 胜率，落库 pool_eval。"""
+    from app.backtest.pool_eval import run_historical, aggregate
+    from app.strategy.db import save_evals
+
+    console.print(f"\n[bold cyan]📊 评分回测(历史·价格结构)[/bold cyan] 回看{lookback}日·步长{step}\n")
+    evals = run_historical(lookback=lookback, step=step)
+    n = save_evals(evals)
+    agg = aggregate(evals, "强", "弱")
+    console.print(f"[green]✅ 回测 {len(evals)} 个交易日 / 落库 {n} 行[/green]")
+    if agg.get("n_days"):
+        console.print(f"[green]总览：强档T+5胜率 {agg['strong_win']}% vs 弱档 {agg['weak_win']}% "
+                      f"(差 {agg['spread']}pt·强>弱占 {agg['beat_ratio']}% 的天)[/green]\n")
+
+
 @cli.command("signal-eval")
 @click.option("--start", default="", help="回测开始日 YYYYMMDD（默认：结束日前30个自然日）")
 @click.option("--end", default="", help="回测结束日 YYYYMMDD（默认：最近交易日）")

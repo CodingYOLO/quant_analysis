@@ -414,6 +414,30 @@ async def api_sector_breadth(name: str = "", type: str = "concept", days: int = 
         return {"ok": False, "msg": str(e)}
 
 
+@app.get("/api/pool/eval")
+async def api_pool_eval(_user: str = Depends(require_auth)):
+    """评分回测：A历史(价格结构·读pool_eval) + B前向(真实池完整评分·按需聚合) + 总览。"""
+    try:
+        from app.backtest.pool_eval import aggregate, eval_pool_date
+        from app.strategy.db import get_pool_with_perf, load_evals, pool_dates
+        bt = load_evals("backtest")
+        fwd = []
+        for d in pool_dates():
+            e = eval_pool_date(get_pool_with_perf(d))
+            if e:
+                e["run_date"] = d
+                fwd.append(e)
+        fwd.sort(key=lambda x: x["run_date"])
+        return {
+            "ok": True,
+            "backtest": bt, "backtest_agg": aggregate(bt, "强", "弱"),
+            "forward": fwd, "forward_agg": aggregate(fwd, "高分(≥75)", "其余(<75)"),
+        }
+    except Exception as e:
+        logger.exception("评分回测失败")
+        return {"ok": False, "error": str(e)}
+
+
 @app.get("/stockpool", response_class=HTMLResponse)
 async def stockpool_page(request: Request, _user: str = Depends(require_auth)):
     """Tab2 选股池（内置策略每日盘后自动选股）。"""

@@ -209,6 +209,16 @@ def init_db() -> None:
                 UNIQUE(run_date, ts_code)
             );
             CREATE INDEX IF NOT EXISTS idx_pool_date ON stock_pool(run_date);
+            CREATE TABLE IF NOT EXISTS pool_eval (
+                run_date    TEXT NOT NULL,
+                source      TEXT NOT NULL,    -- backtest(历史价格结构) / forward(真实池完整评分)
+                tier        TEXT NOT NULL,    -- 强/中/弱 或 ⭐重点/高分/其余
+                n           INTEGER,
+                win_rate    REAL,             -- T+5 胜率%
+                avg_return  REAL,             -- T+5 均收益%
+                created_at  TEXT DEFAULT (datetime('now','localtime')),
+                UNIQUE(run_date, source, tier)
+            );
         """)
         # 旧库幂等补列（CREATE TABLE IF NOT EXISTS 不会给已存在的表加列）
         existing = {row[1] for row in con.execute("PRAGMA table_info(stock_pool)")}
@@ -457,6 +467,39 @@ def save_pool(run_date: str, records: list[dict]) -> int:
                 vals,
             )
     return len(records)
+
+
+def save_evals(evals: list[dict]) -> int:
+    """落库评分回测结果（按 run_date×source×tier 覆盖）。evals 为 pool_eval 引擎输出。"""
+    if not evals:
+        return 0
+    init_db()
+    n = 0
+    with _conn() as con:
+        for e in evals:
+            for tier, st in (e.get("tiers") or {}).items():
+                con.execute(
+                    "INSERT INTO pool_eval (run_date, source, tier, n, win_rate, avg_return) "
+                    "VALUES (?,?,?,?,?,?) ON CONFLICT(run_date, source, tier) DO UPDATE SET "
+                    "n=excluded.n, win_rate=excluded.win_rate, avg_return=excluded.avg_return",
+                    (e["run_date"], e["source"], tier, st.get("n"),
+                     st.get("win_rate"), st.get("avg_return")))
+                n += 1
+    return n
+
+
+def load_evals(source: str = "backtest") -> list[dict]:
+    """读评分回测结果，按日期升序聚合成 [{run_date, source, tiers:{tier:{n,win_rate,avg_return}}}]。"""
+    init_db()
+    with _conn() as con:
+        rows = con.execute(
+            "SELECT run_date, tier, n, win_rate, avg_return FROM pool_eval "
+            "WHERE source=? ORDER BY run_date", (source,)).fetchall()
+    by_date: dict[str, dict] = {}
+    for r in rows:
+        d = by_date.setdefault(r["run_date"], {"run_date": r["run_date"], "source": source, "tiers": {}})
+        d["tiers"][r["tier"]] = {"n": r["n"], "win_rate": r["win_rate"], "avg_return": r["avg_return"]}
+    return list(by_date.values())
 
 
 def get_pool_with_perf(run_date: str) -> list[dict]:
