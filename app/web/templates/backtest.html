@@ -19,6 +19,11 @@ table { width:100%; border-collapse:collapse; font-size:12.5px; }
 th { background:#232640; color:#9ca3af; font-weight:500; padding:7px 9px; text-align:left; white-space:nowrap; }
 td { padding:7px 9px; border-bottom:1px solid #1e2138; white-space:nowrap; }
 .up { color:#f6465d; } .down { color:#2ebd85; } .neu2 { color:#9ca3af; }
+.ptag { font-size:12px; padding:4px 10px; border-radius:14px; border:1px solid; }
+.ptag.hot { background:#3a1418; color:#f6465d; border-color:#5a1e24; }
+.ptag.warn { background:#3a2a10; color:#f0a020; border-color:#5a4018; }
+.ptag.calm { background:#0e2a1a; color:#2ebd85; border-color:#1a4a30; }
+.ptag.info { background:#161929; color:#9ca3af; border-color:#2a2e44; }
 {% endblock %}
 
 {% block content %}
@@ -36,6 +41,15 @@ td { padding:7px 9px; border-bottom:1px solid #1e2138; white-space:nowrap; }
     <button class="runbtn" id="run">🚀 开始回测</button>
   </div>
   <div id="status" class="neu2" style="font-size:13px"></div>
+</div>
+
+<!-- 股性速览 -->
+<div class="card" id="profcard" style="display:none">
+  <div class="meta" id="prof-title"></div>
+  <div id="prof-tags" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px"></div>
+  <div id="prof-hints" style="font-size:13px;line-height:1.9;margin-bottom:10px"></div>
+  <div style="font-size:13px;color:#9ca3af;margin:6px 0">📊 近120日K线（前复权·含MA5/20/60与量能）</div>
+  <div id="kline" style="height:340px"></div>
 </div>
 
 <div class="card" id="rescard" style="display:none">
@@ -63,7 +77,8 @@ document.getElementById('run').addEventListener('click', async () => {
   const btn=document.getElementById('run'), st=document.getElementById('status');
   const code=document.getElementById('code').value.trim();
   if(!code){ st.textContent='⚠️ 请输入股票代码或名称'; return; }
-  btn.disabled=true; st.textContent='⏳ 回测中（首次拉取该股历史 ~数秒）...';
+  btn.disabled=true; st.textContent='⏳ 分析中（首次拉取该股历史 ~数秒）...';
+  loadProfile(code);   // 并行加载股性速览
   try{
     const r=await fetch('/api/backtest/stock',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({code, signal:document.getElementById('signal').value,
@@ -111,6 +126,42 @@ function render(d){
       +'<td>'+(t.win?'<span class="up">胜</span>':'<span class="down">负</span>')+'</td></tr>';
   });
   document.getElementById('trades').innerHTML=h+'</tbody>';
+}
+
+// ── 股性速览 ──
+let klineChart=null;
+async function loadProfile(code){
+  const card=document.getElementById('profcard');
+  try{
+    const r=await fetch('/api/stock/profile?code='+encodeURIComponent(code));
+    const d=await r.json();
+    if(!d.ok){ card.style.display='none'; return; }
+    document.getElementById('prof-title').innerHTML='🧬 股性速览 · <b>'+(d.name||'')+'</b>（'+d.ts_code+'）· 近 '+d.bars+' 日';
+    document.getElementById('prof-tags').innerHTML=(d.tags||[]).map(t=>'<span class="ptag '+t.level+'">'+t.text+'</span>').join('');
+    document.getElementById('prof-hints').innerHTML='<b style="color:#7c9ef8">当前形态提示：</b><br>'+(d.hints||[]).map(h=>'· '+h).join('<br>');
+    renderKline(d.kline);
+    card.style.display='block';
+  }catch(e){ card.style.display='none'; }
+}
+function renderKline(kl){
+  if(!klineChart) klineChart=echarts.init(document.getElementById('kline'));
+  klineChart.setOption({
+    backgroundColor:'transparent',
+    tooltip:{trigger:'axis',axisPointer:{type:'cross'}},
+    legend:{data:['MA5','MA20','MA60'],textStyle:{color:'#9ca3af'},right:10,top:0},
+    grid:[{left:50,right:20,top:30,height:'62%'},{left:50,right:20,top:'74%',height:'16%'}],
+    xAxis:[{type:'category',data:kl.dates,axisLabel:{color:'#9ca3af'}},
+           {type:'category',data:kl.dates,gridIndex:1,axisLabel:{show:false}}],
+    yAxis:[{scale:true,axisLabel:{color:'#9ca3af'},splitLine:{lineStyle:{color:'#1a1d2e'}}},
+           {gridIndex:1,axisLabel:{show:false},splitLine:{show:false}}],
+    series:[
+      {type:'candlestick',data:kl.candle,itemStyle:{color:'#f6465d',color0:'#2ebd85',borderColor:'#f6465d',borderColor0:'#2ebd85'}},
+      {name:'MA5',type:'line',data:kl.ma5,smooth:true,symbol:'none',lineStyle:{width:1,color:'#e5c07b'}},
+      {name:'MA20',type:'line',data:kl.ma20,smooth:true,symbol:'none',lineStyle:{width:1,color:'#7c9ef8'}},
+      {name:'MA60',type:'line',data:kl.ma60,smooth:true,symbol:'none',lineStyle:{width:1,color:'#c084fc'}},
+      {type:'bar',xAxisIndex:1,yAxisIndex:1,data:kl.vol,itemStyle:{color:'#3a3f5c'}},
+    ],
+  });
 }
 </script>
 {% endblock %}

@@ -546,6 +546,29 @@ async def backtest_page(request: Request, _user: str = Depends(require_auth)):
     )
 
 
+@app.get("/api/stock/profile")
+async def api_stock_profile(code: str = "", _user: str = Depends(require_auth)):
+    """个股股性画像：波动/妖性/趋势性/追高友好度 + 当前形态提示 + K线。"""
+    try:
+        from app.strategy.stock_profile import build_stock_profile
+        ts_code = _resolve_ts_code(code)
+        if not ts_code:
+            return {"ok": False, "msg": "无法识别股票（请输入6位代码/完整代码/名称）"}
+        name = ""
+        try:
+            from app.data.composite_provider import CompositeProvider
+            sb = CompositeProvider().get_stock_basic()
+            hit = sb[sb["ts_code"] == ts_code]
+            if not hit.empty:
+                name = str(hit.iloc[0]["name"])
+        except Exception:
+            pass
+        return build_stock_profile(ts_code, name)
+    except Exception as e:
+        logger.exception("股性画像失败")
+        return {"ok": False, "msg": str(e)}
+
+
 @app.post("/api/backtest/stock")
 async def api_backtest_stock(request: Request, _user: str = Depends(require_auth)):
     """单股单信号回测。Body: {code, signal, start, end}。"""
