@@ -41,6 +41,12 @@ class CompositeProvider(DataProvider):
     def get_forecast(self, ts_code: str) -> pd.DataFrame:
         return self._ts.get_forecast(ts_code)
 
+    def get_survey(self, ts_code: str) -> pd.DataFrame:
+        return self._ts.get_survey(ts_code)
+
+    def get_report_rc(self, ts_code: str) -> pd.DataFrame:
+        return self._ts.get_report_rc(ts_code)
+
     def get_adj_factor_series(self, ts_code: str, start_date: str, end_date: str) -> pd.DataFrame:
         return self._ts.get_adj_factor_series(ts_code, start_date, end_date)
 

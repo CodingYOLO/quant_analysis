@@ -93,6 +93,15 @@ def build_facts(p: dict) -> str:
     fc = fund.get("forecast")
     if fc:
         lines.append(f"【业绩预告】{fc.get('type', '')} {fc.get('net_change', '')}（{fc.get('period', '')}）")
+    sv = fund.get("survey")
+    if sv:
+        lines.append(f"【机构调研热度】近90天 {sv.get('count_90d')} 次、近180天 {sv.get('count_180d')} 次"
+                     f"（关注度{sv.get('heat')}）")
+    an = fund.get("analyst")
+    if an and an.get("ok"):
+        rt = "、".join(f"{k}{v}" for k, v in (an.get("ratings") or {}).items())
+        lines.append(f"【券商盈利预测】目标价均值 {an.get('target_avg')}（区间 {an.get('target_low')}~"
+                     f"{an.get('target_high')}）、覆盖 {an.get('n_org')} 家、评级 {rt}")
 
     news = p.get("news") or {}
     if news.get("summary"):

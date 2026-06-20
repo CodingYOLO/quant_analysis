@@ -86,6 +86,46 @@ class TushareProvider(DataProvider):
             fields="ts_code,ann_date,end_date,type,p_change_min,p_change_max,summary,change_reason",
         )
 
+    def get_survey(self, ts_code: str) -> pd.DataFrame:
+        """单股机构调研记录（近一年；调研热度=关注度信号）。缓存一天。"""
+        import datetime
+        key = f"{ts_code}_{datetime.date.today().strftime('%Y%m%d')}"
+        return cached_daily(
+            name="tushare_stk_surv",
+            date_key=key,
+            fetch_fn=lambda: self._fetch_survey(ts_code),
+        )
+
+    @_RETRY
+    def _fetch_survey(self, ts_code: str) -> pd.DataFrame:
+        import datetime
+        start = (datetime.date.today() - datetime.timedelta(days=365)).strftime("%Y%m%d")
+        end = datetime.date.today().strftime("%Y%m%d")
+        return rate_limited_call(
+            "tushare_stk_surv", self._api.stk_surv,
+            ts_code=ts_code, start_date=start, end_date=end,
+        )
+
+    def get_report_rc(self, ts_code: str) -> pd.DataFrame:
+        """单股券商盈利预测/目标价（report_rc）。⚠️5100档限频1次/小时 → 日缓存兜底。"""
+        import datetime
+        key = f"{ts_code}_{datetime.date.today().strftime('%Y%m%d')}"
+        return cached_daily(
+            name="tushare_report_rc",
+            date_key=key,
+            fetch_fn=lambda: self._fetch_report_rc(ts_code),
+        )
+
+    def _fetch_report_rc(self, ts_code: str) -> pd.DataFrame:
+        # 不重试：限频(1次/小时)重试无意义，失败快速返回由上层优雅降级
+        import datetime
+        start = (datetime.date.today() - datetime.timedelta(days=180)).strftime("%Y%m%d")
+        end = datetime.date.today().strftime("%Y%m%d")
+        return rate_limited_call(
+            "tushare_report_rc", self._api.report_rc,
+            ts_code=ts_code, start_date=start, end_date=end,
+        )
+
     def get_cyq_perf(self, ts_code: str, start_date: str, end_date: str) -> pd.DataFrame:
         """单股筹码分布（每日：加权平均成本/获利盘比例/各分位成本）。缓存一天。"""
         import datetime

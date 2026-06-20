@@ -8,7 +8,16 @@ from __future__ import annotations
 
 import pandas as pd
 
-from app.strategy.fundamentals import _fmt_period, _fina_summary, _is_quality, _latest_forecast
+import datetime
+
+from app.strategy.fundamentals import (
+    _analyst_summary, _fina_summary, _fmt_period, _is_quality, _latest_forecast,
+    _survey_summary, get_analyst_rc,
+)
+
+
+def _d(days_ago: int) -> str:
+    return (datetime.date.today() - datetime.timedelta(days=days_ago)).strftime("%Y%m%d")
 
 
 def test_fmt_period() -> None:
@@ -40,10 +49,47 @@ def test_news_quality_filter() -> None:
 
 
 class _FakeProvider:
-    def __init__(self, rows):
-        self._rows = rows
+    def __init__(self, rows=None, survey_rows=None, rc_rows=None, rc_exc=False):
+        self._rows = rows or []
+        self._sv, self._rc, self._rc_exc = survey_rows, rc_rows, rc_exc
     def get_forecast(self, ts_code):
         return pd.DataFrame(self._rows)
+    def get_survey(self, ts_code):
+        return pd.DataFrame(self._sv) if self._sv is not None else pd.DataFrame()
+    def get_report_rc(self, ts_code):
+        if self._rc_exc:
+            raise Exception("您访问接口(report_rc)频率超限(1次/小时)")
+        return pd.DataFrame(self._rc) if self._rc is not None else pd.DataFrame()
+
+
+def test_survey_summary() -> None:
+    rows = [{"surv_date": _d(10), "rece_mode": "电话会议"}, {"surv_date": _d(40), "rece_mode": "现场调研"},
+            {"surv_date": _d(80), "rece_mode": "业绩说明会"}, {"surv_date": _d(200), "rece_mode": "旧"}]
+    s = _survey_summary("x", _FakeProvider(survey_rows=rows))
+    assert s["count_90d"] == 3 and s["count_180d"] == 3 and s["heat"] == "中"
+    assert s["recent"][0]["mode"] == "电话会议"             # 最新在前
+    assert _survey_summary("x", _FakeProvider(survey_rows=[])) is None
+
+
+def test_analyst_summary() -> None:
+    df = pd.DataFrame([
+        {"org_name": "中信", "rating": "买入", "max_price": 60, "min_price": 50, "report_date": "20260601"},
+        {"org_name": "中金", "rating": "增持", "max_price": 55, "min_price": 45, "report_date": "20260610"},
+        {"org_name": "中信", "rating": "买入", "max_price": 58, "min_price": 52, "report_date": "20260605"},
+    ])
+    a = _analyst_summary(df)
+    assert a["ok"] and a["n_reports"] == 3 and a["n_org"] == 2     # 两家机构
+    assert a["target_low"] == 45 and a["target_high"] == 60
+    assert a["target_avg"] == 53.33                                # 各研报中点均值
+    assert a["ratings"]["买入"] == 2 and a["latest"] == "2026-06-10"
+
+
+def test_get_analyst_rc_graceful() -> None:
+    assert get_analyst_rc("x", _FakeProvider(rc_exc=True))["ok"] is False   # 限频→优雅降级不抛
+    assert get_analyst_rc("x", _FakeProvider(rc_rows=[]))["ok"] is False    # 无券商覆盖
+    ok = get_analyst_rc("x", _FakeProvider(rc_rows=[
+        {"org_name": "A", "rating": "买入", "max_price": 10, "min_price": 8, "report_date": "20260601"}]))
+    assert ok["ok"] and ok["n_org"] == 1
 
 
 def test_forecast_classification() -> None:

@@ -63,6 +63,69 @@ def get_financials(ts_code: str, provider: CompositeProvider | None = None,
         "summary": _fina_summary(rows),
         "latest_period": latest["period"],
         "forecast": _latest_forecast(ts_code, provider),
+        "survey": _survey_summary(ts_code, provider),   # 机构调研热度（关注度信号）
+    }
+
+
+def _survey_summary(ts_code: str, provider: CompositeProvider) -> dict | None:
+    """近一年机构调研：近90/180天次数（关注度热度）+ 最近3条（日期/形式）。"""
+    try:
+        df = provider.get_survey(ts_code)
+    except Exception:
+        return None
+    if df is None or df.empty or "surv_date" not in df.columns:
+        return None
+    import datetime
+    df = df.copy()
+    df["surv_date"] = df["surv_date"].astype(str)
+    today = datetime.date.today()
+    cut90 = (today - datetime.timedelta(days=90)).strftime("%Y%m%d")
+    cut180 = (today - datetime.timedelta(days=180)).strftime("%Y%m%d")
+    c90 = int((df["surv_date"] >= cut90).sum())
+    c180 = int((df["surv_date"] >= cut180).sum())
+    df = df.sort_values("surv_date", ascending=False)
+    recent = [{"date": _fmt_date(str(r["surv_date"])), "mode": str(r.get("rece_mode") or "")[:24]}
+              for _, r in df.head(3).iterrows()]
+    heat = "高" if c90 >= 5 else ("中" if c90 >= 2 else "低")
+    return {"count_90d": c90, "count_180d": c180, "heat": heat, "recent": recent}
+
+
+def get_analyst_rc(ts_code: str, provider: CompositeProvider | None = None) -> dict:
+    """
+    券商盈利预测/目标价（report_rc）。按需调用（5100档限频1次/小时，日缓存兜底）。
+    返回 {ok, target_avg/low/high, upside_hint(需前端按现价算), n_reports, n_org, ratings, latest}。
+    """
+    provider = provider or CompositeProvider()
+    try:
+        df = provider.get_report_rc(ts_code)
+    except Exception as e:
+        return {"ok": False, "msg": f"盈利预测接口限频，请稍后重试：{str(e)[:50]}"}
+    if df is None or df.empty:
+        return {"ok": False, "msg": "近半年无券商盈利预测覆盖"}
+    return _analyst_summary(df)
+
+
+def _analyst_summary(df: pd.DataFrame) -> dict:
+    """report_rc 明细 → 目标价区间 + 一致评级分布 + 覆盖机构数（纯函数，便于单测）。"""
+    mx = pd.to_numeric(df.get("max_price"), errors="coerce")
+    mn = pd.to_numeric(df.get("min_price"), errors="coerce")
+    mid = pd.concat([mx, mn], axis=1).mean(axis=1)
+    ratings: dict[str, int] = {}
+    for v in df.get("rating", pd.Series(dtype=str)).dropna():
+        s = str(v).strip()
+        if s:
+            ratings[s] = ratings.get(s, 0) + 1
+    dcol = next((c for c in ("report_date", "create_time") if c in df.columns), None)
+    latest = _fmt_date(str(df[dcol].astype(str).max())[:8]) if dcol and len(df) else ""
+    return {
+        "ok": True,
+        "target_avg": round(float(mid.mean()), 2) if mid.notna().any() else None,
+        "target_low": round(float(mn.min()), 2) if mn.notna().any() else None,
+        "target_high": round(float(mx.max()), 2) if mx.notna().any() else None,
+        "n_reports": int(len(df)),
+        "n_org": int(df["org_name"].nunique()) if "org_name" in df.columns else 0,
+        "ratings": dict(sorted(ratings.items(), key=lambda kv: kv[1], reverse=True)),
+        "latest": latest,
     }
 
 

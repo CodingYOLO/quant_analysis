@@ -597,6 +597,22 @@ async def api_stock_financials(code: str = "", _user: str = Depends(require_auth
         return {"ok": False, "msg": str(e)}
 
 
+@app.get("/api/stock/analyst")
+async def api_stock_analyst(code: str = "", _user: str = Depends(require_auth)):
+    """券商盈利预测/目标价（report_rc）。按需调用：5100档限频1次/小时，日缓存兜底。"""
+    try:
+        from fastapi.concurrency import run_in_threadpool
+
+        from app.strategy.fundamentals import get_analyst_rc
+        ts_code = _resolve_ts_code(code)
+        if not ts_code:
+            return {"ok": False, "msg": "无法识别股票"}
+        return await run_in_threadpool(get_analyst_rc, ts_code)
+    except Exception as e:
+        logger.exception("盈利预测获取失败")
+        return {"ok": False, "msg": str(e)}
+
+
 @app.get("/api/stock/alert")
 async def api_stock_alert(code: str = "", _user: str = Depends(require_auth)):
     """LLM 近期提示：博查真实新闻 → v4-flash 接地总结（按日缓存）。"""

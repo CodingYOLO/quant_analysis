@@ -133,9 +133,12 @@ td { padding:7px 9px; border-bottom:1px solid #1e2138; white-space:nowrap; }
 <div class="card" id="fundcard" style="display:none">
   <div class="meta">📑 基本面速览 · <span id="fund-sum"></span></div>
   <div style="overflow-x:auto"><table id="fund-table"></table></div>
-  <div class="export-hide" style="margin-top:14px;display:flex;align-items:center;gap:10px">
+  <div id="fund-survey" style="display:none;font-size:12.5px;color:#cdd6f4;margin-top:10px"></div>
+  <div id="analyst-box" style="display:none;margin-top:10px;background:#12161f;border:1px solid #2a3a5a;border-radius:10px;padding:10px 13px;font-size:13px;line-height:1.85"></div>
+  <div class="export-hide" style="margin-top:14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
     <button class="runbtn" id="alert-btn" style="padding:6px 14px;font-size:13px">🤖 AI 近期提示</button>
-    <span class="neu2" style="font-size:12px">（博查真实新闻 + v4-flash 接地总结，每日缓存）</span>
+    <button class="runbtn" id="analyst-btn" style="padding:6px 14px;font-size:13px">📊 分析师预期</button>
+    <span class="neu2" style="font-size:12px">（新闻=博查实时·预期=券商盈利预测/目标价；预期接口限频，可能需稍候）</span>
   </div>
   <div id="alert-box" style="display:none;margin-top:10px;background:#12161f;border:1px solid #2a3a6a;border-radius:10px;padding:12px 14px">
     <div id="alert-text" style="font-size:13px;line-height:1.85;white-space:pre-wrap"></div>
@@ -632,11 +635,22 @@ async function loadFinancials(code){
   curCode=code;
   const card=document.getElementById('fundcard');
   document.getElementById('alert-box').style.display='none';
+  document.getElementById('analyst-box').style.display='none';   // 切票重置盈利预期
+  document.getElementById('fund-survey').style.display='none';
   try{
     const r=await fetch('/api/stock/financials?code='+encodeURIComponent(code));
     const d=await r.json();
     if(!d.ok){ card.style.display='none'; lastFund=null; return; }
-    lastFund={summary:d.summary, forecast:d.forecast};   // 供 AI 研判
+    lastFund={summary:d.summary, forecast:d.forecast, survey:d.survey};   // 供 AI 研判
+    // 机构调研热度（关注度信号）
+    const sv=d.survey, svEl=document.getElementById('fund-survey');
+    if(sv && sv.count_180d){
+      const hc=sv.heat==='高'?'up':(sv.heat==='低'?'neu2':'#e5c07b');
+      svEl.innerHTML='🏢 <b>机构调研</b> 近90天 <b>'+sv.count_90d+'</b> 次 · 近180天 <b>'+sv.count_180d
+        +'</b> 次 · 关注度 <span class="'+(sv.heat==='高'?'up':'neu2')+'">'+sv.heat+'</span>'
+        +(sv.recent&&sv.recent.length?'　<span class="neu2" style="font-size:11px">最近 '+sv.recent[0].date+' '+sv.recent[0].mode+'</span>':'');
+      svEl.style.display='block';
+    }
     // 业绩预告（前瞻信号）
     const fc=d.forecast; let fcHtml='';
     if(fc){
@@ -679,6 +693,31 @@ document.getElementById('alert-btn').addEventListener('click', async ()=>{
       document.getElementById('alert-src').innerHTML='📎 来源：'+(d.sources||[]).map(s=>'<a href=\"'+s.url+'\" target=\"_blank\" style=\"color:#7c9ef8\">'+s.site+' '+s.date+'</a>').join(' · ');
     }
   }catch(e){ document.getElementById('alert-text').textContent='❌ '+e; }
+  finally{ btn.disabled=false; btn.textContent=old; }
+});
+
+// 📊 分析师预期（按需·券商盈利预测 report_rc）
+document.getElementById('analyst-btn').addEventListener('click', async ()=>{
+  const btn=document.getElementById('analyst-btn'), box=document.getElementById('analyst-box');
+  if(!curCode) return;
+  btn.disabled=true; const old=btn.textContent; btn.textContent='⏳ 拉取中…';
+  box.style.display='block'; box.innerHTML='正在拉取券商盈利预测/目标价（接口限频，首次约数秒）…';
+  try{
+    const r=await fetch('/api/stock/analyst?code='+encodeURIComponent(curCode));
+    const d=await r.json();
+    if(!d.ok){ box.innerHTML='ℹ️ '+(d.msg||'暂无券商覆盖'); }
+    else{
+      if(lastFund) lastFund.analyst=d;   // 供 AI 研判
+      const cur=lastProfile&&lastProfile.chip&&lastProfile.chip.ref_close;
+      let upside='';
+      if(d.target_avg && cur){ const up=Math.round((d.target_avg/cur-1)*1000)/10;
+        upside='　距现价 <b class="'+(up>=0?'up':'down')+'">'+(up>=0?'+':'')+up+'%</b>'; }
+      const rt=Object.entries(d.ratings||{}).map(([k,v])=>k+v).join('、');
+      box.innerHTML='📊 <b>券商盈利预测</b> <span class="neu2" style="font-size:12px">（近半年 '+d.n_reports+' 份 · '+d.n_org+' 家覆盖）</span><br>'
+        +'目标价均值 <b>'+(d.target_avg??'—')+'</b>（区间 '+(d.target_low??'—')+' ~ '+(d.target_high??'—')+'）'+upside+'<br>'
+        +'<span class="neu2" style="font-size:12px">评级分布：'+(rt||'—')+'　·　最新 '+(d.latest||'—')+'</span>';
+    }
+  }catch(e){ box.innerHTML='❌ '+e; }
   finally{ btn.disabled=false; btn.textContent=old; }
 });
 function renderChips(c){
