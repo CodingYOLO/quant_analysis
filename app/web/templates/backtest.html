@@ -185,6 +185,7 @@ td { padding:7px 9px; border-bottom:1px solid #1e2138; white-space:nowrap; }
     <div id="breadth-chart" style="height:240px"></div>
     <div style="font-size:13px;color:#9ca3af;margin:14px 0 4px">④ 同类信号在不同板块广度下的 T+5 表现（汇总大样本，统计更稳）</div>
     <div class="cards" id="breadth-cards"></div>
+    <div id="sector-breadth-verdict" style="display:none;font-size:13px;line-height:1.7;background:#12161f;border:1px solid #2a3a5a;border-radius:10px;padding:10px 13px;margin-top:10px"></div>
     <div class="neu2" style="font-size:11px;margin-top:8px">同类=当前同行业市值前N、非ST，含一定幸存者偏差，作参考；买入次日开盘·卖出T+N收盘。</div>
   </div>
 </div>
@@ -357,8 +358,8 @@ function renderRegime(d){
 
 // ── 同类/板块分析（③同类对比 + ④板块广度）──
 let breadthChart=null;
-document.getElementById('sector-btn').addEventListener('click', async ()=>{
-  if(!baseParams) return;
+async function runSector(){
+  if(!baseParams) return null;
   const btn=document.getElementById('sector-btn'), st=document.getElementById('sector-status');
   const old=btn.textContent; btn.disabled=true; btn.textContent='⏳ 分析中…';
   st.textContent='⏳ 拉取同行业成分并逐只回测（首次约1分钟，之后命中缓存秒开）…';
@@ -366,12 +367,14 @@ document.getElementById('sector-btn').addEventListener('click', async ()=>{
     const r=await fetch('/api/backtest/sector',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({...baseParams})});
     const s=await r.json();
-    if(!s.ok){ st.textContent='ℹ️ '+(s.msg||'同类分析失败'); return; }
+    if(!s.ok){ st.textContent='ℹ️ '+(s.msg||'同类分析失败'); return null; }
     st.textContent='✅ 同类 '+s.n_peers+' 只 · 信号样本 '+s.n_occ+' 次';
     renderSector(s);
-  }catch(e){ st.textContent='❌ '+e; }
+    return s;
+  }catch(e){ st.textContent='❌ '+e; return null; }
   finally{ btn.disabled=false; btn.textContent=old; }
-});
+}
+document.getElementById('sector-btn').addEventListener('click', runSector);
 
 function _avg(s){ return (s&&s.n)? ((s.avg_return>0?'+':'')+s.avg_return+'%') : '—'; }
 function _wrCell(s){
@@ -414,7 +417,27 @@ function renderSector(s){
     cardsEl.innerHTML+='<div class="kcard"><div class="h">'+lbl+'（'+st5.n+'次）</div>'
       +'<div class="v '+cls+'">'+wr+'%</div><div class="s">T+5 均收益 '+(st5.avg_return>0?'+':'')+st5.avg_return+'%</div></div>';
   });
+  // ④ 分桶结论：挑胜率最高/最低的板块广度档，自动成句
+  const bv=document.getElementById('sector-breadth-verdict'), txt=breadthVerdict(s.by_breadth||{});
+  if(txt){ bv.innerHTML=txt; bv.style.display='block'; } else bv.style.display='none';
   document.getElementById('sectorcard').scrollIntoView({behavior:'smooth',block:'start'});
+}
+
+// 板块广度分桶 → 一句话结论（仅取样本≥20的档比较，避免小样本误导）
+function breadthVerdict(byBreadth){
+  const strip=l=>l.replace(/\(.*/,'');
+  const rows=['板块强(≥60%)','板块中性(40-60%)','板块弱(<40%)'].map(l=>{
+    const b=byBreadth[l], s=b&&b.horizons&&b.horizons[5];
+    return (s&&s.n>=20)?{l:strip(l), wr:s.win_rate, n:s.n}:null; }).filter(Boolean);
+  if(rows.length<2) return '';
+  const best=rows.reduce((a,b)=>b.wr>a.wr?b:a), worst=rows.reduce((a,b)=>b.wr<a.wr?b:a);
+  if(best.l===worst.l) return '';
+  let tail='';
+  if(best.l.indexOf('弱')>=0) tail='（板块超跌时最灵，典型超跌反弹特征——别在板块温吞/过热时追）';
+  else if(best.l.indexOf('强')>=0) tail='（板块走强时顺势做更稳）';
+  return '📌 这个信号在【'+best.l+'】时 T+5 胜率最高 <b>'+Math.round(best.wr*100)+'%</b>（n='+best.n
+    +'）、在【'+worst.l+'】时最低 <b>'+Math.round(worst.wr*100)+'%</b> → 优先在<b>'+best.l
+    +'</b>时做、避开<b>'+worst.l+'</b>。'+tail;
 }
 
 function renderBreadth(curve){
@@ -440,7 +463,12 @@ document.getElementById('brief-btn').addEventListener('click', async ()=>{
   if(!lastResult){ return; }
   const btn=document.getElementById('brief-btn'), st=document.getElementById('brief-status');
   const old=btn.textContent; btn.disabled=true; btn.textContent='⏳ 研判中…';
-  st.textContent='⏳ deepseek-v4-pro 综合研判中（约10-25秒）…';
+  // 自动先算同类(若未算) → 研判带上同类基准，待确认更少、更全面
+  if(!lastSector){
+    st.textContent='⏳ 先算同类/板块（首次约1分钟），让研判更全面…';
+    lastSector=await runSector();
+  }
+  st.textContent='⏳ deepseek-v4-pro 综合研判中（联网核查新闻+综合，约15-30秒）…';
   try{
     const r=await fetch('/api/backtest/brief',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({code:(baseParams&&baseParams.code)||lastResult.ts_code,

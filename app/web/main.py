@@ -684,6 +684,19 @@ async def api_backtest_brief(request: Request, _user: str = Depends(require_auth
 
         from app.backtest.llm_brief import generate_brief
         payload = await request.json()
+        # 注入博查实时新闻，供研判主动核查消息面/解禁/政策（best-effort，复用每日缓存）
+        try:
+            r = payload.get("result") or {}
+            code = r.get("ts_code") or _resolve_ts_code(payload.get("code", ""))
+            name = payload.get("name") or _stock_name(code)
+            if code:
+                from app.strategy.fundamentals import get_recent_alert
+                alert = await run_in_threadpool(get_recent_alert, code, name)
+                if alert.get("ok"):
+                    payload["news"] = {"summary": alert.get("summary", ""),
+                                       "sources": alert.get("sources", [])}
+        except Exception:
+            logger.exception("研判注入新闻失败（忽略）")
         return await run_in_threadpool(generate_brief, payload)
     except Exception as e:
         logger.exception("AI 综合研判失败")

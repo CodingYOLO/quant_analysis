@@ -35,6 +35,8 @@ def _payload() -> dict:
                     "chip": {"weight_avg": 1500, "ref_close": 1450, "premium": -3.3, "winner_rate": 20}},
         "fundamentals": {"summary": "ROE高、负债低",
                          "forecast": {"type": "预增", "net_change": "+10%", "period": "2024年报"}},
+        "news": {"summary": "近一月无重大解禁；机构调研活跃；行业价格指数走稳。",
+                 "sources": [{"site": "财联社", "date": "2026-06-10"}]},
     }
 
 
@@ -66,6 +68,7 @@ def test_build_facts_covers_all_blocks() -> None:
     assert "板块强(≥60%)" in f
     assert "低波动" in f and "筹码" in f
     assert "业绩预告" in f and "预增" in f
+    assert "近期新闻" in f and "解禁" in f       # 新闻已喂入供研判核查消息面
 
 
 def test_parse_brief_clean_and_messy() -> None:

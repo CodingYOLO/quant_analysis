@@ -93,6 +93,10 @@ def build_facts(p: dict) -> str:
     fc = fund.get("forecast")
     if fc:
         lines.append(f"【业绩预告】{fc.get('type', '')} {fc.get('net_change', '')}（{fc.get('period', '')}）")
+
+    news = p.get("news") or {}
+    if news.get("summary"):
+        lines.append("【近期新闻(博查实测·供核查消息面/解禁/减持/政策)】\n" + str(news["summary"]).strip())
     return "\n".join(lines)
 
 
@@ -125,8 +129,12 @@ def build_prompt(name: str, code: str, signal_label: str, facts: str) -> str:
         "4. 每条理由与风险都要引用具体数字；若样本偏小（同类样本<50、单票信号<10、或某分桶<10）"
         "必须显式提示“样本薄、仅供参考”；\n"
         "5. 要把多个维度串起来看矛盾（如回测胜率高但盈亏比低=胜小亏大；本股强但板块退潮）。\n"
-        "6. 力求专业、有深度：supports 3-6 条、risks 3-6 条、todos 2-4 条；每条 1-2 句把依据讲透"
-        "（带数字），不必强行精简；summary 写 2-4 句连贯总评。\n\n"
+        "6. 力求专业、有深度：supports 3-6 条、risks 3-6 条、todos 1-3 条；每条 1-2 句把依据讲透"
+        "（带数字），不必强行精简；summary 写 2-4 句连贯总评。\n"
+        "7. 数据若含【同类对比】，直接给出“本股是个股 alpha 还是板块共性”的结论并写入支持/风险，"
+        "不要把它列为待确认。\n"
+        "8. 数据若含【近期新闻】，据此主动核查消息面/解禁/减持/政策并写入分析（注明依据新闻）；"
+        "todos 只保留‘无法从给定数据判断、确需人工再查’的事项——能从数据/新闻里得出结论的，绝不踢回给用户。\n\n"
         f"数据：\n{facts}\n\n"
         f"只输出严格的 JSON（不要任何额外文字、不要代码块标记、不要省略号截断），结构如下：\n{_SCHEMA}"
     )

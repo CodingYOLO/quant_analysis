@@ -151,10 +151,11 @@ def get_recent_alert(ts_code: str, name: str = "",
             pass
 
     result = _build_alert(ts_code, name)
-    try:
-        cache.write_text(json.dumps(result, ensure_ascii=False), encoding="utf-8")
-    except Exception:
-        pass
+    if result.get("ok"):                 # 仅缓存成功结果，避免博查偶发空结果污染当日缓存
+        try:
+            cache.write_text(json.dumps(result, ensure_ascii=False), encoding="utf-8")
+        except Exception:
+            pass
     return result
 
 
