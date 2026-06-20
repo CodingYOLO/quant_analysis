@@ -179,6 +179,17 @@ def test_forecast_none_safe() -> None:
     assert _latest_forecast("x", _FakeProvider([])) is None
 
 
+def test_forecast_stale_filtered() -> None:
+    # 数年前的旧预告（公告日超过~18个月）→ 视为过期，不展示
+    old = _FakeProvider([{"ann_date": "20211217", "end_date": "20211231", "type": "略减",
+                          "p_change_min": -40, "p_change_max": -30, "summary": "x"}])
+    assert _latest_forecast("x", old) is None
+    # 近期预告 → 正常返回
+    fresh = _FakeProvider([{"ann_date": _d(30), "end_date": "20260331", "type": "预增",
+                            "p_change_min": 50, "p_change_max": 60, "summary": "y"}])
+    assert _latest_forecast("x", fresh)["type"] == "预增"
+
+
 def _run_all() -> None:
     fns = [v for k, v in sorted(globals().items())
            if k.startswith("test_") and callable(v)]

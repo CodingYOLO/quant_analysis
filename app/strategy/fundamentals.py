@@ -250,8 +250,15 @@ def _latest_forecast(ts_code: str, provider: CompositeProvider) -> dict | None:
         return None
     if df is None or df.empty:
         return None
+    import datetime
     df = df.copy()
     df["ann_date"] = df["ann_date"].astype(str)
+    # 只保留近 ~13 个月的预告：业绩预告是偶发披露且为前瞻信号；更早的目标期实际数据已出、不再前瞻，
+    # 展示会误导（用户曾看到数年前的旧预告）。更早的基本面看下方财报趋势 + 业绩快报。
+    cutoff = (datetime.date.today() - datetime.timedelta(days=400)).strftime("%Y%m%d")
+    df = df[df["ann_date"] >= cutoff]
+    if df.empty:
+        return None
     r = df.sort_values("ann_date", ascending=False).iloc[0]
     ftype = str(r.get("type") or "")
     pmin = pd.to_numeric(r.get("p_change_min"), errors="coerce")
