@@ -219,6 +219,15 @@ class TushareProvider(DataProvider):
             end_date=end_date,
         )
 
+    def get_index_daily_range(self, ts_code: str, start_date: str, end_date: str) -> pd.DataFrame:
+        """指数区间日线（[start, end] 全段，按 ts_code+区间缓存；用于回测大盘状态分层）。"""
+        key = f"{ts_code}_{start_date}_{end_date}"
+        return cached_daily(
+            name="tushare_index_range",
+            date_key=key,
+            fetch_fn=lambda: self._fetch_index_daily(ts_code, start_date, end_date),
+        )
+
     # ---- 资金与龙虎榜 ----
 
     def get_daily_basic(self, trade_date: str) -> pd.DataFrame:

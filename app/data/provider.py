@@ -28,6 +28,10 @@ class DataProvider(ABC):
     def get_index_daily(self, ts_code: str, trade_date: str) -> pd.DataFrame:
         """获取指数日线数据（用于大盘状态判断）。"""
 
+    @abstractmethod
+    def get_index_daily_range(self, ts_code: str, start_date: str, end_date: str) -> pd.DataFrame:
+        """获取指数区间日线（[start, end] 全段，用于回测大盘状态分层）。"""
+
     # ---- 资金与龙虎榜 ----
 
     @abstractmethod

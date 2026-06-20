@@ -640,6 +640,9 @@ class AkshareProvider(DataProvider):
     def get_index_daily(self, ts_code: str, trade_date: str) -> pd.DataFrame:
         raise NotImplementedError("请使用 TushareProvider.get_index_daily()")
 
+    def get_index_daily_range(self, ts_code: str, start_date: str, end_date: str) -> pd.DataFrame:
+        raise NotImplementedError("请使用 TushareProvider.get_index_daily_range()")
+
     def get_money_flow(self, trade_date: str) -> pd.DataFrame:
         raise NotImplementedError("请使用 TushareProvider.get_money_flow()")
 

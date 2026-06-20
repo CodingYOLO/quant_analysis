@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 
 import pandas as pd
 
+from app.backtest import market_regime as MR
 from app.data.composite_provider import CompositeProvider
 from app.data.kline_loader import load_kline
 from app.factors import core as F
@@ -76,6 +77,13 @@ class BacktestResult:
     horizons: dict = field(default_factory=dict)   # {h: HorizonStat as dict}
     trades: list = field(default_factory=list)     # 信号明细
     equity: list = field(default_factory=list)     # [{date, equity}]
+    # 大盘状态分层（①）+ 入场过滤（②）
+    index_code: str = ""
+    index_label: str = ""
+    regime_filter: str = ""                        # 本次只统计的状态（空=不限）
+    current_regime: str = ""                       # 区间末日大盘状态
+    regime_window: dict = field(default_factory=dict)   # {状态: 区间内占比%}
+    by_regime: dict = field(default_factory=dict)  # {状态: {n, horizons:{h:stat}}}
     ok: bool = True
     msg: str = ""
 
@@ -109,11 +117,16 @@ def _custom_signal_def(c: dict) -> dict:
 # ── 回测主入口 ──────────────────────────────────────────────────────────────
 def backtest_stock_signal(ts_code: str, signal_key: str, start: str, end: str,
                           provider: CompositeProvider | None = None,
-                          custom: dict | None = None) -> dict:
+                          custom: dict | None = None,
+                          index_code: str = MR.DEFAULT_INDEX,
+                          regime_filter: str | None = None) -> dict:
     """
     单股回测。signal_key=技术信号；或 custom={pct_min,pct_max,vol_mode} 自定义涨跌幅入场。
     [start,end]=评估窗口（找买点的区间）；引擎自动多取约200日历史用于指标计算，
     故可放心只测「近1个月」。买入=次日开盘，卖出=T+N收盘；近端信号按可得持有期统计。
+
+    大盘状态分层：每个信号按 index_code 主指数当日均线结构打"强势/震荡/弱势"标签，
+    by_regime 永远给出三态对比；regime_filter 非空时主结果只统计该状态的信号（入场过滤②）。
     """
     sd = _custom_signal_def(custom) if custom else _signal_defs().get(signal_key)
     if not sd:
@@ -134,6 +147,9 @@ def backtest_stock_signal(ts_code: str, signal_key: str, start: str, end: str,
     vols = k["vol"].astype(float)
     n = len(k)
 
+    regime_map = MR.load_regime_map(index_code, buf_start, end, provider)
+    by_regime_raw = {r: {h: [] for h in HORIZONS} for r in MR.REGIMES}
+    regime_n = {r: 0 for r in MR.REGIMES}
     hret: dict[int, list[float]] = {h: [] for h in HORIZONS}
     trades, equity = [], []
     eq = 1.0
@@ -142,39 +158,53 @@ def backtest_stock_signal(ts_code: str, signal_key: str, start: str, end: str,
     for i in range(sd["min_bars"] - 1, n - 1):
         if dates[i] < start:
             continue
-        hist = k.iloc[: i + 1]
         try:
-            if not sd["detect"](hist):
+            if not sd["detect"](k.iloc[: i + 1]):
                 continue
         except Exception:
             continue
         entry = opens[i + 1]
         if entry <= 0:
             continue
-        rets = {}
-        for h in HORIZONS:           # 近端信号：只统计已有数据的持有期
-            if i + h < n and closes[i + h] > 0:
-                rets[h] = round((closes[i + h] - entry) / entry * 100, 2)
-                hret[h].append(rets[h])
+        rets = {h: round((closes[i + h] - entry) / entry * 100, 2)
+                for h in HORIZONS if i + h < n and closes[i + h] > 0}
         if not rets:
             continue
+
+        regime = regime_map.get(dates[i], "")
+        if regime in MR.REGIMES:        # 三态对比：始终统计，不受入场过滤影响
+            regime_n[regime] += 1
+            for h, r in rets.items():
+                by_regime_raw[regime][h].append(r)
+        if regime_filter and regime != regime_filter:   # ② 入场过滤：只入主结果
+            continue
+
+        for h, r in rets.items():
+            hret[h].append(r)
         vr = round(F.volume_ratio(vols.iloc[: i + 1], 5), 2)
         if _EQUITY_HORIZON in rets:
             eq *= (1 + rets[_EQUITY_HORIZON] / 100)
             equity.append({"date": dates[i + 1], "equity": round(eq, 4)})
         trades.append({
             "signal_date": dates[i], "buy_date": dates[i + 1], "entry": round(entry, 2),
-            "day_pct": round(pcts[i], 2), "vol_ratio": vr,
+            "day_pct": round(pcts[i], 2), "vol_ratio": vr, "regime": regime,
             "t1": rets.get(1), "t3": rets.get(3), "t5": rets.get(5), "t10": rets.get(10),
             "win": rets.get(_EQUITY_HORIZON, 0) > 0,
         })
 
+    by_regime = {r: {"n": regime_n[r],
+                     "horizons": {h: _agg(h, by_regime_raw[r][h]).__dict__ for h in HORIZONS}}
+                 for r in MR.REGIMES if regime_n[r] > 0}
     return BacktestResult(
         ts_code=ts_code, signal=signal_key, signal_label=sd["label"],
         start=start, end=dates[-1], bars=n, n_signals=len(trades),
         horizons={h: _agg(h, hret[h]).__dict__ for h in HORIZONS},
-        trades=trades[-80:],
-        equity=equity,
+        trades=trades[-80:], equity=equity,
+        index_code=index_code, index_label=MR.index_label(index_code),
+        regime_filter=regime_filter or "",
+        current_regime=regime_map.get(dates[-1], ""),
+        regime_window=MR.occupancy(regime_map, [d for d in dates if start <= d <= end]),
+        by_regime=by_regime,
     ).__dict__
 
 

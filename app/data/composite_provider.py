@@ -53,6 +53,9 @@ class CompositeProvider(DataProvider):
     def get_index_daily(self, ts_code: str, trade_date: str) -> pd.DataFrame:
         return self._ts.get_index_daily(ts_code, trade_date)
 
+    def get_index_daily_range(self, ts_code: str, start_date: str, end_date: str) -> pd.DataFrame:
+        return self._ts.get_index_daily_range(ts_code, start_date, end_date)
+
     def get_daily_basic(self, trade_date: str) -> pd.DataFrame:
         return self._ts.get_daily_basic(trade_date)
 

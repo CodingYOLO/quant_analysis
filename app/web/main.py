@@ -553,9 +553,10 @@ def _stock_name(ts_code: str) -> str:
 async def backtest_page(request: Request, _user: str = Depends(require_auth)):
     """个股回测页：选票+选信号+区间 → 历史胜率/收益/资金曲线。"""
     from app.backtest.signal_backtest import list_signals
+    from app.backtest.market_regime import INDEX_PRESETS
     return templates.TemplateResponse(
         request=request, name="backtest.html",
-        context={"page": "backtest", "signals": list_signals()},
+        context={"page": "backtest", "signals": list_signals(), "indices": INDEX_PRESETS},
     )
 
 
@@ -632,11 +633,15 @@ async def api_backtest_stock(request: Request, _user: str = Depends(require_auth
         end = (body.get("end") or "").replace("-", "")
         if not start or not end:
             return {"ok": False, "msg": "请选择回测起止日期"}
+        from app.backtest.market_regime import DEFAULT_INDEX
         custom = body.get("custom")
+        index_code = body.get("index_code") or DEFAULT_INDEX
+        regime_filter = body.get("regime_filter") or None
         result = backtest_stock_signal(ts_code, body.get("signal", ""), start, end,
-                                       custom=custom)
-        # 自动落历史（best-effort，失败不影响回测返回）。仅记录出过信号的有效回测。
-        if result.get("ok") and result.get("n_signals"):
+                                       custom=custom, index_code=index_code,
+                                       regime_filter=regime_filter)
+        # 自动落历史（仅完整未过滤回测；过滤视图不入库，避免覆盖原记录）。
+        if result.get("ok") and result.get("n_signals") and not regime_filter:
             try:
                 from app.backtest.history import record
                 record(_user, result, name=_stock_name(ts_code), custom=custom)

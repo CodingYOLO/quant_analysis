@@ -55,6 +55,11 @@ class _FakeProvider:
     def get_adj_factor_series(self, ts_code, start, end):
         return pd.DataFrame({"trade_date": self._df["trade_date"], "adj_factor": [1.0] * len(self._df)})
 
+    def get_index_daily_range(self, ts_code, start, end):
+        # 与个股同日期的持续上行指数 → 全程判为「强势」
+        n = len(self._df)
+        return pd.DataFrame({"trade_date": self._df["trade_date"], "close": [3000 + i * 5 for i in range(n)]})
+
 
 def test_backtest_no_future_leak_and_returns() -> None:
     # 均线多头排列在持续上涨序列上恒成立 → 每天有信号；验证 entry=次日open，exit=close[i+h]
@@ -70,6 +75,26 @@ def test_backtest_no_future_leak_and_returns() -> None:
     # 明细字段齐全
     t = r["trades"][-1]
     assert {"signal_date", "buy_date", "entry", "t1", "t5", "win"} <= set(t.keys())
+
+
+def test_backtest_regime_split_and_filter() -> None:
+    # 上行指数 → 信号全程落在「强势」；验证三态分桶 + 入场过滤
+    fp = _FakeProvider(n=80)
+    base = backtest_stock_signal("TEST.SZ", "ma_bull_stack", "20240101", "20240301", provider=fp)
+    assert base["index_label"] == "沪深300"                       # 默认主指数
+    assert base["by_regime"].get("强势", {}).get("n", 0) > 0       # 强势样本存在
+    assert base["regime_window"]["强势"] > 0                       # 区间内有强势交易日
+    assert base["trades"][-1]["regime"] in ("强势", "震荡", "弱势")  # 明细带状态
+
+    # 过滤「弱势」→ 上行市无弱势信号
+    weak = backtest_stock_signal("TEST.SZ", "ma_bull_stack", "20240101", "20240301",
+                                 provider=fp, regime_filter="弱势")
+    assert weak["n_signals"] == 0 and weak["regime_filter"] == "弱势"
+
+    # 过滤「强势」→ 有样本且不超过基准
+    strong = backtest_stock_signal("TEST.SZ", "ma_bull_stack", "20240101", "20240301",
+                                   provider=fp, regime_filter="强势")
+    assert 0 < strong["n_signals"] <= base["n_signals"]
 
 
 def test_custom_signal_def() -> None:
