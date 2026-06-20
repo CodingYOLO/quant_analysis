@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from app.strategy.stock_profile import _tags, _form_hints, _kline_payload
+from app.strategy.stock_profile import _tags, _form_hints, _kline_payload, _chip_tags
 
 
 def _base_metrics(**kw) -> dict:
@@ -59,6 +59,18 @@ def test_kline_payload_shape() -> None:
     kl = _kline_payload(_kline([10 + i * 0.1 for i in range(30)]))
     assert len(kl["candle"][0]) == 4 and len(kl["dates"]) == 30
     assert "ma5" in kl and "ma20" in kl and "ma60" in kl
+
+
+def test_chip_tags() -> None:
+    # 高溢价 + 高获利盘 + 集中 → 警示追高/抛压 + 集中
+    tags = _chip_tags(premium=20, winner=94, concentration=12)
+    texts = " ".join(t["text"] for t in tags)
+    assert "追高风险" in texts and "高位抛压" in texts and "高度集中" in texts
+    # 跌破成本 + 套牢重
+    t2 = " ".join(t["text"] for t in _chip_tags(premium=-8, winner=20, concentration=45))
+    assert "跌破主力成本" in t2 and "套牢盘重" in t2 and "分散" in t2
+    # 缺数据安全
+    assert _chip_tags(None, None, None) == []
 
 
 def _run_all() -> None:

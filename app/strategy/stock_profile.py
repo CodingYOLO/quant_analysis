@@ -39,7 +39,77 @@ def build_stock_profile(ts_code: str, name: str = "",
         "tags": _tags(metrics),
         "hints": _form_hints(k),
         "kline": _kline_payload(k.tail(120)),
+        "chips": _chips(ts_code, provider, k),
     }
+
+
+# ── 筹码分布（主力成本/获利盘/成本密集区，Tushare cyq_perf）──────────────────
+def _chips(ts_code: str, provider: CompositeProvider, k: pd.DataFrame) -> dict | None:
+    """最新筹码分布快照 + 解读。日期严格对齐：用筹码数据自身日期的收盘价算溢价。"""
+    import datetime
+    end = datetime.date.today().strftime("%Y%m%d")
+    start = (datetime.date.today() - datetime.timedelta(days=40)).strftime("%Y%m%d")
+    try:
+        df = provider.get_cyq_perf(ts_code, start, end)
+    except Exception as e:
+        logger.debug("[chips] %s 筹码获取失败: %s", ts_code, e)
+        return None
+    if df is None or df.empty:
+        return None
+
+    df = df.copy()
+    df["trade_date"] = df["trade_date"].astype(str)
+    row = df.sort_values("trade_date").iloc[-1]
+    chip_date = row["trade_date"]
+
+    def num(key):
+        v = pd.to_numeric(row.get(key), errors="coerce")
+        return float(v) if pd.notna(v) else None
+
+    weight_avg = num("weight_avg")
+    winner = num("winner_rate")
+    c5, c50, c95 = num("cost_5pct"), num("cost_50pct"), num("cost_95pct")
+
+    # 溢价：严格用「筹码数据同日收盘价」对比平均成本（日期对齐，保证准确）
+    kd = k[k["trade_date"].astype(str) == chip_date]
+    ref_close = float(kd["close"].iloc[-1]) if not kd.empty else float(k["close"].iloc[-1])
+    premium = round((ref_close - weight_avg) / weight_avg * 100, 1) if weight_avg else None
+    concentration = round((c95 - c5) / c50 * 100, 1) if (c5 and c50 and c95) else None
+
+    return {
+        "date": chip_date, "ref_close": round(ref_close, 2),
+        "weight_avg": round(weight_avg, 2) if weight_avg else None,
+        "winner_rate": round(winner, 1) if winner is not None else None,
+        "cost_5pct": round(c5, 2) if c5 else None,
+        "cost_50pct": round(c50, 2) if c50 else None,
+        "cost_95pct": round(c95, 2) if c95 else None,
+        "premium": premium, "concentration": concentration,
+        "tags": _chip_tags(premium, winner, concentration),
+    }
+
+
+def _chip_tags(premium, winner, concentration) -> list[dict]:
+    tags = []
+    if premium is not None:
+        if premium > 15:
+            tags.append({"text": f"现价高于平均成本 {premium:+.0f}%（远离主力成本·追高风险）", "level": "warn"})
+        elif premium < -5:
+            tags.append({"text": f"现价低于平均成本 {premium:+.0f}%（跌破主力成本·偏弱或低吸位）", "level": "calm"})
+        else:
+            tags.append({"text": f"现价处主力成本上方 {premium:+.0f}%（结构健康）", "level": "info"})
+    if winner is not None:
+        if winner >= 85:
+            tags.append({"text": f"获利盘 {winner:.0f}%（普遍获利·警惕高位抛压）", "level": "warn"})
+        elif winner < 30:
+            tags.append({"text": f"获利盘仅 {winner:.0f}%（套牢盘重·上方有压力）", "level": "warn"})
+        else:
+            tags.append({"text": f"获利盘 {winner:.0f}%（多空相对均衡）", "level": "info"})
+    if concentration is not None:
+        if concentration <= 15:
+            tags.append({"text": f"筹码高度集中（90%成本区跨度 {concentration:.0f}%·分歧小）", "level": "calm"})
+        elif concentration >= 40:
+            tags.append({"text": f"筹码分散（跨度 {concentration:.0f}%·成本分歧大）", "level": "info"})
+    return tags
 
 
 # ── 量化指标 ────────────────────────────────────────────────────────────────

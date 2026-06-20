@@ -67,6 +67,24 @@ class TushareProvider(DataProvider):
             trade_date=trade_date,
         )
 
+    def get_cyq_perf(self, ts_code: str, start_date: str, end_date: str) -> pd.DataFrame:
+        """单股筹码分布（每日：加权平均成本/获利盘比例/各分位成本）。缓存一天。"""
+        import datetime
+        key = f"{ts_code}_{start_date}_{end_date}_{datetime.date.today().strftime('%Y%m%d')}"
+        return cached_daily(
+            name="tushare_cyq_perf",
+            date_key=key,
+            fetch_fn=lambda: self._fetch_cyq_perf(ts_code, start_date, end_date),
+        )
+
+    @_RETRY
+    def _fetch_cyq_perf(self, ts_code: str, start_date: str, end_date: str) -> pd.DataFrame:
+        return rate_limited_call(
+            "tushare_cyq_perf",
+            self._api.cyq_perf,
+            ts_code=ts_code, start_date=start_date, end_date=end_date,
+        )
+
     def get_fina_indicator(self, ts_code: str) -> pd.DataFrame:
         """单股财务指标（ROE/营收净利同比/负债率/毛利率等，多期）。缓存一天。"""
         import datetime

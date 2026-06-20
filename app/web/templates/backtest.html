@@ -66,6 +66,7 @@ td { padding:7px 9px; border-bottom:1px solid #1e2138; white-space:nowrap; }
 <div class="card" id="profcard" style="display:none">
   <div class="meta" id="prof-title"></div>
   <div id="prof-tags" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px"></div>
+  <div id="prof-chips" style="display:none;background:#12161f;border:1px solid #2a3a5a;border-radius:10px;padding:10px 12px;margin-bottom:10px"></div>
   <div id="prof-hints" style="font-size:13px;line-height:1.9;margin-bottom:10px"></div>
   <div style="font-size:13px;color:#9ca3af;margin:6px 0">📊 近120日K线（前复权·含MA5/20/60与量能）</div>
   <div id="kline" style="height:340px"></div>
@@ -193,6 +194,7 @@ async function loadProfile(code){
     if(!d.ok){ card.style.display='none'; return; }
     document.getElementById('prof-title').innerHTML='🧬 股性速览 · <b>'+(d.name||'')+'</b>（'+d.ts_code+'）· 近 '+d.bars+' 日';
     document.getElementById('prof-tags').innerHTML=(d.tags||[]).map(t=>'<span class="ptag '+t.level+'">'+t.text+'</span>').join('');
+    renderChips(d.chips);
     document.getElementById('prof-hints').innerHTML='<b style="color:#7c9ef8">当前形态提示：</b><br>'+(d.hints||[]).map(h=>'· '+h).join('<br>');
     renderKline(d.kline);
     card.style.display='block';
@@ -243,6 +245,18 @@ document.getElementById('alert-btn').addEventListener('click', async ()=>{
   }catch(e){ document.getElementById('alert-text').textContent='❌ '+e; }
   finally{ btn.disabled=false; btn.textContent=old; }
 });
+function renderChips(c){
+  const box=document.getElementById('prof-chips');
+  if(!c){ box.style.display='none'; return; }
+  const tags=(c.tags||[]).map(t=>'<span class="ptag '+t.level+'">'+t.text+'</span>').join(' ');
+  box.innerHTML='<div style="font-size:13px;margin-bottom:6px"><b style="color:#e5c07b">🎯 筹码分布</b>'
+    +' <span class="neu2" style="font-size:11px">（截至 '+c.date+'，Tushare真实数据）</span></div>'
+    +'<div style="font-size:12.5px;line-height:1.9">'
+    +'主力平均成本 <b>'+(c.weight_avg??'—')+'</b>　|　现价 <b>'+(c.ref_close??'—')+'</b>（溢价 '+(c.premium>0?'+':'')+(c.premium??'—')+'%）<br>'
+    +'获利盘比例 <b>'+(c.winner_rate??'—')+'%</b>　|　90%成本区 <b>['+(c.cost_5pct??'—')+' ~ '+(c.cost_95pct??'—')+']</b>　|　筹码集中度 '+(c.concentration??'—')+'%'
+    +'</div><div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:6px">'+tags+'</div>';
+  box.style.display='block';
+}
 function renderKline(kl){
   if(!klineChart) klineChart=echarts.init(document.getElementById('kline'));
   klineChart.setOption({
