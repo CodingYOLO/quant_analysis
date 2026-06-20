@@ -82,15 +82,15 @@ def test_overlay_sw_industry() -> None:
     p.get_sw_industry_map = lambda: _sw_map()          # type: ignore[assignment]
     out = p._overlay_sw_industry(_raw_basic())
     by = out.set_index("ts_code")
-    # 申万一级覆盖
-    assert by.loc["600519.SH", "industry"] == "食品饮料"    # 白酒→申万食品饮料
-    assert by.loc["600519.SH", "industry_l2"] == "白酒Ⅱ"
-    assert by.loc["000001.SH" if False else "000001.SZ", "industry"] == "银行"
+    # 申万二级=主口径(industry)，一级在 industry_l1（供上卷）
+    assert by.loc["600519.SH", "industry"] == "白酒Ⅱ"      # 主口径=申万二级
+    assert by.loc["600519.SH", "industry_l1"] == "食品饮料"  # 上卷=申万一级
+    assert by.loc["000001.SZ", "industry"] == "国有大型银行"
     # 保留 Tushare 原值
     assert by.loc["600519.SH", "industry_src"] == "白酒"
     # 不在申万映射 → 回退原 Tushare 行业（不丢覆盖）
     assert by.loc["999999.SZ", "industry"] == "其他"
-    assert pd.isna(by.loc["999999.SZ", "industry_l2"])
+    assert pd.isna(by.loc["999999.SZ", "industry_l1"])
 
 
 def test_overlay_fallback_when_sw_empty() -> None:

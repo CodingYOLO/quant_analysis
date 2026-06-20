@@ -324,10 +324,10 @@ class TushareProvider(DataProvider):
         """
         股票基础信息列表（缓存一天）。
 
-        ⚠️ `industry` 列已**覆盖为申万一级**（机构标准口径，比 Tushare 自有行业更规范），
-        原 Tushare 行业保留在 `industry_src`，另加 `industry_l2`（申万二级，备下钻）。
+        ⚠️ `industry` 列已**覆盖为申万二级**（134个·够细够标准：半导体/消费电子/元件/光学…
+        分开），原 Tushare 行业保留在 `industry_src`，申万一级在 `industry_l1`（供上卷）。
         申万映射不可用时优雅回退原 Tushare 行业，保证不劣化。所有按 `industry` 聚合的
-        板块分析（行业资金/宽表/全景看板/广度雷达/同类回测）因此统一升级为申万口径。
+        板块分析（行业资金/宽表/全景看板/广度雷达/同类回测）因此统一升级为申万二级口径。
         """
         import datetime
         today = datetime.date.today().strftime("%Y%m%d")
@@ -353,7 +353,11 @@ class TushareProvider(DataProvider):
         )
 
     def _overlay_sw_industry(self, basic: pd.DataFrame) -> pd.DataFrame:
-        """把 stock_basic.industry 覆盖为申万一级；保留原值(industry_src)与申万二级(industry_l2)。"""
+        """
+        把 stock_basic.industry 覆盖为**申万二级**（主分析口径：半导体/消费电子/元件… 够细，
+        且每板块股票数够多·资金/广度统计稳）；保留原 Tushare 值(industry_src)与申万一级
+        (industry_l1·供上卷聚合)。缺映射则回退原 Tushare 行业。
+        """
         if basic is None or basic.empty or "industry" not in basic.columns:
             return basic
         sw = self.get_sw_industry_map()
@@ -363,8 +367,8 @@ class TushareProvider(DataProvider):
         out["industry_src"] = out["industry"]                 # 留底 Tushare 原行业
         l1 = dict(zip(sw["ts_code"], sw["l1_name"]))
         l2 = dict(zip(sw["ts_code"], sw["l2_name"]))
-        out["industry"] = out["ts_code"].map(l1).fillna(out["industry_src"])  # 申万L1，缺则回退
-        out["industry_l2"] = out["ts_code"].map(l2)
+        out["industry_l1"] = out["ts_code"].map(l1)           # 申万一级（供上卷/大方向聚合）
+        out["industry"] = out["ts_code"].map(l2).fillna(out["industry_src"])  # 申万二级=主口径，缺则回退
         return out
 
     def get_sw_industry_map(self) -> pd.DataFrame:
