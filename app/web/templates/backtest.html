@@ -105,11 +105,16 @@ td { padding:7px 9px; border-bottom:1px solid #1e2138; white-space:nowrap; }
 
 <!-- 🎯 自动选策略（反向推荐）：输票→自动跑全部信号→推荐最贴它股性的打法 -->
 <div class="card export-hide" id="scoutcard">
-  <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px">
+  <!-- 导出图片时显示的页头（平时隐藏），由 JS 填名称/代码/窗口/生成日 -->
+  <div id="scout-cap-head" style="display:none;margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid #2d3052">
+    <div style="font-size:16px;font-weight:700;color:#7c9ef8">🎯 策略适配扫描报告</div>
+    <div id="scout-cap-sub" class="neu2" style="font-size:12px;margin-top:3px"></div>
+  </div>
+  <div class="sc-noexport" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px">
     <div class="meta" style="margin:0">🎯 自动选策略 <span class="neu2" style="font-size:11px">（反向推荐 · 用上方股票框，替你跑全部信号，推荐最贴它股性的打法）</span></div>
     <button class="runbtn" id="scout-btn" style="padding:6px 14px;font-size:13px">🎯 一键找最适配策略</button>
   </div>
-  <div style="display:flex;gap:7px;align-items:center;flex-wrap:wrap;margin-bottom:6px">
+  <div class="sc-noexport" style="display:flex;gap:7px;align-items:center;flex-wrap:wrap;margin-bottom:6px">
     <span class="neu2" style="font-size:12px">扫描窗口：</span>
     <button class="scbtn" data-m="1">近1月</button>
     <button class="scbtn active" data-m="3">近3月</button>
@@ -123,6 +128,11 @@ td { padding:7px 9px; border-bottom:1px solid #1e2138; white-space:nowrap; }
     <div id="scout-note" style="font-size:13.5px;line-height:1.9;margin:8px 0;display:none;padding:10px 12px;background:#161929;border:1px solid #2d3052;border-radius:10px"></div>
     <div style="overflow-x:auto"><table id="scout-table"></table></div>
     <div class="neu2" style="font-size:11px;margin-top:8px" id="scout-foot"></div>
+    <div id="scout-export" class="sc-noexport" style="display:none;gap:10px;margin-top:12px">
+      <button class="exportbtn primary" id="scout-img">📷 导出图片</button>
+      <button class="exportbtn" id="scout-doc">📄 导出文档</button>
+      <span class="neu2" style="font-size:11px">把这份策略适配结果存成图片/Markdown，方便留存或分享</span>
+    </div>
   </div>
 </div>
 
@@ -945,7 +955,70 @@ function renderScout(d){
   document.getElementById('scout-table').innerHTML=h+'</tbody>';
   document.getElementById('scout-foot').textContent=
     '排名分 = T+5期望 × 样本置信度 × 盈亏比质量（样本越少越向0收缩）。'+(d.disclaimer||'');
+  document.getElementById('scout-export').style.display='flex';   // 结果出来后才给导出
 }
+
+// 导出文件名 / 截图页头副标题：策略适配_名称_代码_(窗口)_生成日
+function scoutExportName(ext){
+  const d=lastScout||{};
+  const nm=(lastProfile&&lastProfile.name)||d.name||'';
+  const code=d.ts_code||document.getElementById('code').value.trim()||'stock';
+  const win=(d.start&&d.end)?('('+d.start+'~'+d.end+')'):'';
+  const today=new Date().toISOString().slice(0,10).replace(/-/g,'');
+  return ['策略适配',nm,code,win,today].filter(Boolean).join('_')+(ext?'.'+ext:'');
+}
+
+// 📷 导出图片：html2canvas 抓 scoutcard，截图时藏交互按钮、显页头
+document.getElementById('scout-img').addEventListener('click', async ()=>{
+  if(typeof html2canvas==='undefined'){ alert('图片库未加载，请刷新重试'); return; }
+  const btn=document.getElementById('scout-img'), old=btn.textContent; btn.disabled=true; btn.textContent='⏳ 生成中…';
+  const d=lastScout||{};
+  document.getElementById('scout-cap-sub').textContent=
+    [((lastProfile&&lastProfile.name)||d.name||'')+(d.ts_code?(' '+d.ts_code):''),
+     (d.start&&d.end)?('扫描窗口 '+d.start+'~'+d.end):'', '生成 '+new Date().toLocaleString('zh-CN')].filter(Boolean).join(' · ');
+  document.getElementById('scout-cap-head').style.display='block';
+  const hidden=[];
+  document.querySelectorAll('#scoutcard .sc-noexport, #scoutcard .scout-use').forEach(el=>{
+    hidden.push([el,el.style.display]); el.style.display='none'; });
+  try{
+    const canvas=await html2canvas(document.getElementById('scoutcard'),
+      {scale:2,backgroundColor:'#0f1117',useCORS:true,windowWidth:document.getElementById('scoutcard').scrollWidth});
+    const a=document.createElement('a'); a.download=scoutExportName('png'); a.href=canvas.toDataURL('image/png'); a.click();
+  }catch(e){ alert('图片生成失败：'+e); }
+  finally{
+    hidden.forEach(([el,disp])=>el.style.display=disp);
+    document.getElementById('scout-cap-head').style.display='none';
+    btn.disabled=false; btn.textContent=old;
+  }
+});
+
+// 📄 导出文档：把 scout 结果拼成 Markdown 下载（排名表 + 规则初判 + AI解读）
+document.getElementById('scout-doc').addEventListener('click', ()=>{
+  const d=lastScout; if(!d){ alert('请先运行策略扫描'); return; }
+  const nm=(lastProfile&&lastProfile.name)||d.name||'';
+  const tierTxt={rec:'✅推荐',rec_thin:'推荐·样本少',neg:'期望为负',thin:'样本极少',none:'未触发'};
+  let md='# 策略适配扫描报告\n\n';
+  md+='- 个股：'+nm+(d.ts_code?(' ('+d.ts_code+')'):'')+'\n';
+  md+='- 扫描窗口：'+(d.start||'')+' ~ '+(d.end||'')+'\n';
+  md+='- 生成时间：'+new Date().toLocaleString('zh-CN')+'\n';
+  md+='- 扫描信号 '+(d.n_total||0)+' 个 · 推荐 '+(d.n_eligible||0)+' 个\n\n';
+  if(d.rationale) md+='## 规则初判\n\n'+d.rationale.replace(/<[^>]+>/g,'')+'\n\n';
+  const note=document.getElementById('scout-note');
+  if(note && note.style.display!=='none' && note.textContent.trim())
+    md+='## AI 解读\n\n'+note.textContent.replace(/^🧠\s*AI 解读：/,'').trim()+'\n\n';
+  md+='## 策略排名（按适配分）\n\n';
+  md+='| 评级 | 信号(打法) | 类型 | 样本n | T+5胜率 | T+5期望 | 盈亏比 | 最好/最差 |\n';
+  md+='|---|---|---|---|---|---|---|---|\n';
+  (d.ranked||[]).forEach(s=>{
+    const wr=s.n?(Math.round(s.win_rate*100)+'%'):'—', exp=s.n?((s.avg_return>0?'+':'')+s.avg_return+'%'):'—';
+    const bw=s.n?('+'+s.best+'% / '+s.worst+'%'):'—';
+    md+='| '+(tierTxt[s.tier]||'—')+' | '+s.label+' | '+(s.category||'')+' | '+(s.n||'—')+' | '+wr+' | '+exp+' | '+(s.n?s.profit_factor:'—')+' | '+bw+' |\n';
+  });
+  md+='\n> 排名分 = T+5期望 × 样本置信度 × 盈亏比质量（样本越少越向0收缩）。'+(d.disclaimer||'')+'\n';
+  const blob=new Blob([md],{type:'text/markdown;charset=utf-8'});
+  const a=document.createElement('a'); a.download=scoutExportName('md'); a.href=URL.createObjectURL(blob); a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),2000);
+});
 
 // 点「用此信号回测」→ 把该信号灌入上方回测框并对齐扫描窗口，自动跑正向回测
 document.getElementById('scout-table').addEventListener('click', ev=>{
