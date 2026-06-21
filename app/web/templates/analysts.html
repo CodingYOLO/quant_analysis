@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+{% block title %}金牌分析师 — A股Agent{% endblock %}
+
+{% block extra_style %}
+h1 { font-size:22px; text-align:center; margin-bottom:4px; }
+.note { background:#161929; border:1px solid #242842; border-radius:10px; padding:10px 15px;
+  margin-bottom:14px; font-size:12.5px; line-height:1.7; color:#9ca3af; }
+.note b { color:#e5c07b; }
+.toolbar { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:12px; }
+.toolbar input,.toolbar button,.toolbar select { background:#0f1117; color:#e8e8e8; border:1px solid #2d3052; border-radius:6px; padding:7px 10px; font-size:13px; }
+.toolbar button { cursor:pointer; color:#7c9ef8; }
+.neu2 { color:#9ca3af; } .up { color:#f6465d; } .down { color:#2ebd85; } .miss { color:#6b7280; }
+table { width:100%; border-collapse:collapse; font-size:12.5px; }
+th { background:#232640; color:#9ca3af; font-weight:500; padding:8px 9px; text-align:left; white-space:nowrap; }
+td { padding:8px 9px; border-bottom:1px solid #1e2138; white-space:nowrap; vertical-align:top; }
+tr.datarow:hover td { background:#1e2138; cursor:pointer; }
+.rk { color:#e5c07b; font-weight:700; }
+.an { color:#e8e8e8; font-weight:600; }
+.pick { color:#b794f6; }
+.detail { padding:12px 16px; background:#141729; font-size:12.5px; line-height:1.7; white-space:normal; }
+.detail b { color:#7c9ef8; }
+.held { color:#4ade80; }
+.bd { font-size:9px; padding:1px 5px; border-radius:6px; margin-left:4px; }
+.bd-kc{background:#3a2410;color:#f0a020;} .bd-cy{background:#1a2b4a;color:#7c9ef8;} .bd-bj{background:#0e2a1a;color:#2ebd85;}
+{% endblock %}
+
+{% block content %}
+<h1>🏅 金牌分析师</h1>
+<div class="note">
+  按<b>东财统计的历史荐股收益率</b>排名,看金牌分析师最新荐了哪些股、点开看完整跟踪记录(调入/调出/评级)。
+  ⚠️ <b>过往业绩不代表未来</b>,分析师也会看错,不构成投资建议。默认<b>只看科技赛道</b>(电子/通信/计算机/半导体…)。
+</div>
+
+<div class="toolbar">
+  <label class="neu2" style="font-size:13px">年度</label>
+  <select id="year"></select>
+  <button id="techToggle" title="只看电子/通信/计算机/半导体等科技覆盖行业">🎯 只看科技赛道</button>
+  <span id="genmeta" class="neu2" style="font-size:12px"></span>
+</div>
+
+<div id="loading" class="neu2" style="padding:14px">⏳ 加载分析师排名…</div>
+<div id="empty" class="neu2" style="display:none;padding:12px"></div>
+<div id="dash" style="display:none;overflow-x:auto"><table id="tbl"></table></div>
+{% endblock %}
+
+{% block extra_script %}
+<script>
+const $=id=>document.getElementById(id);
+function esc(s){ return (s==null?'':String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function ret(v){ if(v==null) return '<span class="miss">—</span>'; const c=v>=0?'up':'down'; return '<span class="'+c+'">'+(v>=0?'+':'')+v+'%</span>'; }
+function bd(code){ const c=(code||'').slice(0,3); if(c==='688'||c==='689')return '<span class="bd bd-kc">科创</span>';
+  if(c==='300'||c==='301')return '<span class="bd bd-cy">创业</span>'; const p=(code||'').slice(0,1);
+  if(p==='8'||p==='4')return '<span class="bd bd-bj">北交</span>'; return ''; }
+let techOnly=true, _rows=[];
+
+// 年度下拉：今年 + 过去两年
+(function(){ const y=new Date().getFullYear(); let h='';
+  for(let i=0;i<3;i++) h+='<option value="'+(y-i)+'">'+(y-i)+'</option>'; $('year').innerHTML=h; })();
+
+async function load(){
+  $('loading').style.display='block'; $('dash').style.display='none'; $('empty').style.display='none';
+  try{
+    const j=await (await fetch('/api/analysts?year='+$('year').value+(techOnly?'&tech=1':'')+'&top=80')).json();
+    $('loading').style.display='none';
+    $('genmeta').textContent=j.ok?('共 '+j.count+' 位'):'';
+    _rows=j.analysts||[];
+    if(!j.ok||!_rows.length){ $('empty').style.display='block'; $('empty').textContent='ℹ️ '+(j.msg||'暂无数据'); return; }
+    render();
+  }catch(e){ $('loading').textContent='❌ 加载失败：'+e; }
+}
+function render(){
+  let h='<tr><th>排名</th><th>分析师</th><th>机构</th><th>行业</th><th>年收益</th><th>3月</th><th>6月</th><th>12月</th><th>覆盖</th><th>最新荐股</th></tr>';
+  _rows.forEach((a,i)=>{
+    h+='<tr class="datarow" onclick="toggle('+i+')">'
+      +'<td class="rk">#'+a.rank+'</td><td class="an">'+esc(a.name)+'</td><td>'+esc(a.org)+'</td>'
+      +'<td class="neu2">'+esc(a.industry)+'</td><td>'+ret(a.ret_year)+'</td><td>'+ret(a.ret_3m)+'</td>'
+      +'<td>'+ret(a.ret_6m)+'</td><td>'+ret(a.ret_12m)+'</td><td>'+a.n_stocks+'</td>'
+      +'<td class="pick">'+esc(a.pick||'—')+(a.pick_code?bd(a.pick_code):'')+'</td></tr>';
+    h+='<tr id="r_'+i+'" style="display:none"><td colspan="10" style="padding:0"><div class="detail" id="d_'+i+'"></div></td></tr>';
+  });
+  $('tbl').innerHTML=h; $('dash').style.display='block';
+}
+async function toggle(i){
+  const row=$('r_'+i), open=row.style.display!=='none'; row.style.display=open?'none':'';
+  if(open) return;
+  const a=_rows[i], dv=$('d_'+i);
+  if(!a.analyst_id){ dv.textContent='ℹ️ 无明细'; return; }
+  dv.innerHTML='⏳ 加载 '+esc(a.name)+' 的跟踪记录…';
+  try{
+    const p=await (await fetch('/api/analyst/picks?id='+encodeURIComponent(a.analyst_id))).json();
+    if(!p.ok||!(p.items||[]).length){ dv.innerHTML='ℹ️ '+esc(p.msg||'暂无跟踪记录'); return; }
+    let h='<b>'+esc(a.name)+'</b>（'+esc(a.org)+'·'+esc(a.industry)+'）跟踪 '+p.n+' 只，<span class="held">当前持有 '+p.held+' 只</span>：<br>';
+    h+=p.items.map(it=>{
+      const tag=it.held?'<span class="held">●持有</span>':'<span class="neu2">○已调出'+esc(it.out_date)+'</span>';
+      return '· '+esc(it.name)+' '+esc(it.code)+bd(it.code)+' '+tag+' <span class="neu2">'+esc(it.rating)+'·调入'+esc(it.in_date)+'</span>';
+    }).join('<br>');
+    h+='<div class="neu2" style="font-size:10px;margin-top:6px">'+esc(p.disclaimer||'')+'</div>';
+    dv.innerHTML=h;
+  }catch(e){ dv.innerHTML='❌ '+e; }
+}
+function syncTechBtn(){ const b=$('techToggle');
+  b.style.background=techOnly?'#143b28':'#0f1117'; b.style.color=techOnly?'#4ade80':'#7c9ef8';
+  b.style.borderColor=techOnly?'#1f5a3a':'#2d3052'; b.textContent=(techOnly?'🎯 科技赛道·开':'🎯 只看科技赛道'); }
+$('techToggle').onclick=()=>{ techOnly=!techOnly; syncTechBtn(); load(); };
+$('year').onchange=load;
+syncTechBtn(); load();
+</script>
+{% endblock %}

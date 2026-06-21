@@ -292,7 +292,7 @@ class AkshareProvider(DataProvider):
     def _fetch_analyst_rank(self, year: str) -> pd.DataFrame:
         return rate_limited_call("ak_analyst_rank", ak.stock_analyst_rank_em, year=year)
 
-    def get_analyst_detail(self, analyst_id: str, indicator: str = "最新跟踪成分股") -> pd.DataFrame:
+    def get_analyst_detail(self, analyst_id: str, indicator: str = "历史跟踪成分股") -> pd.DataFrame:
         """东财某分析师明细（最新跟踪成分股 / 历史跟踪 / 年度统计）。按 id+口径+日 缓存。"""
         return cached_daily(
             name="ak_analyst_detail",

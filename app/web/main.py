@@ -499,6 +499,41 @@ async def api_research(date: str = "", refresh: bool = False, tech: bool = False
         return {"ok": False, "msg": str(e)}
 
 
+@app.get("/analysts", response_class=HTMLResponse)
+async def analysts_page(request: Request, _user: str = Depends(require_auth)):
+    """🏅 金牌分析师榜：东财按历史荐股收益率排名 + 最新荐股 + 跟踪记录下钻。"""
+    return templates.TemplateResponse(request=request, name="analysts.html", context={"page": "analysts"})
+
+
+@app.get("/api/analysts")
+async def api_analysts(year: str = "", tech: bool = False, top: int = 60,
+                       _user: str = Depends(require_auth)):
+    """金牌分析师榜（东财·按收益率）：tech=1 只看科技覆盖行业(电子/通信/计算机/半导体…)。线程池。"""
+    try:
+        from fastapi.concurrency import run_in_threadpool
+
+        from app.strategy.analysts import get_analyst_board
+        return await run_in_threadpool(get_analyst_board, year, bool(tech), int(top))
+    except Exception as e:
+        logger.exception("金牌分析师榜失败")
+        return {"ok": False, "msg": str(e)}
+
+
+@app.get("/api/analyst/picks")
+async def api_analyst_picks(id: str = "", _user: str = Depends(require_auth)):
+    """某分析师的跟踪记录（历史跟踪成分股·当前持有优先）。"""
+    if not id:
+        return {"ok": False, "msg": "缺少 id"}
+    try:
+        from fastapi.concurrency import run_in_threadpool
+
+        from app.strategy.analysts import get_analyst_picks
+        return await run_in_threadpool(get_analyst_picks, id)
+    except Exception as e:
+        logger.exception("分析师明细失败")
+        return {"ok": False, "msg": str(e)}
+
+
 @app.get("/stockpool", response_class=HTMLResponse)
 async def stockpool_page(request: Request, _user: str = Depends(require_auth)):
     """Tab2 选股池（内置策略每日盘后自动选股）。"""

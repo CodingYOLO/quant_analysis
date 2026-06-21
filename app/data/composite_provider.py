@@ -145,7 +145,7 @@ class CompositeProvider(DataProvider):
     def get_analyst_rank(self, year: str = "") -> pd.DataFrame:
         return self._ak.get_analyst_rank(year)
 
-    def get_analyst_detail(self, analyst_id: str, indicator: str = "最新跟踪成分股") -> pd.DataFrame:
+    def get_analyst_detail(self, analyst_id: str, indicator: str = "历史跟踪成分股") -> pd.DataFrame:
         return self._ak.get_analyst_detail(analyst_id, indicator)
 
     def get_cls_news(self, date: str) -> pd.DataFrame:
