@@ -313,21 +313,35 @@ def theme_llm_cmd(trade_date: str, theme_type: str, top: int) -> None:
 @cli.command("bull-catalysts")
 @click.option("--date", "trade_date", default="last", help="交易日，默认最近交易日")
 def bull_catalysts_cmd(trade_date: str) -> None:
-    """🐂 牛股发掘·催化层：联网检索政策/新闻→LLM 抽取并映射到库内真实概念，落 JSON 缓存（可挂盘后 cron）。"""
+    """🐂 牛股发掘·催化层：联网检索政策/新闻→LLM 映射到库内概念，落缓存（全部+科技两版·盘后 cron 预生成→前端秒开）。"""
     from app.strategy.bull_hunter import discover_catalysts
 
     td = _resolve_date(trade_date)
     console.print(f"\n[bold cyan]🐂 牛股发掘·政策催化扫描[/bold cyan]  {td}\n")
-    res = discover_catalysts(td, force=True)
-    if not res.get("ok"):
-        console.print(f"[yellow]⚠️ 未抽取到可映射催化：{res.get('msg', '')}[/yellow]\n")
-        return
-    for c in res["catalysts"]:
-        concs = "、".join(f"{x['name']}(热{x['heat']:.0f}{'↑' if x['rising'] else ''})"
-                          for x in c["related_concepts"])
-        console.print(f"  • [bold]{c['type']}[/bold] {c['catalyst'][:60]}")
-        console.print(f"     → 板块：{concs}")
-    console.print(f"\n[green]✅ 抽取 {len(res['catalysts'])} 条催化 → data_cache/bull_catalyst/{td}.json[/green]\n")
+    for tech in (False, True):
+        res = discover_catalysts(td, force=True, tech_only=tech)
+        tag = "科技赛道" if tech else "全部"
+        n = len(res.get("catalysts", []))
+        color = "green" if res.get("ok") else "yellow"
+        console.print(f"[{color}]  · {tag}：{n} 条催化{('' if res.get('ok') else ' — ' + res.get('msg', ''))}[/{color}]")
+    console.print(f"[green]✅ 催化缓存已刷新 → data_cache/bull_catalyst/[/green]\n")
+
+
+@cli.command("research-hub")
+@click.option("--date", "trade_date", default="last", help="交易日，默认最近交易日")
+def research_hub_cmd(trade_date: str) -> None:
+    """📑 研报中心：博查抓券商研报观点→LLM 接地总结，落缓存（全部+科技两版·盘后 cron 预生成→前端秒开）。"""
+    from app.strategy.bull_hunter import discover_research
+
+    td = _resolve_date(trade_date)
+    console.print(f"\n[bold cyan]📑 研报中心扫描[/bold cyan]  {td}\n")
+    for tech in (False, True):
+        res = discover_research(td, force=True, tech_only=tech)
+        tag = "科技赛道" if tech else "全部"
+        n = len(res.get("reports", []))
+        color = "green" if res.get("ok") else "yellow"
+        console.print(f"[{color}]  · {tag}：{n} 条研报{('' if res.get('ok') else ' — ' + res.get('msg', ''))}[/{color}]")
+    console.print(f"[green]✅ 研报缓存已刷新 → data_cache/research_hub/[/green]\n")
 
 
 @cli.command("stock-pool")

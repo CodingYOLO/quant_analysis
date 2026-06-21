@@ -136,6 +136,7 @@
 </div>
 
 <script src="/static/echarts.min.js"></script>
+<script src="/static/kline.js"></script>
 <script>
 const selected = new Set();
 document.querySelectorAll('.fbtn').forEach(b => {
@@ -339,32 +340,7 @@ function extScrIndicators(d) {
   }
   return h;
 }
-function smaScr(candle, m) {
-  const out = []; for (let i = 0; i < candle.length; i++) { if (i < m - 1) { out.push(null); continue; }
-    let s = 0; for (let j = i - m + 1; j <= i; j++) s += candle[j][1]; out.push(+(s / m).toFixed(2)); } return out;
-}
-function renderScrKline(cid, kl) {
-  const el = document.getElementById(cid); if (!el || typeof echarts === 'undefined') return;
-  const c = echarts.init(el); _scrCharts[cid] = c; const ma10 = smaScr(kl.candle, 10);
-  c.setOption({
-    backgroundColor: 'transparent', tooltip: { trigger: 'axis', axisPointer: { type: 'cross' } },
-    legend: { data: ['MA5', 'MA10', 'MA20', 'MA60'], textStyle: { color: '#9ca3af' }, right: 10, top: 0 },
-    grid: [{ left: 50, right: 20, top: 30, height: '60%' }, { left: 50, right: 20, top: '76%', height: '15%' }],
-    xAxis: [{ type: 'category', data: kl.dates, axisLabel: { color: '#9ca3af' } },
-            { type: 'category', data: kl.dates, gridIndex: 1, axisLabel: { show: false } }],
-    yAxis: [{ scale: true, axisLabel: { color: '#9ca3af' }, splitLine: { lineStyle: { color: '#1a1d2e' } } },
-            { gridIndex: 1, axisLabel: { show: false }, splitLine: { show: false } }],
-    series: [
-      { type: 'candlestick', data: kl.candle, itemStyle: { color: '#f6465d', color0: '#2ebd85', borderColor: '#f6465d', borderColor0: '#2ebd85' } },
-      { name: 'MA5', type: 'line', data: kl.ma5, smooth: true, symbol: 'none', itemStyle: { color: '#e5c07b' }, lineStyle: { width: 1, color: '#e5c07b' } },
-      { name: 'MA10', type: 'line', data: ma10, smooth: true, symbol: 'none', itemStyle: { color: '#4ade80' }, lineStyle: { width: 1, color: '#4ade80' } },
-      { name: 'MA20', type: 'line', data: kl.ma20, smooth: true, symbol: 'none', itemStyle: { color: '#7c9ef8' }, lineStyle: { width: 1, color: '#7c9ef8' } },
-      { name: 'MA60', type: 'line', data: kl.ma60, smooth: true, symbol: 'none', itemStyle: { color: '#c084fc' }, lineStyle: { width: 1, color: '#c084fc' } },
-      { type: 'bar', xAxisIndex: 1, yAxisIndex: 1, data: kl.vol, itemStyle: { color: '#3a3f5c' } }
-    ]
-  });
-  requestAnimationFrame(() => c.resize()); setTimeout(() => c.resize(), 120);
-}
+function renderScrKline(cid, kl) { _scrCharts[cid] = AKline.render(cid, kl); }   // 复用 /static/kline.js
 // 新闻/政策催化按钮（事件委托·一次绑定；按需触发 LLM，避免每次展开都花钱）
 document.getElementById('restable').addEventListener('click', async ev => {
   const b = ev.target.closest('.alertbtn'); if (!b || b.disabled) return;

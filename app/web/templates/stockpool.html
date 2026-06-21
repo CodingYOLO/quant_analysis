@@ -71,6 +71,7 @@ tr.datarow:hover td { background:#1e2138; cursor:pointer; }
 <div id="dash" style="display:none;overflow-x:auto"><table id="tbl"></table></div>
 
 <script src="/static/echarts.min.js"></script>
+<script src="/static/kline.js"></script>
 <script>
 let rows=[];
 // 数据日默认留空 → 后端返回最新已生成的选股池（避免卡在浏览器“今天”而误报未生成）。
@@ -362,32 +363,7 @@ function extIndicators(d){
   } else { h+='<span class="neu2">（无筹码数据）</span>'; }
   return h;
 }
-function smaFromCandle(candle,m){   // 收盘价(candle[i][1])算m日均线(profile无MA10→前端补)
-  const out=[]; for(let i=0;i<candle.length;i++){ if(i<m-1){out.push(null);continue;}
-    let s=0; for(let j=i-m+1;j<=i;j++) s+=candle[j][1]; out.push(+(s/m).toFixed(2)); } return out; }
-function renderPoolKline(cid, kl){
-  const el=document.getElementById(cid); if(!el||typeof echarts==='undefined') return;
-  const c=echarts.init(el); _kcharts[cid]=c;
-  const ma10=smaFromCandle(kl.candle,10);
-  c.setOption({
-    backgroundColor:'transparent', tooltip:{trigger:'axis',axisPointer:{type:'cross'}},
-    legend:{data:['MA5','MA10','MA20','MA60'],textStyle:{color:'#9ca3af'},right:10,top:0},
-    grid:[{left:50,right:20,top:30,height:'60%'},{left:50,right:20,top:'76%',height:'15%'}],
-    xAxis:[{type:'category',data:kl.dates,axisLabel:{color:'#9ca3af'}},
-           {type:'category',data:kl.dates,gridIndex:1,axisLabel:{show:false}}],
-    yAxis:[{scale:true,axisLabel:{color:'#9ca3af'},splitLine:{lineStyle:{color:'#1a1d2e'}}},
-           {gridIndex:1,axisLabel:{show:false},splitLine:{show:false}}],
-    series:[
-      {type:'candlestick',data:kl.candle,itemStyle:{color:'#f6465d',color0:'#2ebd85',borderColor:'#f6465d',borderColor0:'#2ebd85'}},
-      {name:'MA5',type:'line',data:kl.ma5,smooth:true,symbol:'none',itemStyle:{color:'#e5c07b'},lineStyle:{width:1,color:'#e5c07b'}},
-      {name:'MA10',type:'line',data:ma10,smooth:true,symbol:'none',itemStyle:{color:'#4ade80'},lineStyle:{width:1,color:'#4ade80'}},
-      {name:'MA20',type:'line',data:kl.ma20,smooth:true,symbol:'none',itemStyle:{color:'#7c9ef8'},lineStyle:{width:1,color:'#7c9ef8'}},
-      {name:'MA60',type:'line',data:kl.ma60,smooth:true,symbol:'none',itemStyle:{color:'#c084fc'},lineStyle:{width:1,color:'#c084fc'}},
-      {type:'bar',xAxisIndex:1,yAxisIndex:1,data:kl.vol,itemStyle:{color:'#3a3f5c'}}
-    ]
-  });
-  requestAnimationFrame(()=>c.resize()); setTimeout(()=>c.resize(),120);
-}
+function renderPoolKline(cid, kl){ _kcharts[cid]=AKline.render(cid, kl); }   // 复用 /static/kline.js
 function detail(r){
   const ma=(r.above_ma5&&r.above_ma10&&r.above_ma20&&r.above_ma60&&r.ma_bull_short)?'完整多头排列(MA5>10>20>60·趋势向上)'
     :(r.above_ma5&&r.above_ma10&&r.ma_bull_short)?'短期多头(MA5>MA10>MA20)'
