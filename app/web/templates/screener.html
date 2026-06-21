@@ -45,6 +45,8 @@
 .up   { color: #f6465d; font-weight: 600; }   /* 红涨 */
 .down { color: #2ebd85; font-weight: 600; }   /* 绿跌 */
 .code { color: #7c9ef8; font-family: ui-monospace, monospace; }
+.addw { font-size: 10px; color: #4ade80; cursor: pointer; border: 1px solid #1f5a3a; border-radius: 5px; padding: 1px 5px; }
+.addw:hover { background: #143b28; }
 /* 展开行（点击任一结果行 → 看 K线 + 量能/乖离/筹码，复用 /api/stock/profile） */
 #restable tr.datarow { cursor: pointer; }
 #restable tr.datarow:hover td { background: #1e2138; }
@@ -191,7 +193,8 @@ function fmtCell(key, v) {
     const sign = v > 0 ? '+' : '';
     return '<td class="' + cls + '">' + sign + v + '</td>';
   }
-  if (key === 'ts_code') return '<td class="code">' + v + '</td>';
+  if (key === 'ts_code') return '<td class="code">' + v
+    + ' <span class="addw" title="加入我的持仓·自选" onclick="event.stopPropagation();addWatch(\'' + v + '\',this)">＋自选</span></td>';
   return '<td>' + v + '</td>';
 }
 
@@ -371,6 +374,15 @@ document.getElementById('restable').addEventListener('click', async ev => {
     } else { out.textContent = ' ℹ️ ' + (d.msg || '暂无相关新闻'); b.disabled = false; b.textContent = '🤖 重试'; }
   } catch (e) { out.textContent = ' ❌ ' + e; b.disabled = false; b.textContent = '🤖 重试'; }
 });
+
+// ＋自选：一键加入「我的持仓」
+async function addWatch(code, el) {
+  if (el) el.textContent = '⏳';
+  try {
+    const d = await (await fetch('/api/portfolio/add', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code }) })).json();
+    if (el) { el.textContent = d.ok ? '✓已加' : '✗'; el.title = d.ok ? '已加入我的持仓' : (d.msg || ''); }
+  } catch (e) { if (el) el.textContent = '✗'; }
+}
 
 document.getElementById('run').addEventListener('click', async () => {
   const btn = document.getElementById('run');

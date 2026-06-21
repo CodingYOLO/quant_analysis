@@ -41,6 +41,8 @@ tr.datarow:hover td { background:#1e2138; cursor:pointer; }
 .detail { padding:12px 16px; background:#141729; font-size:12.5px; line-height:1.8; }
 .detail b { color:#7c9ef8; }
 .falsify { color:#f0a020; }
+.addw { font-size:10px; color:#4ade80; cursor:pointer; border:1px solid #1f5a3a; border-radius:5px; padding:1px 5px; }
+.addw:hover { background:#143b28; }
 {% endblock %}
 
 {% block content %}
@@ -197,7 +199,8 @@ function renderAmbushTable(cands, keepSort){
       +'<td><span class="score-pill">'+(c.score||0).toFixed(0)+'</span></td>'
       +'<td style="font-size:12px">'+dualCell(c)+'</td>'
       +'<td>'+esc(c.ts_code)+'</td>'
-      +'<td>'+esc(c.name)+boardTag(c.ts_code)+'</td>'
+      +'<td>'+esc(c.name)+boardTag(c.ts_code)
+        +' <span class="addw" title="加入我的持仓·自选" onclick="event.stopPropagation();addWatch(\''+c.ts_code+'\',this)">＋自选</span></td>'
       +'<td>'+perf+'</td><td>'+flow+'</td><td>'+pos+'</td>'
       +'<td class="neu2">'+esc(c.evidence.vol)+'</td><td>'+rk+'</td></tr>';
     h+='<tr id="row_'+cid+'" style="display:none"><td colspan="9" style="padding:0">'
@@ -277,6 +280,14 @@ function extIndicators(d){
 }
 function renderKline(cid, kl){ _kcharts[cid]=AKline.render(cid, kl); }   // 复用 /static/kline.js
 
+// ＋自选：一键加入「我的持仓」(默认自选·之后可在持仓页改持仓/填成本)
+async function addWatch(code, el){
+  const old=el?el.textContent:''; if(el){ el.textContent='⏳'; }
+  try{
+    const d=await (await fetch('/api/portfolio/add',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code})})).json();
+    if(el){ el.textContent=d.ok?'✓已加':'✗'; el.title=d.ok?'已加入我的持仓':(d.msg||''); }
+  }catch(e){ if(el) el.textContent='✗'; }
+}
 $('refresh').onclick=()=>loadCatalysts(true);
 $('date').onchange=()=>{ loadCatalysts(false);
   $('ambush').style.display='none'; $('ctx').style.display='none'; $('ambush-hint').style.display='block'; };
