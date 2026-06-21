@@ -254,6 +254,9 @@ async function runReview(){
 }
 $('rv-go').onclick=runReview;
 $('rv-code').addEventListener('keydown',e=>{ if(e.key==='Enter') runReview(); });
+// 深链 ?review=<code>（从个股360跳来）→ 自动填票并复盘，滚到复盘卡
+(function(){ const c=new URLSearchParams(location.search).get('review');
+  if(c){ $('rv-code').value=c; runReview(); setTimeout(()=>$('reviewcard').scrollIntoView({behavior:'smooth'}),300); } })();
 $('rv-ai').onclick=async ()=>{
   if(!_lastReview) return; const b=$('rv-ai'); b.disabled=true; b.textContent='⏳ AI解读中（约15秒）…';
   try{

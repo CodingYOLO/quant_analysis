@@ -82,6 +82,7 @@ table.mini td { padding:6px 8px; border-bottom:1px solid #1e2138; }
   <!-- 七大分区 -->
   <div class="sec"><h2>📈 K线 + 股性</h2><div id="v-kline" style="height:300px"></div><div id="v-prof" class="loading">⏳ 加载股性…</div></div>
   <div class="sec"><h2>💰 资金（主力估算 + 龙虎榜机构真钱 + 大盘北向）</h2><div id="v-fund" class="loading">⏳ 加载资金…</div></div>
+  <div class="sec"><h2>🏛️ 龙虎榜复盘（近6月·历史规律）</h2><div id="v-lhb" class="loading">⏳ 复盘龙虎榜…</div></div>
   <div class="sec"><h2>🔥 板块情况</h2><div id="v-sector" class="loading">⏳ 加载板块…</div></div>
   <div class="sec"><h2>📊 财务 + 风险事件</h2><div id="v-fin" class="loading">⏳ 加载财务…</div></div>
   <div class="sec"><h2>📑 券商研报（东财 + 同花顺·免费）</h2><div id="v-research" class="loading">⏳ 加载研报…</div></div>
@@ -113,13 +114,14 @@ function go(){
   const code=$('code').value.trim(); if(!code||busy) return;
   busy=true; $('go').disabled=true; _lastCode=code; _lastName=code;
   $('hint').style.display='none'; $('result').style.display='block';
-  ['v-prof','v-fund','v-sector','v-fin','v-research','v-scout','v-news'].forEach(id=>{ $(id).className='loading'; $(id).textContent='⏳ 加载中…'; });
+  ['v-prof','v-fund','v-lhb','v-sector','v-fin','v-research','v-scout','v-news'].forEach(id=>{ $(id).className='loading'; $(id).textContent='⏳ 加载中…'; });
   $('v-kline').innerHTML=''; _kc=null; $('export-bar').style.display='none';
   $('vd-body').className='loading'; $('vd-body').textContent='⏳ 正在汇总各区数据并生成综合判断…';
   const facts={}, store={};
   const jobs=[
     loadProfile(code,facts,store), loadFundThenSector(code,facts,store), loadFin(code,facts,store),
     loadResearch(code,facts,store), loadScout(code,facts,store), loadNews(code,facts,store),
+    loadLhb(code,facts,store),
   ];
   Promise.allSettled(jobs).then(()=>runVerdict(code,facts,store)).finally(()=>{ busy=false; $('go').disabled=false; });
 }
@@ -238,6 +240,26 @@ function renderNews(d,facts){
   facts['新闻催化']=d.summary||'';
 }
 
+async function loadLhb(code,facts,store){
+  try{ const d=await (await fetch('/api/lhb/review?code='+encodeURIComponent(code)+'&months=6')).json(); store.lhb=d; renderLhb(d,facts,code); }
+  catch(e){ $('v-lhb').textContent='加载失败'; }
+}
+function renderLhb(d,facts,code){
+  const more='<a href="/lhb?review='+encodeURIComponent(code||'')+'" style="color:#7c9ef8;font-size:12px">→ 完整复盘（逐次明细/AI解读）</a>';
+  if(!d||!d.ok){ $('v-lhb').className=''; $('v-lhb').innerHTML='<span class="neu2">'+((d&&d.msg)||'—')+'</span>'; return; }
+  if(!d.count){ $('v-lhb').className=''; $('v-lhb').innerHTML='<span class="neu2">近6月未上过龙虎榜（波动温和·没触发异动披露）。</span><br>'+more; facts['龙虎榜复盘']='近6月未上过龙虎榜'; return; }
+  let h='<div style="font-size:13px;margin-bottom:8px">近6月上龙虎榜 <b>'+d.count+'</b> 次 · 资金风格规律：</div><div style="display:flex;gap:10px;flex-wrap:wrap">';
+  (d.pattern||[]).forEach(p=>{ const c=(p.avg_t5==null)?'neu2':(p.avg_t5>0?'up':'down');
+    h+='<div style="flex:1;min-width:155px;background:#0f1117;border:1px solid #242842;border-radius:9px;padding:9px 12px">'
+      +'<div style="font-size:12.5px;font-weight:700;color:#cdd6f4">'+esc(p.category)+' <span class="neu2" style="font-size:11px">×'+p.count+'</span></div>'
+      +'<div style="font-size:11.5px;margin-top:4px">次日均 <b class="'+c+'">'+(p.avg_t1==null?'—':(p.avg_t1>0?'+':'')+p.avg_t1+'%')+'</b> · T+5均 <b class="'+c+'">'+(p.avg_t5==null?'—':(p.avg_t5>0?'+':'')+p.avg_t5+'%')+'</b></div>'
+      +'<div class="neu2" style="font-size:10.5px;margin-top:2px">T+5胜率 '+(p.win_t5==null?'—':p.win_t5+'%')+(p.count<3?'·样本少':'')+'</div></div>';
+  });
+  h+='</div><div style="margin-top:8px">'+more+'</div>';
+  $('v-lhb').className=''; $('v-lhb').innerHTML=h;
+  facts['龙虎榜复盘']='近6月上榜'+d.count+'次；规律：'+(d.pattern||[]).map(p=>p.category+p.count+'次(次日均'+p.avg_t1+'% T+5均'+p.avg_t5+'% 胜率'+p.win_t5+'%)').join('；');
+}
+
 // —— 综合判断 + 自动存历史 ——
 async function runVerdict(code,facts,store){
   const name=_lastName||code;
@@ -250,7 +272,7 @@ async function runVerdict(code,facts,store){
   $('cap-sub').textContent=name+' '+code+' · 生成 '+new Date().toLocaleString('zh-CN');
   // 自动存历史快照（含各区数据 + 判断）
   const snapshot={code, name, verdict:_lastVerdict, profile:store.profile, fund:store.fund,
-    sector:store.sector, fin:store.fin, research:store.research, scout:store.scout, news:store.news};
+    lhb:store.lhb, sector:store.sector, fin:store.fin, research:store.research, scout:store.scout, news:store.news};
   try{ await fetch('/api/stock/360/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({snapshot})}); loadHistory(); }catch(e){}
 }
 
@@ -301,7 +323,7 @@ function replay(s){
   $('hint').style.display='none'; $('result').style.display='block';
   _lastCode=s.code||''; _lastName=s.name||''; _kc=null; $('v-kline').innerHTML='';
   $('code').value=s.name||s.code||'';
-  renderProfile(s.profile||{}, {}); renderFund(s.fund||{}, {}); renderSector(s.sector||{}, {});
+  renderProfile(s.profile||{}, {}); renderFund(s.fund||{}, {}); renderLhb(s.lhb||{}, {}, s.code); renderSector(s.sector||{}, {});
   renderFin(s.fin||{}, {}); renderResearch(s.research||{}, {}); renderScout(s.scout||{}, {}, s.code);
   renderNews(s.news||{}, {});
   if(s.verdict&&s.verdict.stance){ _lastVerdict=s.verdict; renderVerdict(s.verdict); }
