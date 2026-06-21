@@ -219,6 +219,17 @@ def init_db() -> None:
                 created_at  TEXT DEFAULT (datetime('now','localtime')),
                 UNIQUE(run_date, source, tier)
             );
+            CREATE TABLE IF NOT EXISTS watchlist (
+                ts_code     TEXT PRIMARY KEY,   -- 完整代码 600519.SH（唯一）
+                name        TEXT,
+                is_holding  INTEGER DEFAULT 0,  -- 0=仅自选盯盘 / 1=持仓
+                cost        REAL,               -- 持仓成本价（可空）
+                shares      REAL,               -- 持仓数量/股（可空）
+                stop_loss   REAL,               -- 止损价（可空·用于跌破止损预警）
+                note        TEXT,               -- 备注（如买入逻辑）
+                added_at    TEXT DEFAULT (datetime('now','localtime')),
+                updated_at  TEXT DEFAULT (datetime('now','localtime'))
+            );
         """)
         # 旧库幂等补列（CREATE TABLE IF NOT EXISTS 不会给已存在的表加列）
         existing = {row[1] for row in con.execute("PRAGMA table_info(stock_pool)")}
@@ -638,3 +649,59 @@ def get_summary_stats(is_backtest: int | None = None) -> dict:
                 "stop_rate": round((row["stop_count"] or 0) / total, 4) if total > 0 else None,
             }
     return stats
+
+
+# ──────────────────────────────────────────────
+# 自选/持仓（watchlist）：自选盯盘 + 持仓盈亏
+# ──────────────────────────────────────────────
+
+_WATCH_FIELDS = ("name", "is_holding", "cost", "shares", "stop_loss", "note")
+
+
+def add_watch(ts_code: str, name: str = "", *, is_holding: bool = False,
+              cost: float | None = None, shares: float | None = None,
+              stop_loss: float | None = None, note: str = "") -> None:
+    """加入自选/持仓（按 ts_code upsert：已存在则更新非空字段，保留 added_at）。"""
+    init_db()
+    with _conn() as con:
+        con.execute(
+            """INSERT INTO watchlist (ts_code, name, is_holding, cost, shares, stop_loss, note)
+               VALUES (?,?,?,?,?,?,?)
+               ON CONFLICT(ts_code) DO UPDATE SET
+                 name=excluded.name, is_holding=excluded.is_holding, cost=excluded.cost,
+                 shares=excluded.shares, stop_loss=excluded.stop_loss, note=excluded.note,
+                 updated_at=datetime('now','localtime')""",
+            (ts_code, name, int(is_holding), cost, shares, stop_loss, note),
+        )
+
+
+def update_watch(ts_code: str, **fields) -> bool:
+    """更新单条自选/持仓的部分字段（只允许 _WATCH_FIELDS）。返回是否命中。"""
+    cols = {k: v for k, v in fields.items() if k in _WATCH_FIELDS}
+    if not cols:
+        return False
+    if "is_holding" in cols:
+        cols["is_holding"] = int(bool(cols["is_holding"]))
+    sets = ", ".join(f"{k}=?" for k in cols) + ", updated_at=datetime('now','localtime')"
+    init_db()
+    with _conn() as con:
+        cur = con.execute(f"UPDATE watchlist SET {sets} WHERE ts_code=?",
+                          (*cols.values(), ts_code))
+        return cur.rowcount > 0
+
+
+def remove_watch(ts_code: str) -> bool:
+    """移除自选/持仓。返回是否命中。"""
+    init_db()
+    with _conn() as con:
+        return con.execute("DELETE FROM watchlist WHERE ts_code=?", (ts_code,)).rowcount > 0
+
+
+def get_watchlist() -> list[dict]:
+    """读取全部自选/持仓（持仓在前，再按加入时间倒序）。"""
+    init_db()
+    with _conn() as con:
+        rows = con.execute(
+            "SELECT * FROM watchlist ORDER BY is_holding DESC, added_at DESC"
+        ).fetchall()
+    return [dict(r) for r in rows]

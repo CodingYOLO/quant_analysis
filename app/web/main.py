@@ -534,6 +534,76 @@ async def api_analyst_picks(id: str = "", _user: str = Depends(require_auth)):
         return {"ok": False, "msg": str(e)}
 
 
+@app.get("/portfolio", response_class=HTMLResponse)
+async def portfolio_page(request: Request, _user: str = Depends(require_auth)):
+    """💼 我的持仓：自选盯盘 + 持仓盈亏 + 持仓体检 + 事件预警。"""
+    return templates.TemplateResponse(request=request, name="portfolio.html", context={"page": "portfolio"})
+
+
+@app.get("/api/portfolio")
+async def api_portfolio(_user: str = Depends(require_auth)):
+    """持仓体检 + 事件预警（现价/盈亏/技术/资金/事件/健康灯）。较重→线程池。"""
+    try:
+        from fastapi.concurrency import run_in_threadpool
+
+        from app.strategy.portfolio import build_portfolio
+        return await run_in_threadpool(build_portfolio)
+    except Exception as e:
+        logger.exception("持仓体检失败")
+        return {"ok": False, "msg": str(e)}
+
+
+@app.post("/api/portfolio/add")
+async def api_portfolio_add(request: Request, _user: str = Depends(require_auth)):
+    """加入自选/持仓。Body: {code, is_holding?, cost?, shares?, stop_loss?, note?}。"""
+    try:
+        from app.strategy import db
+        body = await request.json()
+        ts_code = _resolve_ts_code(body.get("code", ""))
+        if not ts_code:
+            return {"ok": False, "msg": "无法识别股票（请输入6位代码/完整代码/名称）"}
+        f = lambda k: (float(body[k]) if body.get(k) not in (None, "") else None)
+        db.add_watch(ts_code, _stock_name(ts_code), is_holding=bool(body.get("is_holding")),
+                     cost=f("cost"), shares=f("shares"), stop_loss=f("stop_loss"),
+                     note=str(body.get("note") or "")[:120])
+        return {"ok": True, "ts_code": ts_code, "name": _stock_name(ts_code)}
+    except Exception as e:
+        logger.exception("加入自选失败")
+        return {"ok": False, "msg": str(e)}
+
+
+@app.post("/api/portfolio/update")
+async def api_portfolio_update(request: Request, _user: str = Depends(require_auth)):
+    """更新自选/持仓字段。Body: {code, is_holding?/cost?/shares?/stop_loss?/note?}。"""
+    try:
+        from app.strategy import db
+        body = await request.json()
+        ts_code = _resolve_ts_code(body.get("code", ""))
+        if not ts_code:
+            return {"ok": False, "msg": "无法识别股票"}
+        fields = {k: body[k] for k in ("is_holding", "cost", "shares", "stop_loss", "note") if k in body}
+        for k in ("cost", "shares", "stop_loss"):
+            if k in fields:
+                fields[k] = float(fields[k]) if fields[k] not in (None, "") else None
+        return {"ok": db.update_watch(ts_code, **fields)}
+    except Exception as e:
+        logger.exception("更新自选失败")
+        return {"ok": False, "msg": str(e)}
+
+
+@app.post("/api/portfolio/remove")
+async def api_portfolio_remove(request: Request, _user: str = Depends(require_auth)):
+    """移除自选/持仓。Body: {code}。"""
+    try:
+        from app.strategy import db
+        body = await request.json()
+        ts_code = _resolve_ts_code(body.get("code", ""))
+        return {"ok": db.remove_watch(ts_code) if ts_code else False}
+    except Exception as e:
+        logger.exception("移除自选失败")
+        return {"ok": False, "msg": str(e)}
+
+
 @app.get("/stockpool", response_class=HTMLResponse)
 async def stockpool_page(request: Request, _user: str = Depends(require_auth)):
     """Tab2 选股池（内置策略每日盘后自动选股）。"""
