@@ -128,7 +128,7 @@ async def index(request: Request, _user: str = Depends(require_auth)):
             groups.append({"label": label, "reports": items})
     return templates.TemplateResponse(
         request=request, name="index.html",
-        context={"groups": groups, "total": len(metas)},
+        context={"groups": groups, "total": len(metas), "page": "index"},
     )
 
 
@@ -149,10 +149,11 @@ async def view_report(request: Request, name: str, _user: str = Depends(require_
     )
 
 
-@app.get("/generate", response_class=HTMLResponse)
-async def generate_page(request: Request, _user: str = Depends(require_auth)):
-    """一键生成页。"""
-    return templates.TemplateResponse(request=request, name="generate.html", context={})
+@app.get("/generate")
+async def generate_page(_user: str = Depends(require_auth)):
+    """一键生成已并入报告中心首页 → 重定向到 /（兼容旧链接/书签）。"""
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse(url="/", status_code=307)
 
 
 def _push_report(notify: bool, title: str, content: str) -> bool:

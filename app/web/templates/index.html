@@ -1,7 +1,55 @@
 {% extends "base.html" %}
 {% block title %}报告中心 — A股Agent{% endblock %}
 
+{% block extra_style %}
+.genbtn {
+  background: #2d3052; color: #e8e8e8; border: 1px solid #3d4068;
+  padding: 12px 20px; border-radius: 8px; font-size: 14px; cursor: pointer;
+  transition: all .15s;
+}
+.genbtn:hover:not(:disabled) { background: #3d4068; color: #fff; }
+.genbtn:disabled { opacity: .5; cursor: not-allowed; }
+.report-body { font-size: 14px; line-height: 1.7; }
+.report-body table { margin: 12px 0; }
+.report-body h1 { font-size: 20px; color: #7c9ef8; margin: 16px 0 8px; }
+.report-body h2 { font-size: 17px; color: #c9d2f8; margin: 16px 0 8px; }
+.report-body h3 { font-size: 15px; color: #a8b3e0; margin: 14px 0 6px; }
+.report-body ul { margin: 8px 0 8px 20px; }
+.report-body li { margin: 4px 0; }
+.report-body blockquote {
+  border-left: 3px solid #3d4068; padding: 4px 12px; margin: 8px 0;
+  color: #9ca3af; background: #161929;
+}
+.report-body th { background: #232640; }
+{% endblock %}
+
 {% block content %}
+<!-- ⚡ 一键生成（已并入报告中心顶部·不再单列入口）-->
+<div class="card">
+  <h2>⚡ 一键生成快讯（按最新数据实时分析）</h2>
+  <p class="neu" style="margin-bottom:16px;font-size:13px">
+    点击按钮立即拉取最新新闻/公告/行情并生成对应时段分析，约需 20-40 秒。生成后自动展示在下方，并存入下方报告列表。
+  </p>
+  <div style="display:flex;gap:12px;flex-wrap:wrap">
+    <button class="genbtn" data-session="pre">🌅 生成盘前快讯</button>
+    <button class="genbtn" data-session="mid">☀️ 生成盘中快讯</button>
+    <button class="genbtn" data-session="post">🌙 生成盘后复盘</button>
+    <button class="genbtn" id="gen-selection" style="background:#1a3b2a;border-color:#2ebd85">📈 生成完整选股报告</button>
+  </div>
+  <p class="neu" style="margin-top:8px;font-size:12px">📈 完整选股报告=吴川三层过滤+量化因子+风控辩论，耗时约2-3分钟、有少量LLM费用；需收盘后17:40资金数据入库。</p>
+  <label style="display:inline-flex;align-items:center;gap:6px;margin-top:12px;font-size:13px;color:#c9d2f8;cursor:pointer">
+    <input type="checkbox" id="notify" checked>
+    ✉️ 生成后同时推送到邮箱 / 微信（Server酱）
+  </label>
+  <div id="status" style="margin-top:16px;font-size:13px;color:#9ca3af"></div>
+</div>
+
+<div class="card" id="result-card" style="display:none">
+  <h2 id="result-title">报告预览</h2>
+  <div id="result-body" class="report-body"></div>
+</div>
+
+<!-- 历史报告列表 -->
 {% if groups %}
   {% for g in groups %}
   <div class="card">
@@ -26,7 +74,42 @@
   {% endfor %}
 {% else %}
   <div class="card">
-    <p class="neu" style="padding:16px 0">暂无报告。去 <a href="/generate" style="color:#7c9ef8">⚡ 一键生成</a> 立即生成一份。</p>
+    <p class="neu" style="padding:16px 0">暂无历史报告。点上方按钮立即生成一份。</p>
   </div>
 {% endif %}
+
+<script>
+document.querySelectorAll('.genbtn').forEach(btn => {
+  btn.addEventListener('click', async () => {
+    const buttons = document.querySelectorAll('.genbtn');
+    const statusEl = document.getElementById('status');
+    const isSelection = btn.id === 'gen-selection';
+    const notify = document.getElementById('notify').checked;
+    const base = isSelection ? '/api/generate_selection' : '/api/generate/' + btn.dataset.session;
+    const url = base + '?notify=' + notify;
+    buttons.forEach(b => b.disabled = true);
+    statusEl.textContent = isSelection
+      ? '⏳ 正在运行完整选股流水线（吴川三层+量化+风控），约2-3分钟，请耐心等待...'
+      : '⏳ 正在拉取最新数据并分析，请稍候（约20-40秒）...';
+    try {
+      const resp = await fetch(url, { method: 'POST' });
+      const data = await resp.json();
+      if (data.ok) {
+        document.getElementById('result-card').style.display = 'block';
+        document.getElementById('result-title').textContent = data.title;
+        document.getElementById('result-body').innerHTML = data.html;
+        const pushMsg = notify ? (data.pushed ? '　📱 已推送到邮箱/微信' : '　⚠️ 推送失败（检查推送配置）') : '';
+        statusEl.innerHTML = '✅ 生成成功，已保存到报告列表 · <a href="/report/' + data.name + '" style="color:#7c9ef8">查看 →</a>' + pushMsg;
+        document.getElementById('result-card').scrollIntoView({ behavior: 'smooth' });
+      } else {
+        statusEl.textContent = '❌ 生成失败：' + data.error;
+      }
+    } catch (e) {
+      statusEl.textContent = '❌ 请求出错：' + e;
+    } finally {
+      buttons.forEach(b => b.disabled = false);
+    }
+  });
+});
+</script>
 {% endblock %}
