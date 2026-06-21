@@ -123,7 +123,9 @@ function go(){
     loadResearch(code,facts,store), loadScout(code,facts,store), loadNews(code,facts,store),
     loadLhb(code,facts,store),
   ];
-  Promise.allSettled(jobs).then(()=>runVerdict(code,facts,store)).finally(()=>{ busy=false; $('go').disabled=false; });
+  // 各区一加载完就放出导出按钮（不必等最慢的 AI 判断·判断随后补上）
+  Promise.allSettled(jobs).then(()=>{ $('export-bar').style.display='flex'; return runVerdict(code,facts,store); })
+    .finally(()=>{ busy=false; $('go').disabled=false; });
 }
 $('go').onclick=go;
 $('code').addEventListener('keydown',e=>{ if(e.key==='Enter') go(); });
