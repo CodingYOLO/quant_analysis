@@ -31,6 +31,9 @@ tr.datarow:hover td { background:#1e2138; cursor:pointer; }
 .rk { color:#f87171; }
 .bd { font-size:9px; padding:1px 5px; border-radius:6px; margin-left:5px; }
 .bd-kc{background:#3a2410;color:#f0a020;} .bd-cy{background:#1a2b4a;color:#7c9ef8;} .bd-bj{background:#0e2a1a;color:#2ebd85;}
+.sig { padding:5px 11px; border-radius:7px; margin:3px 0; font-size:12.5px; line-height:1.6; }
+.sig.buy { background:#143b28; border:1px solid #1f5a3a; color:#cdd6f4; }
+.sig.sell { background:#3a1a1a; border:1px solid #5a2a2a; color:#cdd6f4; }
 {% endblock %}
 
 {% block content %}
@@ -51,6 +54,13 @@ tr.datarow:hover td { background:#1e2138; cursor:pointer; }
 </div>
 
 <div id="alerts" class="alerts"></div>
+<div id="sigwrap" style="margin:6px 0 12px">
+  <div style="font-size:13px;color:#cdd6f4;margin-bottom:5px">
+    <b>🔔 今日信号</b><span class="neu2" style="font-size:11px"> —— 你的票"最吃的策略信号"今天有没有触发（确定性历史统计·非预测）</span>
+    <span class="op" id="sigbtn" style="margin-left:8px">🔄 重扫</span>
+  </div>
+  <div id="signals" class="neu2" style="font-size:12.5px">⏳ 扫描今日信号（首次约 10-40 秒·之后秒回）…</div>
+</div>
 <div id="summary" class="summary"></div>
 <div id="loading" class="neu2" style="padding:14px">⏳ 体检中（现价/技术/资金/事件·首次约 5-15 秒）…</div>
 <div id="empty" class="neu2" style="display:none;padding:12px"></div>
@@ -178,7 +188,7 @@ async function addStock(){
   const body={code, is_holding:$('a_hold').checked, cost:$('a_cost').value, stop_loss:$('a_stop').value, note:$('a_note').value};
   try{
     const d=await (await fetch('/api/portfolio/add',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})).json();
-    if(d.ok){ $('addmsg').textContent='✅ 已加入 '+(d.name||''); ['a_code','a_cost','a_stop','a_note'].forEach(x=>$(x).value=''); $('a_hold').checked=false; load(); }
+    if(d.ok){ $('addmsg').textContent='✅ 已加入 '+(d.name||''); ['a_code','a_cost','a_stop','a_note'].forEach(x=>$(x).value=''); $('a_hold').checked=false; load(); loadSignals(); }
     else $('addmsg').textContent='❌ '+(d.msg||'失败');
   }catch(e){ $('addmsg').textContent='❌ '+e; }
 }
@@ -191,8 +201,32 @@ async function delRow(code){
   if(!confirm('从持仓移除 '+code+'？')) return;
   try{ await fetch('/api/portfolio/remove',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code})}); load(); }catch(e){}
 }
+// 🔔 今日信号（异步·体检后填充·按日缓存）
+async function loadSignals(refresh){
+  $('signals').innerHTML='⏳ 扫描今日信号（首次约 10-40 秒·之后秒回）…';
+  try{
+    const j=await (await fetch('/api/portfolio/signals'+(refresh?'?refresh=1':''))).json();
+    if(!j.ok){ $('signals').textContent='ℹ️ '+(j.msg||'扫描失败'); return; }
+    const items=j.items||[];
+    if(!items.length){ $('signals').innerHTML='<span class="neu2">今日你的票暂无"最佳信号触发"（无买点/卖点信号）。</span>'; return; }
+    $('signals').innerHTML=items.map(sigCard).join('')
+      +'<div class="neu2" style="font-size:10px;margin-top:4px">'+esc(j.disclaimer||'')+'</div>';
+  }catch(e){ $('signals').textContent='❌ '+e; }
+}
+function sigCard(it){
+  let h='';
+  if(it.buy){ const b=it.buy;
+    h+='<div class="sig buy">🔔 <b>'+esc(it.name)+'</b> 触发它最吃的买点 <b style="color:#4ade80">['+esc(b.signal)+']</b>（'+esc(b.category)+'）'
+      +' <span class="neu2">历史 T+5期望 '+pct(b.expect)+' · 胜率'+b.win_rate+'% · n='+b.n+(b.thin?' · 样本偏少仅参考':'')+'</span></div>';
+  }
+  (it.sells||[]).forEach(s=>{
+    h+='<div class="sig sell">🔻 <b>'+esc(it.name)+'</b> '+(s.kind==='破位'?'卖出参考':'止盈警示')+'：<b style="color:#f87171">'+esc(s.signal)+'</b></div>';
+  });
+  return h;
+}
+$('sigbtn').onclick=()=>loadSignals(true);
 $('addbtn').onclick=addStock;
 $('a_code').addEventListener('keydown',e=>{ if(e.key==='Enter') addStock(); });
-load();
+load(); loadSignals();
 </script>
 {% endblock %}

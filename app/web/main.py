@@ -553,6 +553,19 @@ async def api_portfolio(_user: str = Depends(require_auth)):
         return {"ok": False, "msg": str(e)}
 
 
+@app.get("/api/portfolio/signals")
+async def api_portfolio_signals(refresh: bool = False, _user: str = Depends(require_auth)):
+    """🔔 自选股今日信号：它"最吃的信号"今天是否触发→买/卖点提醒(确定性历史统计)。较重→线程池·按日缓存。"""
+    try:
+        from fastapi.concurrency import run_in_threadpool
+
+        from app.strategy.signal_watch import scan_signals
+        return await run_in_threadpool(scan_signals, None, bool(refresh))
+    except Exception as e:
+        logger.exception("自选信号扫描失败")
+        return {"ok": False, "msg": str(e)}
+
+
 @app.post("/api/portfolio/add")
 async def api_portfolio_add(request: Request, _user: str = Depends(require_auth)):
     """加入自选/持仓。Body: {code, is_holding?, cost?, shares?, stop_loss?, note?}。"""
