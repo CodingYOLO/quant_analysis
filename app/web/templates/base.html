@@ -100,6 +100,7 @@
   <a href="/" {% if page=='index' %}class="active"{% endif %}>报告中心</a>
   <a href="/screener" {% if page=='screener' %}class="active"{% endif %}>🔍 因子选股</a>
   <a href="/backtest" {% if page=='backtest' %}class="active"{% endif %}>🔬 个股回测</a>
+  <a href="/chat" {% if page=='chat' %}class="active"{% endif %}>🤖 AI投研</a>
   {# 策略验证/前向追踪暂从导航隐藏（数据未积累、归因功能已并入个股回测）；路由保留可直达 #}
   {# <a href="/strategy" {% if page=='strategy' %}class="active"{% endif %}>📊 策略验证</a> #}
   {# <a href="/tracking" {% if page=='tracking' %}class="active"{% endif %}>前向追踪</a> #}
@@ -158,91 +159,19 @@
     <button class="aic-send" id="aic-sendbtn">发送</button>
   </div>
 </div>
+<!-- 共享聊天客户端：悬浮窗与 /chat 标签页共用同一逻辑（会话/历史一致）。改后需单独 rsync static -->
+<script src="/static/chat.js"></script>
 <script>
 (function(){
   const $=id=>document.getElementById(id);
-  let sid=null, busy=false;
-  const esc=s=>(s==null?'':String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-  const TIP='<div class="aic-tip">问我 A股的事 —— 我会去查 <b style="color:#7c9ef8">真实数据</b>（行情/财报/研报/新闻/你的持仓/板块）再回答。<br>'
-    +'例：「中际旭创基本面和风险」「我的持仓有啥要注意的」「CPO板块最近资金怎么样」<br>'
-    +'<span style="color:#6b7280">仅供研究 · 不预测涨跌 · 不构成投资建议</span></div>';
-
-  // 紧凑 markdown → html（表格/标题/列表/粗体/引用/代码）
-  function md(t){
-    t=esc(t);
-    t=t.replace(/(?:^\|.*\|[ \t]*\n?)+/gm, block=>{
-      const rows=block.trim().split('\n').filter(r=>r.trim()); let out='<table>', start=0;
-      if(rows[1] && /^\|[\s:|-]+\|$/.test(rows[1].replace(/ /g,''))){
-        out+='<tr>'+rows[0].split('|').slice(1,-1).map(c=>'<th>'+c.trim()+'</th>').join('')+'</tr>'; start=2; }
-      for(let i=start;i<rows.length;i++) out+='<tr>'+rows[i].split('|').slice(1,-1).map(c=>'<td>'+c.trim()+'</td>').join('')+'</tr>';
-      return out+'</table>'; });
-    t=t.replace(/^### (.*)$/gm,'<h3>$1</h3>').replace(/^## (.*)$/gm,'<h2>$1</h2>').replace(/^# (.*)$/gm,'<h1>$1</h1>');
-    t=t.replace(/^&gt; (.*)$/gm,'<blockquote>$1</blockquote>');
-    t=t.replace(/^[-*] (.*)$/gm,'<li>$1</li>').replace(/(<li>[\s\S]*?<\/li>\n?)+/g,m=>'<ul>'+m+'</ul>');
-    t=t.replace(/\*\*([^*]+)\*\*/g,'<b>$1</b>').replace(/`([^`]+)`/g,'<code>$1</code>');
-    t=t.replace(/^(?!\s*<(?:h\d|ul|li|table|tr|blockquote))(.+)$/gm,'<div>$1</div>');
-    return t;
-  }
-  function scrollB(){ const m=$('aic-msgs'); m.scrollTop=m.scrollHeight; }
-  function addMsg(role, html){
-    const d=document.createElement('div'); d.className='aic-msg '+role;
-    d.innerHTML='<div class="bubble">'+html+'</div>'; $('aic-msgs').appendChild(d); scrollB(); return d.querySelector('.bubble');
-  }
-  function showMsgs(list){
-    $('aic-msgs').innerHTML = (list&&list.length) ? '' : TIP;
-    (list||[]).forEach(m=> addMsg(m.role==='user'?'user':'ai', m.role==='user'?esc(m.content):('<div class="aic-md">'+md(m.content)+'</div>')));
-  }
-
-  async function loadSessions(){
-    try{ const j=await (await fetch('/api/chat/sessions')).json();
-      $('aic-seslist').innerHTML=(j.sessions||[]).map(s=>
-        '<div class="aic-srow'+(s.id===sid?' cur':'')+'" data-id="'+s.id+'"><span>'+esc(s.title||'新对话')+'</span><span class="del" data-del="'+s.id+'">删</span></div>').join('')
-        || '<div class="aic-srow neu2">暂无历史</div>';
-    }catch(e){}
-  }
-  async function newSession(open){ const j=await (await fetch('/api/chat/session',{method:'POST'})).json();
-    sid=j.id; showMsgs([]); $('aic-seslist').classList.remove('open'); if(open) loadSessions(); }
-  async function openSession(id){ sid=id;
-    const j=await (await fetch('/api/chat/session/'+id)).json(); showMsgs(j.messages); $('aic-seslist').classList.remove('open'); loadSessions(); }
-  async function delSession(id){ await fetch('/api/chat/session/'+id+'/delete',{method:'POST'});
-    if(id===sid){ sid=null; showMsgs([]); } loadSessions(); }
-
-  async function send(){
-    const text=$('aic-text').value.trim(); if(!text||busy) return;
-    if(!sid) await newSession(false);
-    busy=true; $('aic-sendbtn').disabled=true; $('aic-text').value='';
-    if($('aic-msgs').querySelector('.aic-tip')) $('aic-msgs').innerHTML='';
-    addMsg('user', esc(text));
-    const bubble=addMsg('ai','<span class="aic-status">⏳ 正在思考…</span>');
-    let answer='';
-    try{
-      const resp=await fetch('/api/chat/stream',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({session_id:sid,message:text})});
-      const reader=resp.body.getReader(), dec=new TextDecoder(); let buf='';
-      while(true){ const {value,done}=await reader.read(); if(done) break;
-        buf+=dec.decode(value,{stream:true}); let i;
-        while((i=buf.indexOf('\n\n'))>=0){ const line=buf.slice(0,i); buf=buf.slice(i+2);
-          if(!line.startsWith('data: ')) continue;
-          let ev; try{ ev=JSON.parse(line.slice(6)); }catch(e){ continue; }
-          if(ev.type==='status'||ev.type==='thinking'){ if(!answer) bubble.innerHTML='<span class="aic-status">'+esc(ev.text)+'</span>'; }
-          else if(ev.type==='delta'){ answer+=ev.text; bubble.innerHTML='<div class="aic-md">'+md(answer)+'</div>'; scrollB(); }
-          else if(ev.type==='error'){ bubble.innerHTML='<span style="color:#f87171">'+esc(ev.text)+'</span>'; }
-        }
-      }
-      if(answer) bubble.innerHTML='<div class="aic-md">'+md(answer)+'</div>';
-      loadSessions();
-    }catch(e){ bubble.innerHTML='<span style="color:#f87171">❌ '+esc(e)+'</span>'; }
-    finally{ busy=false; $('aic-sendbtn').disabled=false; scrollB(); }
-  }
-
+  // 悬浮窗：会话列表是下拉抽屉，切换会话后收起；其余逻辑全由共享 AChat 提供
+  const chat=AChat.create({ msgs:'aic-msgs', text:'aic-text', sendBtn:'aic-sendbtn', sesList:'aic-seslist',
+    onNavigate:()=>$('aic-seslist').classList.remove('open') });
   $('aic-btn').onclick=()=>{ const p=$('aic-panel'); p.classList.toggle('open');
-    if(p.classList.contains('open')){ if(!$('aic-msgs').innerHTML) $('aic-msgs').innerHTML=TIP; loadSessions(); $('aic-text').focus(); } };
+    if(p.classList.contains('open')){ chat.resume(); $('aic-text').focus(); } };
   $('aic-close').onclick=()=>$('aic-panel').classList.remove('open');
-  $('aic-new').onclick=()=>newSession(true);
-  $('aic-list').onclick=()=>{ $('aic-seslist').classList.toggle('open'); loadSessions(); };
-  $('aic-seslist').onclick=e=>{ const del=e.target.closest('[data-del]'); if(del){ e.stopPropagation(); delSession(+del.dataset.del); return; }
-    const row=e.target.closest('[data-id]'); if(row) openSession(+row.dataset.id); };
-  $('aic-sendbtn').onclick=send;
-  $('aic-text').addEventListener('keydown',e=>{ if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); send(); } });
+  $('aic-new').onclick=()=>chat.newSession(true);
+  $('aic-list').onclick=()=>{ $('aic-seslist').classList.toggle('open'); chat.loadSessions(); };
 })();
 </script>
 </body>

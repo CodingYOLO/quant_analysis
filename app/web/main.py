@@ -605,6 +605,12 @@ async def portfolio_page(request: Request, _user: str = Depends(require_auth)):
     return templates.TemplateResponse(request=request, name="portfolio.html", context={"page": "portfolio"})
 
 
+@app.get("/chat", response_class=HTMLResponse)
+async def chat_page(request: Request, _user: str = Depends(require_auth)):
+    """🤖 AI 投研助手（全页）：与右下角悬浮窗共用同一套 /api/chat/* 会话与历史，仅入口不同。"""
+    return templates.TemplateResponse(request=request, name="chat.html", context={"page": "chat"})
+
+
 @app.get("/api/portfolio")
 async def api_portfolio(_user: str = Depends(require_auth)):
     """持仓体检 + 事件预警（现价/盈亏/技术/资金/事件/健康灯）。较重→线程池。"""
