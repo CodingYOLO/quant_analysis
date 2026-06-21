@@ -445,15 +445,15 @@ async def bull_page(request: Request, _user: str = Depends(require_auth)):
 
 
 @app.get("/api/bull/catalysts")
-async def api_bull_catalysts(date: str = "", refresh: bool = False,
+async def api_bull_catalysts(date: str = "", refresh: bool = False, tech: bool = False,
                              _user: str = Depends(require_auth)):
-    """催化层：真实新闻→LLM抽取→映射到库内真实概念（按日缓存；refresh=1 强制重算）。较重→线程池。"""
+    """催化层：真实新闻→LLM抽取→映射到库内真实概念（按日缓存；refresh=1 强制重算；tech=1 只看科技赛道）。线程池。"""
     try:
         from fastapi.concurrency import run_in_threadpool
 
         from app.strategy.bull_hunter import discover_catalysts
         d = (date or "").replace("-", "") or _last_trade_date()
-        return await run_in_threadpool(discover_catalysts, d, None, None, bool(refresh))
+        return await run_in_threadpool(discover_catalysts, d, None, None, bool(refresh), bool(tech))
     except Exception as e:
         logger.exception("牛股发掘·催化层失败")
         return {"ok": False, "msg": str(e)}
@@ -485,15 +485,15 @@ async def research_page(request: Request, _user: str = Depends(require_auth)):
 
 
 @app.get("/api/research")
-async def api_research(date: str = "", refresh: bool = False,
+async def api_research(date: str = "", refresh: bool = False, tech: bool = False,
                       _user: str = Depends(require_auth)):
-    """研报中心：博查媒体研报观点→LLM总结(机构/分析师/要点/评级动作/关联板块)。按日缓存·较重→线程池。"""
+    """研报中心：博查媒体研报观点→LLM总结。按日缓存·线程池；tech=1 只看科技赛道(半导体/CPO/算力…)。"""
     try:
         from fastapi.concurrency import run_in_threadpool
 
         from app.strategy.bull_hunter import discover_research
         d = (date or "").replace("-", "") or _last_trade_date()
-        return await run_in_threadpool(discover_research, d, None, None, bool(refresh))
+        return await run_in_threadpool(discover_research, d, None, None, bool(refresh), bool(tech))
     except Exception as e:
         logger.exception("研报中心失败")
         return {"ok": False, "msg": str(e)}

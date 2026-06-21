@@ -218,7 +218,7 @@ def test_discover_catalysts_injected() -> None:
         ["半导体", "人工智能"],
         {"半导体": {"heat": 80, "rising": True, "delta": 5},
          "人工智能": {"heat": 50, "rising": False, "delta": 0}})
-    bh._gather_catalyst_news = lambda provider, date: [       # type: ignore[assignment]
+    bh._gather_catalyst_news = lambda provider, date, tech_only=False: [   # type: ignore[assignment]
         {"title": "大基金三期加码半导体", "site": "证券时报", "date": "2026-06-18", "summary": ""}]
 
     fake = _FakeLLM('[{"catalyst":"大基金三期加码半导体设备","type":"政策",'
@@ -235,6 +235,30 @@ def test_discover_catalysts_empty_vocab() -> None:
     bh._concept_vocab = lambda provider, date: ([], {})       # type: ignore[assignment]
     out = bh.discover_catalysts("20260618", provider=object(), client=_FakeLLM("[]"))
     assert out["ok"] is False and "为空" in out["msg"]
+
+
+# ── 🎯 科技赛道聚焦 ──────────────────────────────────────────────────────────
+
+def test_is_tech_concept() -> None:
+    for n in ("共封装光学(CPO)", "存储芯片", "液冷服务器", "PCB概念", "第三代半导体", "光纤概念", "算力租赁"):
+        assert bh._is_tech_concept(n), n
+    for n in ("白酒", "银行", "养殖业", "房地产"):
+        assert not bh._is_tech_concept(n), n
+
+
+def test_discover_catalysts_tech_only() -> None:
+    """tech_only 下词表收窄到科技板块 → 非科技概念(白酒)即便 LLM 返回也被过滤。"""
+    bh._cache_get = lambda *a, **k: None                      # type: ignore[assignment]
+    bh._cache_put = lambda *a, **k: None                      # type: ignore[assignment]
+    bh._concept_vocab = lambda provider, date: (              # type: ignore[assignment]
+        ["半导体", "白酒", "存储芯片"], {"半导体": {"heat": 80, "rising": True}})
+    bh._gather_catalyst_news = lambda provider, date, tech_only=False: [  # type: ignore[assignment]
+        {"title": "大基金加码半导体", "site": "证券时报", "date": "2026-06-18"}]
+    fake = _FakeLLM('[{"catalyst":"大基金加码半导体","type":"政策",'
+                    '"related_concepts":["半导体","白酒"],"evidence":["大基金加码半导体"]}]')
+    out = bh.discover_catalysts("20260618", provider=object(), client=fake, tech_only=True)
+    assert out["ok"] and out["tech_only"] is True
+    assert [c["name"] for c in out["catalysts"][0]["related_concepts"]] == ["半导体"]   # 白酒被科技词表过滤
 
 
 # ── 研报中心（Layer 1.5·零网络）─────────────────────────────────────────────
@@ -265,7 +289,7 @@ def test_discover_research_injected() -> None:
     bh._cache_put = lambda *a, **k: None                      # type: ignore[assignment]
     bh._concept_vocab = lambda provider, date: (              # type: ignore[assignment]
         ["半导体", "人工智能"], {"半导体": {"heat": 88, "rising": True}})
-    bh._gather_research_news = lambda: [                      # type: ignore[assignment]
+    bh._gather_research_news = lambda tech_only=False: [      # type: ignore[assignment]
         {"title": "中信强推半导体金股", "url": "http://a", "site": "证券时报", "date": "2026-06-18"}]
     fake = _FakeLLM('[{"title":"半导体金股推荐","gist":"国产替代","org":"中信证券","analyst":"张三",'
                     '"kind":"个股金股","rating_action":"上调","stocks":["中芯国际"],'

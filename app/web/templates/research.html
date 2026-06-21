@@ -41,6 +41,7 @@ a.rtitle:hover { color:#7c9ef8; }
 <div class="toolbar">
   <label class="neu2" style="font-size:13px">数据日</label>
   <input type="date" id="date" title="留空=最近交易日">
+  <button id="techToggle" title="只看半导体/存储/液冷/CPO/光/算力等科技赛道">🎯 只看科技赛道</button>
   <button id="refresh" title="强制重新联网检索+重算研报">🔄 刷新研报</button>
   <select id="fkind"><option value="">类型(全部)</option><option>个股金股</option><option>评级上调</option><option>行业深度</option></select>
   <span id="genmeta" class="neu2" style="font-size:12px"></span>
@@ -57,11 +58,12 @@ const $=id=>document.getElementById(id);
 function esc(s){ return (s==null?'':String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 let _reports=[];
 
+let techOnly=false;   // 🎯 只看科技赛道
 async function load(refresh){
   $('loading').style.display='block'; $('reports').innerHTML=''; $('empty').style.display='none';
   const d=$('date').value.replace(/-/g,'');
   try{
-    const j=await (await fetch('/api/research?date='+d+(refresh?'&refresh=1':''))).json();
+    const j=await (await fetch('/api/research?date='+d+(refresh?'&refresh=1':'')+(techOnly?'&tech=1':''))).json();
     $('loading').style.display='none';
     if(j.date&&j.date.length===8) $('date').value=j.date.slice(0,4)+'-'+j.date.slice(4,6)+'-'+j.date.slice(6,8);
     $('genmeta').textContent=j.cached?'（缓存）':(j.generated_at?('生成于 '+j.generated_at):'');
@@ -107,6 +109,11 @@ function renderCard(r){
 function gotoBull(concept){ location.href='/bull?concept='+encodeURIComponent(concept); }
 
 $('refresh').onclick=()=>load(true);
+function syncTechBtn(){ const b=$('techToggle');
+  b.style.background=techOnly?'#143b28':'#0f1117'; b.style.color=techOnly?'#4ade80':'#7c9ef8';
+  b.style.borderColor=techOnly?'#1f5a3a':'#2d3052'; b.textContent=(techOnly?'🎯 科技赛道·开':'🎯 只看科技赛道'); }
+$('techToggle').onclick=()=>{ techOnly=!techOnly; syncTechBtn(); load(false); };
+syncTechBtn();
 $('fkind').onchange=render;
 $('date').onchange=()=>load(false);
 load(false);

@@ -54,6 +54,7 @@ tr.datarow:hover td { background:#1e2138; cursor:pointer; }
 <div class="toolbar">
   <label class="neu2" style="font-size:13px">数据日</label>
   <input type="date" id="date" title="留空=最近交易日">
+  <button id="techToggle" title="只看半导体/存储/液冷/CPO/光/算力等科技赛道">🎯 只看科技赛道</button>
   <button id="refresh" title="强制重新联网检索+重算催化">🔄 刷新催化</button>
   <span id="genmeta" class="neu2" style="font-size:12px"></span>
 </div>
@@ -90,11 +91,12 @@ function sign(v,suf){ if(v==null) return '<span class="miss">—</span>';
   const cls=v>0?'up':(v<0?'down':'neu2'); return '<span class="'+cls+'">'+(v>0?'+':'')+(+v).toFixed(0)+(suf||'')+'</span>'; }
 
 // ── ① 催化层 ──────────────────────────────────────────────────────────────
+let techOnly=false;   // 🎯 只看科技赛道
 async function loadCatalysts(refresh){
   $('cat-loading').style.display='block'; $('catalysts').innerHTML=''; $('cat-empty').style.display='none';
   const d=$('date').value.replace(/-/g,'');
   try{
-    const r=await fetch('/api/bull/catalysts?date='+d+(refresh?'&refresh=1':''));
+    const r=await fetch('/api/bull/catalysts?date='+d+(refresh?'&refresh=1':'')+(techOnly?'&tech=1':''));
     const j=await r.json();
     $('cat-loading').style.display='none';
     // 把后端解析出的实际数据日回填到选择框（默认空→展示最近交易日，而非光秃秃的"年/月/日"）
@@ -295,6 +297,12 @@ function renderKline(cid, kl){
 $('refresh').onclick=()=>loadCatalysts(true);
 $('date').onchange=()=>{ loadCatalysts(false);
   $('ambush').style.display='none'; $('ctx').style.display='none'; $('ambush-hint').style.display='block'; };
+// 🎯 科技赛道开关：切换后重载催化（科技检索词+词表过滤到科技板块）
+function syncTechBtn(){ const b=$('techToggle');
+  b.style.background=techOnly?'#143b28':'#0f1117'; b.style.color=techOnly?'#4ade80':'#7c9ef8';
+  b.style.borderColor=techOnly?'#1f5a3a':'#2d3052'; b.textContent=(techOnly?'🎯 科技赛道·开':'🎯 只看科技赛道'); }
+$('techToggle').onclick=()=>{ techOnly=!techOnly; syncTechBtn(); loadCatalysts(false); };
+syncTechBtn();
 // 联动研报中心：?concept=xxx 深链 → 催化加载完(数据日已回填)后自动扫描该板块埋伏候选并滚动到②
 const _qConcept=new URLSearchParams(location.search).get('concept');
 loadCatalysts(false).then(()=>{
