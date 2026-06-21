@@ -596,7 +596,7 @@ async function loadHistory(){
       const hh=row.head_horizon?('T+'+row.head_horizon):'';
       h+='<tr><td class="neu2">'+row.created_at+'</td>'
         +'<td><b>'+(row.name||'')+'</b> '+row.ts_code+'</td>'
-        +'<td>'+row.signal_label+'</td>'
+        +'<td>'+(row.kind==='scout'?'🎯 ':'')+row.signal_label+'</td>'
         +'<td class="neu2">'+row.start+'~'+row.end+'</td>'
         +'<td>'+row.n_signals+'</td>'
         +'<td><span class="'+wrc+'">'+wr+'</span> <span class="neu2" style="font-size:11px">'+hh+'</span></td>'
@@ -614,6 +614,18 @@ async function viewHistory(id){
     if(!d.ok){ st.textContent='❌ '+(d.error||'载入失败'); return; }
     const rec=d.rec, res=rec.result;
     const toISO=s=>(s||'').replace(/(\d{4})(\d{2})(\d{2})/,'$1-$2-$3');
+    // 策略适配扫描（scout）：还原到「自动选策略」卡，而非单信号回测视图
+    if(rec.kind==='scout'){
+      document.getElementById('code').value=(rec.name||rec.ts_code);
+      lastScout=res;
+      document.getElementById('scout-status').textContent='✅ 已载入历史扫描（'+rec.created_at+'）';
+      renderScout(res);            // 复用渲染：排名表 + 规则初判 + 导出按钮
+      loadProfile(rec.ts_code);    // 同步股性卡
+      loadScoutNote(res);          // 还原 AI 解读（指纹缓存·秒回）
+      st.textContent='✅ 已载入策略适配扫描（'+rec.created_at+'）';
+      document.getElementById('scoutcard').scrollIntoView({behavior:'smooth',block:'start'});
+      return;
+    }
     document.getElementById('code').value=(rec.name||rec.ts_code);   // 回填便于重跑/微调
     if(res.start) document.getElementById('start').value=toISO(res.start);
     if(res.end) document.getElementById('end').value=toISO(res.end);

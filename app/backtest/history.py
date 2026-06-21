@@ -29,8 +29,11 @@ _HEADLINE_HORIZON = 5
 # 列表展示的列（不含 result 大字段）。
 _LIST_COLS = (
     "id, creator, ts_code, name, signal_key, signal_label, start, end, "
-    "custom, n_signals, head_horizon, win_rate, avg_return, profit_factor, created_at"
+    "custom, n_signals, head_horizon, win_rate, avg_return, profit_factor, kind, created_at"
 )
+
+_SCOUT_KIND = "scout"            # kind 取值：'backtest'(默认·单信号回测) / 'scout'(策略适配扫描)
+_SCOUT_SIGNAL_KEY = "__scout__"  # scout 专用 signal_key·与真回测隔离·避免 UNIQUE 冲突
 
 
 def _db_path() -> Path:
@@ -88,6 +91,10 @@ def init() -> None:
                 con.execute(f"ALTER TABLE backtest_history ADD COLUMN {col} TEXT")
             except Exception:
                 pass
+        try:                                 # kind 列：区分单信号回测 / 策略适配扫描
+            con.execute("ALTER TABLE backtest_history ADD COLUMN kind TEXT DEFAULT 'backtest'")
+        except Exception:
+            pass
 
 
 # ──────────────────────────────────────────────
@@ -142,6 +149,59 @@ def record(creator: str, result: dict[str, Any], name: str = "",
             "signal_key=? AND start=? AND end=? AND custom=?",
             (creator, ts_code, str(result.get("signal") or ""),
              str(result.get("start") or ""), str(result.get("end") or ""), custom_str),
+        ).fetchone()
+    return int(row["id"]) if row else 0
+
+
+def record_scout(creator: str, result: dict[str, Any], name: str = "") -> int:
+    """记录一次策略适配扫描（scout）。同票同窗口覆盖刷新，返回行 id。
+
+    头条取「最高分推荐打法」的 T+5 统计，供历史列表一眼看清扫出了什么。
+    signal_key 固定为 `__scout__`，与单信号回测隔离，互不覆盖。
+
+    Args:
+        creator: 记录归属用户。
+        result:  scout_strategies 返回的完整结果 dict（含 ranked/recommended）。
+        name:    股票名称（可空）。
+
+    Returns:
+        行 id；result 非法（缺 ts_code）时返回 0。
+    """
+    ts_code = str(result.get("ts_code") or "").strip()
+    if not ts_code:
+        return 0
+
+    ranked = result.get("ranked") or []
+    recommended = set(result.get("recommended") or [])
+    head = next((s for s in ranked if s.get("key") in recommended), ranked[0] if ranked else {})
+    label = "策略适配·" + (head.get("label") or "无推荐打法")
+
+    init()
+    blob = json.dumps(result, ensure_ascii=False)
+    with _conn() as con:
+        con.execute(
+            """
+            INSERT INTO backtest_history
+                (creator, ts_code, name, signal_key, signal_label, start, end, custom,
+                 n_signals, head_horizon, win_rate, avg_return, profit_factor, result, kind)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            ON CONFLICT(creator, ts_code, signal_key, start, end, custom) DO UPDATE SET
+                name=excluded.name, signal_label=excluded.signal_label,
+                n_signals=excluded.n_signals, head_horizon=excluded.head_horizon,
+                win_rate=excluded.win_rate, avg_return=excluded.avg_return,
+                profit_factor=excluded.profit_factor, result=excluded.result,
+                kind=excluded.kind, created_at=datetime('now','localtime')
+            """,
+            (creator, ts_code, name, _SCOUT_SIGNAL_KEY, label,
+             str(result.get("start") or ""), str(result.get("end") or ""), "",
+             int(head.get("n") or 0), 5, head.get("win_rate"), head.get("avg_return"),
+             head.get("profit_factor"), blob, _SCOUT_KIND),
+        )
+        row = con.execute(
+            "SELECT id FROM backtest_history WHERE creator=? AND ts_code=? AND "
+            "signal_key=? AND start=? AND end=? AND custom=?",
+            (creator, ts_code, _SCOUT_SIGNAL_KEY,
+             str(result.get("start") or ""), str(result.get("end") or ""), ""),
         ).fetchone()
     return int(row["id"]) if row else 0
 

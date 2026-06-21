@@ -1149,9 +1149,21 @@ async def api_backtest_scout(request: Request, _user: str = Depends(require_auth
         end = (body.get("end") or "").replace("-", "")
         if not start or not end:
             return {"ok": False, "msg": "请选择扫描起止日期"}
-        return await run_in_threadpool(
+        name = _stock_name(ts_code)
+        result = await run_in_threadpool(
             scout_strategies, ts_code, start, end,
-            name=_stock_name(ts_code), min_sample=int(body.get("min_sample") or 4))
+            name=name, min_sample=int(body.get("min_sample") or 4))
+        result.setdefault("ts_code", ts_code)
+        # 自动落历史（与单信号回测同等待遇，可在回测历史里回看/导出）
+        if result.get("ok") and result.get("ranked"):
+            try:
+                from app.backtest.history import record_scout
+                hid = record_scout(_user, result, name=name)
+                if hid:
+                    result["history_id"] = hid
+            except Exception:
+                logger.exception("scout 历史记录写入失败（忽略）")
+        return result
     except Exception as e:
         logger.exception("反向策略推荐失败")
         return {"ok": False, "msg": str(e)}
