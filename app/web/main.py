@@ -719,6 +719,19 @@ async def api_stockpool(date: str = "", _user: str = Depends(require_auth)):
             market_label = infer_market_label(d)          # 大盘状态(轻量·缓存)，供前端横幅
         except Exception:
             market_label = ""
+        # 资金三角增强：复用行内已算 main_flow_3d，按日批量算（top_inst/north 按日缓存·线程池避免阻塞）
+        try:
+            from fastapi.concurrency import run_in_threadpool
+            from app.strategy.fund_triangle import build_fund_triangle
+            from app.data.composite_provider import CompositeProvider
+            main_flow_map = {r["ts_code"]: (r.get("main_flow_3d") or 0.0) for r in rows}
+            tri = await run_in_threadpool(build_fund_triangle, CompositeProvider(), d, main_flow_map)
+            for r in rows:
+                t = tri.get(r["ts_code"])
+                if t:
+                    r["fund_triangle"] = t.to_dict()
+        except Exception:
+            logger.exception("资金三角增强失败（降级·不阻断选股池）")
         return {
             "ok": True, "available": True, "date": d, "market_label": market_label,
             "total": len(rows), "focus": focus, "rows": rows,

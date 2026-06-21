@@ -24,6 +24,12 @@ tr.datarow:hover td { background:#1e2138; cursor:pointer; }
 .amber { color:#f0a020; }
 .starrow { background:rgba(74,222,128,.06); }   /* 重点Top10高亮 */
 .fs-pill { font-weight:700; font-size:13px; }
+/* 资金三角徽章：金=真钱印证·橙=背离·绿=流出(A股跌)·灰=无足迹/中性。独立填充色避免与红涨绿跌混淆 */
+.ft { display:inline-block; font-size:10px; padding:1px 6px; border-radius:6px; margin-top:3px; white-space:nowrap; font-weight:600; cursor:help; }
+.ft-strong { background:#3a2c08; color:#f6c343; border:1px solid #6b5410; }
+.ft-warn   { background:#3b2208; color:#f0a020; border:1px solid #6b4310; }
+.ft-weak   { background:#0e2a1a; color:#2ebd85; border:1px solid #1a4a30; }
+.ft-neu    { background:#1a1d2e; color:#9ca3af; border:1px solid #2d3052; }
 /* 板块标签：科创/创业/北交(20~30%涨跌幅·需开通权限)，主板不标 */
 .bd { font-size:9px; padding:1px 5px; border-radius:6px; margin-left:5px; vertical-align:middle; white-space:nowrap; }
 .bd-kc { background:#3a2410; color:#f0a020; border:1px solid #5a4018; }
@@ -134,7 +140,7 @@ document.getElementById('reload').addEventListener('click', load);
 document.getElementById('date').addEventListener('change', load);
 ['search','fsource','fstrat','fboard','sortby'].forEach(id=>document.getElementById(id).addEventListener('input', render));
 
-const COLS=[['⭐'],['代码'],['名称'],['🔥板块'],['重点分'],['💰资金(3日主力)'],['📈均线'],['📊量价'],['策略'],['买点价'],['T+5']];
+const COLS=[['⭐'],['代码'],['名称'],['🔥板块'],['重点分'],['💰资金(主力/机构真钱)'],['📈均线'],['📊量价'],['策略'],['买点价'],['T+5']];
 
 // 一眼看清的小标签
 function starCell(r){
@@ -143,8 +149,20 @@ function starCell(r){
     ? '<span class="star" title="重点·风控通过·可关注">★</span>'
     : '<span class="amber" title="重点Top10·但弱市/风控未过→观察、非买入">★<sup style="font-size:9px">观</sup></span>';
 }
-function flowCell(v){ if(v===null||v===undefined) return '<span class="miss">—</span>';
-  return '<span class="'+(v>=0?'up':'down')+'">'+(v>=0?'+':'')+v+'亿</span>'; }
+// 资金三角徽章：主力估算之上叠加「真机构钱」印证（龙虎榜机构净买）。t = r.fund_triangle
+function ftBadge(t){
+  if(!t) return '';
+  const tip=(t.detail||'').replace(/"/g,'&quot;');
+  let cls='ft-neu', txt=t.label;
+  if(t.level==='strong'){ cls='ft-strong'; txt='💎'+t.label+(t.inst_net_yi?' 机构+'+t.inst_net_yi+'亿':''); }
+  else if(t.level==='warn'){ cls='ft-warn'; txt='⚠️'+t.label+(t.inst_net_yi?' 机构'+t.inst_net_yi+'亿':''); }
+  else if(t.level==='weak'){ cls='ft-weak'; }
+  return '<br><span class="ft '+cls+'" title="'+tip+'">'+txt+'</span>';
+}
+function flowCell(r){ const v=r.main_flow_3d;
+  const num=(v===null||v===undefined) ? '<span class="miss">—</span>'
+    : '<span class="'+(v>=0?'up':'down')+'">'+(v>=0?'+':'')+v+'亿</span>';
+  return num + ftBadge(r.fund_triangle); }
 function maCell(r){   // 短线口径：MA5/10/20 结构一眼看清
   if(r.above_ma5&&r.above_ma10&&r.above_ma20&&r.above_ma60&&r.ma_bull_short) return '<span class="up">完整多头</span>';
   if(r.above_ma5&&r.above_ma10&&r.ma_bull_short) return '<span class="up">短期多头</span>';
@@ -249,7 +267,7 @@ function render(){
         +' <span class="addw" title="加入我的持仓·自选" onclick="event.stopPropagation();addWatch(\''+r.ts_code+'\',this)">＋自选</span></td>'
       +'<td>'+(r.theme||'未归类')+heat+'</td>'
       +'<td>'+fsCell(r.focus_score)+'</td>'
-      +'<td>'+flowCell(r.main_flow_3d)+'</td>'
+      +'<td>'+flowCell(r)+'</td>'
       +'<td>'+maCell(r)+'</td>'
       +'<td>'+vpCell(r)+'</td>'
       +'<td style="font-size:11px">'+(r.strategy_label||'<span class="miss">—</span>')+'</td>'
@@ -402,6 +420,12 @@ function detail(r){
       +'<br>';
   }
   h+='<b>量化因子</b>：RPS50 '+r.rps50+' ｜ 3日主力 '+r.main_flow_3d+'亿 ｜ 均线 '+ma+' ｜ 7日涨幅 '+r.change_7d+'% ｜ 换手 '+r.turnover+'% ｜ 量比 '+r.vol_ratio+' ｜ 当日 '+r.pct_chg+'% ｜ 市值 '+r.circ_mv_yi+'亿<br>';
+  if(r.fund_triangle){ const t=r.fund_triangle;
+    h+='<b>💰 资金三角</b>：主力估算 <span class="'+(t.main_flow_yi>=0?'up':'down')+'">'+(t.main_flow_yi>=0?'+':'')+t.main_flow_yi+'亿</span>(代理)'
+      +' ｜ 龙虎榜机构 '+(t.on_lhb?('<b>'+(t.inst_net_yi>=0?'+':'')+t.inst_net_yi+'亿</b>(真钱)'):'<span class="neu2">无足迹</span>')
+      +' ｜ 大盘北向 '+(t.north_market_yi>=0?'+':'')+t.north_market_yi+'亿(环境) → <b>'+t.label+'</b>'
+      +'<br><span class="neu2" style="font-size:11px">'+t.detail+'。注：个股北向已停披露·此处北向为大盘环境背景；龙头闷涨多不上龙虎榜→「无足迹」非利空。</span><br>';
+  }
   h+='<b>交易计划</b>：买点 '+(r.buy_low||'-')+'~'+(r.buy_high||'-')+' ｜ 🛑止损 '+(r.stop_loss||'-')+' ｜ 🎯止盈 '+(r.take_profit_1||'-')+'/'+(r.take_profit_2||'-')+' ｜ 建议仓位 '+(r.position_pct?(r.position_pct*100).toFixed(0)+'%':'—')+'<br>';
   if(r.reason) h+='<b>分析理由</b>：'+r.reason+'<br>';
   if(r.risk_flags&&r.risk_flags.length) h+='<span class="rk"><b>⚠️ 风控</b>：'+r.risk_flags.join('；')+'</span>';
