@@ -766,6 +766,22 @@ async def api_sector_heat(name: str = "", type: str = "industry", date: str = ""
         return {"ok": False, "msg": str(e)}
 
 
+@app.get("/api/stock/research")
+async def api_stock_research(code: str = "", _user: str = Depends(require_auth)):
+    """东财个股研报（免费·不限频）：评级分布/买入占比/盈利预测增速/机构覆盖/近1月数/PDF原文链接。"""
+    try:
+        from fastapi.concurrency import run_in_threadpool
+
+        from app.strategy.fundamentals import get_em_research
+        ts_code = _resolve_ts_code(code)
+        if not ts_code:
+            return {"ok": False, "msg": "无法识别股票"}
+        return await run_in_threadpool(get_em_research, ts_code)
+    except Exception as e:
+        logger.exception("东财研报失败")
+        return {"ok": False, "msg": str(e)}
+
+
 @app.get("/api/stock/alert")
 async def api_stock_alert(code: str = "", _user: str = Depends(require_auth)):
     """LLM 近期提示：博查真实新闻 → v4-flash 接地总结（按日缓存）。"""

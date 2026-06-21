@@ -265,6 +265,46 @@ class AkshareProvider(DataProvider):
     def _fetch_stock_comment(self) -> pd.DataFrame:
         return rate_limited_call("ak_stock_comment", ak.stock_comment_em)
 
+    # ── 东方财富研报中心（免费·不限频·替代 Tushare report_rc）────────────────────
+    def get_research_report_em(self, symbol: str) -> pd.DataFrame:
+        """东财个股研报：东财评级/机构/近一月研报数/多年盈利预测(EPS+PE)/PDF链接/日期。按 股+日 缓存。"""
+        code6 = str(symbol).split(".")[0]
+        return cached_daily(
+            name="ak_research_report",
+            date_key=f"{code6}_{datetime.date.today().strftime('%Y%m%d')}",
+            fetch_fn=lambda: self._fetch_research_report(code6),
+        )
+
+    @_RETRY
+    def _fetch_research_report(self, code6: str) -> pd.DataFrame:
+        return rate_limited_call("ak_research_report", ak.stock_research_report_em, symbol=code6)
+
+    def get_analyst_rank(self, year: str = "") -> pd.DataFrame:
+        """东财分析师排名（按收益率·金牌分析师；含分析师ID/单位/最新荐股/行业）。按 年+日 缓存。"""
+        y = year or str(datetime.date.today().year)
+        return cached_daily(
+            name="ak_analyst_rank",
+            date_key=f"{y}_{datetime.date.today().strftime('%Y%m%d')}",
+            fetch_fn=lambda: self._fetch_analyst_rank(y),
+        )
+
+    @_RETRY
+    def _fetch_analyst_rank(self, year: str) -> pd.DataFrame:
+        return rate_limited_call("ak_analyst_rank", ak.stock_analyst_rank_em, year=year)
+
+    def get_analyst_detail(self, analyst_id: str, indicator: str = "最新跟踪成分股") -> pd.DataFrame:
+        """东财某分析师明细（最新跟踪成分股 / 历史跟踪 / 年度统计）。按 id+口径+日 缓存。"""
+        return cached_daily(
+            name="ak_analyst_detail",
+            date_key=f"{analyst_id}_{indicator}_{datetime.date.today().strftime('%Y%m%d')}",
+            fetch_fn=lambda: self._fetch_analyst_detail(str(analyst_id), indicator),
+        )
+
+    @_RETRY
+    def _fetch_analyst_detail(self, analyst_id: str, indicator: str) -> pd.DataFrame:
+        return rate_limited_call("ak_analyst_detail", ak.stock_analyst_detail_em,
+                                 analyst_id=analyst_id, indicator=indicator)
+
     def get_cls_news(self, date: str) -> pd.DataFrame:
         """
         财联社电报/快讯（当日实时）+ 东方财富财经要闻（支持历史日期）。

@@ -14,11 +14,33 @@ from app.strategy.fundamentals import (
     _analyst_summary, _block_trade_calc, _events_summary, _express_summary, _fina_summary,
     _float_summary, _fmt_period, _holder_trade_summary, _holdernum_summary, _is_quality,
     _latest_forecast, _margin_summary, _repurchase_summary, _survey_summary, get_analyst_rc,
+    _em_research_summary,
 )
 
 
 def _d(days_ago: int) -> str:
     return (datetime.date.today() - datetime.timedelta(days=days_ago)).strftime("%Y%m%d")
+
+
+def test_em_research_summary() -> None:
+    """东财研报汇总：旧报告过滤、买入占比、盈利预测增速(成长性)、PDF 透传。"""
+    recent = (datetime.date.today() - datetime.timedelta(days=10)).strftime("%Y-%m-%d")
+    old = (datetime.date.today() - datetime.timedelta(days=400)).strftime("%Y-%m-%d")
+    df = pd.DataFrame([
+        {"机构": "中信", "东财评级": "买入", "报告名称": "景气上行", "日期": recent, "行业": "半导体",
+         "近一月个股研报数": 1, "2026-盈利预测-收益": 1.0, "2027-盈利预测-收益": 1.5, "报告PDF链接": "http://p1"},
+        {"机构": "广发", "东财评级": "增持", "报告名称": "产能扩张", "日期": recent, "行业": "半导体",
+         "近一月个股研报数": 1, "2026-盈利预测-收益": 1.2, "2027-盈利预测-收益": 1.8, "报告PDF链接": "http://p2"},
+        {"机构": "中信", "东财评级": "中性", "报告名称": "旧报告", "日期": old, "行业": "半导体",
+         "近一月个股研报数": 0, "2026-盈利预测-收益": 0.5, "2027-盈利预测-收益": 0.5, "报告PDF链接": ""},
+    ])
+    d = _em_research_summary(df, recent_days=180)
+    assert d["ok"] and d["n_reports"] == 2 and d["n_org"] == 2     # 400天前旧报告被过滤
+    assert d["buy_ratio"] == 100                                   # 买入+增持都算
+    assert d["ratings"].get("买入") == 1 and d["ratings"].get("增持") == 1
+    assert d["eps_by_year"]["2026"] == 1.1 and d["eps_by_year"]["2027"] == 1.65
+    assert d["eps_growth"] == 50.0                                 # (1.65/1.1-1)*100
+    assert d["recent"][0]["pdf"] == "http://p1" and d["industry"] == "半导体"
 
 
 def test_fmt_period() -> None:

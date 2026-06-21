@@ -139,6 +139,15 @@ class CompositeProvider(DataProvider):
     def get_stock_comment(self, trade_date: str) -> pd.DataFrame:
         return self._ak.get_stock_comment(trade_date)
 
+    def get_research_report_em(self, symbol: str) -> pd.DataFrame:
+        return self._ak.get_research_report_em(symbol)
+
+    def get_analyst_rank(self, year: str = "") -> pd.DataFrame:
+        return self._ak.get_analyst_rank(year)
+
+    def get_analyst_detail(self, analyst_id: str, indicator: str = "最新跟踪成分股") -> pd.DataFrame:
+        return self._ak.get_analyst_detail(analyst_id, indicator)
+
     def get_cls_news(self, date: str) -> pd.DataFrame:
         return self._ak.get_cls_news(date)
 

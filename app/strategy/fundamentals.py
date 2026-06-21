@@ -319,6 +319,75 @@ def _analyst_summary(df: pd.DataFrame) -> dict:
     }
 
 
+# ── 东方财富研报（免费·不限频·替代 Tushare report_rc）──────────────────────────
+def get_em_research(ts_code: str, provider: CompositeProvider | None = None,
+                    recent_days: int = 180) -> dict:
+    """
+    东财个股研报汇总：近期机构覆盖/评级分布/盈利预测增速(成长性)/近1月研报数/PDF原文链接。
+    比 Tushare report_rc 更优（免费、不限频、含 PDF + 多年盈利预测）。
+    """
+    provider = provider or CompositeProvider()
+    try:
+        df = provider.get_research_report_em(ts_code)
+    except Exception as e:
+        return {"ok": False, "msg": f"东财研报获取失败：{str(e)[:50]}"}
+    if df is None or df.empty:
+        return {"ok": False, "msg": "近期无券商研报覆盖"}
+    return _em_research_summary(df, recent_days)
+
+
+def _em_research_summary(df: pd.DataFrame, recent_days: int = 180) -> dict:
+    """东财研报明细 → 评级分布/买入占比/盈利预测增速/近1月数/最新5条(含PDF)。纯函数，便于单测。"""
+    import datetime
+    import re
+    df = df.copy()
+    df["日期"] = df["日期"].astype(str)
+    today = datetime.date.today()
+    cutoff = (today - datetime.timedelta(days=recent_days)).strftime("%Y-%m-%d")
+    recent = df[df["日期"] >= cutoff]
+    if recent.empty:                                    # 半年无覆盖 → 兜底取最新 20 条
+        recent = df.sort_values("日期", ascending=False).head(20)
+
+    ratings: dict[str, int] = {}
+    for v in recent["东财评级"].dropna():
+        s = str(v).strip()
+        if s:
+            ratings[s] = ratings.get(s, 0) + 1
+    n = len(recent)
+    buy = sum(c for k, c in ratings.items() if any(x in k for x in ("买入", "增持", "推荐", "强烈")))
+
+    # 盈利预测：动态找年份列，算 consensus EPS（中位数）与隐含同比增速（成长性=真材实料）
+    yr_cols = sorted(set(re.findall(r"(\d{4})-盈利预测-收益", " ".join(df.columns))))
+    eps_by_year: dict[str, float] = {}
+    for y in yr_cols:
+        vals = pd.to_numeric(recent.get(f"{y}-盈利预测-收益"), errors="coerce").dropna()
+        if len(vals):
+            eps_by_year[y] = round(float(vals.median()), 2)
+    eps_growth = None
+    if len(eps_by_year) >= 2:
+        ys = sorted(eps_by_year)
+        e1, e2 = eps_by_year[ys[0]], eps_by_year[ys[1]]
+        if e1 and e1 != 0:
+            eps_growth = round((e2 / e1 - 1) * 100, 1)
+
+    cut30 = (today - datetime.timedelta(days=30)).strftime("%Y-%m-%d")
+    last_month = int((df["日期"] >= cut30).sum())
+    recent_sorted = recent.sort_values("日期", ascending=False)
+    items = [{"org": str(r.get("机构", "")), "rating": str(r.get("东财评级", "")),
+              "title": str(r.get("报告名称", ""))[:42], "date": str(r.get("日期", "")),
+              "pdf": str(r.get("报告PDF链接", "") or "")} for _, r in recent_sorted.head(5).iterrows()]
+    return {
+        "ok": True, "n_reports": n,
+        "n_org": int(recent["机构"].nunique()) if "机构" in recent.columns else 0,
+        "ratings": dict(sorted(ratings.items(), key=lambda kv: kv[1], reverse=True)),
+        "buy_ratio": round(buy / n * 100) if n else 0,
+        "eps_by_year": eps_by_year, "eps_growth": eps_growth,
+        "last_month": last_month, "latest": (items[0]["date"] if items else ""),
+        "industry": str(recent.iloc[0].get("行业", "")) if n else "",
+        "recent": items,
+    }
+
+
 # 业绩预告类型 → 多空倾向（红=利好/绿=利空，对标A股涨红跌绿）
 _FORECAST_GOOD = ("预增", "略增", "续盈", "扭亏", "减亏")          # 减亏=亏损收窄(向好)
 _FORECAST_BAD = ("预减", "略减", "首亏", "续亏", "预亏", "增亏")   # 增亏=亏损扩大(向坏)
