@@ -87,6 +87,7 @@ td { padding:7px 9px; border-bottom:1px solid #1e2138; white-space:nowrap; }
     <button class="rngbtn" data-m="6">近6月</button>
     <button class="rngbtn" data-m="12">近1年</button>
     <button class="rngbtn" data-m="36">近3年</button>
+    <span class="neu2" style="font-size:11px">· 快捷键只是快速填上方起止日期，<b>最终以日期框为准</b>，可手动改</span>
   </div>
   <div id="presets" style="display:none;gap:8px;margin-bottom:6px">
     <span class="neu2" style="font-size:12px">快捷：</span>
@@ -254,15 +255,29 @@ td { padding:7px 9px; border-bottom:1px solid #1e2138; white-space:nowrap; }
 <script src="/static/echarts.min.js"></script>
 <script src="/static/html2canvas.min.js"></script>
 <script>
-// 区间：止=今天，起=N个月前；快捷按钮一键设置（默认近1月，免去手动改年份）
-function setRange(months){
+// 区间唯一准绳=起/止日期框；快捷键只是快速填日期，手动改也行。高亮永远跟随日期框。
+function _syncRangeHighlight(){
+  const s=document.getElementById('start').value, e=document.getElementById('end').value;
+  const today=new Date().toISOString().slice(0,10);
+  let matched=0;   // 0=无匹配（自定义区间·全部取消高亮）
+  if(e===today){
+    document.querySelectorAll('.rngbtn').forEach(b=>{
+      const d=new Date(); d.setMonth(d.getMonth()-parseInt(b.dataset.m));
+      if(s===d.toISOString().slice(0,10)) matched=parseInt(b.dataset.m);
+    });
+  }
+  document.querySelectorAll('.rngbtn').forEach(b=>b.classList.toggle('active',parseInt(b.dataset.m)===matched));
+}
+function setRange(months){   // 快捷键：填日期框 → 高亮按日期框同步
   const e=new Date(), s=new Date(); s.setMonth(s.getMonth()-months);
   document.getElementById('end').value=e.toISOString().slice(0,10);
   document.getElementById('start').value=s.toISOString().slice(0,10);
-  document.querySelectorAll('.rngbtn').forEach(b=>b.classList.toggle('active',parseInt(b.dataset.m)===months));
+  _syncRangeHighlight();
 }
 document.querySelectorAll('.rngbtn').forEach(b=>b.addEventListener('click',()=>setRange(parseInt(b.dataset.m))));
-setRange(1);   // 默认近1月
+// 手动改起/止日期 → 重新判断是否仍匹配某快捷区间（匹配则高亮，否则取消=自定义）
+['start','end'].forEach(id=>document.getElementById(id).addEventListener('change',_syncRangeHighlight));
+setRange(1);   // 默认近1月（仅作初始默认区间·填进日期框）
 
 function pct(v){ if(v===null||v===undefined) return '<span class="neu2">—</span>'; const c=v>0?'up':(v<0?'down':'neu2'); return '<span class="'+c+'">'+(v>0?'+':'')+v+'%</span>'; }
 
