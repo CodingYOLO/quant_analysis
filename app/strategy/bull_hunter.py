@@ -273,7 +273,7 @@ def _llm_extract_catalysts(news: list[dict], vocab: list[str], heat_map: dict,
     prompt = _build_catalyst_prompt(news, vocab, heat_map, date)
     # v4-pro 是推理模型，max_tokens 同时覆盖「推理+输出」：词表大、抽取多条时推理较重，
     # 预留充足额度（实测 2200 会被推理耗尽导致正文为空，6000 稳定）。偶发空响应→重试一次。
-    for _ in range(2):
+    for _ in range(3):
         try:
             raw = client.chat([{"role": "user", "content": prompt}],
                               task_type="pro", temperature=0.3, max_tokens=_CATALYST_MAX_TOKENS)
@@ -396,7 +396,7 @@ _RESEARCH_QUERIES = [
     "A股 首席分析师 研报 强烈推荐 买入 机构",        # 突出分析师 / 机构
 ]
 _MAX_REPORTS = 14            # 研报卡上限
-_RESEARCH_MAX_TOKENS = 6000  # 同催化层：v4-pro 推理+输出共用额度，需留足
+_RESEARCH_MAX_TOKENS = 8000  # 研报卡多字段·推理较重 → 比催化层(6000)再留足，减少推理模型空响应
 _RESEARCH_DISCLAIMER = (
     "研报中心 = 媒体转述的券商研报观点（非研报全文），仅供研究、不预测涨跌、不构成投资建议；"
     "研报观点≠事实，机构亦会误判。"
@@ -462,7 +462,7 @@ def _llm_extract_research(news: list[dict], vocab: list[str], date: str, client)
         from app.llm.client import LLMClient
         client = LLMClient()
     prompt = _build_research_prompt(news, vocab, date)
-    for _ in range(2):
+    for _ in range(3):
         try:
             raw = client.chat([{"role": "user", "content": prompt}],
                               task_type="pro", temperature=0.3, max_tokens=_RESEARCH_MAX_TOKENS)
