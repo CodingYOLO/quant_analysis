@@ -40,7 +40,7 @@ tr.datarow:hover td { background:#1e2138; }
 
 <div class="toolbar">
   <label class="neu2" style="font-size:13px">交易日</label>
-  <input id="date" type="text" placeholder="YYYYMMDD（默认最近）" style="width:160px">
+  <input id="date" type="date" style="width:170px;color-scheme:dark" title="默认最近交易日，可点日历切换">
   <button id="techToggle" class="on" title="只看电子/通信/计算机/半导体等科技覆盖行业">🎯 只看科技赛道</button>
   <button id="refresh">🔄 刷新</button>
   <span id="meta" class="neu2" style="font-size:12px"></span>
@@ -81,13 +81,16 @@ function rowHtml(f, cls){
     +'<td><span class="rsn">'+esc(f.reason||'—')+'</span></td></tr>';
 }
 
+function isoToYmd(v){ return (v||'').replace(/-/g,''); }       // 2026-06-18 → 20260618
+function ymdToIso(v){ return (v||'').replace(/(\d{4})(\d{2})(\d{2})/,'$1-$2-$3'); }
 async function load(){
   $('loading').style.display='block'; $('board').style.display='none'; $('empty').style.display='none';
-  const d=$('date').value.trim(); const q='?date='+encodeURIComponent(d)+'&tech='+(techOnly?1:0)+'&top=30';
+  const d=isoToYmd($('date').value); const q='?date='+encodeURIComponent(d)+'&tech='+(techOnly?1:0)+'&top=30';
   try{
     const j=await (await fetch('/api/lhb/inst'+q)).json();
     if(!j.ok){ $('loading').style.display='none'; $('empty').style.display='block'; $('empty').textContent='❌ '+(j.msg||'失败'); return; }
-    $('meta').textContent='交易日 '+j.date+' ｜ 上榜机构票 '+j.n_total+' 只'+(j.tech_only?'（仅科技）':'');
+    if(j.date) $('date').value=ymdToIso(j.date);    // 回填实际交易日（默认=最近），日期框一眼可见
+    $('meta').textContent='上榜机构票 '+j.n_total+' 只'+(j.tech_only?'（仅科技赛道）':'');
     $('buys').innerHTML = j.buys.length ? j.buys.map(f=>rowHtml(f,'up')).join('') : '<tr><td colspan="5" class="neu2">当日无机构净买'+(techOnly?'的科技股':'')+'</td></tr>';
     $('sells').innerHTML= j.sells.length? j.sells.map(f=>rowHtml(f,'down')).join('') : '<tr><td colspan="5" class="neu2">当日无机构净卖'+(techOnly?'的科技股':'')+'</td></tr>';
     $('loading').style.display='none'; $('board').style.display='flex';
@@ -96,7 +99,8 @@ async function load(){
 
 $('techToggle').onclick=()=>{ techOnly=!techOnly; $('techToggle').classList.toggle('on',techOnly); load(); };
 $('refresh').onclick=load;
-$('date').addEventListener('keydown',e=>{ if(e.key==='Enter') load(); });
+$('date').max=new Date().toISOString().slice(0,10);   // 禁选未来日期
+$('date').addEventListener('change',load);            // 点日历选日期即刷新
 load();
 </script>
 {% endblock %}
