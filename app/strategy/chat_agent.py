@@ -27,6 +27,7 @@ _SYSTEM = (
     "你是**资深 A股投研分析师**，已接入真实金融数据工具。目标是给出有洞察、有观点、**敢下判断**的分析，"
     "而不是把数据一摆就让用户自己猜。\n\n"
     "【先查真数据】回答个股/板块/大盘/持仓相关问题，先用工具查真实数据再分析；问「我的持仓/我的票」用 my_portfolio；"
+    "问「机构在买什么/机构在卖什么/龙虎榜机构动向」用 inst_lhb_board（A股仅存的个股级真机构钱·真金白银）；"
     "问某只票综合情况可组合调 行情+财务+研报+新闻。工具没有的明说「暂无数据」，**绝不编造价格/数字/事件/研报**。\n\n"
     "【要给判断·别和稀泥】\n"
     "- 该下结论就下结论：**谁是龙头、谁更强、估值贵不贵、逻辑强不强、风险在哪**——给出你明确的倾向和理由，别把判断全推给用户。\n"
@@ -56,6 +57,7 @@ def _tool_schemas() -> list[dict]:
         _fn("sector_heat", "查某板块/概念的热度+主力资金+阶段", {"type": "object", "properties": {"name": {"type": "string", "description": "同花顺概念或申万行业名，如 共封装光学(CPO) / 半导体"}}, "required": ["name"]}),
         _fn("my_portfolio", "查用户自己的自选/持仓：盈亏+持仓体检(健康灯)+事件预警", {"type": "object", "properties": {}}),
         _fn("search_news", "联网搜索任意财经主题的真实新闻(博查)，如政策/行业/事件", {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}),
+        _fn("inst_lhb_board", "查最近交易日龙虎榜机构席位真实净买/净卖榜（真金白银·A股仅存的个股级真机构钱）", {"type": "object", "properties": {"tech_only": {"type": "boolean", "description": "是否只看科技赛道(电子/通信/计算机/半导体等)，默认否"}}}),
     ]
 
 
@@ -66,7 +68,7 @@ def _fn(name: str, desc: str, params: dict) -> dict:
 _LABELS = {
     "stock_quote": "查行情", "stock_financials": "查财报/事件", "stock_research": "查研报",
     "stock_news": "查新闻", "stock_best_signal": "查最佳信号", "sector_heat": "查板块热度",
-    "my_portfolio": "查我的持仓", "search_news": "联网搜索",
+    "my_portfolio": "查我的持仓", "search_news": "联网搜索", "inst_lhb_board": "查机构动向",
 }
 
 
@@ -240,10 +242,34 @@ def _t_search(args, provider) -> dict:
                     "摘要": (w.get("summary") or w.get("snippet") or "")[:120]} for w in res[:6]]}
 
 
+def _t_inst_board(args, provider) -> dict:
+    """龙虎榜机构净买/净卖榜：当日真机构钱。返回紧凑买/卖各前 10。"""
+    from datetime import datetime
+
+    from app.factors.breadth_qfq import _recent_trade_dates
+    from app.strategy.lhb_inst import build_inst_board
+    today = datetime.now().strftime("%Y%m%d")
+    try:
+        date = _recent_trade_dates(provider, today, 1)[-1]
+    except Exception:
+        date = today
+    tech_only = bool(args.get("tech_only"))
+    b = build_inst_board(provider, date, top=10, tech_only=tech_only)
+
+    def _fmt(f):
+        return {"名称": f["name"], "行业": f["industry"], "机构净额(亿)": f["net_yi"],
+                "席位": f["seats"], "上榜原因": (f.get("reason") or "")[:24]}
+    return {"交易日": b["date"], "口径": "科技赛道" if tech_only else "全市场",
+            "上榜机构票数": b["n_total"],
+            "机构净买Top": [_fmt(f) for f in b["buys"]],
+            "机构净卖Top": [_fmt(f) for f in b["sells"]],
+            "说明": "龙虎榜机构专用席位=真金白银·仅当日异动股·净买≠必涨·需结合基本面"}
+
+
 _TOOLS = {
     "stock_quote": _t_quote, "stock_financials": _t_financials, "stock_research": _t_research,
     "stock_news": _t_news, "stock_best_signal": _t_best_signal, "sector_heat": _t_sector,
-    "my_portfolio": _t_portfolio, "search_news": _t_search,
+    "my_portfolio": _t_portfolio, "search_news": _t_search, "inst_lhb_board": _t_inst_board,
 }
 
 
