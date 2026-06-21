@@ -170,6 +170,39 @@ class LLMClient:
 
         return response.choices[0].message.content or ""
 
+    def complete_with_tools(self, messages: list[dict], tools: list[dict],
+                            task_type: TaskType = "pro", max_tokens: int = 3000):
+        """一次工具调用补全：返回 openai message（可能含 tool_calls 或 content）。用于 Agent 工具轮。"""
+        client, model = self._get_client(task_type)
+        resp = client.chat.completions.create(
+            model=model, messages=messages, tools=tools, tool_choice="auto",
+            temperature=0.2, max_tokens=max_tokens,
+        )
+        u = resp.usage
+        if u:
+            self._log_call(self._settings.llm_provider, model, "chat_tools",
+                           u.prompt_tokens, u.completion_tokens,
+                           self._estimate_cost(model, u.prompt_tokens, u.completion_tokens), 0)
+        return resp.choices[0].message
+
+    def stream_answer(self, messages: list[dict], task_type: TaskType = "pro",
+                      max_tokens: int = 4000):
+        """流式生成最终答案。逐块产出 (kind, text)：kind ∈ {'reasoning'(思考), 'content'(正文)}。"""
+        client, model = self._get_client(task_type)
+        stream = client.chat.completions.create(
+            model=model, messages=messages, temperature=0.3,
+            max_tokens=max_tokens, stream=True,
+        )
+        for chunk in stream:
+            if not chunk.choices:
+                continue
+            d = chunk.choices[0].delta
+            rc = getattr(d, "reasoning_content", None)
+            if rc:
+                yield ("reasoning", rc)
+            if getattr(d, "content", None):
+                yield ("content", d.content)
+
     def batch_chat(
         self,
         prompt_template: str,

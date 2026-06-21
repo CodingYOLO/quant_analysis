@@ -230,6 +230,20 @@ def init_db() -> None:
                 added_at    TEXT DEFAULT (datetime('now','localtime')),
                 updated_at  TEXT DEFAULT (datetime('now','localtime'))
             );
+            CREATE TABLE IF NOT EXISTS chat_sessions (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                title       TEXT,
+                created_at  TEXT DEFAULT (datetime('now','localtime')),
+                updated_at  TEXT DEFAULT (datetime('now','localtime'))
+            );
+            CREATE TABLE IF NOT EXISTS chat_messages (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id  INTEGER NOT NULL,
+                role        TEXT NOT NULL,       -- user / assistant
+                content     TEXT NOT NULL,
+                created_at  TEXT DEFAULT (datetime('now','localtime'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_chatmsg_sid ON chat_messages(session_id);
         """)
         # 旧库幂等补列（CREATE TABLE IF NOT EXISTS 不会给已存在的表加列）
         existing = {row[1] for row in con.execute("PRAGMA table_info(stock_pool)")}
@@ -705,3 +719,61 @@ def get_watchlist() -> list[dict]:
             "SELECT * FROM watchlist ORDER BY is_holding DESC, added_at DESC"
         ).fetchall()
     return [dict(r) for r in rows]
+
+
+# ──────────────────────────────────────────────
+# AI 问答会话（多会话 + 消息历史）
+# ──────────────────────────────────────────────
+
+def new_chat_session(title: str = "新对话") -> int:
+    """新建会话，返回 id。"""
+    init_db()
+    with _conn() as con:
+        cur = con.execute("INSERT INTO chat_sessions (title) VALUES (?)", (title[:60],))
+        return int(cur.lastrowid)
+
+
+def list_chat_sessions(limit: int = 50) -> list[dict]:
+    """会话列表（最近更新在前）。"""
+    init_db()
+    with _conn() as con:
+        rows = con.execute(
+            "SELECT id, title, updated_at FROM chat_sessions ORDER BY updated_at DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_chat_messages(session_id: int, limit: int = 60) -> list[dict]:
+    """某会话的消息（时间正序）。"""
+    init_db()
+    with _conn() as con:
+        rows = con.execute(
+            "SELECT role, content, created_at FROM chat_messages WHERE session_id=? "
+            "ORDER BY id ASC LIMIT ?", (session_id, limit),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def add_chat_message(session_id: int, role: str, content: str) -> None:
+    """追加一条消息并刷新会话更新时间。"""
+    init_db()
+    with _conn() as con:
+        con.execute("INSERT INTO chat_messages (session_id, role, content) VALUES (?,?,?)",
+                    (session_id, role, content))
+        con.execute("UPDATE chat_sessions SET updated_at=datetime('now','localtime') WHERE id=?",
+                    (session_id,))
+
+
+def rename_chat_session(session_id: int, title: str) -> None:
+    init_db()
+    with _conn() as con:
+        con.execute("UPDATE chat_sessions SET title=? WHERE id=?", (title[:60], session_id))
+
+
+def delete_chat_session(session_id: int) -> bool:
+    """删除会话及其消息。"""
+    init_db()
+    with _conn() as con:
+        con.execute("DELETE FROM chat_messages WHERE session_id=?", (session_id,))
+        return con.execute("DELETE FROM chat_sessions WHERE id=?", (session_id,)).rowcount > 0

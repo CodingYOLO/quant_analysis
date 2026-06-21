@@ -535,6 +535,70 @@ async def api_analyst_picks(id: str = "", _user: str = Depends(require_auth)):
         return {"ok": False, "msg": str(e)}
 
 
+@app.get("/api/chat/sessions")
+async def api_chat_sessions(_user: str = Depends(require_auth)):
+    """AI 问答会话列表。"""
+    from app.strategy import db
+    return {"ok": True, "sessions": db.list_chat_sessions()}
+
+
+@app.post("/api/chat/session")
+async def api_chat_session_new(_user: str = Depends(require_auth)):
+    """新建会话。"""
+    from app.strategy import db
+    return {"ok": True, "id": db.new_chat_session()}
+
+
+@app.get("/api/chat/session/{sid}")
+async def api_chat_session_get(sid: int, _user: str = Depends(require_auth)):
+    """某会话的消息历史。"""
+    from app.strategy import db
+    return {"ok": True, "messages": db.get_chat_messages(sid)}
+
+
+@app.post("/api/chat/session/{sid}/delete")
+async def api_chat_session_delete(sid: int, _user: str = Depends(require_auth)):
+    from app.strategy import db
+    return {"ok": db.delete_chat_session(sid)}
+
+
+@app.post("/api/chat/stream")
+async def api_chat_stream(request: Request, _user: str = Depends(require_auth)):
+    """AI 投研问答·SSE 流式：状态(查数据)+思考+正文流。多轮上下文·答案存库。"""
+    import json as _json
+
+    from fastapi.responses import StreamingResponse
+
+    from app.strategy import db
+    from app.strategy.chat_agent import run_chat
+    body = await request.json()
+    sid = int(body.get("session_id") or 0)
+    message = str(body.get("message") or "").strip()
+    if not sid or not message:
+        return {"ok": False, "msg": "缺少 session_id 或 message"}
+
+    def gen():
+        db.add_chat_message(sid, "user", message)
+        msgs = db.get_chat_messages(sid)
+        if sum(1 for m in msgs if m["role"] == "user") == 1:      # 首条→用它做标题
+            db.rename_chat_session(sid, message[:24])
+        hist = [{"role": m["role"], "content": m["content"]} for m in msgs][-12:]
+        parts = []
+        try:
+            for ev in run_chat(hist):
+                if ev["type"] == "delta":
+                    parts.append(ev["text"])
+                yield "data: " + _json.dumps(ev, ensure_ascii=False) + "\n\n"
+        except Exception as e:
+            yield "data: " + _json.dumps({"type": "error", "text": str(e)[:120]}, ensure_ascii=False) + "\n\n"
+        if parts:
+            db.add_chat_message(sid, "assistant", "".join(parts))
+        yield "data: " + _json.dumps({"type": "end"}, ensure_ascii=False) + "\n\n"
+
+    return StreamingResponse(gen(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
 @app.get("/portfolio", response_class=HTMLResponse)
 async def portfolio_page(request: Request, _user: str = Depends(require_auth)):
     """💼 我的持仓：自选盯盘 + 持仓盈亏 + 持仓体检 + 事件预警。"""
