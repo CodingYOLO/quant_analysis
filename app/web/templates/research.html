@@ -23,6 +23,8 @@ h1 { font-size:22px; text-align:center; margin-bottom:4px; }
 a.rtitle:hover { color:#7c9ef8; }
 .rgist { font-size:12.5px; color:#cdd6f4; line-height:1.6; margin:5px 0; }
 .rstocks { font-size:12px; color:#fbbf24; margin:4px 0; }
+.sstk { color:#fbbf24; cursor:pointer; border-bottom:1px dashed #5a4018; margin-right:8px; }
+.sstk:hover { color:#fff; }
 .cchip { display:inline-block; background:#1a2140; border:1px solid #2a3a6a; color:#cdd6f4; border-radius:8px;
   padding:4px 10px; font-size:12px; margin:3px 5px 3px 0; cursor:pointer; }
 .cchip:hover { background:#2742a8; border-color:#3358e0; color:#fff; }
@@ -53,6 +55,7 @@ a.rtitle:hover { color:#7c9ef8; }
 {% endblock %}
 
 {% block extra_script %}
+<script src="/static/research_widget.js"></script>
 <script>
 const $=id=>document.getElementById(id);
 function esc(s){ return (s==null?'':String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
@@ -79,9 +82,9 @@ async function load(refresh){
 function render(){
   const fk=$('fkind').value;
   const list=fk?_reports.filter(r=>r.kind===fk):_reports;
-  $('reports').innerHTML=list.map(renderCard).join('')||'<div class="neu2" style="padding:10px">该类型暂无</div>';
+  $('reports').innerHTML=list.map((r,i)=>renderCard(r,i)).join('')||'<div class="neu2" style="padding:10px">该类型暂无</div>';
 }
-function renderCard(r){
+function renderCard(r,idx){
   const kindCls={'个股金股':'k-stock','评级上调':'k-up','行业深度':'k-ind'}[r.kind]||'k-other';
   const who=[r.org,r.analyst].filter(Boolean).map(esc).join(' · ');
   const ra=(r.rating_action&&r.rating_action!=='—')?'<span class="ra">'+esc(r.rating_action)+'</span>':'';
@@ -90,7 +93,11 @@ function renderCard(r){
   const titleHtml=ev.url
     ? '<a href="'+esc(ev.url)+'" target="_blank" rel="noopener" class="rtitle">'+esc(r.title)+' ↗</a>'
     : '<span class="rtitle">'+esc(r.title)+'</span>';
-  const stocks=(r.stocks||[]).length?'<div class="rstocks">📌 涉及个股：'+r.stocks.map(esc).join('、')+'</div>':'';
+  const stkChips=(r.stocks||[]).map(s=>'<span class="sstk" title="看该股 东财+同花顺 研报" onclick="showSR('
+      +JSON.stringify(esc(s)).replace(/"/g,'&quot;')+','+idx+')">'+esc(s)+'</span>').join('');
+  const stocks=(r.stocks||[]).length
+    ? '<div class="rstocks">📌 涉及个股(点看研报)：'+stkChips+'</div><div id="rf_'+idx+'" style="font-size:12px;margin-top:4px"></div>'
+    : '';
   const chips=(r.related_concepts||[]).map(c=>{
     const ht=c.heat==null?'热—':'热'+(+c.heat).toFixed(0);
     return '<span class="cchip" title="跳到牛股发掘看该板块埋伏候选" onclick="gotoBull('
@@ -107,6 +114,15 @@ function renderCard(r){
     +'</div>';
 }
 function gotoBull(concept){ location.href='/bull?concept='+encodeURIComponent(concept); }
+// 点涉及个股 → 拉该股 东财+同花顺 研报，渲染到卡内（复用 /static/research_widget.js）
+async function showSR(name, idx){
+  const out=document.getElementById('rf_'+idx); if(!out) return;
+  out.innerHTML='⏳ 查 '+esc(name)+' 研报（东财+同花顺·约3-5秒）…';
+  try{
+    const d=await (await fetch('/api/stock/research?code='+encodeURIComponent(name))).json();
+    out.innerHTML=AResearch.html(d);
+  }catch(e){ out.textContent='❌ '+e; }
+}
 
 $('refresh').onclick=()=>load(true);
 function syncTechBtn(){ const b=$('techToggle');

@@ -137,6 +137,7 @@
 
 <script src="/static/echarts.min.js"></script>
 <script src="/static/kline.js"></script>
+<script src="/static/research_widget.js"></script>
 <script>
 const selected = new Set();
 document.querySelectorAll('.fbtn').forEach(b => {
@@ -284,12 +285,26 @@ async function loadScrFundamentals(code, name, i) {
     if (h) h += '<br>';
     const ev = scrEventsHtml(d.events);
     if (ev) h += '<b style="color:#e5c07b">🛡️ 事件/避雷</b>：' + ev + '<br>';
-    h += '<button class="alertbtn" data-code="' + c6 + '" data-name="' + (name || '') + '" data-i="' + i + '"'
+    h += '<button class="rcbtn" data-code="' + c6 + '" data-i="' + i + '"'
+      + ' style="background:#2a2440;color:#b794f6;border:1px solid #4a3d6a;border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer;margin:2px 6px 0 0">📑 券商研报（东财+同花顺）</button>'
+      + '<span id="rc_' + i + '" style="font-size:12px"></span><br>'
+      + '<button class="alertbtn" data-code="' + c6 + '" data-name="' + (name || '') + '" data-i="' + i + '"'
       + ' style="background:#1a2b4a;color:#7c9ef8;border:1px solid #2d4a7a;border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer;margin-top:2px">🤖 看最新新闻/政策催化（AI·联网）</button>'
       + '<span id="news_' + i + '" style="font-size:12px"></span>';
     el.innerHTML = h || '<span class="neu2">（暂无财务/事件数据）</span>';
   } catch (e) { el.textContent = 'ℹ️ 财务/事件加载失败'; }
 }
+// 券商研报按钮（事件委托·东财+同花顺·渲染复用 /static/research_widget.js）
+document.getElementById('restable').addEventListener('click', async ev => {
+  const b = ev.target.closest('.rcbtn'); if (!b || b.disabled) return;
+  ev.stopPropagation();
+  const out = document.getElementById('rc_' + b.dataset.i);
+  b.disabled = true; b.textContent = '⏳ 查券商研报中（东财+同花顺·约3-5秒）…';
+  try {
+    const d = await (await fetch('/api/stock/research?code=' + b.dataset.code)).json();
+    out.innerHTML = AResearch.html(d); b.style.display = 'none';
+  } catch (e) { out.textContent = ' ❌ ' + e; b.disabled = false; b.textContent = '📑 重试'; }
+});
 function scrEventsHtml(ev) {
   if (!ev) return '';
   const bits = [];

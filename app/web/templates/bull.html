@@ -77,6 +77,7 @@ tr.datarow:hover td { background:#1e2138; cursor:pointer; }
 {% block extra_script %}
 <script src="/static/echarts.min.js"></script>
 <script src="/static/kline.js"></script>
+<script src="/static/research_widget.js"></script>
 <script>
 const $=id=>document.getElementById(id);
 function esc(s){ return (s==null?'':String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
@@ -233,38 +234,15 @@ function toggle(cid,i){
   loadKline(c.ts_code, cid);
 }
 // 券商研报渲染（东财：机构覆盖/评级分布/买入占比/盈利预测增速[成长性]/近1月数/最新PDF原文）
-function rcHtml(d){
-  const lines=[];
-  // 东财：评级分布 + 买入占比 + 盈预增速 + 最新研报 PDF
-  if(d.ok){
-    const rts=Object.entries(d.ratings||{}).map(([k,v])=>esc(k)+v).join(' ')||'—';
-    const g=d.eps_growth, gS=(g==null)?'':' ｜ 盈预增速 <span class="'+(g>=0?'up':'down')+'">'+(g>=0?'+':'')+g+'%</span>';
-    const ev=(d.recent||[])[0];
-    const pdf=(ev&&ev.pdf)?' <a href="'+esc(ev.pdf)+'" target="_blank" rel="noopener" style="color:#7c9ef8;text-decoration:none">📄原文↗</a>':'';
-    let s='<b style="color:#e5c07b">东财</b>·近半年 <b>'+d.n_org+'</b>家/'+d.n_reports+'篇 ｜ 评级 '+rts+'(买入'+d.buy_ratio+'%)'+gS+' ｜ 近1月'+d.last_month+'篇';
-    if(ev) s+='<br><span class="neu2" style="font-size:11px">最新：'+esc(ev.org)+' '+esc(ev.rating)+' 《'+esc(ev.title)+'》'+esc(ev.date)+'</span>'+pdf;
-    lines.push(s);
-  }
-  // 同花顺一致预期：覆盖机构数 + 分年 EPS 均值 + 隐含增速 + 行业平均
-  const t=d.ths;
-  if(t&&t.ok){
-    const yrs=(t.by_year||[]).map(y=>esc(y.year)+' '+y.eps_avg+(y.n_org?'<span class="neu2" style="font-size:10px">('+y.n_org+'家)</span>':'')).join(' / ');
-    const tg=t.eps_growth, tgS=(tg==null)?'':' ｜ 增速 <span class="'+(tg>=0?'up':'down')+'">'+(tg>=0?'+':'')+tg+'%</span>';
-    lines.push('<b style="color:#7c9ef8">同花顺</b>·一致预期 EPS '+yrs+tgS+(t.ind_avg!=null?' <span class="neu2" style="font-size:10px">(行业均'+t.ind_avg+')</span>':''));
-  }
-  if(!lines.length) return ' <span class="neu2">ℹ️ '+esc(d.msg||'近期无券商研报覆盖')+'</span>';
-  return '<div style="margin-top:4px;color:#cdd6f4;line-height:1.7">📑 <b style="color:#b794f6">券商研报</b><br>'
-    +lines.join('<br>')+' <span class="neu2" style="font-size:10px">(研报观点≠事实)</span></div>';
-}
-// 研报按钮（事件委托·一次绑定；按需触发→东财免费不限频）
+// 研报按钮（事件委托·一次绑定；按需触发·东财+同花顺免费）。渲染复用 /static/research_widget.js
 $('atbl').addEventListener('click', async ev=>{
   const b=ev.target.closest('.rcbtn'); if(!b||b.disabled) return;
   ev.stopPropagation();
   const out=document.getElementById('rc_'+b.dataset.key);
-  b.disabled=true; b.textContent='⏳ 查东财券商研报中（约3-5秒）…';
+  b.disabled=true; b.textContent='⏳ 查券商研报中（东财+同花顺·约3-5秒）…';
   try{
     const d=await (await fetch('/api/stock/research?code='+b.dataset.code)).json();
-    out.innerHTML=rcHtml(d); b.style.display='none';
+    out.innerHTML=AResearch.html(d); b.style.display='none';
   }catch(e){ out.textContent=' ❌ '+e; b.disabled=false; b.textContent='📑 重试'; }
 });
 
