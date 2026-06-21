@@ -22,16 +22,18 @@
       align-items: center;
       gap: 18px;
     }
-    .navgroups {               /* 两行：第一行盘面、第二行个股 */
+    .navgroups {               /* 两行：第一行盘面、第二行个股·撑满 logo 右侧整宽 */
       display: flex;
       flex-direction: column;
       gap: 7px;
+      flex: 1;
     }
     .navrow {
       display: flex;
       align-items: center;
       flex-wrap: wrap;          /* 窄屏仍优雅换行，不压扁单项 */
       gap: 6px 15px;
+      justify-content: space-between;   /* 两端对齐·均匀铺满整行，不堆左边 */
     }
     .rowlabel {
       font-size: 10.5px;
