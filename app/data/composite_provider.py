@@ -148,6 +148,9 @@ class CompositeProvider(DataProvider):
     def get_analyst_detail(self, analyst_id: str, indicator: str = "历史跟踪成分股") -> pd.DataFrame:
         return self._ak.get_analyst_detail(analyst_id, indicator)
 
+    def get_profit_forecast_ths(self, symbol: str, indicator: str = "预测年报每股收益") -> pd.DataFrame:
+        return self._ak.get_profit_forecast_ths(symbol, indicator)
+
     def get_cls_news(self, date: str) -> pd.DataFrame:
         return self._ak.get_cls_news(date)
 

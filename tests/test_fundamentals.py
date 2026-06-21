@@ -14,8 +14,20 @@ from app.strategy.fundamentals import (
     _analyst_summary, _block_trade_calc, _events_summary, _express_summary, _fina_summary,
     _float_summary, _fmt_period, _holder_trade_summary, _holdernum_summary, _is_quality,
     _latest_forecast, _margin_summary, _repurchase_summary, _survey_summary, get_analyst_rc,
-    _em_research_summary,
+    _em_research_summary, _ths_forecast_summary,
 )
+
+
+def test_ths_forecast_summary() -> None:
+    """同花顺一致预期：机构数/分年EPS均值/隐含增速/行业平均。"""
+    df = pd.DataFrame([
+        {"年度": "2026", "预测机构数": 29, "最小值": 18.68, "均值": 26.87, "最大值": 36.48, "行业平均数": 2.82},
+        {"年度": "2027", "预测机构数": 25, "最小值": 24.0, "均值": 35.0, "最大值": 48.0, "行业平均数": 3.1},
+    ])
+    d = _ths_forecast_summary(df)
+    assert d["ok"] and d["max_n_org"] == 29 and d["ind_avg"] == 2.82
+    assert d["by_year"][0]["year"] == "2026" and d["by_year"][0]["eps_avg"] == 26.87
+    assert d["eps_growth"] == round((35.0 / 26.87 - 1) * 100, 1)
 
 
 def _d(days_ago: int) -> str:

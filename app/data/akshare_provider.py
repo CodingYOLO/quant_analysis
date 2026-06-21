@@ -305,6 +305,20 @@ class AkshareProvider(DataProvider):
         return rate_limited_call("ak_analyst_detail", ak.stock_analyst_detail_em,
                                  analyst_id=analyst_id, indicator=indicator)
 
+    def get_profit_forecast_ths(self, symbol: str, indicator: str = "预测年报每股收益") -> pd.DataFrame:
+        """同花顺一致预期：分年度 预测机构数/EPS最小·均值·最大/行业平均（高质量·免费）。按 股+口径+日 缓存。"""
+        code6 = str(symbol).split(".")[0]
+        return cached_daily(
+            name="ak_ths_forecast",
+            date_key=f"{code6}_{indicator}_{datetime.date.today().strftime('%Y%m%d')}",
+            fetch_fn=lambda: self._fetch_profit_forecast_ths(code6, indicator),
+        )
+
+    @_RETRY
+    def _fetch_profit_forecast_ths(self, code6: str, indicator: str) -> pd.DataFrame:
+        return rate_limited_call("ak_ths_forecast", ak.stock_profit_forecast_ths,
+                                 symbol=code6, indicator=indicator)
+
     def get_cls_news(self, date: str) -> pd.DataFrame:
         """
         财联社电报/快讯（当日实时）+ 东方财富财经要闻（支持历史日期）。

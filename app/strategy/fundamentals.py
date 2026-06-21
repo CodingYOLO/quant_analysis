@@ -336,6 +336,43 @@ def get_em_research(ts_code: str, provider: CompositeProvider | None = None,
     return _em_research_summary(df, recent_days)
 
 
+def get_ths_forecast(ts_code: str, provider: CompositeProvider | None = None) -> dict:
+    """同花顺一致预期：覆盖机构数 + EPS 一致预期(均值/区间) + 隐含增速 + 行业平均(相对成长性)。"""
+    provider = provider or CompositeProvider()
+    try:
+        df = provider.get_profit_forecast_ths(ts_code)
+    except Exception as e:
+        return {"ok": False, "msg": f"同花顺一致预期获取失败：{str(e)[:50]}"}
+    if df is None or df.empty:
+        return {"ok": False, "msg": "同花顺暂无一致预期"}
+    return _ths_forecast_summary(df)
+
+
+def _ths_forecast_summary(df: pd.DataFrame) -> dict:
+    """同花顺盈利预测明细(分年度:机构数/最小/均值/最大/行业平均) → 一致预期摘要。纯函数，便于单测。"""
+    rows = []
+    for r in df.to_dict("records"):           # 同花顺源也是 pyarrow dtype，用 records 迭代更稳
+        y = str(r.get("年度", "")).strip()
+        avg = pd.to_numeric(r.get("均值"), errors="coerce")
+        if not y or pd.isna(avg):
+            continue
+        rows.append({
+            "year": y, "n_org": int(pd.to_numeric(r.get("预测机构数"), errors="coerce") or 0),
+            "eps_avg": round(float(avg), 2),
+            "eps_min": round(float(pd.to_numeric(r.get("最小值"), errors="coerce")), 2) if pd.notna(pd.to_numeric(r.get("最小值"), errors="coerce")) else None,
+            "eps_max": round(float(pd.to_numeric(r.get("最大值"), errors="coerce")), 2) if pd.notna(pd.to_numeric(r.get("最大值"), errors="coerce")) else None,
+            "ind_avg": round(float(pd.to_numeric(r.get("行业平均数"), errors="coerce")), 2) if pd.notna(pd.to_numeric(r.get("行业平均数"), errors="coerce")) else None,
+        })
+    rows.sort(key=lambda x: x["year"])
+    if not rows:
+        return {"ok": False, "msg": "同花顺一致预期为空"}
+    growth = None
+    if len(rows) >= 2 and rows[0]["eps_avg"]:
+        growth = round((rows[1]["eps_avg"] / rows[0]["eps_avg"] - 1) * 100, 1)
+    return {"ok": True, "by_year": rows, "max_n_org": max(r["n_org"] for r in rows),
+            "eps_growth": growth, "ind_avg": rows[0].get("ind_avg")}
+
+
 def _em_research_summary(df: pd.DataFrame, recent_days: int = 180) -> dict:
     """东财研报明细 → 评级分布/买入占比/盈利预测增速/近1月数/最新5条(含PDF)。纯函数，便于单测。"""
     import datetime

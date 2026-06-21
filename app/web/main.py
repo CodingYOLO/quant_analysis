@@ -803,17 +803,19 @@ async def api_sector_heat(name: str = "", type: str = "industry", date: str = ""
 
 @app.get("/api/stock/research")
 async def api_stock_research(code: str = "", _user: str = Depends(require_auth)):
-    """东财个股研报（免费·不限频）：评级分布/买入占比/盈利预测增速/机构覆盖/近1月数/PDF原文链接。"""
+    """个股研报(免费)：东财(评级/盈预/PDF) + 同花顺一致预期(机构数/EPS区间/行业平均)。"""
     try:
         from fastapi.concurrency import run_in_threadpool
 
-        from app.strategy.fundamentals import get_em_research
+        from app.strategy.fundamentals import get_em_research, get_ths_forecast
         ts_code = _resolve_ts_code(code)
         if not ts_code:
             return {"ok": False, "msg": "无法识别股票"}
-        return await run_in_threadpool(get_em_research, ts_code)
+        res = await run_in_threadpool(get_em_research, ts_code)
+        res["ths"] = await run_in_threadpool(get_ths_forecast, ts_code)   # 同花顺一致预期(best-effort)
+        return res
     except Exception as e:
-        logger.exception("东财研报失败")
+        logger.exception("个股研报失败")
         return {"ok": False, "msg": str(e)}
 
 
