@@ -271,15 +271,19 @@ def _llm_extract_catalysts(news: list[dict], vocab: list[str], heat_map: dict,
         from app.llm.client import LLMClient
         client = LLMClient()
     prompt = _build_catalyst_prompt(news, vocab, heat_map, date)
-    try:
-        # v4-pro 是推理模型，max_tokens 同时覆盖「推理+输出」：词表大、抽取多条时推理较重，
-        # 预留充足额度（实测 2200 会被推理耗尽导致正文为空，6000 稳定出全量 JSON）。
-        raw = client.chat([{"role": "user", "content": prompt}],
-                          task_type="pro", temperature=0.3, max_tokens=_CATALYST_MAX_TOKENS)
-    except Exception as e:
-        logger.warning("[牛股发掘] 催化 LLM 调用失败: %s", e)
-        return []
-    return _parse_json_array(raw) or []
+    # v4-pro 是推理模型，max_tokens 同时覆盖「推理+输出」：词表大、抽取多条时推理较重，
+    # 预留充足额度（实测 2200 会被推理耗尽导致正文为空，6000 稳定）。偶发空响应→重试一次。
+    for _ in range(2):
+        try:
+            raw = client.chat([{"role": "user", "content": prompt}],
+                              task_type="pro", temperature=0.3, max_tokens=_CATALYST_MAX_TOKENS)
+        except Exception as e:
+            logger.warning("[牛股发掘] 催化 LLM 调用失败: %s", e)
+            return []
+        arr = _parse_json_array(raw)
+        if arr:
+            return arr
+    return []
 
 
 def _build_catalyst_prompt(news: list[dict], vocab: list[str], heat_map: dict, date: str) -> str:
@@ -378,6 +382,157 @@ def _best_news_match(title: str, news: list[dict]) -> dict | None:
         if r > best_r:
             best, best_r = n, r
     return best if best_r >= 0.6 else None
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# Layer 1.5 · 研报中心（博查抓媒体研报观点 → LLM 接地总结 → 映射板块·联动埋伏）
+# ══════════════════════════════════════════════════════════════════════════
+# ⚠️ Tushare report_rc 全局限频 1次/小时 → 不适合"及时/上量"的研报发掘；
+#    本层走博查联网（媒体转述的研报观点·非全文·不限频）。诚实标注「非研报全文」。
+
+_RESEARCH_QUERIES = [
+    "A股 券商 金股 推荐 评级上调 目标价 研报",       # 个股金股 / 评级上调
+    "A股 券商 行业 深度研报 景气度 看好 产业链",     # 行业 / 板块深度
+    "A股 首席分析师 研报 强烈推荐 买入 机构",        # 突出分析师 / 机构
+]
+_MAX_REPORTS = 14            # 研报卡上限
+_RESEARCH_MAX_TOKENS = 6000  # 同催化层：v4-pro 推理+输出共用额度，需留足
+_RESEARCH_DISCLAIMER = (
+    "研报中心 = 媒体转述的券商研报观点（非研报全文），仅供研究、不预测涨跌、不构成投资建议；"
+    "研报观点≠事实，机构亦会误判。"
+)
+
+
+def discover_research(date: str, provider: CompositeProvider | None = None,
+                      client=None, force: bool = False) -> dict:
+    """
+    博查抓媒体报道的券商研报观点 → LLM 接地总结（机构/分析师/要点/评级动作/关联板块）。
+
+    related_concepts 只能∈我们的概念词表（供点击联动牛股发掘埋伏候选）。client 可注入零网络单测。
+    Returns: {ok,date,reports:[{title,gist,org,analyst,kind,rating_action,stocks,
+              related_concepts:[{name,heat,rising}],evidence:[{title,url,site,date}]}],
+              disclaimer,cached,generated_at,msg}
+    """
+    d = (date or "").replace("-", "")
+    if not force:
+        hit = _cache_get("research_hub", d)
+        if hit:
+            return hit
+
+    provider = provider or CompositeProvider()
+    vocab, heat_map = _concept_vocab(provider, d)
+    news = _gather_research_news()
+    raw = _llm_extract_research(news, vocab, d, client) if news else []
+    reports = _normalize_reports(raw, set(vocab), heat_map, news)
+
+    result = {
+        "ok": bool(reports), "date": d, "reports": reports,
+        "disclaimer": _RESEARCH_DISCLAIMER, "cached": False,
+        "generated_at": _dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "msg": "" if reports else "未检索到可总结的研报观点（可能博查未配置或无结果）",
+    }
+    if reports:
+        _cache_put("research_hub", d, result)
+    return result
+
+
+def _gather_research_news() -> list[dict]:
+    """博查抓研报相关媒体报道（多查询去重）。无 key/无结果返回空。"""
+    from app.data.web_search import BochaSearchClient
+    client = BochaSearchClient()
+    if not client.enabled:
+        return []
+    news, seen = [], set()
+    for q in _RESEARCH_QUERIES:
+        try:
+            results = client.search(q, count=10)
+        except Exception:
+            results = []
+        for w in results:
+            t = (w.get("title") or "").strip()
+            if t and t not in seen:
+                seen.add(t)
+                news.append(w)
+    return news
+
+
+def _llm_extract_research(news: list[dict], vocab: list[str], date: str, client) -> list:
+    """LLM 从媒体研报报道抽取结构化卡片（client 可注入零网络单测；推理模型偶发空响应→重试一次）。"""
+    if client is None:
+        from app.llm.client import LLMClient
+        client = LLMClient()
+    prompt = _build_research_prompt(news, vocab, date)
+    for _ in range(2):
+        try:
+            raw = client.chat([{"role": "user", "content": prompt}],
+                              task_type="pro", temperature=0.3, max_tokens=_RESEARCH_MAX_TOKENS)
+        except Exception as e:
+            logger.warning("[研报中心] LLM 调用失败: %s", e)
+            return []
+        arr = _parse_json_array(raw)
+        if arr:
+            return arr
+    return []
+
+
+def _build_research_prompt(news: list[dict], vocab: list[str], date: str) -> str:
+    """研报抽取 prompt：红线照搬（只引真实报道、不编造机构/分析师、受限词表、强制 JSON）。"""
+    news_text = "\n".join(
+        f"- [{n.get('date','')} {n.get('site','')}] {n.get('title','')}："
+        f"{(n.get('summary') or n.get('snippet') or '')[:140]}"
+        for n in news[:20])
+    return (
+        f"你是严谨的A股研究助理。下面是 {date} 前后媒体报道的【券商研报观点】，以及我们系统可选的概念板块词表。\n"
+        f"任务：把这些**媒体转述的研报观点**整理成结构化卡片（最多 {_MAX_REPORTS} 条）。\n\n"
+        f"**严格红线（违反即作废）：**\n"
+        f"1. 只能依据下方真实报道，**严禁编造机构/分析师/数字/评级**；信息缺失就留空，不要瞎补；\n"
+        f"2. related_concepts **只能从【概念词表】原样挑选**（不在词表的不要）；不预测涨跌、不输出胜率/必涨；\n"
+        f"3. evidence 必须是下方真实出现过的标题。\n\n"
+        f"输出严格 JSON 数组（不要代码块标记），每条：\n"
+        f'{{"title":"研报/观点标题","gist":"1-2句核心观点(看好什么·逻辑)",'
+        f'"org":"券商机构(如:中信证券,无则空字符串)","analyst":"分析师/首席(无则空字符串)",'
+        f'"kind":"个股金股|评级上调|行业深度|其他",'
+        f'"rating_action":"上调|首次|维持|重申|—",'
+        f'"stocks":["涉及个股名(如有,无则空数组)"],'
+        f'"related_concepts":["必须∈词表的概念名"],'
+        f'"evidence":["引用的真实标题(仅取下方出现的)"]}}\n\n'
+        f"【媒体研报报道】\n{news_text or '（无）'}\n\n"
+        f"【概念词表（related_concepts 只能从这里选）】\n{'、'.join(vocab)}\n\n"
+        f"只输出一个 JSON 数组，不要任何额外文字。"
+    )
+
+
+def _normalize_reports(raw: list, vocab: set, heat_map: dict, news: list[dict]) -> list[dict]:
+    """清洗研报卡：过滤词表外概念+补热度、依据回连原文、清洗机构/分析师/个股、截断。"""
+    out: list[dict] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        title = str(item.get("title", "")).strip()
+        if not title:
+            continue
+        concepts, seen = [], set()
+        for c in (item.get("related_concepts") or []):
+            name = str(c).strip()
+            if name in vocab and name not in seen:
+                seen.add(name)
+                hm = heat_map.get(name)
+                concepts.append({"name": name, "heat": hm.get("heat") if hm else None,
+                                 "rising": bool(hm.get("rising")) if hm else False})
+        out.append({
+            "title": title,
+            "gist": str(item.get("gist", "")).strip(),
+            "org": str(item.get("org", "")).strip(),
+            "analyst": str(item.get("analyst", "")).strip(),
+            "kind": str(item.get("kind", "")).strip() or "其他",
+            "rating_action": str(item.get("rating_action", "")).strip() or "—",
+            "stocks": [str(s).strip() for s in (item.get("stocks") or []) if str(s).strip()][:6],
+            "related_concepts": concepts,
+            "evidence": _enrich_evidence(item.get("evidence") or [], news),
+        })
+        if len(out) >= _MAX_REPORTS:
+            break
+    return out
 
 
 # ══════════════════════════════════════════════════════════════════════════

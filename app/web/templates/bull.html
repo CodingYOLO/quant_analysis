@@ -66,7 +66,7 @@ tr.datarow:hover td { background:#1e2138; cursor:pointer; }
 <div id="catalysts" class="cat-grid"></div>
 <div id="cat-empty" class="neu2" style="display:none;padding:12px"></div>
 
-<h2 class="sec">② 板块内埋伏候选（真业绩 + 资金初入 + 还没涨太快）</h2>
+<h2 class="sec" id="sec2">② 板块内埋伏候选（真业绩 + 资金初入 + 还没涨太快）</h2>
 <div id="ambush-hint" class="neu2" style="padding:10px">↑ 点击上方任一<b>板块标签</b>，扫描该板块的埋伏候选股</div>
 <div id="ctx" class="ctx" style="display:none"></div>
 <div id="ambush-loading" class="neu2" style="display:none;padding:12px">⏳ 扫描板块成分（批量预筛 → 逐只取真业绩 + 避雷 + 评分·首次约 15-20 秒）…</div>
@@ -292,6 +292,10 @@ function renderKline(cid, kl){
 $('refresh').onclick=()=>loadCatalysts(true);
 $('date').onchange=()=>{ loadCatalysts(false);
   $('ambush').style.display='none'; $('ctx').style.display='none'; $('ambush-hint').style.display='block'; };
-loadCatalysts(false);
+// 联动研报中心：?concept=xxx 深链 → 催化加载完(数据日已回填)后自动扫描该板块埋伏候选并滚动到②
+const _qConcept=new URLSearchParams(location.search).get('concept');
+loadCatalysts(false).then(()=>{
+  if(_qConcept){ loadAmbush(_qConcept); const s=$('sec2'); if(s) s.scrollIntoView({behavior:'smooth'}); }
+});
 </script>
 {% endblock %}

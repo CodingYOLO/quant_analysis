@@ -237,6 +237,47 @@ def test_discover_catalysts_empty_vocab() -> None:
     assert out["ok"] is False and "为空" in out["msg"]
 
 
+# ── 研报中心（Layer 1.5·零网络）─────────────────────────────────────────────
+
+def test_normalize_reports() -> None:
+    """研报卡清洗：词表外概念过滤+补热度、依据回连、机构/分析师/个股保留。"""
+    vocab = {"半导体", "人工智能"}
+    heat = {"半导体": {"heat": 88, "rising": True}}
+    news = [{"title": "中信看好半导体", "url": "http://x", "site": "证券时报", "date": "2026-06-18"}]
+    raw = [
+        {"title": "半导体景气上行", "gist": "国产替代加速", "org": "中信证券", "analyst": "张三",
+         "kind": "行业深度", "rating_action": "维持", "stocks": ["中芯国际"],
+         "related_concepts": ["半导体", "库外概念"], "evidence": ["中信看好半导体"]},
+        {"title": "", "related_concepts": ["半导体"]},        # 无标题 → 丢弃
+    ]
+    out = bh._normalize_reports(raw, vocab, heat, news)
+    assert len(out) == 1
+    r = out[0]
+    assert r["org"] == "中信证券" and r["analyst"] == "张三" and r["kind"] == "行业深度"
+    assert [c["name"] for c in r["related_concepts"]] == ["半导体"]   # 库外被过滤
+    assert r["related_concepts"][0]["heat"] == 88
+    assert r["evidence"][0]["url"] == "http://x" and r["evidence"][0]["site"] == "证券时报"
+    assert r["stocks"] == ["中芯国际"]
+
+
+def test_discover_research_injected() -> None:
+    bh._cache_get = lambda *a, **k: None                      # type: ignore[assignment]
+    bh._cache_put = lambda *a, **k: None                      # type: ignore[assignment]
+    bh._concept_vocab = lambda provider, date: (              # type: ignore[assignment]
+        ["半导体", "人工智能"], {"半导体": {"heat": 88, "rising": True}})
+    bh._gather_research_news = lambda: [                      # type: ignore[assignment]
+        {"title": "中信强推半导体金股", "url": "http://a", "site": "证券时报", "date": "2026-06-18"}]
+    fake = _FakeLLM('[{"title":"半导体金股推荐","gist":"国产替代","org":"中信证券","analyst":"张三",'
+                    '"kind":"个股金股","rating_action":"上调","stocks":["中芯国际"],'
+                    '"related_concepts":["半导体","虚构板块"],"evidence":["中信强推半导体金股"]}]')
+    out = bh.discover_research("20260618", provider=object(), client=fake)
+    assert out["ok"] and len(out["reports"]) == 1
+    r = out["reports"][0]
+    assert r["org"] == "中信证券" and r["kind"] == "个股金股" and r["rating_action"] == "上调"
+    assert [c["name"] for c in r["related_concepts"]] == ["半导体"]   # 库外过滤
+    assert r["evidence"][0]["url"] == "http://a" and fake.calls == 1
+
+
 # ── 埋伏层：注入式集成（零网络）─────────────────────────────────────────────
 
 def test_find_ambush_stocks_integration() -> None:

@@ -478,6 +478,27 @@ async def api_bull_ambush(concept: str = "", date: str = "",
         return {"ok": False, "msg": str(e)}
 
 
+@app.get("/research", response_class=HTMLResponse)
+async def research_page(request: Request, _user: str = Depends(require_auth)):
+    """📑 研报中心：博查抓媒体券商研报观点 → LLM 接地总结 → 映射板块·联动牛股发掘。"""
+    return templates.TemplateResponse(request=request, name="research.html", context={"page": "research"})
+
+
+@app.get("/api/research")
+async def api_research(date: str = "", refresh: bool = False,
+                      _user: str = Depends(require_auth)):
+    """研报中心：博查媒体研报观点→LLM总结(机构/分析师/要点/评级动作/关联板块)。按日缓存·较重→线程池。"""
+    try:
+        from fastapi.concurrency import run_in_threadpool
+
+        from app.strategy.bull_hunter import discover_research
+        d = (date or "").replace("-", "") or _last_trade_date()
+        return await run_in_threadpool(discover_research, d, None, None, bool(refresh))
+    except Exception as e:
+        logger.exception("研报中心失败")
+        return {"ok": False, "msg": str(e)}
+
+
 @app.get("/stockpool", response_class=HTMLResponse)
 async def stockpool_page(request: Request, _user: str = Depends(require_auth)):
     """Tab2 选股池（内置策略每日盘后自动选股）。"""
