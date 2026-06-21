@@ -501,8 +501,9 @@ def generate_reasons(trade_date: str, max_n: int = 30) -> int:
     n = 0
     for r in rows:
         prompt = (
-            f"你是严谨的A股分析师。基于以下客观因子，用1-2句话说明 {r['name']}({r['ts_code'][:6]}) 今日入选「{r['strategy_label']}」策略的逻辑。"
-            f"只依据数据，不编造、不预测涨跌、不输出胜率。\n"
+            f"你是资深A股分析师。基于以下客观因子，用1-2句话说清 {r['name']}({r['ts_code'][:6]}) 今日入选「{r['strategy_label']}」的逻辑，"
+            f"并点出它的**亮点和要注意的点**(强在哪、有无过热/追高风险)——别只复述数字。"
+            f"只依据数据、不编造、不编胜率%、不打包票必涨。\n"
             f"主题{r['theme']}(热度{r['theme_heat']}) 阶段{r['phase']} RPS50={r['rps50']} "
             f"3日主力{r['main_flow_3d']}亿 7日涨幅{r['change_7d']}% 换手{r['turnover']}% 当日{r['pct_chg']}%"
         )

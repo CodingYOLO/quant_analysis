@@ -21,6 +21,7 @@ from pathlib import Path
 from app.config import get_settings
 from app.data.composite_provider import CompositeProvider
 from app.llm.client import LLMClient
+from app.llm.stance import ANALYST_STANCE
 
 logger = logging.getLogger(__name__)
 
@@ -149,7 +150,8 @@ def compose_comment(
         f"①盘面/资金强弱——依据【资金面】；\n"
         f"②微观催化——仅依据【重大公告】【{micro_label}】，点名的公司/题材必须在下方出现过；\n"
         f"③消息/政策面——依据【相关新闻】与【联网检索】；二者都为空时写「今日暂无直接相关消息面」。\n"
-        f"要求：客观中性、不预测涨跌、不给买卖建议、不输出胜率或排名。\n"
+        f"**对这个板块要给明确判断**：强不强、资金是真追还是博弈、是机会还是已过热风险——别只描述、别和稀泥。\n"
+        f"{ANALYST_STANCE}\n"
         f"正文之后另起一行，以「依据：」列出实际引用的信息源类别（资金面/公告/{micro_label}/新闻/联网）。\n\n"
         f"━━ 真实信息源 ━━\n"
         f"【资金面】{fund_summary}\n"

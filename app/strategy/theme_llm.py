@@ -88,7 +88,8 @@ def _gen_theme(date: str, theme_type: str, r: dict, headlines: list[str]) -> boo
 
     prompt = (
         f"你是严谨的A股主题研究员。下面是【{date} {subject}】已算好的客观因子事实与真实新闻。\n"
-        f"**只能解释这些事实，严禁改写数字、编造未出现的公司/事件/政策；不输出胜率或成功率；不构成投资建议。**\n"
+        f"**要给鲜明判断**：这主题强不强、是机会还是退潮风险、分层 tier 敢选 buy/watch/avoid 并说依据，别只复述数据、别和稀泥。"
+        f"但严禁改写数字、编造未出现的公司/事件/政策；不编造胜率%、不打包票「必涨」。\n"
         f"请输出严格 JSON（不要代码块标记），字段：\n"
         f'{{"reason":"1-2句上涨/驱动逻辑(结合新闻,注明来源如[财联社]/[博查·证券时报])",'
         f'"news_evidence":["真实新闻标题(仅取下方出现的)"],'
@@ -157,7 +158,8 @@ def _gen_market_env(date: str, rows: list[dict], headlines: list[str]) -> bool:
 
     prompt = (
         f"你是A股策略分析师。基于 {date} 全市场板块客观数据，判断市场环境。"
-        f"只依据数据与新闻，不编造、不输出胜率、不构成建议。输出严格 JSON："
+        f"只依据数据与新闻、不编造数字事件、不编胜率%；但 phase/trend/summary 要给**鲜明判断**"
+        f"（现在该进攻还是防守、什么风格占优、风险在哪），别和稀泥。输出严格 JSON："
         f'{{"phase":"主升初期|加速|震荡|退潮|衰退","trend":"up|flat|down","confidence":0-1小数,'
         f'"summary":"80-140字市场解读(资金/广度/赚钱效应/风格,结合新闻)"}}\n\n'
         f"【数据】板块{len(rows)}个,上涨{len(up)}个,当日资金合计{total_money}亿,平均MA20广度{avg_breadth}%,"
