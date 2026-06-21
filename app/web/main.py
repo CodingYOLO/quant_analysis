@@ -603,6 +603,46 @@ async def api_lhb_seats(code: str = "", date: str = "", _user: str = Depends(req
         return {"ok": False, "msg": str(e)}
 
 
+@app.get("/api/lhb/review")
+async def api_lhb_review(code: str = "", months: int = 3, _user: str = Depends(require_auth)):
+    """个股龙虎榜复盘：区间内全部上榜 + 席位/资金风格 + 之后T+N走势 + 规律。线程池。"""
+    try:
+        import datetime
+
+        from fastapi.concurrency import run_in_threadpool
+
+        from app.data.composite_provider import CompositeProvider
+        from app.strategy.lhb_review import review_stock
+        ts_code = _resolve_ts_code(code)
+        if not ts_code:
+            return {"ok": False, "msg": "无法识别股票"}
+        end = datetime.datetime.now().strftime("%Y%m%d")
+        start = (datetime.datetime.now() - datetime.timedelta(days=int(months) * 31)).strftime("%Y%m%d")
+        out = await run_in_threadpool(review_stock, CompositeProvider(), ts_code, start, end)
+        out["name"] = _stock_name(ts_code)
+        return out
+    except Exception as e:
+        logger.exception("龙虎榜复盘失败")
+        return {"ok": False, "msg": str(e)}
+
+
+@app.post("/api/lhb/review/note")
+async def api_lhb_review_note(request: Request, _user: str = Depends(require_auth)):
+    """对已算好的复盘结果生成 LLM 规律解读。Body: {review, name}。"""
+    try:
+        from fastapi.concurrency import run_in_threadpool
+
+        from app.strategy.lhb_review import build_review_note
+        body = await request.json()
+        review = body.get("review") or {}
+        if not review.get("occurrences"):
+            return {"ok": False, "msg": "请先运行复盘"}
+        return await run_in_threadpool(build_review_note, review, body.get("name") or "")
+    except Exception as e:
+        logger.exception("复盘解读失败")
+        return {"ok": False, "msg": str(e)}
+
+
 @app.get("/api/chat/sessions")
 async def api_chat_sessions(_user: str = Depends(require_auth)):
     """AI 问答会话列表。"""

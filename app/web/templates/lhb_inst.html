@@ -50,6 +50,8 @@ tr.datarow { cursor:pointer; }
 .ndbox .ndtag { font-weight:700; font-size:13px; margin-bottom:4px; }
 .ndbox .ndsc { font-size:13px; color:#e8e8e8; line-height:1.6; }
 .ndbox .ndac { font-size:12.5px; color:#9fb0d8; line-height:1.6; margin-top:3px; }
+.exportbtn { background:transparent; color:#7c9ef8; border:1px solid #3358e0; border-radius:8px; padding:7px 14px; font-size:13px; cursor:pointer; }
+.exportbtn:disabled { opacity:.6; cursor:wait; }
 {% endblock %}
 
 {% block content %}
@@ -82,6 +84,29 @@ tr.datarow { cursor:pointer; }
     <table><thead><tr><th>个股</th><th>机构净卖</th><th>行业</th><th>席位</th><th>上榜原因</th></tr></thead>
       <tbody id="sells"></tbody></table>
   </div>
+</div>
+
+<!-- 个股龙虎榜复盘 -->
+<div class="sec" id="reviewcard" style="background:#161929;border:1px solid #242842;border-radius:12px;padding:16px 18px;margin-top:20px">
+  <h2 style="font-size:16px;color:#7c9ef8;margin-bottom:4px">🔍 个股龙虎榜复盘</h2>
+  <div class="neu2" style="font-size:12px;margin-bottom:12px">输入一只票，看它区间内<b>每次上龙虎榜</b>的资金风格 + <b>之后真实走势</b> + <b>规律</b>——判断"这票谁买（机构/游资/北向）更靠谱"。</div>
+  <div class="toolbar" style="margin-bottom:10px">
+    <input id="rv-code" type="text" placeholder="股票名称/代码，如 兴森科技 或 002436" style="width:240px">
+    <button class="rv-period on" data-m="3">近3月</button>
+    <button class="rv-period" data-m="6">近6月</button>
+    <button class="rv-period" data-m="12">近1年</button>
+    <button id="rv-go">复盘</button>
+    <span id="rv-meta" class="neu2" style="font-size:12px"></span>
+  </div>
+  <div id="rv-loading" class="neu2" style="display:none;font-size:13px;padding:8px">⏳ 扫描异动日并查龙虎榜（约 5-15 秒，缓存后秒回）…</div>
+  <div id="rv-body" style="display:none">
+    <div id="rv-pattern" style="margin-bottom:12px"></div>
+    <div id="rv-note" style="display:none;margin-bottom:12px"></div>
+    <button id="rv-ai" class="exportbtn" style="display:none;margin-bottom:12px">🧠 AI 解读规律</button>
+    <div style="overflow-x:auto"><table class="seattbl" id="rv-table"></table></div>
+    <div class="neu2" style="font-size:10.5px;margin-top:8px">异动日过滤近似识别上榜日（涨跌≥7%/振幅≥15%）·极少数纯高换手上榜可能漏；历史规律≠未来，样本少仅参考；T+N=之后N个交易日收盘涨幅；最近几次未到期显示「—」。</div>
+  </div>
+  <div id="rv-empty" class="neu2" style="display:none;font-size:13px;padding:8px"></div>
 </div>
 {% endblock %}
 
@@ -181,6 +206,66 @@ $('date').max=new Date().toISOString().slice(0,10);   // 禁选未来日期
 $('date').addEventListener('change',load);            // 点日历选日期即刷新
 $('buys').addEventListener('click',toggleSeats);      // tbody 持久·绑一次即可
 $('sells').addEventListener('click',toggleSeats);
+
+// —— 个股龙虎榜复盘 ——
+let rvMonths=3, _lastReview=null;
+document.querySelectorAll('.rv-period').forEach(b=>b.addEventListener('click',()=>{
+  rvMonths=parseInt(b.dataset.m); document.querySelectorAll('.rv-period').forEach(x=>x.classList.toggle('on',x===b)); }));
+function rvRet(v){ if(v==null) return '<span class="neu2">—</span>'; const c=v>0?'up':(v<0?'down':'neu2'); return '<span class="'+c+'">'+(v>0?'+':'')+v+'%</span>'; }
+function renderPattern(pat){
+  if(!pat||!pat.length) return '<span class="neu2">无规律数据</span>';
+  return '<div style="display:flex;gap:10px;flex-wrap:wrap">'+pat.map(p=>{
+    const c=(p.avg_t5==null)?'neu2':(p.avg_t5>0?'up':'down');
+    return '<div style="flex:1;min-width:165px;background:#0f1117;border:1px solid #242842;border-radius:9px;padding:9px 12px">'
+      +'<div style="font-size:13px;font-weight:700;color:#cdd6f4">'+esc(p.category)+' <span class="neu2" style="font-size:11px">×'+p.count+'</span></div>'
+      +'<div style="font-size:12px;margin-top:5px">次日均 <b class="'+c+'">'+(p.avg_t1==null?'—':(p.avg_t1>0?'+':'')+p.avg_t1+'%')+'</b>'
+      +' · T+5均 <b class="'+c+'">'+(p.avg_t5==null?'—':(p.avg_t5>0?'+':'')+p.avg_t5+'%')+'</b></div>'
+      +'<div class="neu2" style="font-size:11px;margin-top:2px">T+5胜率 '+(p.win_t5==null?'—':p.win_t5+'%')+(p.count<3?' · 样本少仅参考':'')+'</div></div>';
+  }).join('')+'</div>';
+}
+function renderOcc(occ){
+  let h='<thead><tr><th>日期</th><th>资金风格</th><th>次日参考</th><th>上榜原因</th><th>次日</th><th>T+3</th><th>T+5</th></tr></thead><tbody>';
+  occ.forEach(o=>{
+    const tags=(o.style_tags||[]).map(t=>'<span class="stag '+(t.level||'neu')+'">'+esc(t.text)+'</span>').join('');
+    const nd=o.next_day?('<span class="ndbadge nd-'+(o.next_day.level||'watch')+'">'+(_ND_EMOJI[o.next_day.level]||'')+' '+esc(o.next_day.tag)+'</span>'):'';
+    h+='<tr><td class="neu2" style="white-space:nowrap">'+ymdToIso(o.date)+'</td><td>'+tags+'</td><td>'+nd+'</td>'
+      +'<td class="neu2" style="font-size:11px;max-width:170px">'+esc((o.reason||'').slice(0,20))+'</td>'
+      +'<td>'+rvRet(o.t1)+'</td><td>'+rvRet(o.t3)+'</td><td>'+rvRet(o.t5)+'</td></tr>';
+  });
+  return h+'</tbody>';
+}
+async function runReview(){
+  const code=$('rv-code').value.trim(); if(!code) return;
+  $('rv-loading').style.display='block'; $('rv-body').style.display='none'; $('rv-empty').style.display='none'; $('rv-meta').textContent='';
+  const btn=$('rv-go'); btn.disabled=true;
+  try{
+    const r=await (await fetch('/api/lhb/review?code='+encodeURIComponent(code)+'&months='+rvMonths)).json();
+    $('rv-loading').style.display='none';
+    if(!r.ok){ $('rv-empty').style.display='block'; $('rv-empty').textContent='❌ '+(r.msg||'失败'); return; }
+    if(!r.count){ $('rv-empty').style.display='block'; $('rv-empty').innerHTML='📭 <b>'+esc(r.name||code)+'</b> 近'+rvMonths+'月内未上过龙虎榜（波动温和·没触发异动披露）。'; return; }
+    _lastReview=r;
+    $('rv-meta').textContent=(r.name||'')+' · 近'+rvMonths+'月上榜 '+r.count+' 次';
+    $('rv-pattern').innerHTML='<div style="font-size:13px;font-weight:700;color:#e8e8e8;margin-bottom:7px">📊 资金风格规律（这票谁买更靠谱）</div>'+renderPattern(r.pattern);
+    $('rv-table').innerHTML=renderOcc(r.occurrences);
+    $('rv-note').style.display='none'; $('rv-note').innerHTML=''; $('rv-ai').style.display='inline-flex'; $('rv-ai').disabled=false; $('rv-ai').textContent='🧠 AI 解读规律';
+    $('rv-body').style.display='block';
+  }catch(e){ $('rv-loading').style.display='none'; $('rv-empty').style.display='block'; $('rv-empty').textContent='❌ '+e; }
+  finally{ btn.disabled=false; }
+}
+$('rv-go').onclick=runReview;
+$('rv-code').addEventListener('keydown',e=>{ if(e.key==='Enter') runReview(); });
+$('rv-ai').onclick=async ()=>{
+  if(!_lastReview) return; const b=$('rv-ai'); b.disabled=true; b.textContent='⏳ AI解读中（约15秒）…';
+  try{
+    const n=await (await fetch('/api/lhb/review/note',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({review:_lastReview,name:_lastReview.name})})).json();
+    if(n.ok&&n.note){
+      $('rv-note').style.display='block';
+      $('rv-note').innerHTML='<div style="background:#12161f;border:1px solid #2a3a5a;border-radius:9px;padding:11px 13px;font-size:13px;line-height:1.85;color:#cdd6f4">🧠 <b style="color:#7c9ef8">AI 规律解读：</b>'+esc(n.note).replace(/\n/g,'<br>')+'<div class="neu2" style="font-size:10.5px;margin-top:6px">'+(n.model?('模型 '+esc(n.model)+' · '):'')+esc(n.disclaimer||'')+'</div></div>';
+      b.style.display='none';
+    } else { b.textContent='🧠 AI 解读规律'; b.disabled=false; }
+  }catch(e){ b.textContent='🧠 AI 解读规律'; b.disabled=false; }
+};
+
 load();
 </script>
 {% endblock %}
