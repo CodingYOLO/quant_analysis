@@ -168,11 +168,23 @@ function renderCtx(concept, j){
   $('ctx').innerHTML='<b>'+esc(concept)+'</b>　热度 '+(c.heat||0).toFixed(0)
     +(c.rising?' <span class="up">↑上升</span>':' <span class="neu2">持平/回落</span>')
     +' ｜ 概念资金 '+flow
-    +' ｜ 成分 '+(j.n_members||0)+' → 可交易 '+(j.n_in_range||0)+' → 预筛 '+(j.n_prescreened||0)+' → 候选 '+(j.candidates||[]).length;
+    +' ｜ 成分 '+(j.n_members||0)+' → 可交易 '+(j.n_in_range||0)+' → 预筛 '+(j.n_prescreened||0)+' → 候选 '+(j.candidates||[]).length
+    +' ｜ 排序 <select id="ambSort" onchange="resortAmbush()" style="background:#0f1117;color:#cdd6f4;border:1px solid #2d3052;border-radius:5px;padding:2px 6px;font-size:12px">'
+    +'<option value="score">埋伏分(综合)</option><option value="substance">真材实料</option><option value="imagination">想象力</option></select>';
 }
-function renderAmbushTable(cands){
+function dualCell(c){  // 真材实料 / 想象力 双分
+  const s=c.substance==null?'—':c.substance, m=c.imagination==null?'—':c.imagination;
+  return '<span title="真材实料(业绩+资金−避雷)">实<b style="color:#4ade80">'+s+'</b></span>'
+    +'<span class="neu2">/</span><span title="想象力(催化+位置+量能)">想<b style="color:#b794f6">'+m+'</b></span>';
+}
+function resortAmbush(){
+  const k=$('ambSort')?$('ambSort').value:'score';
+  (window._cands||[]).sort((a,b)=>(b[k]||0)-(a[k]||0));
+  renderAmbushTable(window._cands, true);
+}
+function renderAmbushTable(cands, keepSort){
   $('ambush').style.display='block';
-  let h='<tr><th>埋伏分</th><th>代码</th><th>名称</th><th>真业绩</th><th>资金(主力3日)</th><th>位置</th><th>量能</th><th>避雷</th></tr>';
+  let h='<tr><th>埋伏分</th><th>真料/想象</th><th>代码</th><th>名称</th><th>真业绩</th><th>资金(主力3日)</th><th>位置</th><th>量能</th><th>避雷</th></tr>';
   cands.forEach((c,i)=>{
     const cid='k'+i;
     const perf='净利'+sign(c.np_yoy,'%')+(c.forecast_type?' <span class="amber" style="font-size:11px">'+esc(c.forecast_type)+'</span>':'');
@@ -181,11 +193,12 @@ function renderAmbushTable(cands){
     const rk=(c.risk_flags||[]).length?'<span class="rk">'+c.risk_flags.map(esc).join('；')+'</span>':'<span class="neu2">—</span>';
     h+='<tr class="datarow" onclick="toggle(\''+cid+'\','+i+')">'
       +'<td><span class="score-pill">'+(c.score||0).toFixed(0)+'</span></td>'
+      +'<td style="font-size:12px">'+dualCell(c)+'</td>'
       +'<td>'+esc(c.ts_code)+'</td>'
       +'<td>'+esc(c.name)+boardTag(c.ts_code)+'</td>'
       +'<td>'+perf+'</td><td>'+flow+'</td><td>'+pos+'</td>'
       +'<td class="neu2">'+esc(c.evidence.vol)+'</td><td>'+rk+'</td></tr>';
-    h+='<tr id="row_'+cid+'" style="display:none"><td colspan="8" style="padding:0">'
+    h+='<tr id="row_'+cid+'" style="display:none"><td colspan="9" style="padding:0">'
       +'<div class="detail" id="d_'+cid+'"></div></td></tr>';
   });
   $('atbl').innerHTML=h; window._cands=cands;
@@ -199,6 +212,10 @@ function toggle(cid,i){
   let h='<b>埋伏分 '+(c.score||0).toFixed(0)+'</b> = 真业绩 '+dm.perf+' + 催化 '+dm.cata+' + 资金 '+dm.flow
     +' + 位置 '+dm.pos+' + 量能 '+dm.vol+(dm.penalty>0?' − 避雷 '+dm.penalty:'')
     +' <span class="neu2" style="font-size:11px">(满分 30/25/20/15/10)</span><br>';
+  h+='<b>真材实料 <span style="color:#4ade80">'+(c.substance==null?'—':c.substance)+'</span></b>'
+    +'<span class="neu2" style="font-size:11px">(业绩+资金−避雷·实打实)</span>'
+    +' ｜ <b>想象力 <span style="color:#b794f6">'+(c.imagination==null?'—':c.imagination)+'</span></b>'
+    +'<span class="neu2" style="font-size:11px">(催化+位置+量能·未兑现空间)</span><br>';
   h+='<b>真业绩</b>：'+esc(c.evidence.perf)+'<br>';
   h+='<b>催化</b>：'+esc(c.evidence.cata)+'<br>';
   h+='<b>资金</b>：'+esc(c.evidence.flow)+' ｜ <b>位置</b>：'+esc(c.evidence.pos)+' ｜ <b>量能</b>：'+esc(c.evidence.vol)+'<br>';

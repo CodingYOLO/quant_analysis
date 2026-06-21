@@ -767,10 +767,13 @@ def _score_ambush(rec: dict, perf: dict, concept_ctx: dict, concept: str) -> dic
     penalty, flags = _event_penalty(perf.get("events") or {})
 
     score = round(max(0.0, perf_s + cata_s + flow_s + pos_s + vol_s - penalty), 1)
+    # 双视角(0-100·重组现有维度)：真材实料=业绩+资金−避雷(实)；想象力=催化+位置+量能(未兑现的空间)
+    substance = round(max(0.0, perf_s + flow_s - penalty) / (_W_PERF + _W_FLOW) * 100)
+    imagination = round((cata_s + pos_s + vol_s) / (_W_CATA + _W_POS + _W_VOL) * 100)
     return {
         "ts_code": rec["ts_code"], "name": name, "passed": passed,
         "gate_reason": gate_reason,
-        "score": score,
+        "score": score, "substance": substance, "imagination": imagination,
         "dims": {"perf": round(perf_s, 1), "cata": round(cata_s, 1), "flow": round(flow_s, 1),
                  "pos": round(pos_s, 1), "vol": round(vol_s, 1), "penalty": round(penalty, 1)},
         "evidence": {"perf": perf_txt, "cata": cata_txt, "flow": flow_txt,

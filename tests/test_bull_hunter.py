@@ -153,6 +153,21 @@ def test_score_ambush_full() -> None:
     assert "半导体" in scored["falsify"]                      # 证伪止损含板块名
 
 
+def test_score_ambush_dual() -> None:
+    """真材实料(业绩+资金−避雷) vs 想象力(催化+位置+量能) 双分。"""
+    strong = bh._score_ambush(
+        _rec(name="实料强", bias20=-3, dist_high=-25, change_7d=0, main_flow_3d=1.5, vol_ratio=1.5),
+        _perf(np_yoy=40, roe=18, forecast_level="good"),
+        _ctx(heat=80, rising=True, net_flow_in=True), "半导体")
+    assert 0 <= strong["substance"] <= 100 and 0 <= strong["imagination"] <= 100
+    assert strong["substance"] >= 60 and strong["imagination"] >= 60
+    # 弱业绩+小资金 但 催化热+低位未涨 → 想象力 > 真材实料
+    dreamy = bh._score_ambush(
+        _rec(bias20=-5, dist_high=-30, change_7d=-5, main_flow_3d=0.1, vol_ratio=1.2),
+        _perf(np_yoy=2, roe=3), _ctx(heat=85, rising=True, net_flow_in=True), "共封装光学(CPO)")
+    assert dreamy["imagination"] > dreamy["substance"]
+
+
 def test_score_ambush_rejected() -> None:
     # 真业绩达标但主力未净流入 → 资金门槛剔除
     no_flow = bh._score_ambush(_rec(name="无资金票", main_flow_3d=-2.0),
