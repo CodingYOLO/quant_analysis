@@ -36,6 +36,7 @@ class InstFlow:
     reason: str          # 上榜原因
     is_tech: bool
     style_tags: list = field(default_factory=list)   # 资金风格标签（机构抱团/游资主导/北向流出…）
+    next_day: dict = field(default_factory=dict)     # 次日参考剧本（tag/level/scenario/action）
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -124,10 +125,12 @@ def build_inst_board(
     sells = sorted([f for f in flows if f.net_yi < 0], key=lambda x: x.net_yi)[:top]
     # 资金风格：仅对入榜个股用完整席位（机构/北向/游资/外资）推断，附主行一眼可见
     if df is not None and not df.empty:
-        from app.strategy.lhb_seats import infer_style, seat_rows
+        from app.strategy.lhb_seats import infer_style, interpret_next_day, seat_rows
         for f in buys + sells:
             try:
-                f.style_tags = infer_style(seat_rows(df[df["ts_code"] == f.ts_code]))["tags"]
+                seats = seat_rows(df[df["ts_code"] == f.ts_code])
+                f.style_tags = infer_style(seats)["tags"]
+                f.next_day = interpret_next_day(seats, f.reason)
             except Exception:
                 pass
     return {

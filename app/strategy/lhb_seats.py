@@ -112,3 +112,65 @@ def infer_style(seats: list[dict]) -> dict:
         tags.append({"text": "多空混杂", "level": "neu"})
     note = f"机构净{inst_net:+.1f}亿 · 北向净{north_net:+.1f}亿 · 游资净{hot_net:+.1f}亿"
     return {"tags": tags, "note": note}
+
+
+# —— 次日参考解读（席位结构 × 上榜原因 → 概率性剧本，不打包票）——
+_REASON_STRONG = ("涨停", "涨幅")          # 涨停/涨幅上榜=强势抢筹
+_REASON_WEAK = ("跌幅", "跌停")            # 下跌上榜=弱势
+_REASON_DIVERGE = ("振幅", "换手")        # 振幅/换手=分歧活跃
+
+
+def interpret_next_day(seats: list[dict], reason: str) -> dict:
+    """按席位结构 + 上榜原因生成"次日参考"剧本（纯函数·概率口径不保证）。
+
+    Returns: {tag(短标), level(bull/game/warn/watch), scenario(剧本), action(应对)}。
+    位置(高/低位)需结合个股360同看，本判断只基于席位+上榜原因。
+    """
+    def net(t):
+        return sum(s["net_yi"] for s in seats if s["type"] == t)
+
+    def sellers(t):
+        return sum(1 for s in seats if s["type"] == t and s["net_yi"] < -0.05)
+
+    inst, north, hot = net("inst"), net("north"), net("hot")
+    rs = reason or ""
+    strong = any(k in rs for k in _REASON_STRONG)
+    weak = any(k in rs for k in _REASON_WEAK)
+    diverge = any(k in rs for k in _REASON_DIVERGE)
+
+    # 优先级从高到低：先排雷（弱势/出货/接盘博弈），再看强势组合
+    if weak and (inst < 0 or north < 0):
+        return _verdict("警示", "warn", "弱势下跌上榜、资金在离场",
+                        "次日大概率偏弱，反弹即减、不宜抄底")
+    if inst < -_NET_SIG and sellers("inst") >= 2:
+        return _verdict("警示", "warn", "机构席位在出货",
+                        "次日上方有抛压，逢高减仓、别接刀")
+    if inst < 0 and hot > _NET_SIG:
+        return _verdict("博弈", "warn", "机构在撤、游资接盘",
+                        "纯短线博弈，次日看承接力，追高风险大，宜轻仓快打、破位就走")
+    if hot > _NET_SIG and strong:
+        return _verdict("博弈", "game", "游资打板接力为主",
+                        "次日情绪或高开冲高，但游资快进快出，做就别恋战、设好止损")
+    if inst > _NET_SIG and net_inst_buyers(seats) >= 2:
+        if north < -_NET_SIG:        # 机构买但北向在撤=分歧，别当纯利好
+            return _verdict("分歧", "watch", "机构抱团买入、但北向资金在撤，多空分歧",
+                            "次日看哪方占上风，外资抛压下别追高，回踩确认承接再跟")
+        extra = "，北向同向加仓更积极" if north > _NET_SIG else ""
+        return _verdict("偏多", "bull", "机构抱团抢筹、趋势资金进场" + extra,
+                        "次日下方有支撑，回踩不破可跟、能拿几天（仍需结合位置）")
+    if north > _NET_SIG and inst >= 0:
+        return _verdict("偏多", "bull", "外资/北向中线加仓",
+                        "偏积极，可作中线参考，回踩关注")
+    if diverge or (inst > 0 and sellers("inst") >= 1):
+        return _verdict("观望", "watch", "巨量分歧、多空打架",
+                        "次日方向不明，等开盘看承接再定，不急于追")
+    return _verdict("观望", "watch", "资金多空混杂、信号一般",
+                    "次日观望为主，结合个股位置/板块再判断")
+
+
+def net_inst_buyers(seats: list[dict]) -> int:
+    return sum(1 for s in seats if s["type"] == "inst" and s["net_yi"] > 0.05)
+
+
+def _verdict(tag: str, level: str, scenario: str, action: str) -> dict:
+    return {"tag": tag, "level": level, "scenario": scenario, "action": action}

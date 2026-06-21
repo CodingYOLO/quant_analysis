@@ -71,6 +71,39 @@ def test_infer_style_empty() -> None:
     assert any(t["text"] == "多空混杂" for t in S.infer_style([])["tags"])
 
 
+# ---- 4. 次日参考解读 ----
+
+def test_interpret_inst_huddle_bull() -> None:
+    seats = [{"type": "inst", "net_yi": 0.7}, {"type": "inst", "net_yi": 0.5}]
+    v = S.interpret_next_day(seats, "日涨幅偏离值达到7%")
+    assert v["level"] == "bull" and "抱团" in v["scenario"]
+
+
+def test_interpret_inst_sell_hot_buy_game() -> None:
+    """机构撤、游资接盘 → 博弈/警示。"""
+    seats = [{"type": "inst", "net_yi": -0.6}, {"type": "hot", "net_yi": 1.2}]
+    v = S.interpret_next_day(seats, "日涨幅达到15%")
+    assert v["level"] == "warn" and "接盘" in v["scenario"] and "轻仓" in v["action"]
+
+
+def test_interpret_weak_down() -> None:
+    seats = [{"type": "inst", "net_yi": -0.3}]
+    v = S.interpret_next_day(seats, "日跌幅偏离值达到7%")
+    assert v["level"] == "warn" and "离场" in v["scenario"]
+
+
+def test_interpret_hot_board_game() -> None:
+    seats = [{"type": "hot", "net_yi": 1.0, "nickname": "拉萨天团"}]
+    v = S.interpret_next_day(seats, "日涨幅偏离值达到7%")
+    assert v["level"] == "game" and "游资" in v["scenario"]
+
+
+def test_interpret_diverge_watch() -> None:
+    seats = [{"type": "inst", "net_yi": 0.0}]
+    v = S.interpret_next_day(seats, "日振幅值达到15%")
+    assert v["level"] == "watch"
+
+
 def _run_all() -> None:
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     for fn in fns:

@@ -40,6 +40,16 @@ tr.datarow { cursor:pointer; }
 .sbadge { display:inline-block; font-size:10px; padding:1px 7px; border-radius:5px; font-weight:600; white-space:nowrap; }
 .si-inst{background:#1a2b4a;color:#7c9ef8;} .si-north{background:#0e2a1a;color:#2ebd85;}
 .si-foreign{background:#2a1a3a;color:#b794f6;} .si-hot{background:#3b2208;color:#f0a020;} .si-normal{background:#1a1d2e;color:#9ca3af;}
+/* 次日参考徽章 + 解读框 */
+.ndbadge { display:inline-block; font-size:10px; padding:1px 7px; border-radius:5px; font-weight:600; margin-top:3px; }
+.nd-bull{background:#0e2a1a;color:#4ade80;} .nd-game{background:#3b2208;color:#f0a020;}
+.nd-warn{background:#3b1a1a;color:#f87171;} .nd-watch{background:#1a1d2e;color:#9ca3af;border:1px solid #2d3052;}
+.ndbox { border-radius:8px; padding:10px 13px; margin-bottom:10px; border-left:3px solid #2d3052; background:#14161f; }
+.ndbox.b-bull{border-left-color:#2ebd85;} .ndbox.b-game{border-left-color:#f0a020;}
+.ndbox.b-warn{border-left-color:#f87171;} .ndbox.b-watch{border-left-color:#5b6478;}
+.ndbox .ndtag { font-weight:700; font-size:13px; margin-bottom:4px; }
+.ndbox .ndsc { font-size:13px; color:#e8e8e8; line-height:1.6; }
+.ndbox .ndac { font-size:12.5px; color:#9fb0d8; line-height:1.6; margin-top:3px; }
 {% endblock %}
 
 {% block content %}
@@ -87,10 +97,16 @@ let techOnly=true;
 
 function styleTags(tags){ if(!tags||!tags.length) return '';
   return '<div style="margin-top:3px">'+tags.map(t=>'<span class="stag '+(t.level||'neu')+'">'+esc(t.text)+'</span>').join('')+'</div>'; }
+const _ND_EMOJI={bull:'🟢',game:'🟠',warn:'🔴',watch:'⚪'};
+function ndBadge(nd){ if(!nd||!nd.tag) return '';
+  return '<span class="ndbadge nd-'+(nd.level||'watch')+'">'+(_ND_EMOJI[nd.level]||'')+' 次日'+esc(nd.tag)+'</span>'; }
+function ndBox(nd){ if(!nd||!nd.scenario) return '';
+  return '<div class="ndbox b-'+(nd.level||'watch')+'"><div class="ndtag">'+(_ND_EMOJI[nd.level]||'')+' 次日参考 · '+esc(nd.tag)+'</div>'
+    +'<div class="ndsc">'+esc(nd.scenario)+'</div><div class="ndac">→ '+esc(nd.action)+'</div></div>'; }
 function rowHtml(f, cls){
   const code=esc(f.ts_code);
   return '<tr class="datarow" data-code="'+code+'"><td><span class="nm">'+esc(f.name)+'</span>'+(f.is_tech?'<span class="tech">🎯</span>':'')+bd(f.ts_code)
-    +'<br><span class="code">'+code+'</span>'+styleTags(f.style_tags)+'</td>'
+    +'<br><span class="code">'+code+'</span>'+styleTags(f.style_tags)+' '+ndBadge(f.next_day)+'</td>'
     +'<td>'+amt(f.net_yi,cls)+'</td>'
     +'<td><span class="ind">'+esc(f.industry||'—')+'</span></td>'
     +'<td><span class="seat">'+f.seats+' <span class="exp">▾席位</span></span></td>'
@@ -105,7 +121,8 @@ function seatBadge(t){
   return '<span class="sbadge '+a[1]+'">'+a[0]+(t.nickname?('·'+esc(t.nickname)):'')+'</span>';
 }
 function renderSeats(r){
-  let h='<div style="font-size:12px;margin-bottom:7px"><b>💡 资金风格：</b>'
+  let h=ndBox(r.next_day);
+  h+='<div style="font-size:12px;margin-bottom:7px"><b>💡 资金风格：</b>'
     +r.style.tags.map(t=>'<span class="stag '+(t.level||'neu')+'">'+esc(t.text)+'</span>').join('')
     +' <span class="neu2">'+esc(r.style.note)+'</span></div>';
   h+='<table class="seattbl"><thead><tr><th>席位（营业部/机构）</th><th>类型</th><th>买入</th><th>卖出</th><th>净额</th></tr></thead><tbody>';

@@ -583,7 +583,7 @@ async def api_lhb_seats(code: str = "", date: str = "", _user: str = Depends(req
         from fastapi.concurrency import run_in_threadpool
 
         from app.data.composite_provider import CompositeProvider
-        from app.strategy.lhb_seats import infer_style, seat_rows
+        from app.strategy.lhb_seats import infer_style, interpret_next_day, seat_rows
         ts_code = _resolve_ts_code(code)
         if not ts_code:
             return {"ok": False, "msg": "无法识别股票"}
@@ -593,8 +593,9 @@ async def api_lhb_seats(code: str = "", date: str = "", _user: str = Depends(req
             df = CompositeProvider().get_lhb_inst(d)
             sub = df[df["ts_code"] == ts_code] if df is not None and not df.empty else None
             seats = seat_rows(sub) if sub is not None else []
-            return {"ok": True, "ts_code": ts_code, "date": d,
-                    "seats": seats, "style": infer_style(seats)}
+            reason = seats[0]["reason"] if seats else ""
+            return {"ok": True, "ts_code": ts_code, "date": d, "seats": seats,
+                    "style": infer_style(seats), "next_day": interpret_next_day(seats, reason)}
 
         return await run_in_threadpool(_gather)
     except Exception as e:
