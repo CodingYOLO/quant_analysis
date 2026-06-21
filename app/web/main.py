@@ -634,6 +634,12 @@ async def lhb_page(request: Request, _user: str = Depends(require_auth)):
     return templates.TemplateResponse(request=request, name="lhb_inst.html", context={"page": "lhb"})
 
 
+@app.get("/stock", response_class=HTMLResponse)
+async def stock360_page(request: Request, _user: str = Depends(require_auth)):
+    """🎯 个股360：一个股票，一页出 K线/资金/板块/财务/研报/策略/新闻 + AI 综合买入判断。"""
+    return templates.TemplateResponse(request=request, name="stock360.html", context={"page": "stock360"})
+
+
 @app.get("/api/portfolio")
 async def api_portfolio(_user: str = Depends(require_auth)):
     """持仓体检 + 事件预警（现价/盈亏/技术/资金/事件/健康灯）。较重→线程池。"""
@@ -1029,6 +1035,65 @@ async def api_stock_alert(code: str = "", _user: str = Depends(require_auth)):
         return get_recent_alert(ts_code, name)
     except Exception as e:
         logger.exception("近期提示失败")
+        return {"ok": False, "msg": str(e)}
+
+
+@app.get("/api/stock/fund")
+async def api_stock_fund(code: str = "", _user: str = Depends(require_auth)):
+    """个股资金三角：主力估算 + 龙虎榜机构真钱 + 大盘北向背景；附行业(供板块热度查询)。线程池。"""
+    try:
+        from fastapi.concurrency import run_in_threadpool
+
+        from app.data.composite_provider import CompositeProvider
+        from app.strategy.fund_triangle import build_fund_triangle
+        from app.strategy.signals import _main_flow_3d
+        ts_code = _resolve_ts_code(code)
+        if not ts_code:
+            return {"ok": False, "msg": "无法识别股票"}
+
+        def _gather() -> dict:
+            provider = CompositeProvider()
+            d = _last_trade_date()
+            mf = _main_flow_3d(provider, d)                       # 全市场主力近3日(缓存)
+            tri = build_fund_triangle(provider, d, mf, ts_codes=[ts_code])
+            t = tri.get(ts_code)
+            name, industry, industry_l1 = "", "", ""
+            try:
+                sb = provider.get_stock_basic()
+                hit = sb[sb["ts_code"] == ts_code]
+                if not hit.empty:
+                    r = hit.iloc[0]
+                    name = str(r.get("name", ""))
+                    industry = str(r.get("industry", ""))
+                    industry_l1 = str(r.get("industry_l1", "")) if "industry_l1" in sb.columns else ""
+            except Exception:
+                pass
+            return {"ok": True, "ts_code": ts_code, "name": name, "industry": industry,
+                    "industry_l1": industry_l1, "date": d,
+                    "fund_triangle": t.to_dict() if t else None}
+
+        return await run_in_threadpool(_gather)
+    except Exception as e:
+        logger.exception("个股资金三角失败")
+        return {"ok": False, "msg": str(e)}
+
+
+@app.post("/api/stock/verdict")
+async def api_stock_verdict(request: Request, _user: str = Depends(require_auth)):
+    """个股360 综合买入判断：吃各区已查真数据 → LLM 给结论/评分/三档。Body: {name, code, sections}。"""
+    try:
+        from fastapi.concurrency import run_in_threadpool
+
+        from app.strategy.stock_verdict import build_verdict
+        body = await request.json()
+        sections = body.get("sections") or {}
+        if not sections:
+            return {"ok": False, "msg": "无可用数据"}
+        name = body.get("name") or ""
+        code = body.get("code") or ""
+        return await run_in_threadpool(build_verdict, name, code, sections)
+    except Exception as e:
+        logger.exception("个股综合判断失败")
         return {"ok": False, "msg": str(e)}
 
 

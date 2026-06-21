@@ -1,0 +1,232 @@
+{% extends "base.html" %}
+{% block title %}个股360 — A股Agent{% endblock %}
+
+{% block extra_style %}
+h1 { font-size:22px; text-align:center; margin-bottom:4px; }
+.sub { text-align:center; color:#9ca3af; font-size:12.5px; margin-bottom:14px; }
+.searchbar { display:flex; gap:10px; justify-content:center; margin-bottom:18px; flex-wrap:wrap; }
+.searchbar input { background:#0f1117; color:#e8e8e8; border:1px solid #2d3052; border-radius:8px; padding:10px 14px; font-size:15px; width:300px; max-width:70vw; }
+.searchbar button { background:#3358e0; color:#fff; border:none; border-radius:8px; padding:10px 22px; font-size:15px; cursor:pointer; }
+.searchbar button:disabled { opacity:.5; }
+.up { color:#f6465d; } .down { color:#2ebd85; } .neu2 { color:#9ca3af; } .miss { color:#6b7280; }
+.sec { background:#1a1d2e; border:1px solid #2d3052; border-radius:10px; padding:16px 18px; margin-bottom:14px; }
+.sec h2 { font-size:15px; color:#7c9ef8; margin-bottom:10px; }
+.sec .loading { color:#9ca3af; font-size:13px; }
+.tag { display:inline-block; font-size:12px; padding:3px 9px; border-radius:7px; margin:3px 5px 3px 0; background:#161929; border:1px solid #242842; color:#cdd6f4; }
+.tag.warn { border-color:#5a4018; color:#f0a020; } .tag.calm { border-color:#1a4a30; color:#2ebd85; }
+/* —— 顶部 AI 买入判断卡 —— */
+#verdict { border:1px solid #2742a8; background:linear-gradient(135deg,#141b33,#181a2c); }
+.vd-head { display:flex; align-items:center; gap:14px; flex-wrap:wrap; margin-bottom:10px; }
+.vd-stance { font-size:18px; font-weight:800; padding:5px 16px; border-radius:10px; }
+.st-go { background:#3a2c08; color:#f6c343; border:1px solid #6b5410; }
+.st-wait { background:#3b2a0a; color:#f0a020; border:1px solid #6b4310; }
+.st-avoid { background:#3b1a1a; color:#f87171; border:1px solid #6b2a2a; }
+.vd-score { font-size:30px; font-weight:800; }
+.vd-scorebar { flex:1; min-width:140px; height:9px; background:#0f1117; border-radius:5px; overflow:hidden; border:1px solid #2d3052; }
+.vd-scorefill { height:100%; border-radius:5px; }
+.vd-summary { font-size:14.5px; line-height:1.8; color:#e8e8e8; margin-bottom:12px; }
+.vd-cols { display:flex; gap:14px; flex-wrap:wrap; }
+.vd-col { flex:1; min-width:240px; background:#0f1117; border:1px solid #242842; border-radius:9px; padding:11px 13px; }
+.vd-col h3 { font-size:13px; margin-bottom:7px; }
+.vd-col.bull h3 { color:#f6c343; } .vd-col.risk h3 { color:#f0a020; } .vd-col.plan h3 { color:#7c9ef8; }
+.vd-col ul { margin:0; padding-left:17px; } .vd-col li { font-size:12.5px; line-height:1.7; margin-bottom:5px; }
+.disc { color:#6b7280; font-size:11px; margin-top:10px; line-height:1.6; }
+table.mini { width:100%; border-collapse:collapse; font-size:12.5px; }
+table.mini th { background:#232640; color:#9ca3af; font-weight:500; padding:6px 8px; text-align:left; }
+table.mini td { padding:6px 8px; border-bottom:1px solid #1e2138; }
+.ft-strong{background:#3a2c08;color:#f6c343;} .ft-warn{background:#3b2208;color:#f0a020;}
+.ft-weak{background:#0e2a1a;color:#2ebd85;} .ft-neu{background:#1a1d2e;color:#9ca3af;}
+.ftb { display:inline-block; font-size:11px; padding:2px 8px; border-radius:6px; font-weight:600; }
+{% endblock %}
+
+{% block content %}
+<h1>🎯 个股360</h1>
+<div class="sub">输入一只票，一页看全：K线 · 资金(含真机构钱) · 板块 · 财务/风险 · 研报 · 最适配策略 · 新闻，顶部 AI 综合判断该不该买。仅供研究，不构成投资建议。</div>
+
+<div class="searchbar">
+  <input id="code" type="text" placeholder="股票名称 / 代码，如 中际旭创 或 300308" autofocus>
+  <button id="go">分析</button>
+</div>
+
+<div id="result" style="display:none">
+  <!-- 顶部：AI 综合买入判断 -->
+  <div class="sec" id="verdict">
+    <h2>🧭 AI 综合买入判断 <span class="neu2" style="font-size:11px">（基于下方真实数据·敢下判断·非涨跌保证）</span></h2>
+    <div id="vd-body" class="loading">⏳ 正在汇总各区数据并生成综合判断（约 30~60 秒，数据齐了才下判断）…</div>
+  </div>
+  <!-- 七大分区 -->
+  <div class="sec"><h2>📈 K线 + 股性</h2><div id="v-kline" style="height:300px"></div><div id="v-prof" class="loading">⏳ 加载股性…</div></div>
+  <div class="sec"><h2>💰 资金（主力估算 + 龙虎榜机构真钱 + 大盘北向）</h2><div id="v-fund" class="loading">⏳ 加载资金…</div></div>
+  <div class="sec"><h2>🔥 板块情况</h2><div id="v-sector" class="loading">⏳ 加载板块…</div></div>
+  <div class="sec"><h2>📊 财务 + 风险事件</h2><div id="v-fin" class="loading">⏳ 加载财务…</div></div>
+  <div class="sec"><h2>📑 券商研报（东财 + 同花顺·免费）</h2><div id="v-research" class="loading">⏳ 加载研报…</div></div>
+  <div class="sec"><h2>🎯 最适配策略（历史回测·非预测）</h2><div id="v-scout" class="loading">⏳ 扫描最适配打法（约数秒）…</div></div>
+  <div class="sec"><h2>📰 新闻催化（博查近期）</h2><div id="v-news" class="loading">⏳ 加载新闻…</div></div>
+</div>
+<div id="hint" class="neu2" style="text-align:center;padding:30px">输入股票后点「分析」，开始 360° 透视。</div>
+{% endblock %}
+
+{% block extra_script %}
+<script src="/static/echarts.min.js"></script>
+<script src="/static/kline.js"></script>
+<script src="/static/research_widget.js"></script>
+<script>
+const $=id=>document.getElementById(id);
+function esc(s){ return (s==null?'':String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+let _kc=null, busy=false;
+
+function go(){
+  const code=$('code').value.trim(); if(!code||busy) return;
+  busy=true; $('go').disabled=true;
+  $('hint').style.display='none'; $('result').style.display='block';
+  ['v-prof','v-fund','v-sector','v-fin','v-research','v-scout','v-news'].forEach(id=>{ $(id).className='loading'; $(id).textContent='⏳ 加载中…'; });
+  $('v-kline').innerHTML='';
+  $('vd-body').className='loading'; $('vd-body').textContent='⏳ 正在汇总各区数据并生成综合判断（数据齐了才下判断）…';
+  const facts={};
+  // 各区并行加载（渐进渲染），各自往 facts 写一句精简事实
+  const jobs=[
+    loadProfile(code,facts), loadFundThenSector(code,facts), loadFin(code,facts),
+    loadResearch(code,facts), loadScout(code,facts), loadNews(code,facts),
+  ];
+  Promise.allSettled(jobs).then(()=>runVerdict(code,facts)).finally(()=>{ busy=false; $('go').disabled=false; });
+}
+$('go').onclick=go;
+$('code').addEventListener('keydown',e=>{ if(e.key==='Enter') go(); });
+
+// 深链 ?code=
+(function(){ const c=new URLSearchParams(location.search).get('code'); if(c){ $('code').value=c; go(); } })();
+
+async function loadProfile(code,facts){
+  try{
+    const d=await (await fetch('/api/stock/profile?code='+encodeURIComponent(code))).json();
+    if(!d.ok){ $('v-prof').textContent='—'; return; }
+    if(d.kline && window.AKline){ try{ _kc=AKline.render('v-kline', d.kline); }catch(e){} }
+    const tags=(d.tags||[]).concat((d.chips&&d.chips.tags)||[]);
+    $('v-prof').className=''; $('v-prof').innerHTML=tags.map(t=>'<span class="tag '+(t.level||'')+'">'+esc(t.text)+'</span>').join('') || '<span class="neu2">暂无股性标签</span>';
+    facts['股性'] = tags.map(t=>t.text).join('；');
+  }catch(e){ $('v-prof').textContent='加载失败'; }
+}
+
+async function loadFundThenSector(code,facts){
+  let industry='';
+  try{
+    const d=await (await fetch('/api/stock/fund?code='+encodeURIComponent(code))).json();
+    if(d.ok && d.fund_triangle){
+      const t=d.fund_triangle; industry=d.industry||'';
+      const cls={strong:'ft-strong',warn:'ft-warn',weak:'ft-weak',neutral:'ft-neu'}[t.level]||'ft-neu';
+      $('v-fund').className='';
+      $('v-fund').innerHTML='<span class="ftb '+cls+'">'+esc(t.label)+'</span>'
+        +'<div style="margin-top:8px;font-size:13px;line-height:1.9">'
+        +'主力估算近3日 <b class="'+(t.main_flow_yi>=0?'up':'down')+'">'+(t.main_flow_yi>=0?'+':'')+t.main_flow_yi+'亿</b>（代理口径）<br>'
+        +'龙虎榜机构 '+(t.on_lhb?('<b>'+(t.inst_net_yi>=0?'+':'')+t.inst_net_yi+'亿</b>（真金白银）'):'<span class="neu2">无机构席位足迹</span>')+'<br>'
+        +'大盘北向当日 '+(t.north_market_yi>=0?'+':'')+t.north_market_yi+'亿（环境背景）</div>'
+        +'<div class="neu2" style="font-size:11px;margin-top:6px">'+esc(t.detail)+'</div>';
+      facts['资金'] = t.label+'：'+t.detail;
+    } else { $('v-fund').textContent='—'; }
+  }catch(e){ $('v-fund').textContent='加载失败'; }
+  await loadSector(industry,facts);
+}
+
+async function loadSector(industry,facts){
+  if(!industry){ $('v-sector').textContent='未识别所属行业'; return; }
+  try{
+    const d=await (await fetch('/api/sector/heat?type=industry&name='+encodeURIComponent(industry))).json();
+    if(!d.ok){ $('v-sector').className=''; $('v-sector').innerHTML='所属行业 <b>'+esc(industry)+'</b>（暂无宽表热度数据）'; facts['板块']='所属行业 '+industry; return; }
+    const rise=d.rising?'<span class="up">↑升温</span>':'<span class="down">↓降温</span>';
+    const mf=d.money_flow_3d;
+    $('v-sector').className='';
+    $('v-sector').innerHTML='所属行业 <b>'+esc(d.name)+'</b>（申万）｜ 热度 <b>'+d.heat+'</b> '+rise+'（近3日Δ'+(d.delta>=0?'+':'')+d.delta+'）'
+      +'<br>3日资金 '+(mf!=null?('<b class="'+(mf>=0?'up':'down')+'">'+(mf>=0?'+':'')+mf+'亿</b>'):'—')
+      +' ｜ 3日涨跌 '+(d.pct_chg_3d!=null?d.pct_chg_3d+'%':'—')+' ｜ 阶段 <b>'+esc(d.phase||'—')+'</b>';
+    facts['板块']='行业'+d.name+' 热度'+d.heat+'('+(d.rising?'升温':'降温')+' Δ'+d.delta+') 3日资金'+(mf!=null?mf+'亿':'—')+' 阶段'+(d.phase||'—');
+  }catch(e){ $('v-sector').textContent='加载失败'; }
+}
+
+async function loadFin(code,facts){
+  try{
+    const d=await (await fetch('/api/stock/financials?code='+encodeURIComponent(code))).json();
+    if(!d.ok){ $('v-fin').textContent=d.msg||'—'; return; }
+    let h='<div style="font-size:13px;line-height:1.8">'+esc(d.summary||'')+'</div>';
+    const ev=d.events||{}; const evp=[];
+    if(ev.float&&ev.float.next_days!=null) evp.push('解禁：'+ev.float.next_days+'天后 '+(ev.float.next_ratio?(ev.float.next_ratio+'%'):''));
+    if(ev.holder_trade&&ev.holder_trade.de_count) evp.push('减持公告 '+ev.holder_trade.de_count+'次');
+    if(ev.block&&ev.block.count) evp.push('大宗 '+ev.block.count+'笔·均价'+(ev.block.premium_avg!=null?ev.block.premium_avg+'%':''));
+    if(ev.express) evp.push('快报：'+(ev.express.netprofit_yoy!=null?'净利同比'+ev.express.netprofit_yoy+'%':'有'));
+    if(evp.length) h+='<div style="margin-top:8px"><b class="neu2" style="font-size:12px">⚠️ 事件避雷：</b>'+evp.map(x=>'<span class="tag warn">'+esc(x)+'</span>').join('')+'</div>';
+    $('v-fin').className=''; $('v-fin').innerHTML=h;
+    facts['财务与风险']=(d.summary||'')+(evp.length?(' 事件：'+evp.join('；')):'');
+  }catch(e){ $('v-fin').textContent='加载失败'; }
+}
+
+async function loadResearch(code,facts){
+  try{
+    const d=await (await fetch('/api/stock/research?code='+encodeURIComponent(code))).json();
+    if(window.AResearch){ $('v-research').className=''; $('v-research').innerHTML=AResearch.html(d); }
+    const bits=[];
+    if(d.rating_label) bits.push('东财评级'+d.rating_label);
+    if(d.growth_label) bits.push('盈预增速'+d.growth_label);
+    if(d.ths&&d.ths.eps_line) bits.push('同花顺一致预期'+d.ths.eps_line);
+    facts['研报']=bits.join('；')|| (d.summary||'');
+  }catch(e){ $('v-research').textContent='加载失败'; }
+}
+
+function scoutWin(){ const e=new Date(),s=new Date(); s.setMonth(s.getMonth()-3); const f=x=>x.toISOString().slice(0,10); return {start:f(s),end:f(e)}; }
+async function loadScout(code,facts){
+  try{
+    const {start,end}=scoutWin();
+    const d=await (await fetch('/api/backtest/scout',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code,start,end})})).json();
+    if(!d||!d.ok){ $('v-scout').textContent=(d&&d.msg)||'扫描失败'; return; }
+    const rec=new Set(d.recommended||[]);
+    let h='<div class="neu2" style="font-size:12.5px;margin-bottom:6px">💡 '+esc(d.rationale||'')+'</div>';
+    h+='<table class="mini"><thead><tr><th>评级</th><th>打法</th><th>样本n</th><th>T+5胜率</th><th>T+5期望</th><th>盈亏比</th></tr></thead><tbody>';
+    (d.ranked||[]).slice(0,6).forEach(s=>{
+      const isRec=rec.has(s.key);
+      const wr=s.n?('<span class="'+(s.win_rate>=0.5?'up':'down')+'">'+Math.round(s.win_rate*100)+'%</span>'):'—';
+      const ex=s.n?('<span class="'+(s.avg_return>0?'up':'down')+'">'+(s.avg_return>0?'+':'')+s.avg_return+'%</span>'):'—';
+      h+='<tr><td>'+(isRec?'⭐':'')+esc(s.tier||'')+'</td><td>'+(isRec?'<b>':'')+esc(s.label)+(isRec?'</b>':'')+'</td><td>'+(s.n||'—')+'</td><td>'+wr+'</td><td>'+ex+'</td><td>'+(s.n?s.profit_factor:'—')+'</td></tr>';
+    });
+    $('v-scout').className=''; $('v-scout').innerHTML=h+'</tbody></table>'
+      +'<div class="neu2" style="font-size:11px;margin-top:6px"><a href="/backtest?code='+encodeURIComponent(code)+'" style="color:#7c9ef8">→ 去个股回测页深入/导出</a></div>';
+    const top=(d.ranked||[]).filter(s=>s.n).slice(0,3).map(s=>s.label+'(n='+s.n+' T+5胜率'+Math.round(s.win_rate*100)+'% 期望'+s.avg_return+'%)');
+    facts['最适配策略']='最贴股性打法：'+(top.join('；')||'样本不足');
+  }catch(e){ $('v-scout').textContent='加载失败'; }
+}
+
+async function loadNews(code,facts){
+  try{
+    const d=await (await fetch('/api/stock/alert?code='+encodeURIComponent(code))).json();
+    if(!d.ok){ $('v-news').textContent=d.msg||'暂无近期新闻'; return; }
+    let h='<div style="font-size:13px;line-height:1.8">'+esc(d.summary||'')+'</div>';
+    if(d.sources&&d.sources.length) h+='<div class="neu2" style="font-size:11px;margin-top:6px">📎 '+d.sources.map(s=>esc(s.site||'')+' '+esc(s.date||'')).join(' · ')+'</div>';
+    $('v-news').className=''; $('v-news').innerHTML=h;
+    facts['新闻催化']=d.summary||'';
+  }catch(e){ $('v-news').textContent='加载失败'; }
+}
+
+async function runVerdict(code,facts){
+  const name=$('code').value.trim();
+  try{
+    const d=await (await fetch('/api/stock/verdict',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,code,sections:facts})})).json();
+    if(!d.ok||!d.stance){ $('vd-body').className=''; $('vd-body').innerHTML='<span class="neu2">综合判断生成失败'+(d.msg?('：'+esc(d.msg)):'')+'（各区数据仍可参考）</span>'; return; }
+    renderVerdict(d);
+  }catch(e){ $('vd-body').className=''; $('vd-body').textContent='综合判断失败：'+e; }
+}
+
+function renderVerdict(d){
+  const stc={'值得关注':'st-go','观望':'st-wait','回避':'st-avoid'}[d.stance]||'st-wait';
+  const sc=(d.score==null)?'—':d.score;
+  const scColor=(d.score>=70)?'#f6c343':((d.score>=50)?'#f0a020':'#9ca3af');
+  const li=arr=>(arr&&arr.length)?arr.map(x=>'<li>'+esc(x)+'</li>').join(''):'<li class="neu2">—</li>';
+  let h='<div class="vd-head"><span class="vd-stance '+stc+'">'+esc(d.stance)+'</span>'
+    +'<span class="vd-score" style="color:'+scColor+'">'+sc+'<span style="font-size:13px;color:#6b7280">/100</span></span>'
+    +'<div class="vd-scorebar"><div class="vd-scorefill" style="width:'+(d.score||0)+'%;background:'+scColor+'"></div></div></div>';
+  h+='<div class="vd-summary">'+esc(d.summary||'')+'</div>';
+  h+='<div class="vd-cols">'
+    +'<div class="vd-col bull"><h3>✅ 看多依据</h3><ul>'+li(d.bulls)+'</ul></div>'
+    +'<div class="vd-col risk"><h3>⚠️ 风险/不确定</h3><ul>'+li(d.risks)+'</ul></div>'
+    +'<div class="vd-col plan"><h3>🎯 买点 / 止损参考</h3><ul>'+li(d.plan)+'</ul></div></div>';
+  h+='<div class="disc">'+esc(d.disclaimer||'')+(d.model?(' · 模型 '+esc(d.model)):'')+'</div>';
+  $('vd-body').className=''; $('vd-body').innerHTML=h;
+}
+</script>
+{% endblock %}

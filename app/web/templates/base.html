@@ -89,6 +89,7 @@
 <body>
 <nav>
   <a class="brand" href="/">📈 A股Agent</a>
+  <a href="/stock" {% if page=='stock360' %}class="active"{% endif %}>🎯 个股360</a>
   <a href="/sentiment" {% if page=='sentiment' %}class="active"{% endif %}>🌡️ 大盘情绪</a>
   <a href="/industry" {% if page=='industry' %}class="active"{% endif %}>💰 行业资金</a>
   <a href="/concept" {% if page=='concept' %}class="active"{% endif %}>🧩 概念资金</a>
