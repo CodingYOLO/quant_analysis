@@ -535,6 +535,23 @@ async def api_analyst_picks(id: str = "", _user: str = Depends(require_auth)):
         return {"ok": False, "msg": str(e)}
 
 
+@app.get("/api/lhb/inst")
+async def api_lhb_inst(date: str = "", tech: bool = False, top: int = 30,
+                      _user: str = Depends(require_auth)):
+    """龙虎榜机构净买/净卖榜（真机构钱·日度）。date 默认最近交易日；tech=1 只看科技赛道。线程池。"""
+    try:
+        from fastapi.concurrency import run_in_threadpool
+
+        from app.data.composite_provider import CompositeProvider
+        from app.strategy.lhb_inst import build_inst_board
+        d = (date or "").replace("-", "") or _last_trade_date()
+        board = await run_in_threadpool(build_inst_board, CompositeProvider(), d, int(top), bool(tech))
+        return {"ok": True, **board}
+    except Exception as e:
+        logger.exception("龙虎榜机构榜失败")
+        return {"ok": False, "msg": str(e)}
+
+
 @app.get("/api/chat/sessions")
 async def api_chat_sessions(_user: str = Depends(require_auth)):
     """AI 问答会话列表。"""
@@ -609,6 +626,12 @@ async def portfolio_page(request: Request, _user: str = Depends(require_auth)):
 async def chat_page(request: Request, _user: str = Depends(require_auth)):
     """🤖 AI 投研助手（全页）：与右下角悬浮窗共用同一套 /api/chat/* 会话与历史，仅入口不同。"""
     return templates.TemplateResponse(request=request, name="chat.html", context={"page": "chat"})
+
+
+@app.get("/lhb", response_class=HTMLResponse)
+async def lhb_page(request: Request, _user: str = Depends(require_auth)):
+    """🏛️ 机构动向：龙虎榜机构席位每日真实净买/净卖榜（真金白银·可按科技赛道过滤）。"""
+    return templates.TemplateResponse(request=request, name="lhb_inst.html", context={"page": "lhb"})
 
 
 @app.get("/api/portfolio")

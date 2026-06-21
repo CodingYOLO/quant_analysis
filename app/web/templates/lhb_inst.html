@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% block title %}机构动向 — A股Agent{% endblock %}
+
+{% block extra_style %}
+h1 { font-size:22px; text-align:center; margin-bottom:4px; }
+.note { background:#161929; border:1px solid #242842; border-radius:10px; padding:10px 15px;
+  margin-bottom:14px; font-size:12.5px; line-height:1.7; color:#9ca3af; }
+.note b { color:#e5c07b; }
+.toolbar { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:12px; }
+.toolbar input,.toolbar button { background:#0f1117; color:#e8e8e8; border:1px solid #2d3052; border-radius:6px; padding:7px 10px; font-size:13px; }
+.toolbar button { cursor:pointer; color:#7c9ef8; }
+.toolbar button.on { background:#2d3052; color:#fff; }
+.neu2 { color:#9ca3af; } .up { color:#f6465d; } .down { color:#2ebd85; } .miss { color:#6b7280; }
+.cols { display:flex; gap:16px; flex-wrap:wrap; }
+.col { flex:1; min-width:340px; }
+.col h2 { font-size:15px; margin-bottom:8px; }
+.buyh { color:#f6465d; } .sellh { color:#2ebd85; }
+table { width:100%; border-collapse:collapse; font-size:12.5px; }
+th { background:#232640; color:#9ca3af; font-weight:500; padding:7px 9px; text-align:left; white-space:nowrap; }
+td { padding:7px 9px; border-bottom:1px solid #1e2138; vertical-align:top; }
+tr.datarow:hover td { background:#1e2138; }
+.nm { color:#e8e8e8; font-weight:600; }
+.code { color:#6b7280; font-size:11px; }
+.tech { font-size:10px; color:#f6c343; margin-left:4px; }
+.ind { color:#7c9ef8; }
+.rsn { color:#9ca3af; font-size:11px; white-space:normal; max-width:230px; }
+.seat { color:#e5c07b; font-weight:600; }
+.bd { font-size:9px; padding:1px 5px; border-radius:6px; margin-left:4px; }
+.bd-kc{background:#3a2410;color:#f0a020;} .bd-cy{background:#1a2b4a;color:#7c9ef8;} .bd-bj{background:#0e2a1a;color:#2ebd85;}
+{% endblock %}
+
+{% block content %}
+<h1>🏛️ 龙虎榜机构动向</h1>
+<div class="note">
+  龙虎榜「<b>机构专用</b>」席位是 A股<b>仅存的个股级真实机构买卖披露</b>（2024-08 个股北向停披露后，
+  其余资金口径多为估算，唯机构席位是<b>真金白银</b>）。下面是当日机构<b>真买 / 真卖</b>的票。
+  ⚠️ 仅覆盖<b>当日异动上榜股</b>（非全市场）；机构净买<b>≠</b>后续必涨，龙虎榜含次日博弈与对倒，
+  需结合基本面 / 板块 / 估值同看。不构成投资建议。
+</div>
+
+<div class="toolbar">
+  <label class="neu2" style="font-size:13px">交易日</label>
+  <input id="date" type="text" placeholder="YYYYMMDD（默认最近）" style="width:160px">
+  <button id="techToggle" class="on" title="只看电子/通信/计算机/半导体等科技覆盖行业">🎯 只看科技赛道</button>
+  <button id="refresh">🔄 刷新</button>
+  <span id="meta" class="neu2" style="font-size:12px"></span>
+</div>
+
+<div id="loading" class="neu2" style="padding:14px">⏳ 加载龙虎榜机构动向…</div>
+<div id="empty" class="neu2" style="display:none;padding:12px"></div>
+<div id="board" class="cols" style="display:none">
+  <div class="col">
+    <h2 class="buyh">🔴 机构净买榜（真金白银流入）</h2>
+    <table><thead><tr><th>个股</th><th>机构净买</th><th>行业</th><th>席位</th><th>上榜原因</th></tr></thead>
+      <tbody id="buys"></tbody></table>
+  </div>
+  <div class="col">
+    <h2 class="sellh">🟢 机构净卖榜（机构出货·警示）</h2>
+    <table><thead><tr><th>个股</th><th>机构净卖</th><th>行业</th><th>席位</th><th>上榜原因</th></tr></thead>
+      <tbody id="sells"></tbody></table>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_script %}
+<script>
+const $=id=>document.getElementById(id);
+function esc(s){ return (s==null?'':String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function bd(code){ const c=(code||'').slice(0,3); if(c==='688'||c==='689')return '<span class="bd bd-kc">科创</span>';
+  if(c==='300'||c==='301')return '<span class="bd bd-cy">创业</span>'; const p=(code||'').slice(0,1);
+  if(p==='8'||p==='4')return '<span class="bd bd-bj">北交</span>'; return ''; }
+function amt(v,cls){ return '<b class="'+cls+'">'+(v>=0?'+':'')+v+'亿</b>'; }
+let techOnly=true;
+
+function rowHtml(f, cls){
+  return '<tr class="datarow"><td><span class="nm">'+esc(f.name)+'</span>'+(f.is_tech?'<span class="tech">🎯</span>':'')+bd(f.ts_code)
+    +'<br><span class="code">'+esc(f.ts_code)+'</span></td>'
+    +'<td>'+amt(f.net_yi,cls)+'</td>'
+    +'<td><span class="ind">'+esc(f.industry||'—')+'</span></td>'
+    +'<td><span class="seat">'+f.seats+'</span></td>'
+    +'<td><span class="rsn">'+esc(f.reason||'—')+'</span></td></tr>';
+}
+
+async function load(){
+  $('loading').style.display='block'; $('board').style.display='none'; $('empty').style.display='none';
+  const d=$('date').value.trim(); const q='?date='+encodeURIComponent(d)+'&tech='+(techOnly?1:0)+'&top=30';
+  try{
+    const j=await (await fetch('/api/lhb/inst'+q)).json();
+    if(!j.ok){ $('loading').style.display='none'; $('empty').style.display='block'; $('empty').textContent='❌ '+(j.msg||'失败'); return; }
+    $('meta').textContent='交易日 '+j.date+' ｜ 上榜机构票 '+j.n_total+' 只'+(j.tech_only?'（仅科技）':'');
+    $('buys').innerHTML = j.buys.length ? j.buys.map(f=>rowHtml(f,'up')).join('') : '<tr><td colspan="5" class="neu2">当日无机构净买'+(techOnly?'的科技股':'')+'</td></tr>';
+    $('sells').innerHTML= j.sells.length? j.sells.map(f=>rowHtml(f,'down')).join('') : '<tr><td colspan="5" class="neu2">当日无机构净卖'+(techOnly?'的科技股':'')+'</td></tr>';
+    $('loading').style.display='none'; $('board').style.display='flex';
+  }catch(e){ $('loading').style.display='none'; $('empty').style.display='block'; $('empty').textContent='❌ '+e; }
+}
+
+$('techToggle').onclick=()=>{ techOnly=!techOnly; $('techToggle').classList.toggle('on',techOnly); load(); };
+$('refresh').onclick=load;
+$('date').addEventListener('keydown',e=>{ if(e.key==='Enter') load(); });
+load();
+</script>
+{% endblock %}
