@@ -18,7 +18,13 @@
       border-bottom: 1px solid #2d3052;
       padding: 9px 24px;
       display: flex;
-      flex-direction: column;   /* 两行：第一行盘面、第二行个股 */
+      flex-direction: row;      /* logo 在左·两行导航在右 */
+      align-items: center;
+      gap: 18px;
+    }
+    .navgroups {               /* 两行：第一行盘面、第二行个股 */
+      display: flex;
+      flex-direction: column;
       gap: 7px;
     }
     .navrow {
@@ -27,7 +33,7 @@
       flex-wrap: wrap;          /* 窄屏仍优雅换行，不压扁单项 */
       gap: 6px 15px;
     }
-    .navrow .rowlabel {
+    .rowlabel {
       font-size: 10.5px;
       color: #5b6478;
       font-weight: 700;
@@ -35,6 +41,7 @@
       white-space: nowrap;
       border-right: 1px solid #2d3052;
       padding-right: 11px;
+      min-width: 30px;          /* 「盘面」「个股」同宽 → 两行后续项垂直对齐 */
     }
     nav .brand {
       font-size: 16px;
@@ -101,26 +108,28 @@
 </head>
 <body>
 <nav>
-  <div class="navrow">
-    <a class="brand" href="/">📈 A股Agent</a>
-    <span class="rowlabel">盘面</span>
-    <a href="/sentiment" {% if page=='sentiment' %}class="active"{% endif %}>🌡️ 大盘情绪</a>
-    <a href="/industry" {% if page=='industry' %}class="active"{% endif %}>💰 行业资金</a>
-    <a href="/concept" {% if page=='concept' %}class="active"{% endif %}>🧩 概念资金</a>
-    <a href="/lhb" {% if page=='lhb' %}class="active"{% endif %}>🏛️ 机构动向</a>
-    <a href="/bull" {% if page=='bull' %}class="active"{% endif %}>🐂 牛股发掘</a>
-    <a href="/research" {% if page=='research' %}class="active"{% endif %}>📑 研报中心</a>
-    <a href="/llm" {% if page=='llm' %}class="active"{% endif %}>🧠 LLM分析</a>
-  </div>
-  <div class="navrow">
-    <span class="rowlabel">个股</span>
-    <a href="/stock" {% if page=='stock360' %}class="active"{% endif %}>🎯 个股360</a>
-    <a href="/screener" {% if page=='screener' %}class="active"{% endif %}>🔍 因子选股</a>
-    <a href="/backtest" {% if page=='backtest' %}class="active"{% endif %}>🔬 个股回测</a>
-    <a href="/analysts" {% if page=='analysts' %}class="active"{% endif %}>🏅 金牌分析师</a>
-    <a href="/portfolio" {% if page=='portfolio' %}class="active"{% endif %}>💼 我的持仓</a>
-    <a href="/" {% if page=='index' %}class="active"{% endif %}>📂 报告中心</a>
-    <a href="/chat" {% if page=='chat' %}class="active"{% endif %}>🤖 AI投研</a>
+  <a class="brand" href="/">📈 A股Agent</a>
+  <div class="navgroups">
+    <div class="navrow">
+      <span class="rowlabel">盘面</span>
+      <a href="/sentiment" {% if page=='sentiment' %}class="active"{% endif %}>🌡️ 大盘情绪</a>
+      <a href="/industry" {% if page=='industry' %}class="active"{% endif %}>💰 行业资金</a>
+      <a href="/concept" {% if page=='concept' %}class="active"{% endif %}>🧩 概念资金</a>
+      <a href="/lhb" {% if page=='lhb' %}class="active"{% endif %}>🏛️ 机构动向</a>
+      <a href="/bull" {% if page=='bull' %}class="active"{% endif %}>🐂 牛股发掘</a>
+      <a href="/research" {% if page=='research' %}class="active"{% endif %}>📑 研报中心</a>
+      <a href="/llm" {% if page=='llm' %}class="active"{% endif %}>🧠 LLM分析</a>
+    </div>
+    <div class="navrow">
+      <span class="rowlabel">个股</span>
+      <a href="/stock" {% if page=='stock360' %}class="active"{% endif %}>🎯 个股360</a>
+      <a href="/screener" {% if page=='screener' %}class="active"{% endif %}>🔍 因子选股</a>
+      <a href="/backtest" {% if page=='backtest' %}class="active"{% endif %}>🔬 个股回测</a>
+      <a href="/analysts" {% if page=='analysts' %}class="active"{% endif %}>🏅 金牌分析师</a>
+      <a href="/portfolio" {% if page=='portfolio' %}class="active"{% endif %}>💼 我的持仓</a>
+      <a href="/" {% if page=='index' %}class="active"{% endif %}>📂 报告中心</a>
+      <a href="/chat" {% if page=='chat' %}class="active"{% endif %}>🤖 AI投研</a>
+    </div>
   </div>
   {# 策略验证/前向追踪暂从导航隐藏（数据未积累、归因功能已并入个股回测）；路由保留可直达 #}
   {# <a href="/strategy" {% if page=='strategy' %}class="active"{% endif %}>📊 策略验证</a> #}
