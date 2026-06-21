@@ -73,6 +73,41 @@ def test_record_scout_empty_ts_safe() -> None:
     assert H.record_scout("u1", {"ranked": []}) == 0
 
 
+# ---- 个股360 快照 record_stock360 + kinds 过滤隔离 ----
+
+def _s360_snapshot() -> dict:
+    return {"code": "300308.SZ", "name": "中际旭创",
+            "verdict": {"stance": "观望", "score": 70, "summary": "高位背离"},
+            "profile": {"ok": True}, "fund": {"ok": True}}
+
+
+def test_record_stock360_and_label() -> None:
+    _use_temp_db()
+    hid = H.record_stock360("u1", _s360_snapshot(), name="中际旭创")
+    assert hid > 0
+    rows = H.list_records(creator="u1", kinds=("stock360",))
+    assert len(rows) == 1 and rows[0]["kind"] == "stock360"
+    assert "观望" in rows[0]["signal_label"] and "70" in rows[0]["signal_label"]
+    rec = H.get_record(hid, creator="u1")
+    assert rec["result"]["verdict"]["score"] == 70 and rec["result"]["code"] == "300308.SZ"
+
+
+def test_kinds_filter_isolation() -> None:
+    """回测/scout/360 三类共存一表，kinds 过滤互不串台。"""
+    _use_temp_db()
+    H.record_scout("u1", _scout_result(), name="中际旭创")
+    H.record_stock360("u1", _s360_snapshot(), name="中际旭创")
+    assert len(H.list_records(creator="u1", kinds=("scout",))) == 1
+    assert len(H.list_records(creator="u1", kinds=("stock360",))) == 1
+    assert len(H.list_records(creator="u1", kinds=("backtest", "scout"))) == 1   # 不含360
+    assert len(H.list_records(creator="u1")) == 2                                 # 无过滤=全部
+
+
+def test_record_stock360_empty_code_safe() -> None:
+    _use_temp_db()
+    assert H.record_stock360("u1", {"verdict": {}}) == 0
+
+
 def _run_all() -> None:
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     for fn in fns:

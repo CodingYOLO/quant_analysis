@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from contextlib import contextmanager
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Generator
 
@@ -34,6 +35,8 @@ _LIST_COLS = (
 
 _SCOUT_KIND = "scout"            # kind 取值：'backtest'(默认·单信号回测) / 'scout'(策略适配扫描)
 _SCOUT_SIGNAL_KEY = "__scout__"  # scout 专用 signal_key·与真回测隔离·避免 UNIQUE 冲突
+_S360_KIND = "stock360"          # 个股360 全景透视快照
+_S360_SIGNAL_KEY = "__stock360__"
 
 
 def _db_path() -> Path:
@@ -206,6 +209,55 @@ def record_scout(creator: str, result: dict[str, Any], name: str = "") -> int:
     return int(row["id"]) if row else 0
 
 
+def record_stock360(creator: str, snapshot: dict[str, Any], name: str = "") -> int:
+    """记录一次个股360 全景快照（含各区数据 + AI 综合判断）。同票当日覆盖刷新，返回行 id。
+
+    头条用 AI 判断的 倾向·评分 作 signal_label，便于历史列表一眼看清当时结论。
+    signal_key 固定 `__stock360__`，与回测/scout 隔离。
+
+    Args:
+        creator: 记录归属用户。
+        snapshot: {code, name, verdict:{stance,score,...}, profile/fund/sector/.../news}。
+        name: 股票名称。
+
+    Returns:
+        行 id；缺 code 返回 0。
+    """
+    ts_code = str(snapshot.get("code") or "").strip()
+    if not ts_code:
+        return 0
+
+    vd = snapshot.get("verdict") or {}
+    stance, score = str(vd.get("stance") or "—"), vd.get("score")
+    label = f"个股360·{stance}" + (f"·{int(score)}分" if isinstance(score, (int, float)) else "")
+    day = datetime.now().strftime("%Y%m%d")
+
+    init()
+    blob = json.dumps(snapshot, ensure_ascii=False)
+    with _conn() as con:
+        con.execute(
+            """
+            INSERT INTO backtest_history
+                (creator, ts_code, name, signal_key, signal_label, start, end, custom,
+                 n_signals, head_horizon, win_rate, avg_return, profit_factor, result, kind)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            ON CONFLICT(creator, ts_code, signal_key, start, end, custom) DO UPDATE SET
+                name=excluded.name, signal_label=excluded.signal_label,
+                n_signals=excluded.n_signals, result=excluded.result,
+                kind=excluded.kind, created_at=datetime('now','localtime')
+            """,
+            (creator, ts_code, name, _S360_SIGNAL_KEY, label, day, day, "",
+             int(score) if isinstance(score, (int, float)) else 0, 0, None, None, None,
+             blob, _S360_KIND),
+        )
+        row = con.execute(
+            "SELECT id FROM backtest_history WHERE creator=? AND ts_code=? AND "
+            "signal_key=? AND start=? AND end=? AND custom=?",
+            (creator, ts_code, _S360_SIGNAL_KEY, day, day, ""),
+        ).fetchone()
+    return int(row["id"]) if row else 0
+
+
 def _headline(horizons: dict) -> tuple[int, dict]:
     """
     从各持有期统计中挑选头条：优先 T+5（有样本），否则取样本数最多者。
@@ -232,8 +284,13 @@ def _headline(horizons: dict) -> tuple[int, dict]:
 # 读取 / 删除
 # ──────────────────────────────────────────────
 
-def list_records(creator: str | None = None, q: str = "", limit: int = 100) -> list[dict]:
-    """列出回测历史（时间倒序，不含完整结果）。creator 非空仅看本人；q 模糊匹配票/信号。"""
+def list_records(creator: str | None = None, q: str = "", limit: int = 100,
+                 kinds: tuple[str, ...] | None = None) -> list[dict]:
+    """列出回测历史（时间倒序，不含完整结果）。
+
+    creator 非空仅看本人；q 模糊匹配票/信号；kinds 限定记录类型（如 ('backtest','scout')
+    给回测页、('stock360',) 给个股360页，互不串台）。
+    """
     init()
     where, params = [], []
     if creator:
@@ -242,6 +299,9 @@ def list_records(creator: str | None = None, q: str = "", limit: int = 100) -> l
     if q:
         where.append("(ts_code LIKE ? OR name LIKE ? OR signal_label LIKE ?)")
         params += [f"%{q}%", f"%{q}%", f"%{q}%"]
+    if kinds:
+        where.append("kind IN (%s)" % ",".join("?" * len(kinds)))
+        params += list(kinds)
     sql = f"SELECT {_LIST_COLS} FROM backtest_history"
     if where:
         sql += " WHERE " + " AND ".join(where)

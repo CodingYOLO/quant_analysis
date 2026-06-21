@@ -1097,6 +1097,61 @@ async def api_stock_verdict(request: Request, _user: str = Depends(require_auth)
         return {"ok": False, "msg": str(e)}
 
 
+@app.post("/api/stock/360/save")
+async def api_stock360_save(request: Request, _user: str = Depends(require_auth)):
+    """保存一次个股360 快照（各区数据 + AI 判断）到历史，可回看。Body: {snapshot}。"""
+    try:
+        from app.backtest.history import record_stock360
+        body = await request.json()
+        snap = body.get("snapshot") or {}
+        if not snap.get("code"):
+            return {"ok": False, "msg": "快照缺少股票代码"}
+        hid = record_stock360(_user, snap, name=snap.get("name") or "")
+        return {"ok": bool(hid), "id": hid}
+    except Exception as e:
+        logger.exception("个股360 保存失败")
+        return {"ok": False, "msg": str(e)}
+
+
+@app.get("/api/stock/360/history")
+async def api_stock360_history(_user: str = Depends(require_auth)):
+    """个股360 历史列表（仅本人·时间倒序·仅 stock360 类型）。"""
+    try:
+        from app.backtest.history import list_records
+        rows = list_records(creator=_user, limit=100, kinds=("stock360",))
+        return {"ok": True, "rows": rows}
+    except Exception as e:
+        logger.exception("个股360 历史列表失败")
+        return {"ok": False, "msg": str(e)}
+
+
+@app.get("/api/stock/360/get")
+async def api_stock360_get(id: int, _user: str = Depends(require_auth)):
+    """取单条个股360 快照完整数据（供回看还原）。"""
+    try:
+        from app.backtest.history import get_record
+        rec = get_record(int(id), creator=_user)
+        if not rec:
+            return {"ok": False, "msg": "记录不存在"}
+        return {"ok": True, "snapshot": rec.get("result") or {}, "created_at": rec.get("created_at")}
+    except Exception as e:
+        logger.exception("个股360 取回失败")
+        return {"ok": False, "msg": str(e)}
+
+
+@app.post("/api/stock/360/delete")
+async def api_stock360_delete(request: Request, _user: str = Depends(require_auth)):
+    """删除一条个股360 历史（仅本人）。Body: {id}。"""
+    try:
+        from app.backtest.history import delete
+        body = await request.json()
+        ok = delete(int(body.get("id")), creator=_user)
+        return {"ok": ok}
+    except Exception as e:
+        logger.exception("个股360 删除失败")
+        return {"ok": False, "msg": str(e)}
+
+
 @app.post("/api/backtest/stock")
 async def api_backtest_stock(request: Request, _user: str = Depends(require_auth)):
     """单股单信号回测。Body: {code, signal, start, end}。"""
@@ -1254,10 +1309,10 @@ async def api_backtest_scout_note(request: Request, _user: str = Depends(require
 @app.get("/api/backtest/history")
 async def api_backtest_history(q: str = "", limit: int = 100,
                                _user: str = Depends(require_auth)):
-    """个股回测历史列表（仅本人，时间倒序）。q 模糊搜索票/信号。"""
+    """个股回测历史列表（仅本人，时间倒序）。q 模糊搜索票/信号。仅回测/scout，不含个股360。"""
     try:
         from app.backtest.history import list_records
-        rows = list_records(creator=_user, q=q.strip(), limit=limit)
+        rows = list_records(creator=_user, q=q.strip(), limit=limit, kinds=("backtest", "scout"))
         return {"ok": True, "rows": rows}
     except Exception as e:
         logger.exception("回测历史列表失败")
