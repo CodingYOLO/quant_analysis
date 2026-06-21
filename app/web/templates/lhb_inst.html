@@ -24,9 +24,22 @@ tr.datarow:hover td { background:#1e2138; }
 .tech { font-size:10px; color:#f6c343; margin-left:4px; }
 .ind { color:#7c9ef8; }
 .rsn { color:#9ca3af; font-size:11px; white-space:normal; max-width:230px; }
-.seat { color:#e5c07b; font-weight:600; }
+.seat { color:#e5c07b; font-weight:600; cursor:pointer; }
+.exp { color:#7c9ef8; font-size:10px; }
 .bd { font-size:9px; padding:1px 5px; border-radius:6px; margin-left:4px; }
 .bd-kc{background:#3a2410;color:#f0a020;} .bd-cy{background:#1a2b4a;color:#7c9ef8;} .bd-bj{background:#0e2a1a;color:#2ebd85;}
+tr.datarow { cursor:pointer; }
+.stag { display:inline-block; font-size:10px; padding:1px 6px; border-radius:5px; margin:0 4px 0 0; font-weight:600; }
+.stag.strong{background:#3a2c08;color:#f6c343;} .stag.warn{background:#3b2208;color:#f0a020;}
+.stag.info{background:#1a2b4a;color:#7c9ef8;} .stag.neu{background:#1a1d2e;color:#9ca3af;border:1px solid #2d3052;}
+.detail-row td { background:#12151f; padding:10px 12px; }
+.seattbl { width:100%; border-collapse:collapse; font-size:12px; }
+.seattbl th { background:#1a1d2e; color:#9ca3af; padding:5px 8px; text-align:left; font-weight:500; white-space:nowrap; }
+.seattbl td { padding:5px 8px; border-bottom:1px solid #1e2138; }
+.seattbl .exalter { color:#cdd6f4; max-width:300px; }
+.sbadge { display:inline-block; font-size:10px; padding:1px 7px; border-radius:5px; font-weight:600; white-space:nowrap; }
+.si-inst{background:#1a2b4a;color:#7c9ef8;} .si-north{background:#0e2a1a;color:#2ebd85;}
+.si-foreign{background:#2a1a3a;color:#b794f6;} .si-hot{background:#3b2208;color:#f0a020;} .si-normal{background:#1a1d2e;color:#9ca3af;}
 {% endblock %}
 
 {% block content %}
@@ -72,13 +85,51 @@ function bd(code){ const c=(code||'').slice(0,3); if(c==='688'||c==='689')return
 function amt(v,cls){ return '<b class="'+cls+'">'+(v>=0?'+':'')+v+'亿</b>'; }
 let techOnly=true;
 
+function styleTags(tags){ if(!tags||!tags.length) return '';
+  return '<div style="margin-top:3px">'+tags.map(t=>'<span class="stag '+(t.level||'neu')+'">'+esc(t.text)+'</span>').join('')+'</div>'; }
 function rowHtml(f, cls){
-  return '<tr class="datarow"><td><span class="nm">'+esc(f.name)+'</span>'+(f.is_tech?'<span class="tech">🎯</span>':'')+bd(f.ts_code)
-    +'<br><span class="code">'+esc(f.ts_code)+'</span></td>'
+  const code=esc(f.ts_code);
+  return '<tr class="datarow" data-code="'+code+'"><td><span class="nm">'+esc(f.name)+'</span>'+(f.is_tech?'<span class="tech">🎯</span>':'')+bd(f.ts_code)
+    +'<br><span class="code">'+code+'</span>'+styleTags(f.style_tags)+'</td>'
     +'<td>'+amt(f.net_yi,cls)+'</td>'
     +'<td><span class="ind">'+esc(f.industry||'—')+'</span></td>'
-    +'<td><span class="seat">'+f.seats+'</span></td>'
-    +'<td><span class="rsn">'+esc(f.reason||'—')+'</span></td></tr>';
+    +'<td><span class="seat">'+f.seats+' <span class="exp">▾席位</span></span></td>'
+    +'<td><span class="rsn">'+esc(f.reason||'—')+'</span></td></tr>'
+    +'<tr class="detail-row" id="d-'+code+'" style="display:none"><td colspan="5" class="seatcell"></td></tr>';
+}
+
+// 席位类型徽章
+function seatBadge(t){
+  const m={inst:['机构','si-inst'],north:['北向','si-north'],foreign:['外资','si-foreign'],hot:['游资','si-hot'],normal:['营业部','si-normal']};
+  const a=m[t.type]||['','si-normal'];
+  return '<span class="sbadge '+a[1]+'">'+a[0]+(t.nickname?('·'+esc(t.nickname)):'')+'</span>';
+}
+function renderSeats(r){
+  let h='<div style="font-size:12px;margin-bottom:7px"><b>💡 资金风格：</b>'
+    +r.style.tags.map(t=>'<span class="stag '+(t.level||'neu')+'">'+esc(t.text)+'</span>').join('')
+    +' <span class="neu2">'+esc(r.style.note)+'</span></div>';
+  h+='<table class="seattbl"><thead><tr><th>席位（营业部/机构）</th><th>类型</th><th>买入</th><th>卖出</th><th>净额</th></tr></thead><tbody>';
+  r.seats.forEach(s=>{
+    h+='<tr><td class="exalter">'+esc(s.exalter)+'</td><td>'+seatBadge(s)+'</td>'
+      +'<td class="up">'+s.buy_yi+'亿</td><td class="down">'+s.sell_yi+'亿</td>'
+      +'<td class="'+(s.net_yi>=0?'up':'down')+'"><b>'+(s.net_yi>=0?'+':'')+s.net_yi+'亿</b></td></tr>';
+  });
+  return h+'</tbody></table><div class="neu2" style="font-size:10.5px;margin-top:6px">买入=红/卖出=绿(A股口径)·机构席位Tushare匿名为「机构专用」·游资按营业部名近似识别</div>';
+}
+// 点行展开/收起席位明细（事件委托·tbody 持久不重绑）
+async function toggleSeats(ev){
+  const tr=ev.target.closest('.datarow'); if(!tr) return;
+  const code=tr.dataset.code, dr=document.getElementById('d-'+code); if(!dr) return;
+  if(dr.style.display!=='none'){ dr.style.display='none'; return; }
+  dr.style.display=''; const cell=dr.querySelector('.seatcell');
+  if(cell.dataset.loaded) return;
+  cell.innerHTML='<span class="neu2" style="font-size:12px">⏳ 加载席位明细…</span>';
+  try{
+    const d=isoToYmd($('date').value);
+    const r=await (await fetch('/api/lhb/seats?code='+encodeURIComponent(code)+'&date='+encodeURIComponent(d))).json();
+    if(!r.ok||!(r.seats&&r.seats.length)){ cell.innerHTML='<span class="neu2">无席位明细</span>'; return; }
+    cell.innerHTML=renderSeats(r); cell.dataset.loaded='1';
+  }catch(e){ cell.innerHTML='<span class="neu2">加载失败：'+esc(e)+'</span>'; }
 }
 
 function isoToYmd(v){ return (v||'').replace(/-/g,''); }       // 2026-06-18 → 20260618
@@ -111,6 +162,8 @@ $('techToggle').onclick=()=>{ techOnly=!techOnly; $('techToggle').classList.togg
 $('refresh').onclick=load;
 $('date').max=new Date().toISOString().slice(0,10);   // 禁选未来日期
 $('date').addEventListener('change',load);            // 点日历选日期即刷新
+$('buys').addEventListener('click',toggleSeats);      // tbody 持久·绑一次即可
+$('sells').addEventListener('click',toggleSeats);
 load();
 </script>
 {% endblock %}

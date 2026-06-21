@@ -10,7 +10,7 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 
 import pandas as pd
 
@@ -35,6 +35,7 @@ class InstFlow:
     seats: int           # 机构席位数
     reason: str          # 上榜原因
     is_tech: bool
+    style_tags: list = field(default_factory=list)   # 资金风格标签（机构抱团/游资主导/北向流出…）
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -121,6 +122,14 @@ def build_inst_board(
 
     buys = sorted([f for f in flows if f.net_yi > 0], key=lambda x: -x.net_yi)[:top]
     sells = sorted([f for f in flows if f.net_yi < 0], key=lambda x: x.net_yi)[:top]
+    # 资金风格：仅对入榜个股用完整席位（机构/北向/游资/外资）推断，附主行一眼可见
+    if df is not None and not df.empty:
+        from app.strategy.lhb_seats import infer_style, seat_rows
+        for f in buys + sells:
+            try:
+                f.style_tags = infer_style(seat_rows(df[df["ts_code"] == f.ts_code]))["tags"]
+            except Exception:
+                pass
     return {
         "date": trade_date, "tech_only": tech_only, "n_total": len(flows),
         "buys": [f.to_dict() for f in buys],

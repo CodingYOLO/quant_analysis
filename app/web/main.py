@@ -576,6 +576,32 @@ async def api_lhb_inst(date: str = "", tech: bool = False, top: int = 30,
         return {"ok": False, "msg": str(e)}
 
 
+@app.get("/api/lhb/seats")
+async def api_lhb_seats(code: str = "", date: str = "", _user: str = Depends(require_auth)):
+    """某只票当日龙虎榜全部席位明细（机构/北向/游资/外资分类）+ 资金风格。线程池。"""
+    try:
+        from fastapi.concurrency import run_in_threadpool
+
+        from app.data.composite_provider import CompositeProvider
+        from app.strategy.lhb_seats import infer_style, seat_rows
+        ts_code = _resolve_ts_code(code)
+        if not ts_code:
+            return {"ok": False, "msg": "无法识别股票"}
+        d = (date or "").replace("-", "") or _last_trade_date()
+
+        def _gather() -> dict:
+            df = CompositeProvider().get_lhb_inst(d)
+            sub = df[df["ts_code"] == ts_code] if df is not None and not df.empty else None
+            seats = seat_rows(sub) if sub is not None else []
+            return {"ok": True, "ts_code": ts_code, "date": d,
+                    "seats": seats, "style": infer_style(seats)}
+
+        return await run_in_threadpool(_gather)
+    except Exception as e:
+        logger.exception("龙虎榜席位明细失败")
+        return {"ok": False, "msg": str(e)}
+
+
 @app.get("/api/chat/sessions")
 async def api_chat_sessions(_user: str = Depends(require_auth)):
     """AI 问答会话列表。"""
