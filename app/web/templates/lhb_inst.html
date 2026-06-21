@@ -89,6 +89,16 @@ async function load(){
   try{
     const j=await (await fetch('/api/lhb/inst'+q)).json();
     if(!j.ok){ $('loading').style.display='none'; $('empty').style.display='block'; $('empty').textContent='❌ '+(j.msg||'失败'); return; }
+    if(j.trading===false){          // 选到周末/节假日：明确提示 + 一键跳最近交易日
+      $('loading').style.display='none'; $('board').style.display='none'; $('meta').textContent='';
+      if(j.date) $('date').value=ymdToIso(j.date);
+      $('empty').style.display='block';
+      $('empty').innerHTML='📅 <b>'+ymdToIso(j.date)+'</b> 为非交易日（周末/节假日休市），无龙虎榜数据。'
+        +(j.nearest?(' 最近交易日 <a href="#" id="jumpnear" style="color:#7c9ef8">'+ymdToIso(j.nearest)+'</a>'):'');
+      const jn=document.getElementById('jumpnear');
+      if(jn) jn.onclick=ev=>{ ev.preventDefault(); $('date').value=ymdToIso(j.nearest); load(); };
+      return;
+    }
     if(j.date) $('date').value=ymdToIso(j.date);    // 回填实际交易日（默认=最近），日期框一眼可见
     $('meta').textContent='上榜机构票 '+j.n_total+' 只'+(j.tech_only?'（仅科技赛道）':'');
     $('buys').innerHTML = j.buys.length ? j.buys.map(f=>rowHtml(f,'up')).join('') : '<tr><td colspan="5" class="neu2">当日无机构净买'+(techOnly?'的科技股':'')+'</td></tr>';

@@ -278,6 +278,23 @@ def _next_trade_date(td: str) -> str:
         return ""
 
 
+def _trade_day_info(td: str) -> tuple[bool, str]:
+    """判断 td（YYYYMMDD）是否交易日，并返回 (is_trading, 最近≤td 的交易日)。
+
+    用于日期选择器选到周末/节假日时给出明确提示。取数失败时返回 (True, td) 不拦截。
+    """
+    import datetime
+    try:
+        from app.data.composite_provider import CompositeProvider
+        base = datetime.datetime.strptime(td, "%Y%m%d")
+        start = (base - datetime.timedelta(days=20)).strftime("%Y%m%d")
+        cal = CompositeProvider().get_trade_cal(start, td)
+        open_days = sorted(cal[cal["is_open"] == 1]["cal_date"].astype(str).tolist())
+        return (td in open_days), (open_days[-1] if open_days else td)
+    except Exception:
+        return True, td
+
+
 @app.get("/sentiment", response_class=HTMLResponse)
 async def sentiment_page(request: Request, _user: str = Depends(require_auth)):
     """大盘情绪仪表盘页面。"""
@@ -544,9 +561,16 @@ async def api_lhb_inst(date: str = "", tech: bool = False, top: int = 30,
 
         from app.data.composite_provider import CompositeProvider
         from app.strategy.lhb_inst import build_inst_board
-        d = (date or "").replace("-", "") or _last_trade_date()
+        d = (date or "").replace("-", "")
+        if d:                                          # 显式选了日期 → 校验是否交易日
+            is_trading, nearest = _trade_day_info(d)
+            if not is_trading:
+                return {"ok": True, "trading": False, "date": d, "nearest": nearest,
+                        "tech_only": bool(tech), "n_total": 0, "buys": [], "sells": []}
+        else:
+            d = _last_trade_date()
         board = await run_in_threadpool(build_inst_board, CompositeProvider(), d, int(top), bool(tech))
-        return {"ok": True, **board}
+        return {"ok": True, "trading": True, **board}
     except Exception as e:
         logger.exception("龙虎榜机构榜失败")
         return {"ok": False, "msg": str(e)}
