@@ -202,12 +202,38 @@ function toggle(cid,i){
   h+='<b>资金</b>：'+esc(c.evidence.flow)+' ｜ <b>位置</b>：'+esc(c.evidence.pos)+' ｜ <b>量能</b>：'+esc(c.evidence.vol)+'<br>';
   h+='<b>因子</b>：RPS50 '+c.rps50+' ｜ 近7日 '+(c.change_7d||0).toFixed(1)+'% ｜ 换手 '+c.turnover+'% ｜ 量比 '+c.vol_ratio+' ｜ 当日 '+(c.pct_chg||0).toFixed(1)+'% ｜ 市值 '+c.circ_mv_yi+'亿<br>';
   if((c.risk_flags||[]).length) h+='<span class="rk"><b>⚠️ 避雷</b>：'+c.risk_flags.map(esc).join('；')+'</span><br>';
-  h+='<span class="falsify"><b>🛑 '+esc(c.falsify)+'</b></span>';
+  h+='<span class="falsify"><b>🛑 '+esc(c.falsify)+'</b></span><br>';
+  // 券商研报佐证：机构覆盖/评级/目标价/上行空间（按需点击·report_rc 限频1次/小时·当日缓存）
+  h+='<button class="rcbtn" data-code="'+c.ts_code.slice(0,6)+'" data-close="'+(c.close||0)+'" data-key="'+cid+'"'
+    +' style="background:#2a2440;color:#b794f6;border:1px solid #4a3d6a;border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer;margin:4px 0 2px">📑 券商研报（评级/目标价）</button>'
+    +'<span id="rc_'+cid+'" style="font-size:12px"></span>';
   h+='<div id="ext_'+cid+'" class="neu2" style="margin:8px 0;font-size:12px">⏳ 加载K线/指标…</div>';
   h+='<div id="'+cid+'" style="height:340px"></div>';
   dv.innerHTML=h;
   loadKline(c.ts_code, cid);
 }
+// 券商研报渲染（机构数/评级分布/目标价区间/较现价上行空间）
+function rcHtml(d, close){
+  if(!d.ok) return ' <span class="neu2">ℹ️ '+esc(d.msg||'近半年无券商盈利预测覆盖')+'</span>';
+  const up=(d.target_avg&&close)?((d.target_avg/close-1)*100):null;
+  const upS=up==null?'':' 较现价<span class="'+(up>=0?'up':'down')+'">'+(up>=0?'+':'')+up.toFixed(0)+'%</span>';
+  const rts=Object.entries(d.ratings||{}).map(([k,v])=>esc(k)+v).join(' ')||'—';
+  const tp=d.target_avg?('目标价 '+d.target_avg+'('+(d.target_low??'—')+'~'+(d.target_high??'—')+')'+upS):'无明确目标价';
+  return '<div style="margin-top:4px;color:#cdd6f4;line-height:1.6">📑 <b style="color:#b794f6">券商研报</b>：近半年 <b>'
+    +d.n_org+'</b>家机构/'+d.n_reports+'份 ｜ 评级 '+rts+' ｜ '+tp+(d.latest?' ｜ 最新 '+esc(d.latest):'')
+    +' <span class="neu2" style="font-size:10px">(研报观点≠事实·机构亦会误判)</span></div>';
+}
+// 研报按钮（事件委托·一次绑定；按需触发·避免限频被多只票打爆）
+$('atbl').addEventListener('click', async ev=>{
+  const b=ev.target.closest('.rcbtn'); if(!b||b.disabled) return;
+  ev.stopPropagation();
+  const out=document.getElementById('rc_'+b.dataset.key);
+  b.disabled=true; b.textContent='⏳ 查券商研报中（限频·约5-10秒）…';
+  try{
+    const d=await (await fetch('/api/stock/analyst?code='+b.dataset.code)).json();
+    out.innerHTML=rcHtml(d, parseFloat(b.dataset.close)||0); b.style.display='none';
+  }catch(e){ out.textContent=' ❌ '+e; b.disabled=false; b.textContent='📑 重试'; }
+});
 
 // ── K线（复用 /api/stock/profile，与选股池一致）─────────────────────────────
 const _kcharts={};
