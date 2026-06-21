@@ -110,6 +110,9 @@ class CompositeProvider(DataProvider):
     def get_lhb_detail(self, trade_date: str) -> pd.DataFrame:
         return self._ts.get_lhb_detail(trade_date)
 
+    def get_lhb_inst(self, trade_date: str) -> pd.DataFrame:
+        return self._ts.get_lhb_inst(trade_date)
+
     def get_north_flow(self, trade_date: str) -> pd.DataFrame:
         return self._ts.get_north_flow(trade_date)
 

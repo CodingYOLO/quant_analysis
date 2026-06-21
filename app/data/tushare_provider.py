@@ -526,6 +526,26 @@ class TushareProvider(DataProvider):
             trade_date=trade_date,
         )
 
+    def get_lhb_inst(self, trade_date: str) -> pd.DataFrame:
+        """龙虎榜机构席位明细（top_inst，5100积分实测可用）。
+
+        含 `exalter`（席位名，'机构专用'=机构席位）/`buy`/`sell`/`net_buy`（元）。
+        是个股级"真机构钱"印证源——上榜时才有，稀疏但高信号。
+        """
+        return cached_daily(
+            name="tushare_lhb_inst",
+            date_key=trade_date,
+            fetch_fn=lambda: self._fetch_lhb_inst(trade_date),
+        )
+
+    @_RETRY
+    def _fetch_lhb_inst(self, trade_date: str) -> pd.DataFrame:
+        return rate_limited_call(
+            "tushare_lhb_inst",
+            self._api.top_inst,
+            trade_date=trade_date,
+        )
+
     def get_north_flow(self, trade_date: str) -> pd.DataFrame:
         """北向资金汇总（需2000积分，5100积分账号可用）。"""
         return cached_daily(
