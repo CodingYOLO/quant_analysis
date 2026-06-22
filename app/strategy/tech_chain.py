@@ -175,9 +175,13 @@ def _level(avg: float) -> str:
 
 
 def build_chain(provider: CompositeProvider, name: str) -> dict:
-    """构建某条链的产业链地图（含各环龙头实时表现 + 上色 + 今日风格）。"""
+    """构建某条链的产业链地图（含各环龙头实时表现 + 上色 + 今日风格 + 数据时间）。"""
+    import datetime
     chain = _CHAIN_BY_NAME.get(name) or _CHAINS[0]
     spot = _spot_map(provider)
+    as_of = ""
+    if _SPOT_CACHE:
+        as_of = datetime.datetime.fromtimestamp(max(_SPOT_CACHE.keys())).strftime("%m-%d %H:%M:%S")
     layers = []
     for layer in chain["layers"]:
         nodes = []
@@ -187,7 +191,8 @@ def build_chain(provider: CompositeProvider, name: str) -> dict:
                           "anchor": next((x["name"] for x in leaders if x.get("is_anchor")), ""),
                           "lead": leaders[0] if leaders else None, "leaders": leaders})
         layers.append({"layer": layer["layer"], "kind": layer["kind"], "nodes": nodes})
-    return {"ok": True, "name": chain["name"], "layers": layers, "style": today_style(provider)}
+    return {"ok": True, "name": chain["name"], "layers": layers, "style": today_style(provider),
+            "as_of": as_of, "source": "新浪实时报价·60秒缓存"}
 
 
 def today_style(provider: CompositeProvider) -> dict:

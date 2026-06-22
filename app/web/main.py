@@ -752,15 +752,17 @@ async def chain_page(request: Request, _user: str = Depends(require_auth)):
 
 
 @app.get("/api/chain")
-async def api_chain(name: str = "", _user: str = Depends(require_auth)):
-    """某条产业链的实时地图（龙头实时表现 + 上色 + 今日风格）。线程池。"""
+async def api_chain(name: str = "", refresh: bool = False, _user: str = Depends(require_auth)):
+    """某条产业链的实时地图（龙头实时表现 + 上色 + 今日风格）。refresh=1 强制重拉报价。线程池。"""
     try:
         from fastapi.concurrency import run_in_threadpool
 
         from app.data.composite_provider import CompositeProvider
-        from app.strategy.tech_chain import build_chain, chain_names
-        nm = name or chain_names()[0]
-        return await run_in_threadpool(build_chain, CompositeProvider(), nm)
+        from app.strategy import tech_chain
+        if refresh:                       # 清60秒报价缓存 → 真正重拉最新
+            tech_chain._SPOT_CACHE.clear()
+        nm = name or tech_chain.chain_names()[0]
+        return await run_in_threadpool(tech_chain.build_chain, CompositeProvider(), nm)
     except Exception as e:
         logger.exception("产业链地图失败")
         return {"ok": False, "msg": str(e)}

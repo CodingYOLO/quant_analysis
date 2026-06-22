@@ -49,6 +49,10 @@ h1 { font-size:22px; text-align:center; margin-bottom:4px; }
 </div>
 
 <div id="banner" class="banner b-balanced" style="display:none"></div>
+<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px">
+  <span id="meta" class="neu2" style="font-size:12px"></span>
+  <button id="refresh" class="tab" style="padding:4px 12px">🔄 刷新</button>
+</div>
 <div id="map" class="map"><div class="loading">⏳ 加载产业链…</div></div>
 <div id="detail"></div>
 {% endblock %}
@@ -60,15 +64,17 @@ h1 { font-size:22px; text-align:center; margin-bottom:4px; }
 const $=id=>document.getElementById(id);
 function esc(s){ return (s==null?'':String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 function pct(v){ if(v==null||v==='') return '<span class="neu2">停牌/—</span>'; const n=+v; const c=n>0?'up':(n<0?'down':'neu2'); return '<span class="'+c+'">'+(n>0?'+':'')+n+'%</span>'; }
-let _data=null;
+let _data=null, _curChain='';
 
-async function loadChain(name){
-  $('map').innerHTML='<div class="loading">⏳ 加载产业链…（取全市场实时·约数秒）</div>';
+async function loadChain(name, force){
+  _curChain=name;
+  $('map').innerHTML='<div class="loading">⏳ 加载产业链…（取龙头实时报价·约数秒）</div>';
   $('detail').style.display='none'; $('banner').style.display='none';
   try{
-    const j=await (await fetch('/api/chain?name='+encodeURIComponent(name))).json();
+    const j=await (await fetch('/api/chain?name='+encodeURIComponent(name)+(force?'&refresh=1':''))).json();
     if(!j.ok){ $('map').innerHTML='<div class="neu2">❌ '+(j.msg||'失败')+'</div>'; return; }
     _data=j;
+    $('meta').innerHTML='🕐 数据时间 <b>'+esc(j.as_of||'—')+'</b> · '+esc(j.source||'')+' · <span title="本页不自动轮询·打开或点刷新时才拉最新">打开/刷新时拉取</span>';
     // 今日风格横幅
     const s=j.style; $('banner').className='banner b-'+(s.lean||'balanced'); $('banner').style.display='block';
     $('banner').innerHTML='🧭 <b>今日风格：</b>'+esc(s.text);
@@ -121,6 +127,7 @@ $('detail').addEventListener('click', async e=>{
 
 $('tabs').addEventListener('click',e=>{ const t=e.target.closest('.tab'); if(!t) return;
   document.querySelectorAll('#tabs .tab').forEach(x=>x.classList.toggle('on',x===t)); loadChain(t.dataset.n); });
+$('refresh').onclick=()=>loadChain(_curChain,true);
 loadChain(document.querySelector('#tabs .tab').dataset.n);
 </script>
 {% endblock %}
