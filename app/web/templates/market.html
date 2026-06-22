@@ -72,11 +72,12 @@ async function loadHot(){
       const j=await (await fetch('/api/market/concept?top=30')).json();
       const rows=(j.ok&&j.rows)?j.rows:[];
       if(!rows.length){ $('hotbox').innerHTML='<div class="neu2">暂无概念热度数据</div>'; return; }
-      let h='<table><thead><tr><th>概念</th><th>热度</th><th>近3日Δ</th><th>3日资金</th><th>3日涨跌</th><th>阶段</th></tr></thead><tbody>';
+      let h='<div class="neu2" style="font-size:10.5px;margin-bottom:6px">📅 <b>盘后数据日 '+esc((rows[0]&&rows[0].date)||'—')+'</b> · 同花顺概念去噪宽表·盘后更新(非实时)</div>';
+      h+='<table><thead><tr><th>概念</th><th>热度</th><th>近3日Δ</th><th>3日资金</th><th>3日涨跌</th><th>阶段</th></tr></thead><tbody>';
       rows.forEach(r=>{ h+='<tr><td>'+esc(r.name)+'</td><td><b>'+(r.heat??'—')+'</b></td>'
         +'<td>'+(r.delta==null?'—':'<span class="'+(r.delta>=0?'up':'down')+'">'+(r.delta>=0?'+':'')+r.delta+'</span>')+'</td>'
         +'<td>'+yi(r.money_flow_3d)+'</td><td>'+pct(r.pct_chg_3d)+'</td><td class="neu2">'+esc(r.phase||'—')+'</td></tr>'; });
-      $('hotbox').innerHTML=h+'</tbody></table>'+(rows[0]&&rows[0].date?'<div class="neu2" style="font-size:10.5px;margin-top:5px">数据日 '+esc(rows[0].date)+'·同花顺概念去噪宽表</div>':'');
+      $('hotbox').innerHTML=h+'</tbody></table>';
       return;
     }
     const j=await (await fetch('/api/market/hot?kind='+hotKind+'&top=40')).json();
@@ -100,7 +101,8 @@ async function loadNews(){
     const j=await (await fetch('/api/market/news?n=60')).json();
     const rows=(j.ok&&j.rows)?j.rows:[];
     if(!rows.length){ $('news').innerHTML='<div class="neu2">暂无快讯</div>'; return; }
-    $('news').innerHTML=rows.map(r=>{
+    const head='<div class="neu2" style="font-size:10.5px;margin-bottom:6px">🕐 最新快讯 <b>'+esc(rows[0].time||'')+'</b> · 财联社实时·打开/刷新时拉取(3分钟缓存)</div>';
+    $('news').innerHTML=head+rows.map(r=>{
       const lv=r.level?('<span class="lv lv-'+esc(r.level)+'">'+esc(r.level)+'</span>'):'';
       return '<div class="news-item"><div class="t">'+esc(r.time)+lv+(r.source?(' · '+esc(r.source)):'')+'</div>'
         +'<div class="ti">'+esc(r.title)+'</div>'+(r.summary?'<div class="sm">'+esc(r.summary)+'</div>':'')+'</div>';
@@ -114,7 +116,7 @@ async function loadCal(){
     const j=await (await fetch('/api/market/calendar')).json();
     const rows=(j.ok&&j.rows)?j.rows:[];
     if(!rows.length){ $('cal').innerHTML='<div class="neu2">暂无日历数据</div>'; return; }
-    let h='<div class="neu2" style="font-size:10.5px;margin-bottom:6px">「公布」在事件发布时间到点后才有值，未到点显示<b>待公布</b>；多数国内数据无「预期」，看<b>事件+重要性+前值</b>即可。</div>';
+    let h='<div class="neu2" style="font-size:10.5px;margin-bottom:6px">📅 <b>'+esc((rows[0]&&rows[0].date)||'')+'</b> 当天财经日历 ·「公布」到点才有值、未到显示<b>待公布</b>；多数国内数据无「预期」，看<b>事件+重要性+前值</b>即可。</div>';
     h+='<table><thead><tr><th>日期</th><th>时间</th><th>地区</th><th>事件</th><th>重要</th><th>公布</th><th>预期</th><th>前值</th></tr></thead><tbody>';
     rows.forEach(r=>{ const stars='★'.repeat(Math.max(0,Math.min(5,parseInt(r.importance)||0)));
       h+='<tr><td class="neu2" style="white-space:nowrap">'+esc(r.date)+'</td><td class="neu2">'+esc(r.time)+'</td>'
