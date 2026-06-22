@@ -165,6 +165,22 @@ def _cache_put(kind: str, key: str, data: dict) -> None:
 # Layer 1 · 政策/热点催化层
 # ══════════════════════════════════════════════════════════════════════════
 
+def _resolve_data_date(d: str) -> str:
+    """把请求日解析为「实际有完整盘后数据的交易日」。
+
+    当日盘后数据未入库（如盘中打开当天）→ 回退到宽表里最近已落库的交易日。
+    新闻是实时联网检索的，不受此影响；仅板块热度/埋伏所需的宽表/资金按此回退。
+    """
+    try:
+        from app.data.theme_heat_db import latest_trade_date
+        latest = latest_trade_date("concept")
+        if latest and d and d > latest:
+            return latest
+    except Exception:
+        pass
+    return d
+
+
 def discover_catalysts(date: str, provider: CompositeProvider | None = None,
                        client=None, force: bool = False, tech_only: bool = False) -> dict:
     """
@@ -181,29 +197,32 @@ def discover_catalysts(date: str, provider: CompositeProvider | None = None,
          disclaimer, cached, generated_at, msg}
     """
     d = (date or "").replace("-", "")
-    ck = d + ("_tech" if tech_only else "")
+    eff = _resolve_data_date(d)             # 数据日（盘后未入库则回退）；d 仅作展示请求日
+    ck = eff + ("_tech" if tech_only else "")
     if not force:
         hit = _cache_get("bull_catalyst", ck)
         if hit:
+            hit["date"] = d                # 展示用请求日（如当天），数据仍来自 eff
+            hit["data_date"] = eff
             return hit
 
     provider = provider or CompositeProvider()
-    vocab, heat_map = _concept_vocab(provider, d)
+    vocab, heat_map = _concept_vocab(provider, eff)
     if tech_only:
         vocab = [n for n in vocab if _is_tech_concept(n)]   # 词表收窄到科技板块 → LLM 只映射科技
     if not vocab:
-        return {"ok": False, "date": d, "tech_only": tech_only, "catalysts": [],
+        return {"ok": False, "date": d, "data_date": eff, "tech_only": tech_only, "catalysts": [],
                 "msg": "概念成分映射为空（宽表/概念缓存未就绪）"}
 
-    news = _gather_catalyst_news(provider, d, tech_only)
+    news = _gather_catalyst_news(provider, eff, tech_only)
     if not news:
-        logger.info("[牛股发掘] %s 无可用新闻源（博查未配置或无结果），催化层降级为空", d)
+        logger.info("[牛股发掘] %s 无可用新闻源（博查未配置或无结果），催化层降级为空", eff)
 
-    raw = _llm_extract_catalysts(news, vocab, heat_map, d, client)
+    raw = _llm_extract_catalysts(news, vocab, heat_map, eff, client)
     catalysts = _normalize_catalysts(raw, set(vocab), heat_map, news)
 
     result = {
-        "ok": bool(catalysts), "date": d, "tech_only": tech_only, "catalysts": catalysts,
+        "ok": bool(catalysts), "date": d, "data_date": eff, "tech_only": tech_only, "catalysts": catalysts,
         "disclaimer": _DISCLAIMER, "cached": False,
         "generated_at": _dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "msg": "" if catalysts else (
@@ -586,7 +605,7 @@ def find_ambush_stocks(concept: str, date: str, provider: CompositeProvider | No
     Returns:
         {ok, concept, date, concept_ctx, candidates:[...], disclaimer, cached, msg}
     """
-    d = (date or "").replace("-", "")
+    d = _resolve_data_date((date or "").replace("-", ""))   # 埋伏需完整盘后数据→当天未入库则回退
     if not force:
         hit = _cache_get("bull_ambush", f"{d}__{concept}")
         if hit:
