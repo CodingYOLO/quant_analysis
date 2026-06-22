@@ -796,6 +796,19 @@ async def api_market_concept(top: int = 30, _user: str = Depends(require_auth)):
         return {"ok": False, "msg": str(e)}
 
 
+@app.get("/api/market/style-radar")
+async def api_market_style_radar(_user: str = Depends(require_auth)):
+    """风格切换雷达：6大风格资金动量 + 轮动检测（行业宽表·盘后·线程池）。"""
+    try:
+        from fastapi.concurrency import run_in_threadpool
+
+        from app.strategy.style_radar import build_style_radar
+        return await run_in_threadpool(build_style_radar)
+    except Exception as e:
+        logger.exception("风格雷达失败")
+        return {"ok": False, "msg": str(e)}
+
+
 @app.post("/api/market/hot/ingest")
 async def api_market_hot_ingest(request: Request, _user: str = Depends(require_auth)):
     """接收本地电脑同步的东财热榜（住宅IP直连·绕开云IP限流）。Body: {kind, rows}。"""

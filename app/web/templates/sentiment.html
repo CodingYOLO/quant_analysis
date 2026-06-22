@@ -43,6 +43,16 @@
   <span id="regime-reason" class="neu" style="font-size:12px;width:100%"></span>
 </div>
 
+<!-- 🎨 风格切换雷达：独立加载·不等情绪主数据 -->
+<div class="chart-card chart-full" id="style-card" style="margin-bottom:18px">
+  <h3 style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">🎨 风格切换雷达
+    <span class="neu" style="font-size:11px;font-weight:400">把110行业聚成6大风格·看资金往哪类风格切</span>
+    <span id="style-date" class="neu" style="font-weight:400;font-size:11px;margin-left:auto"></span>
+  </h3>
+  <div id="style-summary" style="font-size:13px;margin-bottom:10px"></div>
+  <div id="style-body" class="neu" style="font-size:13px">⏳ 加载风格雷达…</div>
+</div>
+
 <div id="loading" class="neu" style="font-size:14px;padding:20px">⏳ 正在加载大盘情绪数据（首次约30-60秒）...</div>
 <div id="dash" style="display:none">
   <div class="kpi-row">
@@ -388,7 +398,42 @@ document.querySelectorAll('.rtype').forEach(p=>p.addEventListener('click', ()=>{
   p.classList.add('active'); radarType=p.dataset.t; loadRadar();
 }));
 
+// ── 🎨 风格切换雷达（独立加载·行业宽表盘后数据）──
+function _escS(s){ return (s==null?'':String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function _styleYi(v){ const n=(v==null?0:+v); return '<b class="'+(n>=0?'up':'down')+'">'+(n>=0?'+':'')+n.toFixed(1)+'亿</b>'; }
+function _rotBadge(r){
+  if(r==='切入↑') return '<span style="background:#3b1a1a;color:#f6465d;padding:1px 7px;border-radius:9px;font-size:11px">切入↑</span>';
+  if(r==='切出↓') return '<span style="background:#16321f;color:#2ebd85;padding:1px 7px;border-radius:9px;font-size:11px">切出↓</span>';
+  return '<span style="background:#1a1d2e;color:#9ca3af;padding:1px 7px;border-radius:9px;font-size:11px">持平</span>';
+}
+async function loadStyle(){
+  try{
+    const j=await (await fetch('/api/market/style-radar')).json();
+    if(!j.ok){ document.getElementById('style-body').innerHTML='<span class="neu">'+_escS(j.msg||'暂无风格数据')+'</span>'; return; }
+    const ds=String(j.date||''); const df=/^\d{8}$/.test(ds)?(ds.slice(0,4)+'-'+ds.slice(4,6)+'-'+ds.slice(6,8)):ds;
+    document.getElementById('style-date').textContent='📅 盘后数据日 '+df+'·行业宽表(非实时)·盘后约17:40更新';
+    const sts=j.styles||[], lead=sts[0];
+    let sm='';
+    if(lead) sm+='今日主线 <b style="color:#f6465d">'+_escS(lead.style)+'</b>（'+_styleYi(lead.flow_1d_yi)+'，顶 '+(lead.top_industries||[]).slice(0,3).map(m=>_escS(m.name)).join('·')+'）';
+    if(j.rotating_in&&j.rotating_in.length) sm+=' ｜ 🔥切入 '+j.rotating_in.map(x=>'<span style="color:#f6465d">'+_escS(x)+'</span>').join('·');
+    if(j.rotating_out&&j.rotating_out.length) sm+=' ｜ ❄️切出 '+j.rotating_out.map(x=>'<span style="color:#2ebd85">'+_escS(x)+'</span>').join('·');
+    document.getElementById('style-summary').innerHTML=sm||'今日风格无明显切换';
+    let h='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(225px,1fr));gap:10px">';
+    sts.forEach(s=>{
+      const tops=(s.top_industries||[]).map(m=>_escS(m.name)).join(' · ');
+      h+='<div style="background:#0f1117;border:1px solid #242842;border-radius:9px;padding:10px 12px">'
+        +'<div style="display:flex;align-items:center;gap:7px;margin-bottom:5px"><b style="font-size:13.5px;color:#cdd6f4">'+_escS(s.style)+'</b>'+_rotBadge(s.rotation)+'<span class="neu" style="font-size:10.5px;margin-left:auto">今#'+s.rank_1d+'·5日#'+s.rank_5d+'</span></div>'
+        +'<div style="font-size:12px;line-height:1.8">今日 '+_styleYi(s.flow_1d_yi)+' <span class="neu">/ 5日</span> '+_styleYi(s.flow_5d_yi)+'<br>'
+        +'今日涨跌 <span class="'+(s.pct_1d>=0?'up':'down')+'">'+(s.pct_1d>=0?'+':'')+s.pct_1d+'%</span> <span class="neu">·热度'+s.heat+'·'+s.n+'行业</span></div>'
+        +'<div class="neu" style="font-size:11px;margin-top:4px">顶: '+tops+'</div></div>';
+    });
+    document.getElementById('style-body').className=''; document.getElementById('style-body').innerHTML=h+'</div>'
+      +'<div class="neu" style="font-size:10.5px;margin-top:8px">💡「切入↑」=该风格今日资金排名比近5日明显跃升(资金正涌入)；「切出↓」=前期强势风格今日退潮。资金口径为行业主力净流入合计(盘后估算)，看方向与相对强弱，非涨跌预测。</div>';
+  }catch(e){ document.getElementById('style-body').innerHTML='<span class="neu">❌ '+_escS(e)+'</span>'; }
+}
+
 load();
 loadRadar();   // 雷达独立加载（不等情绪主数据）
+loadStyle();   // 风格切换雷达独立加载
 </script>
 {% endblock %}
