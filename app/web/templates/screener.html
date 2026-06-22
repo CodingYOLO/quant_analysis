@@ -70,7 +70,7 @@
     <button class="quickbtn" id="preset-demon" style="border-color:#6b2a2a;color:#f87171">🔥 妖股启动（排雷版）</button>
     <span class="neu" style="font-size:11.5px;line-height:1.6;width:100%">
       <b style="color:#4ade80">慢牛吸筹</b>：温和放量＋量价配合＋缓涨＋没大涨，挑"主力悄悄吸"的票（按🐌吸筹分排序）。
-      <b style="color:#f87171">🔥妖股启动</b>：<b>连板基因(近60日涨停≥2)</b>＋<b>启动迹象(放量/高换手)</b>＋低价小流通，且<b>🛡已排雷</b>(剔ST/负净资产/高负债)，按60日涨停数排序。
+      <b style="color:#f87171">🔥妖股启动</b>：<b>连板基因(近60日涨停≥2)</b>＋<b>启动迹象(放量)</b>，且<b>🛡已排雷</b>(剔ST/负净资产/高负债)，按60日涨停数排序。<b>不限市值/价格</b>(实测连板多为中大盘题材龙头);想专挑小盘/低价妖,手动勾「小流通≤50亿」「低价≤15」即可。
       ⚠️ 两个都<b>只是形态筛选器，不预测涨跌</b>；妖股是高风险游资博弈，命中后请到 <a href="/stock" style="color:#7c9ef8">🎯个股360</a> 看龙虎榜<b>游资/机构席位</b>印证，并严格控仓位+止损。
     </span>
   </div>
@@ -191,8 +191,7 @@ document.getElementById('preset-accum').addEventListener('click', () =>
   applyPreset(['above_ma20', 'accum_quiet_vol', 'accum_volprice', 'accum_slow_rise', 'accum_hidden'], 'accum_score'));
 // 🔥 妖股启动（排雷版）：连板基因 + 启动放量 + 低价小流通 + 排雷(剔ST/负净资产/高负债)
 document.getElementById('preset-demon').addEventListener('click', () =>
-  applyPreset(['risk_not_st', 'risk_pos_equity', 'risk_debt70', 'demon_small_float',
-               'demon_lowprice', 'demon_gene2', 'demon_volup'], 'limit_ups_60d'));
+  applyPreset(['risk_not_st', 'risk_pos_equity', 'risk_debt70', 'demon_gene2', 'demon_volup'], 'limit_ups_60d'));
 
 // 自定义任意字段条件
 const customs = [];
