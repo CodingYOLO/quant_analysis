@@ -92,11 +92,13 @@ FACTOR_GROUPS = [
         "factors": [
             {"key": "accum_score60", "label": "吸筹评分≥60", "col": "accum_score", "op": "ge", "val": 60},
             {"key": "accum_quiet_vol", "label": "温和放量(5/20日量比1.2~2.5)", "col": "vol5_vol20", "op": "between", "val": [1.2, 2.5]},
+            {"key": "accum_volprice", "label": "量价配合(涨放量·跌缩量)", "col": "up_down_vol", "op": "ge", "val": 1.1},
             {"key": "accum_ma20_up", "label": "MA20斜率向上", "col": "ma20_slope", "op": "gt", "val": 0},
             {"key": "accum_slow_rise", "label": "缓慢走高(近20日3~25%)", "col": "ret20", "op": "between", "val": [3, 25]},
+            {"key": "accum_contract", "label": "振幅收敛(锁筹·近<前)", "col": "amp_contract", "op": "lt", "val": 1.0},
             {"key": "accum_low_amp", "label": "低波动(近20日均振幅≤5.5%)", "col": "amp20", "op": "le", "val": 5.5},
             {"key": "accum_hidden", "label": "隐蔽(近20日无大涨/涨停)", "col": "big_up_days_20", "op": "le", "val": 0},
-            {"key": "accum_fund3d", "label": "主力近3日持续净流入", "col": "main_net_3d", "op": "gt", "val": 0},
+            {"key": "accum_fund3d", "label": "主力近3日净流入(大单估算·弱)", "col": "main_net_3d", "op": "gt", "val": 0},
         ],
     },
     {
@@ -132,6 +134,7 @@ CUSTOM_FIELDS = [
     {"col": "accum_score", "label": "🐌吸筹评分"}, {"col": "ret20", "label": "近20日涨幅%"},
     {"col": "vol5_vol20", "label": "量能比5/20日"}, {"col": "ma20_slope", "label": "MA20斜率%"},
     {"col": "amp20", "label": "近20日均振幅%"}, {"col": "main_net_3d", "label": "主力近3日(亿)"},
+    {"col": "up_down_vol", "label": "量价配合(涨量/跌量)"}, {"col": "amp_contract", "label": "振幅收敛比"},
 ]
 _CUSTOM_COLS = {f["col"] for f in CUSTOM_FIELDS}
 _CUSTOM_OPS = {"ge", "gt", "le", "lt", "eq"}
@@ -141,6 +144,7 @@ DISPLAY_COLS = [
     ("ts_code", "代码"), ("name", "名称"), ("industry", "行业"),
     ("close", "最新价"), ("pct_chg", "涨跌幅%"), ("amplitude", "振幅%"),
     ("accum_score", "🐌吸筹分"), ("ret20", "近20日涨%"), ("vol5_vol20", "量能比5/20"),
+    ("up_down_vol", "量价配合"),
     ("turnover_rate", "换手%"), ("volume_ratio", "量比"), ("circ_mv_100m", "流通市值(亿)"),
     ("main_net_amount", "主力净流入(亿)"), ("main_net_3d", "主力3日(亿)"), ("elg_net", "超大单(亿)"),
     ("rps50", "RPS50"), ("rps120", "RPS120"), ("rsi14", "RSI"),
@@ -153,7 +157,7 @@ DISPLAY_COLS = [
 # ──────────────────────────────────────────────
 
 # 因子表结构版本：新增因子列时 +1，使旧缓存自动失效重算（避免读到缺列的旧表）
-_FACTOR_TABLE_VERSION = "v2"
+_FACTOR_TABLE_VERSION = "v3"
 
 
 def _factor_cache_path(date: str) -> Path:
@@ -333,11 +337,16 @@ def _accum_factor_columns(close_m, high_m, low_m, vol_m) -> dict[str, pd.Series]
         ma20_now, ma20_prev = close_m.tail(20).mean(), close_m.iloc[-25:-5].mean()
         out["ma20_slope"] = (ma20_now / ma20_prev.replace(0, np.nan) - 1) * 100
     if n >= 21:                                               # 近20日涨幅%
+        ret = close_m.pct_change()
         out["ret20"] = (close_m.iloc[-1] / close_m.iloc[-21].replace(0, np.nan) - 1) * 100
-        out["big_up_days_20"] = (close_m.pct_change().tail(20) >= 0.095).sum()   # 近20日大涨(≥9.5%)天数
-    if n >= 21 and high_m is not None and low_m is not None:  # 近20日平均振幅%
+        out["big_up_days_20"] = (ret.tail(20) >= 0.095).sum()                   # 近20日大涨(≥9.5%)天数
+        if vol_m is not None:                                 # 量价配合：上涨日均量 / 下跌日均量
+            r20, v20d = ret.tail(20), vol_m.tail(20)
+            out["up_down_vol"] = v20d.where(r20 > 0).mean() / v20d.where(r20 < 0).mean().replace(0, np.nan)
+    if n >= 20 and high_m is not None and low_m is not None:  # 振幅：均值 + 收敛比(近10日/前10日)
         amp = (high_m - low_m) / close_m.shift(1).replace(0, np.nan) * 100
         out["amp20"] = amp.tail(20).mean()
+        out["amp_contract"] = amp.tail(10).mean() / amp.iloc[-20:-10].mean().replace(0, np.nan)
     return out
 
 
@@ -353,19 +362,33 @@ def _add_fund_persistence(df: pd.DataFrame, date: str, provider) -> pd.DataFrame
 
 def _add_accum_score(df: pd.DataFrame) -> pd.DataFrame:
     """逐股算慢牛吸筹评分 accum_score（缺列以 NaN 占位·评分函数自身做 NaN 兜底）。"""
-    for c in ("vol5_vol20", "ma20_slope", "ret20", "amp20", "big_up_days_20", "main_net_3d"):
+    for c in ("vol5_vol20", "ma20_slope", "ret20", "amp20", "amp_contract",
+              "up_down_vol", "big_up_days_20", "main_net_3d"):
         if c not in df.columns:
             df[c] = np.nan
     df["accum_score"] = df.apply(
-        lambda r: _accumulation_score(r["vol5_vol20"], r["ma20_slope"], r["ret20"],
-                                      r["amp20"], r["big_up_days_20"], r["main_net_3d"]),
+        lambda r: _accumulation_score(
+            r["vol5_vol20"], r["ma20_slope"], r["ret20"], r["amp20"],
+            r["big_up_days_20"], r["main_net_3d"],
+            up_down_vol=r["up_down_vol"], amp_contract=r["amp_contract"]),
         axis=1,
     )
     return df
 
 
-# 吸筹评分权重（满分100·配置化·可后续回测校准）：量能25/斜率20/缓涨20/低波15/隐蔽10/资金10
-_ACC_W = {"vol": 25, "slope": 20, "rise": 20, "amp": 15, "hidden": 10, "fund": 10}
+# 吸筹评分权重（满分100·配置化·可后续回测校准）。
+# 设计取向：把更可靠的"量价行为"(温和放量18+量价配合18)权重做高，把易失真的
+# "大单资金估算"压到弱信号档(8)。量价配合/振幅收敛是 2026-06 据策略复盘新增的更硬信号。
+_ACC_W = {
+    "vol": 18,        # 温和放量(5/20日量比甜区)
+    "volprice": 18,   # 量价配合(上涨放量·回调缩量)——比大单口径更可靠
+    "slope": 14,      # MA20斜率向上
+    "rise": 14,       # 缓慢走高(近20日涨幅甜区)
+    "contract": 10,   # 振幅收敛(近10日振幅 < 前10日·锁筹痕迹)
+    "amp": 6,         # 低波动(振幅绝对水平低)
+    "hidden": 12,     # 隐蔽(近20日无大涨/涨停)
+    "fund": 8,        # 主力近3日净流入(大单估算·弱信号·仅作锦上添花)
+}
 
 
 def _num(x, default=None):
@@ -378,12 +401,14 @@ def _num(x, default=None):
         return default
 
 
-def _accumulation_score(vol_ratio, ma20_slope, ret20, amp20, big_up_days, main_net_3d) -> float:
+def _accumulation_score(vol_ratio, ma20_slope, ret20, amp20, big_up_days, main_net_3d,
+                        up_down_vol=None, amp_contract=None) -> float:
     """慢牛吸筹评分 0~100（纯函数·零依赖·可单测）。
 
-    刻画"主力悄悄吸筹、缓慢走高"：温和放量(非爆量) + MA20向上 + 小步上涨 +
-    低波动 + 近期没大涨涨停(隐蔽) + 主力近3日持续净流入。各项甜区给分，越偏离越低，
-    缺数据则该项不计分。**评分只刻画吸筹形态强弱，不预测涨跌。**
+    刻画"主力悄悄吸筹、缓慢走高"：温和放量(非爆量) + 量价配合(涨放量/跌缩量) +
+    MA20向上 + 小步上涨 + 振幅收敛 + 低波动 + 近期没大涨涨停(隐蔽) +
+    主力近3日净流入(弱信号)。各项甜区给分，越偏离越低，缺数据则该项不计分。
+    **评分只刻画吸筹形态强弱，不预测涨跌；真钱确认请到个股360看龙虎榜机构席位。**
     """
     s = 0.0
     v = _num(vol_ratio)                                  # 温和放量：甜区 1.2~2.5
@@ -391,7 +416,15 @@ def _accumulation_score(vol_ratio, ma20_slope, ret20, amp20, big_up_days, main_n
         if 1.2 <= v <= 2.5:
             s += _ACC_W["vol"]
         elif 1.0 <= v < 1.2 or 2.5 < v <= 3.2:
-            s += _ACC_W["vol"] * 0.48
+            s += _ACC_W["vol"] * 0.5
+    udv = _num(up_down_vol)                              # 量价配合：上涨日均量 > 下跌日均量
+    if udv is not None:
+        if udv >= 1.3:
+            s += _ACC_W["volprice"]
+        elif udv >= 1.05:
+            s += _ACC_W["volprice"] * 0.6
+        elif udv >= 0.9:
+            s += _ACC_W["volprice"] * 0.25
     sl = _num(ma20_slope)                                # MA20向上：缓升最佳，过陡略降
     if sl is not None:
         if 0 < sl <= 12:
@@ -406,7 +439,13 @@ def _accumulation_score(vol_ratio, ma20_slope, ret20, amp20, big_up_days, main_n
             s += _ACC_W["rise"] * 0.4
         elif 25 < r <= 35:
             s += _ACC_W["rise"] * 0.3
-    a = _num(amp20)                                      # 低波动：振幅越低越好
+    ac = _num(amp_contract)                              # 振幅收敛：近10日 / 前10日 < 1
+    if ac is not None:
+        if ac <= 0.85:
+            s += _ACC_W["contract"]
+        elif ac <= 1.0:
+            s += _ACC_W["contract"] * 0.5
+    a = _num(amp20)                                      # 低波动：振幅绝对水平越低越好
     if a is not None:
         if a <= 3.5:
             s += _ACC_W["amp"]
@@ -417,7 +456,7 @@ def _accumulation_score(vol_ratio, ma20_slope, ret20, amp20, big_up_days, main_n
     bd = _num(big_up_days)                               # 隐蔽：近20日无大涨/涨停
     if bd is not None:
         s += max(0.0, _ACC_W["hidden"] - bd * 4)
-    if (_num(main_net_3d, 0) or 0) > 0:                  # 主力近3日持续净流入
+    if (_num(main_net_3d, 0) or 0) > 0:                  # 主力近3日净流入(弱信号)
         s += _ACC_W["fund"]
     return round(min(100.0, s), 1)
 

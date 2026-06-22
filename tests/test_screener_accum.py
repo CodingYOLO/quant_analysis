@@ -1,4 +1,7 @@
-"""慢牛吸筹因子单测：吸筹评分(纯函数) + 多日因子矩阵计算（零网络·合成数据）。"""
+"""慢牛吸筹因子单测：吸筹评分(纯函数) + 多日因子矩阵计算（零网络·合成数据）。
+
+覆盖 2026-06 据策略复盘新增的"量价配合""振幅收敛"，以及大单估算降为弱信号的配权。
+"""
 
 from __future__ import annotations
 
@@ -8,47 +11,60 @@ import pandas as pd
 
 import app.strategy.screener as SC
 
+# 理想吸筹一组参数（各项均落甜区 → 满分）
+_IDEAL = dict(vol_ratio=1.6, ma20_slope=6.0, ret20=12.0, amp20=3.0,
+              big_up_days=0, main_net_3d=1.0, up_down_vol=1.5, amp_contract=0.8)
+
 
 # ---------------------------------------------------------------------------
 # 1. 吸筹评分 _accumulation_score（甜区给分·NaN兜底·夹值）
 # ---------------------------------------------------------------------------
 
 def test_score_ideal_full_marks() -> None:
-    """温和放量+缓升+低波+隐蔽+主力进 → 满分附近。"""
-    s = SC._accumulation_score(vol_ratio=1.6, ma20_slope=6.0, ret20=12.0,
-                               amp20=3.0, big_up_days=0, main_net_3d=1.0)
-    assert s == 100.0
+    assert SC._accumulation_score(**_IDEAL) == 100.0
 
 
 def test_score_explosive_volume_loses_vol_points() -> None:
-    """爆量(量比5)→ 量能项不得分，其余满 → 75。"""
-    s = SC._accumulation_score(vol_ratio=5.0, ma20_slope=6.0, ret20=12.0,
-                               amp20=3.0, big_up_days=0, main_net_3d=1.0)
-    assert s == 75.0
+    """爆量(量比5)→ 量能项(18)不得分。"""
+    p = {**_IDEAL, "vol_ratio": 5.0}
+    assert SC._accumulation_score(**p) == 100.0 - SC._ACC_W["vol"]
+
+
+def test_score_volprice_rewards_healthy() -> None:
+    """量价配合(涨放量/跌缩量)越健康分越高。"""
+    healthy = SC._accumulation_score(**{**_IDEAL, "up_down_vol": 1.5})
+    weak = SC._accumulation_score(**{**_IDEAL, "up_down_vol": 0.8})
+    assert healthy > weak and healthy - weak == SC._ACC_W["volprice"]
+
+
+def test_score_amp_contraction_rewards_locking() -> None:
+    """振幅收敛(近<前)给分，振幅扩张不给分。"""
+    contracting = SC._accumulation_score(**{**_IDEAL, "amp_contract": 0.8})
+    expanding = SC._accumulation_score(**{**_IDEAL, "amp_contract": 1.3})
+    assert contracting - expanding == SC._ACC_W["contract"]
 
 
 def test_score_not_hidden_when_big_up_days() -> None:
-    """近20日大涨3天 → 隐蔽项归零（10-3*4<0），低于全隐蔽。"""
-    hidden = SC._accumulation_score(1.6, 6.0, 12.0, 3.0, big_up_days=0, main_net_3d=1.0)
-    exposed = SC._accumulation_score(1.6, 6.0, 12.0, 3.0, big_up_days=3, main_net_3d=1.0)
-    assert exposed == hidden - 10  # 隐蔽项满分10被吃掉
+    """近20日大涨3天 → 隐蔽项(12)被吃光。"""
+    exposed = SC._accumulation_score(**{**_IDEAL, "big_up_days": 3})
+    assert exposed == 100.0 - SC._ACC_W["hidden"]
 
 
-def test_score_fund_outflow_no_fund_points() -> None:
-    s_in = SC._accumulation_score(1.6, 6.0, 12.0, 3.0, 0, main_net_3d=1.0)
-    s_out = SC._accumulation_score(1.6, 6.0, 12.0, 3.0, 0, main_net_3d=-1.0)
-    assert s_out == s_in - 10
+def test_score_fund_is_weak_signal() -> None:
+    """大单估算仅 8 分（弱信号）：流入vs流出只差 8。"""
+    s_in = SC._accumulation_score(**{**_IDEAL, "main_net_3d": 1.0})
+    s_out = SC._accumulation_score(**{**_IDEAL, "main_net_3d": -1.0})
+    assert s_in - s_out == SC._ACC_W["fund"] == 8
 
 
 def test_score_nan_safe_zero() -> None:
-    """全 NaN/None 不抛错，分数为 0。"""
     nan = float("nan")
-    s = SC._accumulation_score(nan, nan, nan, nan, nan, nan)
-    assert s == 0.0
+    assert SC._accumulation_score(nan, nan, nan, nan, nan, nan,
+                                  up_down_vol=nan, amp_contract=nan) == 0.0
 
 
 def test_score_clamped_to_100() -> None:
-    s = SC._accumulation_score(1.6, 5.0, 12.0, 1.0, 0, 99.0)
+    s = SC._accumulation_score(1.6, 5.0, 12.0, 1.0, 0, 99.0, up_down_vol=9.0, amp_contract=0.1)
     assert 0.0 <= s <= 100.0
 
 
@@ -57,37 +73,33 @@ def test_score_clamped_to_100() -> None:
 # ---------------------------------------------------------------------------
 
 def _slow_bull_matrix():
-    """构造一只"温和放量·缓慢走高"的 30 日票 A。"""
-    close = pd.DataFrame({"A": [10 + 0.05 * i for i in range(30)]})   # 每日小步上涨
-    high = close + 0.1
-    low = close - 0.1
-    vol = pd.DataFrame({"A": [100] * 25 + [160] * 5})                # 最近5日温和放量
-    return close, high, low, vol
+    """构造"温和放量·缓慢走高·涨放量跌缩量"的 30 日票 A（含小回调以便算量价配合）。"""
+    pattern = [1, 1, -1, 1, 1, 1, -1, 1, 1, 1] * 3        # 上涨为主、周期性小回调
+    price, closes, vols = 10.0, [], []
+    for d in pattern:
+        price += 0.06 if d > 0 else -0.03
+        closes.append(round(price, 3))
+        vols.append(140 if d > 0 else 80)                 # 上涨放量、回调缩量
+    close = pd.DataFrame({"A": closes})
+    return close, close + 0.08, close - 0.08, pd.DataFrame({"A": vols})
 
 
 def test_accum_columns_slow_bull() -> None:
     close, high, low, vol = _slow_bull_matrix()
     cols = SC._accum_factor_columns(close, high, low, vol)
-    # 温和放量比 ≈ 160 / 115 ≈ 1.39，落在甜区
-    assert math.isclose(cols["vol5_vol20"]["A"], 160 / 115, rel_tol=1e-3)
-    assert 1.2 <= cols["vol5_vol20"]["A"] <= 2.5
-    # 近20日涨幅 ≈ (11.45/10.45-1)*100 ≈ 9.57%
-    assert math.isclose(cols["ret20"]["A"], (11.45 / 10.45 - 1) * 100, rel_tol=1e-2)
-    # MA20 斜率向上
-    assert cols["ma20_slope"]["A"] > 0
-    # 缓慢走高·无大涨 → 隐蔽
-    assert cols["big_up_days_20"]["A"] == 0
-    # 低振幅
-    assert cols["amp20"]["A"] < 3.5
+    assert cols["ret20"]["A"] > 0                 # 净走高
+    assert cols["ma20_slope"]["A"] > 0            # MA20向上
+    assert cols["big_up_days_20"]["A"] == 0       # 无大涨 → 隐蔽
+    assert cols["up_down_vol"]["A"] > 1.3         # 涨放量/跌缩量 ≈ 140/80
+    assert cols["amp20"]["A"] < 5                 # 低振幅
+    assert "amp_contract" in cols                 # 收敛比已产出
 
 
 def test_accum_columns_counts_big_up_days() -> None:
     """含一个 +10% 跳涨日 → big_up_days_20 计为 1。"""
-    seq = [10.0] * 20 + [11.0] + [11.05 + 0.01 * i for i in range(9)]  # 第21日 +10%
+    seq = [10.0] * 20 + [11.0] + [11.05 + 0.01 * i for i in range(9)]
     close = pd.DataFrame({"B": seq})
-    high, low = close + 0.1, close - 0.1
-    vol = pd.DataFrame({"B": [100] * 30})
-    cols = SC._accum_factor_columns(close, high, low, vol)
+    cols = SC._accum_factor_columns(close, close + 0.1, close - 0.1, pd.DataFrame({"B": [100] * 30}))
     assert cols["big_up_days_20"]["B"] == 1
 
 

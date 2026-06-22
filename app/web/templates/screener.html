@@ -67,7 +67,7 @@
   <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:16px;padding:10px 14px;background:#10261c;border:1px solid #1f5a3a;border-radius:8px">
     <b style="color:#4ade80;font-size:13px;white-space:nowrap">🐌 一键策略</b>
     <button class="quickbtn" id="preset-accum" style="border-color:#1f5a3a;color:#4ade80">慢牛吸筹（主力悄悄进）</button>
-    <span class="neu" style="font-size:11.5px;line-height:1.6">温和放量＋缓慢走高＋近期没大涨涨停＋主力近3日净流入，按 <b>🐌吸筹评分</b> 排序——专挑"还没被发现、主力在悄悄吸"的票。评分只刻画吸筹形态强弱，不预测涨跌。</span>
+    <span class="neu" style="font-size:11.5px;line-height:1.6">温和放量＋<b>量价配合(涨放量·跌缩量)</b>＋缓慢走高＋近期没大涨涨停，按 <b>🐌吸筹评分</b> 排序——专挑"还没被发现、主力在悄悄吸"的票。这只是<b>价量海选</b>；命中后请点进 <a href="/stock" style="color:#7c9ef8">🎯个股360</a> 用<b>龙虎榜机构真钱+股东户数</b>二次坐实"主力在不在"。评分只刻画形态强弱、不预测涨跌；软件"大单资金"口径易失真，本策略只当弱信号。</span>
   </div>
 
   <div class="factor-cols">
@@ -159,7 +159,7 @@ document.querySelectorAll('.fbtn').forEach(b => {
 
 // 🐌 一键预设：慢牛吸筹（勾选核心因子 + 切吸筹评分排序 + 直接跑）
 document.getElementById('preset-accum').addEventListener('click', () => {
-  const keys = ['above_ma20', 'accum_quiet_vol', 'accum_slow_rise', 'accum_hidden', 'accum_fund3d'];
+  const keys = ['above_ma20', 'accum_quiet_vol', 'accum_volprice', 'accum_slow_rise', 'accum_hidden'];
   selected.clear();
   document.querySelectorAll('.fbtn').forEach(b => b.classList.remove('on'));
   keys.forEach(k => {
