@@ -118,7 +118,8 @@ class BochaSearchClient:
             if any(x in (r.get('url', '') or '') for x in _EXCLUDE_URL):
                 continue
             kept.append(r)
-        # 权威源优先（稳定排序）
+        # 先按日期倒序（最新优先），再按权威源优先——稳定排序使「权威组内仍按日期新→旧」
+        kept.sort(key=lambda r: r.get('date') or '', reverse=True)
         kept.sort(key=lambda r: 0 if any(a in (r.get('site', '') or '') for a in _AUTHORITATIVE) else 1)
         return kept
 
