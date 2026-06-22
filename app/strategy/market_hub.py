@@ -147,12 +147,15 @@ def news_flash(provider: CompositeProvider, n: int = 50) -> list[dict]:
 
 # 本地同步脚本（在用户家电脑跑·住宅IP能直连东财·推送到服务器兜底缓存）
 LOCAL_SYNC_SCRIPT = r'''# local_hotrank_sync.py —— 在你【家里电脑】跑·拉东财人气/飙升榜→推送到服务器
-# 用途：东财对云服务器封IP·但你家住宅IP能直连。电脑开着时跑一下(或挂定时)，
-# 服务器就能稳定显示人气榜；电脑没开则显示上次同步的(带时间戳)。需先 pip install akshare requests
-import akshare as ak, requests, base64
+# 东财对云服务器封IP·但你家住宅IP能直连。默认【循环模式】：运行后每5分钟自动同步一次
+# (仅交易时段)，关窗口/关机就停——正好当备用。需先：pip install akshare requests
+# 用法：python local_hotrank_sync.py   （Ctrl+C 停止）
+import akshare as ak, requests, base64, time, datetime
 
 SERVER = "http://123.207.223.176:8000"
 AUTH = "Basic " + base64.b64encode(b"admin:Astock@2026").decode()
+INTERVAL = 300        # 同步间隔(秒)·默认5分钟
+LOOP = True           # True=开着就每5分钟自动同步 / False=只跑一次就退出
 
 def fmt(df, kind):
     rows = []
@@ -168,15 +171,35 @@ def push(kind, fn):
     rows = fmt(fn(), kind)
     requests.post(SERVER + "/api/market/hot/ingest", json={"kind": kind, "rows": rows},
                   headers={"Authorization": AUTH}, timeout=20)
-    print(f"{kind}: 已推送 {len(rows)} 条")
+    print(f"  {kind}: 已推送 {len(rows)} 条")
 
-if __name__ == "__main__":
+def is_market_hours():
+    n = datetime.datetime.now()
+    if n.weekday() >= 5:                         # 周末不跑
+        return False
+    hm = n.strftime("%H%M")
+    return ("0925" <= hm <= "1135") or ("1300" <= hm <= "1505")
+
+def sync_once():
+    print(datetime.datetime.now().strftime("%H:%M:%S"), "同步中…")
     for kind, fn in [("rank", ak.stock_hot_rank_em), ("up", ak.stock_hot_up_em)]:
         try:
             push(kind, fn)
         except Exception as e:
-            print(kind, "失败:", e)
-# 挂定时(可选)：Windows任务计划/Mac crontab·盘中(9:30-15:00)每5分钟跑一次即可。
+            print(f"  {kind} 失败:", e)
+
+if __name__ == "__main__":
+    if not LOOP:
+        sync_once()
+    else:
+        print("循环同步已启动 · 每%d秒一次(仅交易时段) · Ctrl+C 停止" % INTERVAL)
+        while True:
+            if is_market_hours():
+                sync_once()
+            else:
+                print(datetime.datetime.now().strftime("%H:%M"), "非交易时段·跳过")
+            time.sleep(INTERVAL)
+# 想关掉窗口也继续跑(可选)：nohup python local_hotrank_sync.py >sync.log 2>&1 &
 '''
 
 
