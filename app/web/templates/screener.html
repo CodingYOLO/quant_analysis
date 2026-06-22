@@ -141,6 +141,9 @@
 
 <div class="card" id="rescard" style="display:none">
   <h2>📋 筛选结果 <span class="neu" id="rescount" style="font-weight:400"></span>
+    <label class="neu" style="font-size:12px;font-weight:400;margin-left:14px;cursor:pointer;user-select:none">
+      <input type="checkbox" id="main-board-only" style="vertical-align:middle"> 只看主板<span style="color:#6b7280">（剔科创/创业/北交）</span>
+    </label>
     <button class="quickbtn" id="btn-export" style="float:right;border-color:#3358e0;color:#7c9ef8">📷 导出长图</button>
   </h2>
   <div class="reswrap"><table id="restable"></table></div>
@@ -215,11 +218,26 @@ const TEXT_COLS = new Set(['ts_code', 'name', 'industry']);
 let lastData = null;        // 最近一次结果 {columns, rows}
 let sortState = { key: null, asc: false };
 
-function fmtCell(key, v) {
+// 板块判定（按代码前缀）：主板可交易=绿，创业/科创需权限=黄，北交=红
+function boardOf(code) {
+  const c3 = (code || '').slice(0, 3), c1 = (code || '').slice(0, 1);
+  if (c3 === '688' || c3 === '689') return { t: '科创', fg: '#f0a020', bg: '#3b2a0a', main: false };
+  if (c3 === '300' || c3 === '301') return { t: '创业', fg: '#f0a020', bg: '#3b2a0a', main: false };
+  if (c1 === '8' || c1 === '4')      return { t: '北交', fg: '#f87171', bg: '#3b1a1a', main: false };
+  return { t: '主板', fg: '#4ade80', bg: '#10261c', main: true };
+}
+function boardTag(code) {
+  const b = boardOf(code);
+  return '<span style="font-size:10px;padding:1px 5px;border-radius:5px;margin-left:6px;background:'
+    + b.bg + ';color:' + b.fg + '">' + b.t + '</span>';
+}
+
+function fmtCell(key, v, row) {
   if (key === 'accum_score' && typeof v === 'number') {       // 吸筹分：标色梯度·一眼看排名
     const c = v >= 85 ? '#4ade80' : (v >= 70 ? '#a3e635' : (v >= 55 ? '#fbbf24' : '#9ca3af'));
     return '<td style="font-weight:700;color:' + c + '">' + v + '</td>';
   }
+  if (key === 'name') return '<td>' + v + boardTag(row && row.ts_code) + '</td>';   // 名称后标板块
   if (typeof v === 'number' && SIGNED.has(key)) {
     const cls = v > 0 ? 'up' : (v < 0 ? 'down' : 'neu');
     const sign = v > 0 ? '+' : '';
@@ -233,8 +251,10 @@ function fmtCell(key, v) {
 function renderTable() {
   if (!lastData) return;
   const { columns, rows } = lastData;
+  // 只看主板：剔除科创/创业/北交（你暂无这些权限）
+  const mainOnly = (document.getElementById('main-board-only') || {}).checked;
+  let sorted = (mainOnly ? rows.filter(r => boardOf(r.ts_code).main) : rows).slice();
   // 排序
-  let sorted = rows.slice();
   if (sortState.key && !TEXT_COLS.has(sortState.key)) {
     sorted.sort((a, b) => {
       let x = a[sortState.key], y = b[sortState.key];
@@ -252,7 +272,7 @@ function renderTable() {
   const colspan = columns.length;
   sorted.forEach((r, i) => {
     html += '<tr class="datarow" onclick="toggleScr(' + i + ')">'
-      + columns.map(c => fmtCell(c.key, r[c.key])).join('') + '</tr>';
+      + columns.map(c => fmtCell(c.key, r[c.key], r)).join('') + '</tr>';
     html += '<tr id="exr_' + i + '" style="display:none"><td colspan="' + colspan
       + '" style="padding:0"><div class="detail" id="exd_' + i + '"></div></td></tr>';
   });
@@ -450,6 +470,9 @@ document.getElementById('run').addEventListener('click', async () => {
     btn.disabled = false;
   }
 });
+
+// 「只看主板」开关 → 即时重渲染（剔除科创/创业/北交）
+document.getElementById('main-board-only').addEventListener('change', renderTable);
 
 // ── 一键导出长图（整张结果表→PNG，复用个股360同款 html2canvas）──
 document.getElementById('btn-export').addEventListener('click', async () => {
