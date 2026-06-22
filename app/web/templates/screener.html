@@ -481,15 +481,22 @@ document.getElementById('btn-export').addEventListener('click', async () => {
   btn.disabled = true; btn.textContent = '⏳ 生成中…';
   const node = document.getElementById('rescard');
   const wrap = node.querySelector('.reswrap');
-  const ov = wrap.style.overflow;
-  wrap.style.overflow = 'visible';               // 临时放开横向裁剪，截全宽
+  const table = document.getElementById('restable');
+  // 关键：把卡片临时撑到表格完整宽度，否则 html2canvas 只截卡片可视宽度→右侧列被切
+  const fullW = table.scrollWidth;
+  const saved = { ov: wrap.style.overflow, w: node.style.width, mw: node.style.maxWidth };
+  wrap.style.overflow = 'visible';
+  node.style.maxWidth = 'none';
+  node.style.width = (fullW + 60) + 'px';        // +60 容纳卡片内边距
   const noexport = [];                           // 导出时隐藏按钮本身
-  document.querySelectorAll('#rescard .quickbtn, #rescard .addw').forEach(el => {
+  document.querySelectorAll('#rescard .quickbtn, #rescard .addw, #rescard #main-board-only').forEach(el => {
     noexport.push([el, el.style.visibility]); el.style.visibility = 'hidden';
   });
   try {
+    const w = node.scrollWidth;
     const canvas = await html2canvas(node, {
-      scale: 2, backgroundColor: '#0f1117', useCORS: true, windowWidth: node.scrollWidth,
+      scale: 2, backgroundColor: '#0f1117', useCORS: true,
+      width: w, windowWidth: w,                  // 按撑开后的完整宽度截图
     });
     const today = new Date().toISOString().slice(0, 10).replace(/-/g, '');
     const a = document.createElement('a');
@@ -498,7 +505,9 @@ document.getElementById('btn-export').addEventListener('click', async () => {
   } catch (e) {
     alert('长图生成失败：' + e);
   } finally {
-    wrap.style.overflow = ov;
+    wrap.style.overflow = saved.ov;
+    node.style.width = saved.w;
+    node.style.maxWidth = saved.mw;
     noexport.forEach(([el, v]) => el.style.visibility = v);
     btn.disabled = false; btn.textContent = old;
   }
