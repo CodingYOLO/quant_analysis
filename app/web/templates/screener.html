@@ -479,24 +479,21 @@ document.getElementById('btn-export').addEventListener('click', async () => {
   if (typeof html2canvas === 'undefined') { alert('图片库未加载，请刷新重试'); return; }
   const btn = document.getElementById('btn-export'), old = btn.textContent;
   btn.disabled = true; btn.textContent = '⏳ 生成中…';
-  const node = document.getElementById('rescard');
-  const wrap = node.querySelector('.reswrap');
+  const wrap = document.querySelector('#rescard .reswrap');
   const table = document.getElementById('restable');
-  // 关键：把卡片临时撑到表格完整宽度，否则 html2canvas 只截卡片可视宽度→右侧列被切
-  const fullW = table.scrollWidth;
-  const saved = { ov: wrap.style.overflow, w: node.style.width, mw: node.style.maxWidth };
+  // 直接截「表格元素」本身：它的盒子宽度=所有列的真实宽度，绕开卡片容器与 width:100% 的留白/裁剪。
+  // 截前把表格宽度固定为内容宽度(max-content)，避免 width:100% 被外层拉伸。
+  const saved = { ov: wrap.style.overflow, tw: table.style.width };
   wrap.style.overflow = 'visible';
-  node.style.maxWidth = 'none';
-  node.style.width = (fullW + 60) + 'px';        // +60 容纳卡片内边距
-  const noexport = [];                           // 导出时隐藏按钮本身
-  document.querySelectorAll('#rescard .quickbtn, #rescard .addw, #rescard #main-board-only').forEach(el => {
+  table.style.width = 'max-content';
+  const noexport = [];                           // 隐藏表内「＋自选」小按钮
+  document.querySelectorAll('#restable .addw').forEach(el => {
     noexport.push([el, el.style.visibility]); el.style.visibility = 'hidden';
   });
   try {
-    const w = node.scrollWidth;
-    const canvas = await html2canvas(node, {
-      scale: 2, backgroundColor: '#0f1117', useCORS: true,
-      width: w, windowWidth: w,                  // 按撑开后的完整宽度截图
+    const w = table.scrollWidth;                 // 表格完整内容宽度(含所有列)
+    const canvas = await html2canvas(table, {
+      scale: 2, backgroundColor: '#0f1117', useCORS: true, width: w, windowWidth: w + 40,
     });
     const today = new Date().toISOString().slice(0, 10).replace(/-/g, '');
     const a = document.createElement('a');
@@ -506,8 +503,7 @@ document.getElementById('btn-export').addEventListener('click', async () => {
     alert('长图生成失败：' + e);
   } finally {
     wrap.style.overflow = saved.ov;
-    node.style.width = saved.w;
-    node.style.maxWidth = saved.mw;
+    table.style.width = saved.tw;
     noexport.forEach(([el, v]) => el.style.visibility = v);
     btn.disabled = false; btn.textContent = old;
   }
