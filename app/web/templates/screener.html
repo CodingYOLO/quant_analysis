@@ -479,21 +479,21 @@ document.getElementById('btn-export').addEventListener('click', async () => {
   if (typeof html2canvas === 'undefined') { alert('图片库未加载，请刷新重试'); return; }
   const btn = document.getElementById('btn-export'), old = btn.textContent;
   btn.disabled = true; btn.textContent = '⏳ 生成中…';
-  const wrap = document.querySelector('#rescard .reswrap');
   const table = document.getElementById('restable');
-  // 直接截「表格元素」本身：它的盒子宽度=所有列的真实宽度，绕开卡片容器与 width:100% 的留白/裁剪。
-  // 截前把表格宽度固定为内容宽度(max-content)，避免 width:100% 被外层拉伸。
-  const saved = { ov: wrap.style.overflow, tw: table.style.width };
-  wrap.style.overflow = 'visible';
-  table.style.width = 'max-content';
-  const noexport = [];                           // 隐藏表内「＋自选」小按钮
-  document.querySelectorAll('#restable .addw').forEach(el => {
-    noexport.push([el, el.style.visibility]); el.style.visibility = 'hidden';
-  });
+  // 最稳做法：把表格克隆到「屏幕外、按内容自适应宽度」的容器再截，
+  // 彻底脱离页面 max-width:1100 与 overflow 裁剪的影响，保证所有列完整入图。
+  const holder = document.createElement('div');
+  holder.style.cssText = 'position:fixed;left:-99999px;top:0;z-index:-1;'
+    + 'background:#0f1117;padding:16px;display:inline-block';
+  const clone = table.cloneNode(true);
+  clone.style.width = 'max-content';             // 表格按内容真实宽度展开
+  clone.querySelectorAll('.addw').forEach(e => e.remove());   // 去掉「＋自选」小按钮
+  holder.appendChild(clone);
+  document.body.appendChild(holder);
   try {
-    const w = table.scrollWidth;                 // 表格完整内容宽度(含所有列)
-    const canvas = await html2canvas(table, {
-      scale: 2, backgroundColor: '#0f1117', useCORS: true, width: w, windowWidth: w + 40,
+    const canvas = await html2canvas(holder, {
+      scale: 2, backgroundColor: '#0f1117', useCORS: true,
+      width: holder.scrollWidth, windowWidth: holder.scrollWidth + 40,
     });
     const today = new Date().toISOString().slice(0, 10).replace(/-/g, '');
     const a = document.createElement('a');
@@ -502,9 +502,7 @@ document.getElementById('btn-export').addEventListener('click', async () => {
   } catch (e) {
     alert('长图生成失败：' + e);
   } finally {
-    wrap.style.overflow = saved.ov;
-    table.style.width = saved.tw;
-    noexport.forEach(([el, v]) => el.style.visibility = v);
+    document.body.removeChild(holder);
     btn.disabled = false; btn.textContent = old;
   }
 });
