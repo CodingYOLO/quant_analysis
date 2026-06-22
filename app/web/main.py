@@ -775,9 +775,9 @@ async def api_market_hot(top: int = 40, kind: str = "rank", _user: str = Depends
         from fastapi.concurrency import run_in_threadpool
 
         from app.data.composite_provider import CompositeProvider
-        from app.strategy.market_hub import hot_rank, hot_up
-        fn = hot_up if kind == "up" else hot_rank
-        return {"ok": True, "kind": kind, "rows": await run_in_threadpool(fn, CompositeProvider(), int(top))}
+        from app.strategy.market_hub import hot_board
+        board = await run_in_threadpool(hot_board, CompositeProvider(), kind, int(top))
+        return {"ok": True, "kind": kind, **board}
     except Exception as e:
         logger.exception("东财热榜失败")
         return {"ok": False, "msg": str(e)}

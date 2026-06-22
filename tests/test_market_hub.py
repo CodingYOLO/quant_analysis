@@ -31,11 +31,19 @@ def setup_function(_=None):
     M._CACHE.clear()        # 每个用例清缓存，避免互相干扰
 
 
-def test_hot_rank_normalize() -> None:
-    M._CACHE.clear()
+def _tmp_disk():
+    import tempfile
+    from pathlib import Path
+    d = Path(tempfile.mkdtemp())
+    M._hot_disk = lambda key: d / (key + ".json")
+
+
+def test_hot_board_rank_normalize() -> None:
+    M._CACHE.clear(); _tmp_disk()
     df = pd.DataFrame([{"当前排名": 1, "代码": "300308", "股票名称": "中际旭创", "最新价": 52.0, "涨跌幅": 8.9}])
-    out = M.hot_rank(_Fake(hot=df), top=10)
-    assert out[0]["code"] == "300308" and out[0]["name"] == "中际旭创" and out[0]["pct"] == 8.9
+    out = M.hot_board(_Fake(hot=df), "rank", 10)
+    assert out["rows"][0]["code"] == "300308" and out["rows"][0]["pct"] == 8.9
+    assert out["stale"] is False and out["as_of"]
 
 
 def test_news_flash_clean_nan() -> None:
@@ -56,27 +64,27 @@ def test_econ_calendar_normalize() -> None:
     assert out[0]["event"] == "非农" and out[0]["actual"] == "" and out[0]["forecast"] == "20万"
 
 
-def test_hot_up_normalize() -> None:
-    M._CACHE.clear()
+def test_hot_board_up_normalize() -> None:
+    M._CACHE.clear(); _tmp_disk()
     df = pd.DataFrame([{"当前排名": 3, "排名较昨日变动": 17, "代码": "300398", "股票名称": "飞凯材料",
                         "最新价": 49.0, "涨跌幅": 7.3}])
-    out = M.hot_up(_Fake(up=df), top=10)
-    assert out[0]["rank_chg"] == 17 and out[0]["name"] == "飞凯材料"
+    out = M.hot_board(_Fake(up=df), "up", 10)
+    assert out["rows"][0]["rank_chg"] == 17 and out["rows"][0]["name"] == "飞凯材料"
 
 
-def test_cache_serves_stale_on_failure() -> None:
-    """先成功缓存→再失败应返回上次成功结果(不空屏)。"""
-    M._CACHE.clear()
+def test_hot_board_stale_on_failure() -> None:
+    """先成功(写盘)→东财挂了应读上次成功并标 stale。"""
+    M._CACHE.clear(); _tmp_disk()
     good = pd.DataFrame([{"当前排名": 1, "代码": "300308", "股票名称": "中际旭创", "最新价": 52, "涨跌幅": 9}])
-    assert M.hot_rank(_Fake(hot=good), 10)[0]["name"] == "中际旭创"   # 缓存成功结果
-    M._CACHE["hot10"] = (0, M._CACHE["hot10"][1])                     # 强制过期
-    out = M.hot_rank(_Fake(hot=pd.DataFrame()), 10)                   # 这次拉空
-    assert out and out[0]["name"] == "中际旭创"                       # 仍返上次成功
+    assert M.hot_board(_Fake(hot=good), "rank", 10)["rows"][0]["name"] == "中际旭创"   # 写盘
+    M._CACHE.clear()                                                # 清内存缓存逼它读盘
+    out = M.hot_board(_Fake(hot=pd.DataFrame()), "rank", 10)        # 东财拉空
+    assert out["rows"][0]["name"] == "中际旭创" and out["stale"] is True
 
 
 def test_empty_safe() -> None:
-    M._CACHE.clear()
-    assert M.hot_rank(_Fake(hot=pd.DataFrame()), 10) == []
+    M._CACHE.clear(); _tmp_disk()
+    assert M.hot_board(_Fake(hot=pd.DataFrame()), "rank", 10)["rows"] == []
     assert M.news_flash(_Fake(news=None), 10) == []
 
 
