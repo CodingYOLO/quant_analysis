@@ -75,6 +75,14 @@ class AkshareProvider(DataProvider):
     def _fetch_hot_rank(self) -> pd.DataFrame:
         return rate_limited_call("ak_hot_rank", ak.stock_hot_rank_em)
 
+    def get_hot_up(self) -> pd.DataFrame:
+        """东财人气飙升榜（含『排名较昨日变动』，含重试）。"""
+        return self._fetch_hot_up()
+
+    @_RETRY
+    def _fetch_hot_up(self) -> pd.DataFrame:
+        return rate_limited_call("ak_hot_up", ak.stock_hot_up_em)
+
     def get_econ_calendar(self) -> pd.DataFrame:
         """百度财经日历（当日经济数据/事件·含公布/预期/前值/重要性，含重试）。
 

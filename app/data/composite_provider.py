@@ -160,6 +160,9 @@ class CompositeProvider(DataProvider):
     def get_hot_rank(self) -> pd.DataFrame:
         return self._ak.get_hot_rank()
 
+    def get_hot_up(self) -> pd.DataFrame:
+        return self._ak.get_hot_up()
+
     def get_econ_calendar(self) -> pd.DataFrame:
         return self._ak.get_econ_calendar()
 

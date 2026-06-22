@@ -744,16 +744,30 @@ async def market_page(request: Request, _user: str = Depends(require_auth)):
 
 
 @app.get("/api/market/hot")
-async def api_market_hot(top: int = 40, _user: str = Depends(require_auth)):
-    """东财人气榜 Top N（线程池·3分钟缓存）。"""
+async def api_market_hot(top: int = 40, kind: str = "rank", _user: str = Depends(require_auth)):
+    """东财热榜（kind=rank 人气榜 / up 飙升榜）Top N（线程池·缓存）。"""
     try:
         from fastapi.concurrency import run_in_threadpool
 
         from app.data.composite_provider import CompositeProvider
-        from app.strategy.market_hub import hot_rank
-        return {"ok": True, "rows": await run_in_threadpool(hot_rank, CompositeProvider(), int(top))}
+        from app.strategy.market_hub import hot_rank, hot_up
+        fn = hot_up if kind == "up" else hot_rank
+        return {"ok": True, "kind": kind, "rows": await run_in_threadpool(fn, CompositeProvider(), int(top))}
     except Exception as e:
         logger.exception("东财热榜失败")
+        return {"ok": False, "msg": str(e)}
+
+
+@app.get("/api/market/concept")
+async def api_market_concept(top: int = 30, _user: str = Depends(require_auth)):
+    """概念热度榜（自家宽表·按 heat_score 降序·线程池·30分钟缓存）。"""
+    try:
+        from fastapi.concurrency import run_in_threadpool
+
+        from app.strategy.market_hub import concept_heat
+        return {"ok": True, "rows": await run_in_threadpool(concept_heat, int(top))}
+    except Exception as e:
+        logger.exception("概念热度失败")
         return {"ok": False, "msg": str(e)}
 
 

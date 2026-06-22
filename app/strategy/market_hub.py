@@ -58,6 +58,51 @@ def hot_rank(provider: CompositeProvider, top: int = 40) -> list[dict]:
     return _cached(f"hot{top}", 300, _f)
 
 
+def hot_up(provider: CompositeProvider, top: int = 40) -> list[dict]:
+    """东财人气飙升榜 Top N → [{rank, rank_chg, code, name, price, pct}]（含重试·缓存失败返上次）。"""
+    def _f():
+        df = None
+        for _ in range(3):
+            try:
+                df = provider.get_hot_up()
+                if df is not None and not df.empty:
+                    break
+            except Exception:
+                df = None
+                time.sleep(1.0)
+        if df is None or df.empty:
+            return []
+        return [{
+            "rank": r.get("当前排名"),
+            "rank_chg": r.get("排名较昨日变动"),
+            "code": _clean(r.get("代码")),
+            "name": _clean(r.get("股票名称")),
+            "price": r.get("最新价"),
+            "pct": r.get("涨跌幅"),
+        } for r in df.head(top).to_dict("records")]
+    return _cached(f"hotup{top}", 300, _f)
+
+
+def concept_heat(top: int = 30) -> list[dict]:
+    """概念热度榜（用自家宽表·最可靠）→ [{name, heat, delta, money_flow_3d, pct_chg_3d, phase}]。"""
+    def _f():
+        from app.data.theme_heat_db import get_themes, latest_trade_date
+        d = latest_trade_date("concept")
+        if not d:
+            return []
+        rows = get_themes(d, "concept")[:top]          # 已按 heat_score 降序
+        return [{
+            "name": _clean(r.get("theme_name")),
+            "heat": round(r["heat_score"], 1) if r.get("heat_score") is not None else None,
+            "delta": round(r["heat_score_delta_3d"], 1) if r.get("heat_score_delta_3d") is not None else None,
+            "money_flow_3d": r.get("money_flow_3d"),
+            "pct_chg_3d": r.get("pct_chg_3d"),
+            "phase": _clean(r.get("phase")),
+            "date": d,
+        } for r in rows]
+    return _cached(f"concept{top}", 1800, _f)
+
+
 def news_flash(provider: CompositeProvider, n: int = 50) -> list[dict]:
     """7×24 快讯（财联社电报·降级东财）→ [{time, title, summary, level, source, url}]。"""
     def _f():
