@@ -84,14 +84,59 @@ def test_inst_net_map_filters_and_sums() -> None:
     ])
     prov = _InstProvider({"20260617": d1, "20260618": d2})
     m = FT._inst_net_map(prov, ["20260617", "20260618"])
-    assert round(m["600000.SH"], 2) == 4.0          # 3 + 1，游资不计
-    assert round(m["000001.SZ"], 2) == -2.0
+    # 新结构：{ts: (净买亿, 净买天数)}
+    assert round(m["600000.SH"][0], 2) == 4.0       # 3 + 1，游资不计
+    assert m["600000.SH"][1] == 2                    # 两日均净买 → 2 个吸筹日
+    assert round(m["000001.SZ"][0], 2) == -2.0
+    assert m["000001.SZ"][1] == 0                    # 净卖 → 0 个吸筹日
 
 
 def test_inst_net_map_empty_safe() -> None:
     """缺数据/空表优雅跳过，不抛异常。"""
     prov = _InstProvider({"20260618": pd.DataFrame()})
     assert FT._inst_net_map(prov, ["20260618", "20260617"]) == {}
+
+
+# ---------------------------------------------------------------------------
+# 2b. 三源一致性打分 _consistency（纯函数·四档）
+# ---------------------------------------------------------------------------
+
+def test_consistency_resonance_needs_real_money() -> None:
+    """机构真买 + 主力流入 + 北向正 → 高分『三源共振·偏多』。"""
+    s, label = FT._consistency(8.0, 5.0, on_lhb=True, north_market_yi=1.0, inst_buy_days=1)
+    assert s >= FT._TH_RESONANCE and label == "三源共振·偏多"
+
+
+def test_consistency_no_real_money_capped_below_resonance() -> None:
+    """仅主力估算流入(无机构足迹) → 偏多但封在共振档以下(无真钱印证)。"""
+    s, label = FT._consistency(3.0, 0.0, on_lhb=False, north_market_yi=0.0)
+    assert FT._TH_BULLISH <= s < FT._TH_RESONANCE and label == "资金偏多"
+
+
+def test_consistency_divergence_is_bearish() -> None:
+    """主力流入但机构净卖 → 背离·偏空。"""
+    s, label = FT._consistency(4.0, -3.0, on_lhb=True, north_market_yi=0.0)
+    assert s <= FT._TH_BEARISH and label == "资金偏空·背离"
+
+
+def test_consistency_persistence_boosts_score() -> None:
+    """同等净买下，机构净买天数越多分越高（持续吸筹置信更高）。"""
+    s1, _ = FT._consistency(0.0, 2.0, on_lhb=True, north_market_yi=0.0, inst_buy_days=1)
+    s3, _ = FT._consistency(0.0, 2.0, on_lhb=True, north_market_yi=0.0, inst_buy_days=3)
+    assert s3 > s1
+
+
+def test_consistency_neutral_when_no_signal() -> None:
+    """三路均无方向 → 基线中性。"""
+    s, label = FT._consistency(0.0, 0.0, on_lhb=False, north_market_yi=0.0)
+    assert s == FT._SCORE_BASE and label == "资金中性"
+
+
+def test_consistency_clamped_0_100() -> None:
+    """极端输入分数被夹在 0~100。"""
+    hi, _ = FT._consistency(99.0, 99.0, on_lhb=True, north_market_yi=9.0, inst_buy_days=9)
+    lo, _ = FT._consistency(-99.0, -99.0, on_lhb=True, north_market_yi=-9.0)
+    assert 0 <= lo <= 100 and 0 <= hi <= 100
 
 
 # ---------------------------------------------------------------------------
@@ -125,12 +170,15 @@ def test_build_triangle_confirm_and_no_trace() -> None:
     main_flow = {"603986.SH": 8.0, "300308.SZ": 3.0}         # 两只主力均流入
     res = FT.build_fund_triangle(prov, "20260618", main_flow, lookback=3)
 
-    # 603986 有机构真买 → 真钱印证
+    # 603986 有机构真买 → 真钱印证 + 一致性进共振档 + 1 个吸筹日
     a = res["603986.SH"]
     assert a.label == FT._L_CONFIRM and a.on_lhb and round(a.inst_net_yi, 2) == 5.0
-    # 300308 主力流入但无机构足迹 → 机构无足迹
+    assert a.consistency >= FT._TH_RESONANCE and a.consistency_label == "三源共振·偏多"
+    assert a.inst_buy_days == 1
+    # 300308 主力流入但无机构足迹 → 机构无足迹 + 偏多但未达共振(无真钱印证)
     b = res["300308.SZ"]
     assert b.label == FT._L_NO_TRACE and not b.on_lhb
+    assert FT._TH_BULLISH <= b.consistency < FT._TH_RESONANCE and b.inst_buy_days == 0
     # 大盘北向环境背景两只共享
     assert a.north_market_yi == b.north_market_yi == round(429343.56 / 1e4, 2)
 

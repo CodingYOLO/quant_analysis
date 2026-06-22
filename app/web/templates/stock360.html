@@ -163,15 +163,21 @@ function renderFund(d,facts){
   if(!d||!d.ok||!d.fund_triangle){ $('v-fund').textContent='—'; return; }
   if(d.name) _lastName=d.name;
   const t=d.fund_triangle, cls={strong:'ft-strong',warn:'ft-warn',weak:'ft-weak',neutral:'ft-neu'}[t.level]||'ft-neu';
+  const score=(t.consistency==null?50:t.consistency), slabel=t.consistency_label||'';
+  const sColor=score>=75?'#f6c343':(score>=58?'#f0a020':(score<=35?'#2ebd85':'#9ca3af'));
+  const instDays=(t.on_lhb&&t.inst_buy_days)?('·近期 '+t.inst_buy_days+' 个吸筹日'):'';
   $('v-fund').className='';
-  $('v-fund').innerHTML=dt('数据日 <b>'+fmtD(d.date)+'</b> · 主力估算=近3日累计 · 北向=当日 · 龙虎榜=近N日(见下方复盘) · Tushare 盘后(收盘后)更新')
+  $('v-fund').innerHTML=dt('数据日 <b>'+fmtD(d.date)+'</b> · 主力估算=近3日累计 · 北向=当日 · 龙虎榜=近5日(见下方复盘) · Tushare 盘后(收盘后)更新')
     +'<span class="ftb '+cls+'">'+esc(t.label)+'</span>'
+    +'<span style="margin-left:10px;font-size:12.5px">🎯 三源一致性 <b style="color:'+sColor+'">'+score+'</b><span class="neu2">/100</span> · <span style="color:'+sColor+'">'+esc(slabel)+'</span></span>'
+    +'<div class="vd-scorebar" style="margin-top:7px;max-width:280px"><div class="vd-scorefill" style="width:'+score+'%;background:'+sColor+'"></div></div>'
     +'<div style="margin-top:8px;font-size:13px;line-height:1.9">'
     +'主力估算近3日 <b class="'+(t.main_flow_yi>=0?'up':'down')+'">'+(t.main_flow_yi>=0?'+':'')+t.main_flow_yi+'亿</b>（代理口径）<br>'
-    +'龙虎榜机构 '+(t.on_lhb?('<b>'+(t.inst_net_yi>=0?'+':'')+t.inst_net_yi+'亿</b>（真金白银）'):'<span class="neu2">无机构席位足迹</span>')+'<br>'
+    +'龙虎榜机构 '+(t.on_lhb?('<b>'+(t.inst_net_yi>=0?'+':'')+t.inst_net_yi+'亿</b>（真金白银'+instDays+'）'):'<span class="neu2">无机构席位足迹</span>')+'<br>'
     +'大盘北向当日 '+(t.north_market_yi>=0?'+':'')+t.north_market_yi+'亿（环境背景）</div>'
-    +'<div class="neu2" style="font-size:11px;margin-top:6px">'+esc(t.detail)+'</div>';
-  facts['资金']=t.label+'：'+t.detail;
+    +'<div class="neu2" style="font-size:11.5px;margin-top:6px">'+esc(t.detail)+'</div>'
+    +'<div class="neu2" style="font-size:10.5px;margin-top:3px">🎯 一致性=三路资金方向一致度(真钱为锚)·非涨跌预测；仅机构真买才进"共振"档</div>';
+  facts['资金']='三源一致性'+score+'/100('+slabel+')；'+t.label+'：'+t.detail+(instDays?('（'+instDays.replace('·','')+'）'):'');
 }
 function renderSector(d,facts){
   const industry=(d&&d._industry)||'';
