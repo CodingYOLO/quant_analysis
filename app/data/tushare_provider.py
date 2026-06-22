@@ -11,10 +11,13 @@ import pandas as pd
 import tushare as ts
 
 from app.config import get_settings
-from app.data.cache import cached_daily, rate_limited_call, with_retry
+from app.data.cache import cached_daily, invalidate, rate_limited_call, with_retry
 from app.data.provider import DataProvider
 
 logger = logging.getLogger(__name__)
+
+# 本进程已"自愈重取"过的单股序列 key，避免对停牌股(永远无新bar)反复重取
+_FRESHENED: set[str] = set()
 
 _RETRY = with_retry(stop_attempts=3, wait_min=2.0, wait_max=30.0)
 
@@ -298,13 +301,38 @@ class TushareProvider(DataProvider):
             fields="ts_code,end_date,roe,roe_dt,netprofit_yoy,or_yoy,debt_to_assets,grossprofit_margin",
         )
 
+    def _expected_latest_td(self) -> str:
+        """日历上"应已有数据的最近交易日"（≤今天的最近开市日）。失败回退今天。"""
+        import datetime
+        now = datetime.datetime.now()
+        today = now.strftime("%Y%m%d")
+        try:
+            start = (now - datetime.timedelta(days=15)).strftime("%Y%m%d")
+            cal = self.get_trade_cal(start, today)
+            days = cal[cal["is_open"] == 1]["cal_date"].astype(str).tolist()
+            return max(days) if days else today
+        except Exception:
+            return today
+
+    def _cached_series_fresh(self, name: str, key: str, end_date: str, fetch_fn) -> pd.DataFrame:
+        """带"新鲜度自愈"的单股序列缓存：若缓存停在应有最新交易日之前
+        （盘中/早缓存了不完整数据），重取一次覆盖。每 key 每进程最多自愈一次（停牌股不空转）。"""
+        df = cached_daily(name=name, date_key=key, fetch_fn=fetch_fn)
+        if (df is not None and not df.empty and "trade_date" in df.columns
+                and key not in _FRESHENED):
+            target = min(str(end_date), self._expected_latest_td())
+            if str(df["trade_date"].astype(str).max()) < target:
+                _FRESHENED.add(key)
+                invalidate(name, key)
+                df = cached_daily(name=name, date_key=key, fetch_fn=fetch_fn)
+        return df
+
     def get_stock_daily(self, ts_code: str, start_date: str, end_date: str) -> pd.DataFrame:
         """单股区间日线（按 ts_code 一次拉全，用于个股回测/形态）。列同 daily。"""
         key = f"{ts_code}_{start_date}_{end_date}"
-        return cached_daily(
-            name="tushare_stock_daily",
-            date_key=key,
-            fetch_fn=lambda: self._fetch_stock_daily(ts_code, start_date, end_date),
+        return self._cached_series_fresh(
+            "tushare_stock_daily", key, end_date,
+            lambda: self._fetch_stock_daily(ts_code, start_date, end_date),
         )
 
     @_RETRY
@@ -318,10 +346,9 @@ class TushareProvider(DataProvider):
     def get_adj_factor_series(self, ts_code: str, start_date: str, end_date: str) -> pd.DataFrame:
         """单股区间复权因子。列：trade_date/adj_factor。"""
         key = f"{ts_code}_{start_date}_{end_date}"
-        return cached_daily(
-            name="tushare_stock_adj",
-            date_key=key,
-            fetch_fn=lambda: self._fetch_stock_adj(ts_code, start_date, end_date),
+        return self._cached_series_fresh(
+            "tushare_stock_adj", key, end_date,
+            lambda: self._fetch_stock_adj(ts_code, start_date, end_date),
         )
 
     @_RETRY

@@ -67,6 +67,14 @@ def cached_daily(name: str, date_key: str, fetch_fn: Callable[[], pd.DataFrame])
     return df
 
 
+def invalidate(name: str, date_key: str) -> None:
+    """删除指定缓存文件（检测到数据过期/不完整时强制下次重取）。"""
+    try:
+        _cache_path(name, date_key).unlink(missing_ok=True)
+    except Exception:
+        pass
+
+
 def with_retry(
     stop_attempts: int = 3,
     wait_min: float = 2.0,
