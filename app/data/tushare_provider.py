@@ -301,6 +301,24 @@ class TushareProvider(DataProvider):
             fields="ts_code,end_date,roe,roe_dt,netprofit_yoy,or_yoy,debt_to_assets,grossprofit_margin",
         )
 
+    def get_fina_indicator_by_period(self, period: str) -> pd.DataFrame:
+        """全市场某报告期财务指标（一次取全·供选股批量排雷）。列：ts_code/debt_to_assets/
+        netprofit_yoy/roe/or_yoy。按 period 缓存一天。"""
+        return cached_daily(
+            name="tushare_fina_by_period",
+            date_key=period,
+            fetch_fn=lambda: self._fetch_fina_by_period(period),
+        )
+
+    @_RETRY
+    def _fetch_fina_by_period(self, period: str) -> pd.DataFrame:
+        return rate_limited_call(
+            "tushare_fina_indicator",
+            self._api.fina_indicator_vip,
+            period=period,
+            fields="ts_code,debt_to_assets,netprofit_yoy,roe,or_yoy",
+        )
+
     def _expected_latest_td(self) -> str:
         """日历上"应已有数据的最近交易日"（≤今天的最近开市日）。失败回退今天。"""
         import datetime

@@ -103,6 +103,26 @@ def test_accum_columns_counts_big_up_days() -> None:
     assert cols["big_up_days_20"]["B"] == 1
 
 
+def test_limit_stats_counts_and_consec() -> None:
+    """主板(9.8%)：三个涨停日、其中两连板。"""
+    close = pd.Series([10.0, 11.0, 12.1, 12.1, 13.31])   # 涨幅%≈ [_,10,10,0,10]
+    ups, mx = SC._limit_stats(close, 9.8)
+    assert ups == 3 and mx == 2
+
+
+def test_limit_stats_board_threshold() -> None:
+    """创业板涨停≈20%，+10% 不算涨停。"""
+    ups, mx = SC._limit_stats(pd.Series([10.0, 11.0, 12.1]), 19.8)
+    assert ups == 0 and mx == 0
+
+
+def test_latest_fina_period() -> None:
+    import datetime
+    assert SC._latest_fina_period(datetime.date(2026, 6, 22)) == "20260331"
+    assert SC._latest_fina_period(datetime.date(2026, 9, 1)) == "20260630"
+    assert SC._latest_fina_period(datetime.date(2026, 2, 1)) == "20250930"
+
+
 def test_accum_columns_short_history_skips() -> None:
     """历史不足(<21日)→ 不产出涨幅/隐蔽列，不报错。"""
     close = pd.DataFrame({"C": [10.0 + i for i in range(10)]})

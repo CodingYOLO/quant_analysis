@@ -67,7 +67,12 @@
   <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:16px;padding:10px 14px;background:#10261c;border:1px solid #1f5a3a;border-radius:8px">
     <b style="color:#4ade80;font-size:13px;white-space:nowrap">🐌 一键策略</b>
     <button class="quickbtn" id="preset-accum" style="border-color:#1f5a3a;color:#4ade80">慢牛吸筹（主力悄悄进）</button>
-    <span class="neu" style="font-size:11.5px;line-height:1.6">温和放量＋<b>量价配合(涨放量·跌缩量)</b>＋缓慢走高＋近期没大涨涨停，挑"长得像主力悄悄吸筹"的票。<b style="color:#f0a020">⚠️ 实测诚实说：此分数对未来收益没有预测力</b>（10个月样本回测·剔除大盘后秩相关≈0，长周期甚至反向）——它<b>只是形态筛选器，不代表会涨</b>。正确用法：用它把候选缩小，再点进 <a href="/stock" style="color:#7c9ef8">🎯个股360</a> 用<b>龙虎榜机构真钱+股东户数</b>坐实"主力在不在"，最后你自己拍板。</span>
+    <button class="quickbtn" id="preset-demon" style="border-color:#6b2a2a;color:#f87171">🔥 妖股启动（排雷版）</button>
+    <span class="neu" style="font-size:11.5px;line-height:1.6;width:100%">
+      <b style="color:#4ade80">慢牛吸筹</b>：温和放量＋量价配合＋缓涨＋没大涨，挑"主力悄悄吸"的票（按🐌吸筹分排序）。
+      <b style="color:#f87171">🔥妖股启动</b>：<b>连板基因(近60日涨停≥2)</b>＋<b>启动迹象(放量/高换手)</b>＋低价小流通，且<b>🛡已排雷</b>(剔ST/负净资产/高负债)，按60日涨停数排序。
+      ⚠️ 两个都<b>只是形态筛选器，不预测涨跌</b>；妖股是高风险游资博弈，命中后请到 <a href="/stock" style="color:#7c9ef8">🎯个股360</a> 看龙虎榜<b>游资/机构席位</b>印证，并严格控仓位+止损。
+    </span>
   </div>
 
   <div class="factor-cols">
@@ -90,6 +95,7 @@
       <option value="rps120">RPS120 强度</option>
       <option value="rps50">RPS50 强度</option>
       <option value="accum_score">🐌 吸筹评分</option>
+      <option value="limit_ups_60d">🔥 连板基因(60日涨停)</option>
       <option value="main_net_amount">主力净流入</option>
       <option value="elg_net">超大单净流入</option>
       <option value="pct_chg">涨跌幅</option>
@@ -160,26 +166,33 @@ document.querySelectorAll('.fbtn').forEach(b => {
     const k = b.dataset.key;
     if (selected.has(k)) { selected.delete(k); b.classList.remove('on'); }
     else { selected.add(k); b.classList.add('on'); }
-    // 选中任一吸筹因子 → 自动切排序到「🐌吸筹评分」。
-    // 必须在查询前切：服务器按排序字段取 top100，否则高吸筹分的票会被 RPS 排序挤掉。
-    if (k.startsWith('accum') && selected.has(k)) {
-      document.getElementById('sort').value = 'accum_score';
+    // 选中吸筹/妖股因子 → 自动切对应排序（服务器按排序字段取top100，否则会被RPS挤掉）。
+    if (selected.has(k)) {
+      if (k.startsWith('accum')) document.getElementById('sort').value = 'accum_score';
+      else if (k.startsWith('demon') || k.startsWith('risk')) document.getElementById('sort').value = 'limit_ups_60d';
     }
   });
 });
 
-// 🐌 一键预设：慢牛吸筹（勾选核心因子 + 切吸筹评分排序 + 直接跑）
-document.getElementById('preset-accum').addEventListener('click', () => {
-  const keys = ['above_ma20', 'accum_quiet_vol', 'accum_volprice', 'accum_slow_rise', 'accum_hidden'];
+// 一键套用预设：勾选指定因子 + 切排序 + 直接跑
+function applyPreset(keys, sortBy) {
   selected.clear();
   document.querySelectorAll('.fbtn').forEach(b => b.classList.remove('on'));
   keys.forEach(k => {
     const b = document.querySelector('.fbtn[data-key="' + k + '"]');
     if (b) { selected.add(k); b.classList.add('on'); }
   });
-  document.getElementById('sort').value = 'accum_score';
+  document.getElementById('sort').value = sortBy;
   document.getElementById('run').click();
-});
+}
+
+// 🐌 慢牛吸筹预设
+document.getElementById('preset-accum').addEventListener('click', () =>
+  applyPreset(['above_ma20', 'accum_quiet_vol', 'accum_volprice', 'accum_slow_rise', 'accum_hidden'], 'accum_score'));
+// 🔥 妖股启动（排雷版）：连板基因 + 启动放量 + 低价小流通 + 排雷(剔ST/负净资产/高负债)
+document.getElementById('preset-demon').addEventListener('click', () =>
+  applyPreset(['risk_not_st', 'risk_pos_equity', 'risk_debt70', 'demon_small_float',
+               'demon_lowprice', 'demon_gene2', 'demon_volup'], 'limit_ups_60d'));
 
 // 自定义任意字段条件
 const customs = [];
@@ -211,7 +224,7 @@ document.getElementById('qPrev').addEventListener('click', () => {
 });
 
 // 需要 红涨绿跌 + 正负号的列
-const SIGNED = new Set(['pct_chg', 'main_net_amount', 'main_net_3d', 'elg_net', 'vwap_dev', 'ret20']);
+const SIGNED = new Set(['pct_chg', 'main_net_amount', 'main_net_3d', 'elg_net', 'vwap_dev', 'ret20', 'netprofit_yoy']);
 // 文本列（不可数值排序）
 const TEXT_COLS = new Set(['ts_code', 'name', 'industry']);
 

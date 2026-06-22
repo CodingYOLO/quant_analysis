@@ -35,6 +35,10 @@ class CompositeProvider(DataProvider):
     def get_fina_indicator(self, ts_code: str) -> pd.DataFrame:
         return self._ts.get_fina_indicator(ts_code)
 
+    def get_fina_indicator_by_period(self, period: str) -> pd.DataFrame:
+        """全市场某报告期财务指标（批量·供选股排雷）。"""
+        return self._ts.get_fina_indicator_by_period(period)
+
     def get_cyq_perf(self, ts_code: str, start_date: str, end_date: str) -> pd.DataFrame:
         return self._ts.get_cyq_perf(ts_code, start_date, end_date)
 

@@ -102,6 +102,22 @@ FACTOR_GROUPS = [
         ],
     },
     {
+        "group": "🔥 妖股/情绪启动（连板基因+启动+排雷）",
+        "factors": [
+            {"key": "demon_gene2", "label": "连板基因·近60日涨停≥2次", "col": "limit_ups_60d", "op": "ge", "val": 2},
+            {"key": "demon_board2", "label": "有过连板(≥2连板)", "col": "max_consec_limit", "op": "ge", "val": 2},
+            {"key": "demon_lu_today", "label": "今日涨停(点火)", "col": "is_limit_up", "op": "true"},
+            {"key": "demon_hot_turn", "label": "高换手≥7%(情绪活跃)", "col": "turnover_rate", "op": "ge", "val": 7},
+            {"key": "demon_volup", "label": "放量·量比≥2", "col": "volume_ratio", "op": "ge", "val": 2},
+            {"key": "demon_lowprice", "label": "低价≤15元", "col": "close", "op": "le", "val": 15},
+            {"key": "demon_small_float", "label": "小流通≤50亿(易炒)", "col": "circ_mv_100m", "op": "le", "val": 50},
+            {"key": "risk_not_st", "label": "🛡排雷·排除ST/*ST", "col": "is_st", "op": "false"},
+            {"key": "risk_pos_equity", "label": "🛡排雷·净资产为正(PB>0)", "col": "pb", "op": "gt", "val": 0},
+            {"key": "risk_debt70", "label": "🛡排雷·资产负债率≤70%", "col": "debt_to_assets", "op": "le", "val": 70},
+            {"key": "risk_not_huge_loss", "label": "🛡排雷·净利同比≥-50%(非断崖)", "col": "netprofit_yoy", "op": "ge", "val": -50},
+        ],
+    },
+    {
         "group": "情绪与人气",
         "factors": [
             {"key": "comment_ge80", "label": "千评得分≥80", "col": "comment_score", "op": "ge", "val": 80},
@@ -135,6 +151,9 @@ CUSTOM_FIELDS = [
     {"col": "vol5_vol20", "label": "量能比5/20日"}, {"col": "ma20_slope", "label": "MA20斜率%"},
     {"col": "amp20", "label": "近20日均振幅%"}, {"col": "main_net_3d", "label": "主力近3日(亿)"},
     {"col": "up_down_vol", "label": "量价配合(涨量/跌量)"}, {"col": "amp_contract", "label": "振幅收敛比"},
+    {"col": "limit_ups_60d", "label": "近60日涨停数"}, {"col": "max_consec_limit", "label": "最高连板"},
+    {"col": "debt_to_assets", "label": "资产负债率%"}, {"col": "netprofit_yoy", "label": "净利同比%"},
+    {"col": "roe", "label": "ROE%"},
 ]
 _CUSTOM_COLS = {f["col"] for f in CUSTOM_FIELDS}
 _CUSTOM_OPS = {"ge", "gt", "le", "lt", "eq"}
@@ -145,6 +164,8 @@ DISPLAY_COLS = [
     ("close", "最新价"), ("pct_chg", "涨跌幅%"), ("amplitude", "振幅%"),
     ("ret20", "近20日涨%"), ("vol5_vol20", "量能比5/20"),
     ("up_down_vol", "量价配合"),
+    ("limit_ups_60d", "60日涨停"), ("max_consec_limit", "最高连板"),
+    ("debt_to_assets", "负债率%"), ("netprofit_yoy", "净利同比%"),
     ("turnover_rate", "换手%"), ("volume_ratio", "量比"), ("circ_mv_100m", "流通市值(亿)"),
     ("main_net_amount", "主力净流入(亿)"), ("main_net_3d", "主力3日(亿)"), ("elg_net", "超大单(亿)"),
     ("rps50", "RPS50"), ("rps120", "RPS120"), ("rsi14", "RSI"),
@@ -157,7 +178,7 @@ DISPLAY_COLS = [
 # ──────────────────────────────────────────────
 
 # 因子表结构版本：新增因子列时 +1，使旧缓存自动失效重算（避免读到缺列的旧表）
-_FACTOR_TABLE_VERSION = "v3"
+_FACTOR_TABLE_VERSION = "v4"
 
 
 def _factor_cache_path(date: str) -> Path:
@@ -194,6 +215,7 @@ def build_factor_table(date: str, provider: CompositeProvider | None = None,
     df = _merge_base(daily, daily_basic, money_flow, stock_basic, comment)
     df = _add_technical_factors(df, date, provider)
     df = _add_fund_persistence(df, date, provider)   # 近3日主力净流入(持续性)
+    df = _add_fundamentals(df, provider)              # 批量财务(负债率/净利同比/ROE)·妖股排雷
     df = _add_accum_score(df)                          # 慢牛吸筹评分(合成上面多日因子)
 
     df.to_parquet(path, index=False)
@@ -231,6 +253,7 @@ def _merge_base(daily, daily_basic, money_flow, stock_basic, comment) -> pd.Data
 
     if stock_basic is not None and not stock_basic.empty:
         uni = uni.merge(stock_basic[["ts_code", "name", "industry"]], on="ts_code", how="left")
+        uni["is_st"] = uni["name"].fillna("").str.upper().str.contains("ST")   # ST/*ST 退市风险·排雷用
 
     if comment is not None and not comment.empty:
         cmt = comment.copy()
@@ -276,8 +299,11 @@ def _add_technical_factors(df: pd.DataFrame, date: str, provider) -> pd.DataFram
     df["rps_combo"] = df[["rps50", "rps120"]].mean(axis=1)
 
     # MACD/KDJ金叉 / RSI / VWAP / EMA多头 / 影线 / TD九转 / K线形态（逐股一次性算）
+    from app.nodes.quick_report import _board_limit_pct
+    name_map = dict(zip(df["ts_code"], df.get("name", pd.Series("", index=df.index)).fillna("")))
     macd_gold, rsi14, vwap_dev, vol_ratio = {}, {}, {}, {}
     kdj_gold, ema_bull, td9, long_up, long_dn = {}, {}, {}, {}, {}
+    limit60, maxboard = {}, {}                     # 妖股：近60日涨停天数 / 近120日最高连板
     pat_hits: dict[str, dict[str, bool]] = {}
     for ts in close_m.columns:
         s = close_m[ts].dropna()
@@ -285,6 +311,7 @@ def _add_technical_factors(df: pd.DataFrame, date: str, provider) -> pd.DataFram
             continue
         try:
             hi, lo = high_m[ts].dropna(), low_m[ts].dropna()
+            limit60[ts], maxboard[ts] = _limit_stats(s, _board_limit_pct(ts, name_map.get(ts, "")))
             macd_gold[ts] = F.macd_golden_cross(s)
             rsi14[ts] = float(F.rsi(s, 14).iloc[-1])
             kdj_gold[ts] = F.kdj_golden_cross(s, hi, lo)
@@ -311,6 +338,8 @@ def _add_technical_factors(df: pd.DataFrame, date: str, provider) -> pd.DataFram
     df["td_buy9"] = df["ts_code"].map(td9).fillna(False)
     df["long_upper"] = df["ts_code"].map(long_up).fillna(False)
     df["long_lower"] = df["ts_code"].map(long_dn).fillna(False)
+    df["limit_ups_60d"] = df["ts_code"].map(limit60)          # 妖股：近60日涨停天数
+    df["max_consec_limit"] = df["ts_code"].map(maxboard)      # 妖股：近120日最高连板
     # K线形态布尔列 pat_<key>
     for key in PATTERN_REGISTRY:
         col = f"pat_{key}"
@@ -320,6 +349,23 @@ def _add_technical_factors(df: pd.DataFrame, date: str, provider) -> pd.DataFram
     for col, series in _accum_factor_columns(close_m, high_m, low_m, vol_m).items():
         df[col] = df["ts_code"].map(series.to_dict())
     return df
+
+
+def _limit_stats(close: pd.Series, board_limit_pct: float) -> tuple[int, int]:
+    """单股涨停统计（纯函数·可单测）：近60日涨停天数 + 近120日最高连板。
+
+    涨停判定：当日涨幅 ≥ 板块涨停幅 -0.3%（消化四舍五入/盘中价差）。
+    Returns: (近60日涨停天数, 近120日最高连续涨停天数)。
+    """
+    ret = close.pct_change() * 100
+    thr = board_limit_pct - 0.3
+    ups60 = int((ret.tail(60) >= thr).sum())
+    seq = (ret.tail(120) >= thr).astype(int).tolist()
+    mx = run = 0
+    for b in seq:
+        run = run + 1 if b else 0
+        mx = max(mx, run)
+    return ups60, mx
 
 
 def _accum_factor_columns(close_m, high_m, low_m, vol_m) -> dict[str, pd.Series]:
@@ -357,6 +403,34 @@ def _add_fund_persistence(df: pd.DataFrame, date: str, provider) -> pd.DataFrame
         df["main_net_3d"] = df["ts_code"].map(_main_flow_3d(provider, date))
     except Exception as e:
         logger.debug("3日主力净流入计算失败: %s", e)
+    return df
+
+
+def _latest_fina_period(now=None) -> str:
+    """最近一个『已披露』的报告期 YYYYMMDD（季报约披露后45-60天可得，留50天余量）。"""
+    import datetime
+    now = now or datetime.date.today()
+    cutoff = (now - datetime.timedelta(days=50)).strftime("%Y%m%d")
+    ends = sorted((f"{y}{md}" for y in (now.year, now.year - 1)
+                   for md in ("1231", "0930", "0630", "0331")), reverse=True)
+    for e in ends:
+        if e <= cutoff:
+            return e
+    return ends[-1]
+
+
+def _add_fundamentals(df: pd.DataFrame, provider) -> pd.DataFrame:
+    """全市场批量财务(1次 vip 调用)：资产负债率/净利同比/ROE，供妖股排雷。失败优雅跳过。"""
+    try:
+        fin = provider.get_fina_indicator_by_period(_latest_fina_period())
+        if fin is not None and not fin.empty:
+            fin = fin.drop_duplicates("ts_code", keep="first")
+            for col in ("debt_to_assets", "netprofit_yoy", "roe"):
+                if col in fin.columns:
+                    m = dict(zip(fin["ts_code"], pd.to_numeric(fin[col], errors="coerce")))
+                    df[col] = df["ts_code"].map(m)
+    except Exception as e:
+        logger.debug("批量财务获取失败: %s", e)
     return df
 
 
@@ -487,6 +561,8 @@ def _apply_condition(df: pd.DataFrame, f: dict) -> pd.Series:
     s = df[col]
     if op == "true":
         return s.fillna(False).astype(bool)
+    if op == "false":
+        return ~s.fillna(False).astype(bool)
     if op == "ge":
         return s >= f["val"]
     if op == "gt":
