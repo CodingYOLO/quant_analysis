@@ -141,9 +141,9 @@ _CUSTOM_OPS = {"ge", "gt", "le", "lt", "eq"}
 
 # 结果表展示列（顺序）
 DISPLAY_COLS = [
-    ("ts_code", "代码"), ("name", "名称"), ("industry", "行业"),
+    ("ts_code", "代码"), ("name", "名称"), ("accum_score", "🐌吸筹分"), ("industry", "行业"),
     ("close", "最新价"), ("pct_chg", "涨跌幅%"), ("amplitude", "振幅%"),
-    ("accum_score", "🐌吸筹分"), ("ret20", "近20日涨%"), ("vol5_vol20", "量能比5/20"),
+    ("ret20", "近20日涨%"), ("vol5_vol20", "量能比5/20"),
     ("up_down_vol", "量价配合"),
     ("turnover_rate", "换手%"), ("volume_ratio", "量比"), ("circ_mv_100m", "流通市值(亿)"),
     ("main_net_amount", "主力净流入(亿)"), ("main_net_3d", "主力3日(亿)"), ("elg_net", "超大单(亿)"),

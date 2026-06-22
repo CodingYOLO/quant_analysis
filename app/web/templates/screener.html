@@ -67,7 +67,7 @@
   <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:16px;padding:10px 14px;background:#10261c;border:1px solid #1f5a3a;border-radius:8px">
     <b style="color:#4ade80;font-size:13px;white-space:nowrap">🐌 一键策略</b>
     <button class="quickbtn" id="preset-accum" style="border-color:#1f5a3a;color:#4ade80">慢牛吸筹（主力悄悄进）</button>
-    <span class="neu" style="font-size:11.5px;line-height:1.6">温和放量＋<b>量价配合(涨放量·跌缩量)</b>＋缓慢走高＋近期没大涨涨停，按 <b>🐌吸筹评分</b> 排序——专挑"还没被发现、主力在悄悄吸"的票。这只是<b>价量海选</b>；命中后请点进 <a href="/stock" style="color:#7c9ef8">🎯个股360</a> 用<b>龙虎榜机构真钱+股东户数</b>二次坐实"主力在不在"。评分只刻画形态强弱、不预测涨跌；软件"大单资金"口径易失真，本策略只当弱信号。</span>
+    <span class="neu" style="font-size:11.5px;line-height:1.6">温和放量＋<b>量价配合(涨放量·跌缩量)</b>＋缓慢走高＋近期没大涨涨停，挑"长得像主力悄悄吸筹"的票。<b style="color:#f0a020">⚠️ 实测诚实说：此分数对未来收益没有预测力</b>（10个月样本回测·剔除大盘后秩相关≈0，长周期甚至反向）——它<b>只是形态筛选器，不代表会涨</b>。正确用法：用它把候选缩小，再点进 <a href="/stock" style="color:#7c9ef8">🎯个股360</a> 用<b>龙虎榜机构真钱+股东户数</b>坐实"主力在不在"，最后你自己拍板。</span>
   </div>
 
   <div class="factor-cols">
@@ -213,6 +213,10 @@ let lastData = null;        // 最近一次结果 {columns, rows}
 let sortState = { key: null, asc: false };
 
 function fmtCell(key, v) {
+  if (key === 'accum_score' && typeof v === 'number') {       // 吸筹分：标色梯度·一眼看排名
+    const c = v >= 85 ? '#4ade80' : (v >= 70 ? '#a3e635' : (v >= 55 ? '#fbbf24' : '#9ca3af'));
+    return '<td style="font-weight:700;color:' + c + '">' + v + '</td>';
+  }
   if (typeof v === 'number' && SIGNED.has(key)) {
     const cls = v > 0 ? 'up' : (v < 0 ? 'down' : 'neu');
     const sign = v > 0 ? '+' : '';
