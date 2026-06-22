@@ -80,6 +80,7 @@
     <span class="preset rtype active" data-t="concept">概念</span>
     <span class="preset rtype" data-t="industry">行业</span>
   </div>
+  <div id="radar-asof" style="display:none;font-size:12px;background:#2a1d0a;border:1px solid #5a4018;color:#f0a020;border-radius:8px;padding:7px 12px;margin-bottom:10px"></div>
   <div id="radar-status" class="neu" style="font-size:13px;padding:6px 0">⏳ 加载板块雷达…</div>
   <div id="radar-body" style="display:none">
     <div class="radar-grid">
@@ -303,6 +304,11 @@ async function loadRadar(){
     if(!d||!d.ok){ st.textContent='❌ '+((d&&d.error)||'雷达加载失败'); return; }
     if(!d.available){ st.textContent='ℹ️ '+(d.msg||'板块宽表尚未计算（盘后 wide 任务生成）'); return; }
     st.style.display='none';
+    // 醒目标注盘后数据日(本模块用盘后宽表·非实时)
+    const asof=document.getElementById('radar-asof');
+    const iso=(d.date&&d.date.length===8)?(d.date.slice(0,4)+'-'+d.date.slice(4,6)+'-'+d.date.slice(6,8)):(d.date||'—');
+    asof.style.display='block';
+    asof.innerHTML='📅 <b>盘后数据日 '+iso+'</b> · 本模块用<b>盘后宽表·非实时</b>（每交易日盘后更新）→ 盘中看「今天什么在动/什么风格」请用 <a href="/chain" style="color:#7c9ef8">🔗 产业链地图（实时）</a>。此处适合<b>盘后复盘明天低吸候选</b>。';
     document.getElementById('radar-body').style.display='block';
     renderRadar(d);
   }catch(e){ st.textContent='❌ '+e; }
