@@ -144,7 +144,7 @@
     <label class="neu" style="font-size:12px;font-weight:400;margin-left:14px;cursor:pointer;user-select:none">
       <input type="checkbox" id="main-board-only" style="vertical-align:middle"> 只看主板<span style="color:#6b7280">（剔科创/创业/北交）</span>
     </label>
-    <button class="quickbtn" id="btn-export" style="float:right;border-color:#3358e0;color:#7c9ef8">📷 导出长图</button>
+    <button class="quickbtn" id="btn-export" style="float:right;border-color:#3358e0;color:#7c9ef8">📷 导出全列图</button>
   </h2>
   <div class="reswrap"><table id="restable"></table></div>
 </div>
@@ -474,35 +474,79 @@ document.getElementById('run').addEventListener('click', async () => {
 // 「只看主板」开关 → 即时重渲染（剔除科创/创业/北交）
 document.getElementById('main-board-only').addEventListener('change', renderTable);
 
-// ── 一键导出长图（整张结果表→PNG，复用个股360同款 html2canvas）──
-document.getElementById('btn-export').addEventListener('click', async () => {
-  if (typeof html2canvas === 'undefined') { alert('图片库未加载，请刷新重试'); return; }
+// ── 一键导出长图（用数据在 canvas 手绘整张表，不依赖 html2canvas/DOM 宽度，根治列截断）──
+const _EXPORT_FONT = '-apple-system,"PingFang SC","Microsoft YaHei",sans-serif';
+function _cellText(key, r) {                      // 单元格纯文本（与页面口径一致）
+  const v = r[key];
+  if (v == null || v === '') return (key === 'industry' || key === 'name' || key === 'ts_code') ? '' : '—';
+  if (SIGNED.has(key) && typeof v === 'number') return (v > 0 ? '+' : '') + v;
+  return String(v);
+}
+function _cellColor(key, v) {                     // 单元格颜色（与页面一致）
+  if (key === 'ts_code') return '#7c9ef8';
+  if (key === 'accum_score' && typeof v === 'number')
+    return v >= 85 ? '#4ade80' : (v >= 70 ? '#a3e635' : (v >= 55 ? '#fbbf24' : '#9ca3af'));
+  if (SIGNED.has(key) && typeof v === 'number') return v > 0 ? '#f6465d' : (v < 0 ? '#2ebd85' : '#9ca3af');
+  return '#e8e8e8';
+}
+document.getElementById('btn-export').addEventListener('click', () => {
+  if (!lastData) { alert('请先筛选出结果'); return; }
   const btn = document.getElementById('btn-export'), old = btn.textContent;
   btn.disabled = true; btn.textContent = '⏳ 生成中…';
-  const table = document.getElementById('restable');
-  // 最稳做法：把表格克隆到「屏幕外、按内容自适应宽度」的容器再截，
-  // 彻底脱离页面 max-width:1100 与 overflow 裁剪的影响，保证所有列完整入图。
-  const holder = document.createElement('div');
-  holder.style.cssText = 'position:fixed;left:-99999px;top:0;z-index:-1;'
-    + 'background:#0f1117;padding:16px;display:inline-block';
-  const clone = table.cloneNode(true);
-  clone.style.width = 'max-content';             // 表格按内容真实宽度展开
-  clone.querySelectorAll('.addw').forEach(e => e.remove());   // 去掉「＋自选」小按钮
-  holder.appendChild(clone);
-  document.body.appendChild(holder);
   try {
-    const canvas = await html2canvas(holder, {
-      scale: 2, backgroundColor: '#0f1117', useCORS: true,
-      width: holder.scrollWidth, windowWidth: holder.scrollWidth + 40,
+    const cols = lastData.columns;
+    const rows = (window._scrRows && window._scrRows.length) ? window._scrRows : lastData.rows;
+    const S = 2, PADX = 12, ROWH = 32, HEADH = 40, FS = 13;
+    const meas = document.createElement('canvas').getContext('2d');
+    meas.font = FS + 'px ' + _EXPORT_FONT;
+    const colW = cols.map(c => {                  // 每列宽 = max(表头, 各格文本) + 内边距
+      let w = meas.measureText(c.label).width;
+      rows.forEach(r => {
+        let cw = meas.measureText(_cellText(c.key, r)).width;
+        if (c.key === 'name') cw += 44;           // 给板块标签留位
+        w = Math.max(w, cw);
+      });
+      return Math.ceil(w) + PADX * 2;
+    });
+    const totalW = colW.reduce((a, b) => a + b, 0);
+    const totalH = HEADH + rows.length * ROWH;
+    const cv = document.createElement('canvas');
+    cv.width = totalW * S; cv.height = totalH * S;
+    const ctx = cv.getContext('2d'); ctx.scale(S, S);
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#0f1117'; ctx.fillRect(0, 0, totalW, totalH);
+    ctx.fillStyle = '#232640'; ctx.fillRect(0, 0, totalW, HEADH);     // 表头底
+    let x = 0;                                                         // 表头文字
+    ctx.font = 'bold ' + FS + 'px ' + _EXPORT_FONT; ctx.fillStyle = '#9ca3af';
+    cols.forEach((c, i) => { ctx.fillText(c.label, x + PADX, HEADH / 2); x += colW[i]; });
+    rows.forEach((r, ri) => {                                         // 数据行
+      const y = HEADH + ri * ROWH;
+      if (ri % 2) { ctx.fillStyle = '#141729'; ctx.fillRect(0, y, totalW, ROWH); }
+      let cx = 0;
+      cols.forEach((c, i) => {
+        const v = r[c.key];
+        ctx.font = (c.key === 'accum_score' ? 'bold ' : '') + FS + 'px ' + _EXPORT_FONT;
+        ctx.fillStyle = _cellColor(c.key, v);
+        const t = _cellText(c.key, r);
+        ctx.fillText(t, cx + PADX, y + ROWH / 2);
+        if (c.key === 'name' && r.ts_code) {                          // 名称后画板块标签
+          const b = boardOf(r.ts_code);
+          const bx = cx + PADX + meas.measureText(t).width + 6;
+          ctx.font = '10px ' + _EXPORT_FONT;
+          const bw = meas.measureText(b.t).width + 10;
+          ctx.fillStyle = b.bg; ctx.fillRect(bx, y + ROWH / 2 - 8, bw, 16);
+          ctx.fillStyle = b.fg; ctx.fillText(b.t, bx + 5, y + ROWH / 2);
+        }
+        cx += colW[i];
+      });
     });
     const today = new Date().toISOString().slice(0, 10).replace(/-/g, '');
     const a = document.createElement('a');
     a.download = '选股结果_' + today + '.png';
-    a.href = canvas.toDataURL('image/png'); a.click();
+    a.href = cv.toDataURL('image/png'); a.click();
   } catch (e) {
     alert('长图生成失败：' + e);
   } finally {
-    document.body.removeChild(holder);
     btn.disabled = false; btn.textContent = old;
   }
 });
