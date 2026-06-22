@@ -803,7 +803,10 @@ async def api_market_hot_ingest(request: Request, _user: str = Depends(require_a
         from app.strategy.market_hub import save_hot_disk
         b = await request.json()
         kind = b.get("kind") or "rank"
-        n = save_hot_disk(kind, b.get("rows") or [], source="本地同步")
+        rows = b.get("rows") or []
+        if len(rows) < 10:        # 防呆：真榜单80+条·少于10视为误推/测试·拒绝落盘
+            return {"ok": False, "msg": f"榜单条数过少({len(rows)})·疑似误推·拒绝", "saved": 0}
+        n = save_hot_disk(kind, rows, source="本地同步")
         return {"ok": bool(n), "saved": n}
     except Exception as e:
         logger.exception("热榜同步接收失败")
