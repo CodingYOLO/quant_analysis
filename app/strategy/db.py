@@ -230,6 +230,19 @@ def init_db() -> None:
                 added_at    TEXT DEFAULT (datetime('now','localtime')),
                 updated_at  TEXT DEFAULT (datetime('now','localtime'))
             );
+            CREATE TABLE IF NOT EXISTS trade_plan (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                ts_code     TEXT NOT NULL,        -- 600519.SH
+                name        TEXT,
+                side        TEXT DEFAULT 'buy',   -- buy/sell
+                buy_price   REAL,                 -- 计划买入价(限价上限·QMT不追高于此)
+                stop_loss   REAL,                 -- 止损价
+                take_profit REAL,                 -- 止盈价(可空)
+                position_pct REAL,                -- 仓位(0.1=10%)
+                note        TEXT,                 -- 我的决策理由
+                status      TEXT DEFAULT 'pending',-- pending/done/cancelled
+                created_at  TEXT DEFAULT (datetime('now','localtime'))
+            );
             CREATE TABLE IF NOT EXISTS chat_sessions (
                 id          INTEGER PRIMARY KEY AUTOINCREMENT,
                 title       TEXT,
@@ -718,6 +731,58 @@ def get_watchlist() -> list[dict]:
         rows = con.execute(
             "SELECT * FROM watchlist ORDER BY is_holding DESC, added_at DESC"
         ).fetchall()
+    return [dict(r) for r in rows]
+
+
+# ──────────────────────────────────────────────
+# 交易计划（用户最终决定 → 导出 plan.json 喂 QMT）
+# ──────────────────────────────────────────────
+
+_PLAN_FIELDS = ("name", "side", "buy_price", "stop_loss", "take_profit", "position_pct", "note", "status")
+
+
+def add_plan(ts_code: str, name: str = "", *, side: str = "buy", buy_price: float | None = None,
+             stop_loss: float | None = None, take_profit: float | None = None,
+             position_pct: float | None = None, note: str = "") -> int:
+    """新增一条交易计划（用户最终决定）。返回行 id。"""
+    init_db()
+    with _conn() as con:
+        cur = con.execute(
+            """INSERT INTO trade_plan (ts_code, name, side, buy_price, stop_loss,
+                                       take_profit, position_pct, note)
+               VALUES (?,?,?,?,?,?,?,?)""",
+            (ts_code, name, side, buy_price, stop_loss, take_profit, position_pct, note),
+        )
+        return int(cur.lastrowid)
+
+
+def update_plan(plan_id: int, **fields) -> bool:
+    """更新计划部分字段（只允许 _PLAN_FIELDS）。返回是否命中。"""
+    cols = {k: v for k, v in fields.items() if k in _PLAN_FIELDS}
+    if not cols:
+        return False
+    sets = ", ".join(f"{k}=?" for k in cols)
+    init_db()
+    with _conn() as con:
+        return con.execute(f"UPDATE trade_plan SET {sets} WHERE id=?",
+                           (*cols.values(), int(plan_id))).rowcount > 0
+
+
+def remove_plan(plan_id: int) -> bool:
+    """删除一条交易计划。返回是否命中。"""
+    init_db()
+    with _conn() as con:
+        return con.execute("DELETE FROM trade_plan WHERE id=?", (int(plan_id),)).rowcount > 0
+
+
+def list_plans(status: str = "") -> list[dict]:
+    """读取交易计划（默认全部，新→旧）。status 非空时按状态过滤。"""
+    init_db()
+    with _conn() as con:
+        if status:
+            rows = con.execute("SELECT * FROM trade_plan WHERE status=? ORDER BY id DESC", (status,)).fetchall()
+        else:
+            rows = con.execute("SELECT * FROM trade_plan ORDER BY id DESC").fetchall()
     return [dict(r) for r in rows]
 
 

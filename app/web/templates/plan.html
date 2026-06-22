@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% block title %}交易计划 — A股Agent{% endblock %}
+
+{% block extra_style %}
+h1 { font-size:22px; text-align:center; margin-bottom:4px; }
+.note { background:#161929; border:1px solid #242842; border-radius:10px; padding:11px 15px; margin-bottom:14px; font-size:12.5px; line-height:1.8; color:#9ca3af; }
+.note b { color:#e5c07b; }
+.card { background:#1a1d2e; border:1px solid #2d3052; border-radius:10px; padding:16px 18px; margin-bottom:14px; }
+.card h2 { font-size:15px; color:#7c9ef8; margin-bottom:12px; }
+.form { display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end; }
+.fld { display:flex; flex-direction:column; gap:4px; }
+.fld label { font-size:11px; color:#9ca3af; }
+.fld input,.fld select { background:#0f1117; color:#e8e8e8; border:1px solid #2d3052; border-radius:6px; padding:8px 10px; font-size:13px; }
+.btn { background:#3358e0; color:#fff; border:none; border-radius:8px; padding:9px 18px; font-size:14px; cursor:pointer; }
+.btn.ghost { background:transparent; color:#7c9ef8; border:1px solid #3358e0; }
+.up { color:#f6465d; } .down { color:#2ebd85; } .neu2 { color:#9ca3af; }
+table { width:100%; border-collapse:collapse; font-size:13px; }
+th { background:#232640; color:#9ca3af; font-weight:500; padding:8px 10px; text-align:left; white-space:nowrap; }
+td { padding:8px 10px; border-bottom:1px solid #1e2138; vertical-align:middle; }
+tr:hover td { background:#1e2138; }
+.del { color:#f87171; cursor:pointer; }
+{% endblock %}
+
+{% block content %}
+<h1>📝 交易计划</h1>
+<div class="note">
+  这里录入<b>你最终决定</b>的下单计划（可从选股池/个股360 带过来再改）。研究归研究、决策归你——
+  网站<b>只把你的决定导出成 plan.json + 配套 QMT 脚本，绝不替你下单</b>。
+  你在自己机器上跑 QMT 脚本执行（<b>务必先模拟盘</b>）。流程：录入计划 → 📥导出 plan.json → 📜下载 QMT 脚本 → QMT 客户端跑脚本。
+</div>
+
+<div class="card">
+  <h2>➕ 新增计划（你的最终决定）</h2>
+  <div class="form">
+    <div class="fld"><label>股票(代码/名称)</label><input id="f-code" style="width:160px" placeholder="如 300308 或 中际旭创"></div>
+    <div class="fld"><label>方向</label><select id="f-side"><option value="buy">买入</option><option value="sell">卖出</option></select></div>
+    <div class="fld"><label>计划买入价(限价上限)</label><input id="f-buy" type="number" step="0.01" style="width:130px"></div>
+    <div class="fld"><label>止损价</label><input id="f-sl" type="number" step="0.01" style="width:100px"></div>
+    <div class="fld"><label>止盈价(可空)</label><input id="f-tp" type="number" step="0.01" style="width:100px"></div>
+    <div class="fld"><label>仓位 %</label><input id="f-pos" type="number" step="1" style="width:80px" placeholder="10"></div>
+    <div class="fld" style="flex:1;min-width:160px"><label>决策理由(备注)</label><input id="f-note" placeholder="为什么买/卖"></div>
+    <button class="btn" id="f-add">加入计划</button>
+  </div>
+</div>
+
+<div class="card">
+  <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:10px">
+    <h2 style="margin:0">📋 我的计划清单 <span class="neu2" id="cnt" style="font-size:12px"></span></h2>
+    <span style="flex:1"></span>
+    <a class="btn ghost" href="/api/plan/export">📥 导出 plan.json</a>
+    <a class="btn ghost" href="/api/plan/qmt-script">📜 下载 QMT 执行脚本</a>
+  </div>
+  <div id="empty" class="neu2" style="font-size:12.5px;display:none">暂无计划——在上方录入你的下单决定。</div>
+  <div style="overflow-x:auto"><table id="tbl"></table></div>
+</div>
+{% endblock %}
+
+{% block extra_script %}
+<script>
+const $=id=>document.getElementById(id);
+function esc(s){ return (s==null?'':String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function num(v){ return (v==null||v==='')?'—':v; }
+
+// 深链预填（从选股池/个股360 带过来）：?code=&buy=&sl=&tp=&pos=
+(function(){ const q=new URLSearchParams(location.search);
+  if(q.get('code')) $('f-code').value=q.get('code');
+  if(q.get('buy')) $('f-buy').value=q.get('buy');
+  if(q.get('sl'))  $('f-sl').value=q.get('sl');
+  if(q.get('tp'))  $('f-tp').value=q.get('tp');
+  if(q.get('pos')) $('f-pos').value=q.get('pos');
+})();
+
+async function load(){
+  const j=await (await fetch('/api/plan/list')).json();
+  const rows=(j.ok&&j.rows)?j.rows:[];
+  $('cnt').textContent=rows.length?('· '+rows.length+' 条'):'';
+  $('empty').style.display=rows.length?'none':'block';
+  let h='<thead><tr><th>股票</th><th>方向</th><th>计划买价</th><th>止损</th><th>止盈</th><th>仓位</th><th>理由</th><th>操作</th></tr></thead><tbody>';
+  rows.forEach(r=>{
+    h+='<tr><td><b>'+esc(r.name||'')+'</b> <span class="neu2" style="font-size:11px">'+esc(r.ts_code)+'</span></td>'
+      +'<td><span class="'+(r.side==='sell'?'down':'up')+'">'+(r.side==='sell'?'卖出':'买入')+'</span></td>'
+      +'<td>'+num(r.buy_price)+'</td><td class="down">'+num(r.stop_loss)+'</td><td class="up">'+num(r.take_profit)+'</td>'
+      +'<td>'+(r.position_pct!=null?Math.round(r.position_pct*100)+'%':'—')+'</td>'
+      +'<td class="neu2" style="font-size:12px;max-width:240px">'+esc(r.note||'')+'</td>'
+      +'<td><span class="del" data-id="'+r.id+'">删除</span></td></tr>';
+  });
+  $('tbl').innerHTML=h+'</tbody>';
+}
+$('tbl').addEventListener('click', async ev=>{
+  const d=ev.target.closest('.del'); if(!d) return;
+  if(!confirm('删除这条计划？')) return;
+  await fetch('/api/plan/remove',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:+d.dataset.id})});
+  load();
+});
+$('f-add').onclick=async ()=>{
+  const code=$('f-code').value.trim(); if(!code){ alert('请输入股票'); return; }
+  const posPct=$('f-pos').value?parseFloat($('f-pos').value)/100:null;   // % → 小数
+  const body={ code, side:$('f-side').value, buy_price:$('f-buy').value, stop_loss:$('f-sl').value,
+               take_profit:$('f-tp').value, position_pct:posPct, note:$('f-note').value };
+  const j=await (await fetch('/api/plan/add',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})).json();
+  if(!j.ok){ alert('添加失败：'+(j.msg||'')); return; }
+  ['f-code','f-buy','f-sl','f-tp','f-pos','f-note'].forEach(id=>$(id).value=''); load();
+};
+load();
+</script>
+{% endblock %}

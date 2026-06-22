@@ -731,6 +731,104 @@ async def stock360_page(request: Request, _user: str = Depends(require_auth)):
     return templates.TemplateResponse(request=request, name="stock360.html", context={"page": "stock360"})
 
 
+@app.get("/plan", response_class=HTMLResponse)
+async def plan_page(request: Request, _user: str = Depends(require_auth)):
+    """📝 交易计划：录入你最终决定的下单计划 → 导出 plan.json + QMT 执行脚本（不下单）。"""
+    return templates.TemplateResponse(request=request, name="plan.html", context={"page": "plan"})
+
+
+def _to_float(v):
+    """安全转 float：空/无效返回 None（交易计划价格/仓位用）。"""
+    try:
+        return float(v) if v not in (None, "") else None
+    except (TypeError, ValueError):
+        return None
+
+
+@app.get("/api/plan/list")
+async def api_plan_list(_user: str = Depends(require_auth)):
+    """交易计划列表（新→旧）。"""
+    try:
+        from app.strategy.db import list_plans
+        return {"ok": True, "rows": list_plans()}
+    except Exception as e:
+        logger.exception("交易计划列表失败")
+        return {"ok": False, "msg": str(e)}
+
+
+@app.post("/api/plan/add")
+async def api_plan_add(request: Request, _user: str = Depends(require_auth)):
+    """新增交易计划（用户最终决定）。Body: {code, side?, buy_price, stop_loss, take_profit?, position_pct?, note?}。"""
+    try:
+        from app.strategy.db import add_plan
+        b = await request.json()
+        ts_code = _resolve_ts_code(b.get("code", ""))
+        if not ts_code:
+            return {"ok": False, "msg": "无法识别股票（请输入代码/名称）"}
+        hid = add_plan(
+            ts_code, name=_stock_name(ts_code), side=(b.get("side") or "buy"),
+            buy_price=_to_float(b.get("buy_price")), stop_loss=_to_float(b.get("stop_loss")),
+            take_profit=_to_float(b.get("take_profit")), position_pct=_to_float(b.get("position_pct")),
+            note=(b.get("note") or ""))
+        return {"ok": True, "id": hid}
+    except Exception as e:
+        logger.exception("新增交易计划失败")
+        return {"ok": False, "msg": str(e)}
+
+
+@app.post("/api/plan/update")
+async def api_plan_update(request: Request, _user: str = Depends(require_auth)):
+    """更新交易计划字段。Body: {id, ...fields}。"""
+    try:
+        from app.strategy.db import update_plan
+        b = await request.json()
+        pid = int(b.get("id"))
+        fields = {k: b[k] for k in ("name", "side", "buy_price", "stop_loss", "take_profit", "position_pct", "note", "status") if k in b}
+        for k in ("buy_price", "stop_loss", "take_profit", "position_pct"):
+            if k in fields:
+                fields[k] = _to_float(fields[k])
+        return {"ok": update_plan(pid, **fields)}
+    except Exception as e:
+        logger.exception("更新交易计划失败")
+        return {"ok": False, "msg": str(e)}
+
+
+@app.post("/api/plan/remove")
+async def api_plan_remove(request: Request, _user: str = Depends(require_auth)):
+    """删除交易计划。Body: {id}。"""
+    try:
+        from app.strategy.db import remove_plan
+        b = await request.json()
+        return {"ok": remove_plan(int(b.get("id")))}
+    except Exception as e:
+        logger.exception("删除交易计划失败")
+        return {"ok": False, "msg": str(e)}
+
+
+@app.get("/api/plan/export")
+async def api_plan_export(_user: str = Depends(require_auth)):
+    """导出 pending 计划为 QMT 可读的 plan.json（下载）。"""
+    import json as _json
+
+    from fastapi.responses import Response
+
+    from app.strategy.db import list_plans
+    from app.strategy.trade_plan import to_qmt_plan
+    body = _json.dumps(to_qmt_plan(list_plans()), ensure_ascii=False, indent=2)
+    return Response(content=body, media_type="application/json",
+                    headers={"Content-Disposition": "attachment; filename=plan.json"})
+
+
+@app.get("/api/plan/qmt-script")
+async def api_plan_qmt_script(_user: str = Depends(require_auth)):
+    """下载配套 QMT 执行脚本（读 plan.json·集合竞价挂单+自动止损·不内置下单到网站）。"""
+    from fastapi.responses import Response
+
+    from app.strategy.trade_plan import QMT_SCRIPT
+    return Response(content=QMT_SCRIPT, media_type="text/x-python",
+                    headers={"Content-Disposition": "attachment; filename=qmt_executor.py"})
+
+
 @app.get("/api/portfolio")
 async def api_portfolio(_user: str = Depends(require_auth)):
     """持仓体检 + 事件预警（现价/盈亏/技术/资金/事件/健康灯）。较重→线程池。"""

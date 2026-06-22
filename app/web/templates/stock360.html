@@ -72,7 +72,8 @@ table.mini td { padding:6px 8px; border-bottom:1px solid #1e2138; }
   <div id="export-bar" class="s-noexport" style="display:none;gap:10px;margin-bottom:14px">
     <button class="exportbtn primary" id="btn-img">📷 导出长图</button>
     <button class="exportbtn" id="btn-pdf">📄 导出 PDF</button>
-    <span class="neu2" style="font-size:11px;align-self:center">分析结果自动存入下方历史，可随时回看</span>
+    <a class="exportbtn" id="btn-plan" href="#" title="带着这只票去交易计划页录入你的最终决定">📝 加入交易计划</a>
+    <span class="neu2" style="font-size:11px;align-self:center">分析完由你拍板 → 加入交易计划 → 导出给 QMT 执行</span>
   </div>
   <!-- 顶部：AI 综合买入判断 -->
   <div class="sec" id="verdict">
@@ -124,7 +125,8 @@ function go(){
     loadLhb(code,facts,store),
   ];
   // 各区一加载完就放出导出按钮（不必等最慢的 AI 判断·判断随后补上）
-  Promise.allSettled(jobs).then(()=>{ $('export-bar').style.display='flex'; return runVerdict(code,facts,store); })
+  Promise.allSettled(jobs).then(()=>{ $('export-bar').style.display='flex';
+      $('btn-plan').href='/plan?code='+encodeURIComponent(_lastCode||code); return runVerdict(code,facts,store); })
     .finally(()=>{ busy=false; $('go').disabled=false; });
 }
 $('go').onclick=go;
@@ -331,6 +333,7 @@ function replay(s){
   if(s.verdict&&s.verdict.stance){ _lastVerdict=s.verdict; renderVerdict(s.verdict); }
   else { $('vd-body').className=''; $('vd-body').innerHTML='<span class="neu2">该快照无综合判断</span>'; }
   $('export-bar').style.display='flex';
+  $('btn-plan').href='/plan?code='+encodeURIComponent(s.code||'');
   $('cap-sub').textContent=(s.name||'')+' '+(s.code||'')+' · 历史快照';
 }
 
