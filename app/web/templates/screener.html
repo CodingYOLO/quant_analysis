@@ -140,13 +140,16 @@
 </div>
 
 <div class="card" id="rescard" style="display:none">
-  <h2>📋 筛选结果 <span class="neu" id="rescount" style="font-weight:400"></span></h2>
+  <h2>📋 筛选结果 <span class="neu" id="rescount" style="font-weight:400"></span>
+    <button class="quickbtn" id="btn-export" style="float:right;border-color:#3358e0;color:#7c9ef8">📷 导出长图</button>
+  </h2>
   <div class="reswrap"><table id="restable"></table></div>
 </div>
 
 <script src="/static/echarts.min.js"></script>
 <script src="/static/kline.js"></script>
 <script src="/static/research_widget.js"></script>
+<script src="/static/html2canvas.min.js"></script>
 <script>
 const selected = new Set();
 document.querySelectorAll('.fbtn').forEach(b => {
@@ -445,6 +448,36 @@ document.getElementById('run').addEventListener('click', async () => {
     statusEl.textContent = '❌ 请求出错：' + e;
   } finally {
     btn.disabled = false;
+  }
+});
+
+// ── 一键导出长图（整张结果表→PNG，复用个股360同款 html2canvas）──
+document.getElementById('btn-export').addEventListener('click', async () => {
+  if (typeof html2canvas === 'undefined') { alert('图片库未加载，请刷新重试'); return; }
+  const btn = document.getElementById('btn-export'), old = btn.textContent;
+  btn.disabled = true; btn.textContent = '⏳ 生成中…';
+  const node = document.getElementById('rescard');
+  const wrap = node.querySelector('.reswrap');
+  const ov = wrap.style.overflow;
+  wrap.style.overflow = 'visible';               // 临时放开横向裁剪，截全宽
+  const noexport = [];                           // 导出时隐藏按钮本身
+  document.querySelectorAll('#rescard .quickbtn, #rescard .addw').forEach(el => {
+    noexport.push([el, el.style.visibility]); el.style.visibility = 'hidden';
+  });
+  try {
+    const canvas = await html2canvas(node, {
+      scale: 2, backgroundColor: '#0f1117', useCORS: true, windowWidth: node.scrollWidth,
+    });
+    const today = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+    const a = document.createElement('a');
+    a.download = '选股结果_' + today + '.png';
+    a.href = canvas.toDataURL('image/png'); a.click();
+  } catch (e) {
+    alert('长图生成失败：' + e);
+  } finally {
+    wrap.style.overflow = ov;
+    noexport.forEach(([el, v]) => el.style.visibility = v);
+    btn.disabled = false; btn.textContent = old;
   }
 });
 
