@@ -145,11 +145,15 @@ def build_dashboard(end_date: str, days: int = 22, start_date: str = "", force: 
     lianban_series = _lianban_series(all_dates, limit_sets, range_dates)
     official = _official_limit_series(provider, range_dates)
     if official:
+        # 逐日 merge：官方当日有数据才覆盖(更准·分炸板/连板)；当日未发布(如最新交易日)则保留日线推断
         for i, d in enumerate(range_dates):
+            if not official["has"][i]:
+                continue
             if d in per_day:
                 per_day[d]["limit_up"] = official["limit_up"][i]
                 per_day[d]["limit_down"] = official["limit_down"][i]
-        lianban_series = official["lianban"]
+            for k in ("b3", "b4", "b5p", "height"):
+                lianban_series[k][i] = official["lianban"][k][i]
     limit_official = (official or {}).get("latest", {})
 
     # —— 市场广度（5日线占比，全市场+大中小盘）——
@@ -278,13 +282,16 @@ def _official_limit_series(provider, range_dates: list[str]) -> dict | None:
     """
     if not range_dates:
         return None
-    lu, ld, b3, b4, b5p, height = ([] for _ in range(6))
+    lu, ld, b3, b4, b5p, height, has = ([] for _ in range(7))
     try:
         for d in range_dates:
             up = provider.get_limit_list(d, "U")
             down = provider.get_limit_list(d, "D")
-            lu.append(int(len(up)) if up is not None else 0)
-            ld.append(int(len(down)) if down is not None else 0)
+            up_n = int(len(up)) if up is not None else 0
+            dn_n = int(len(down)) if down is not None else 0
+            has.append(up_n > 0 or dn_n > 0)   # 该日官方涨停榜是否有数据(未发布则False)
+            lu.append(up_n)
+            ld.append(dn_n)
             dist, mx = _lianban_dist(up)
             b3.append(dist.get(3, 0))
             b4.append(dist.get(4, 0))
@@ -294,8 +301,8 @@ def _official_limit_series(provider, range_dates: list[str]) -> dict | None:
         logger.warning("[sentiment] 官方连板序列失败，回退日线推断", exc_info=True)
         return None
     from app.strategy.market_extras import get_limit_analysis
-    latest = get_limit_analysis(range_dates[-1], provider) or {}
-    return {"limit_up": lu, "limit_down": ld,
+    latest = get_limit_analysis(range_dates[-1], provider) or {} if has and has[-1] else {}
+    return {"limit_up": lu, "limit_down": ld, "has": has,
             "lianban": {"b3": b3, "b4": b4, "b5p": b5p, "height": height}, "latest": latest}
 
 
