@@ -72,7 +72,7 @@ def hot_board(provider: CompositeProvider, kind: str = "rank", top: int = 40) ->
     try:                                        # 仅一次(provider 内部已含重试)·不再死磕
         df = provider.get_hot_up() if kind == "up" else provider.get_hot_rank()
         if df is not None and not df.empty:
-            full = _fmt_hot(df, 80, kind)       # 存全量80·读取再按top切
+            full = _fmt_hot(df, 100, kind)      # 存全量100(东财人气榜满榜)·读取再按top切
     except Exception:
         full = []
     if full:                                    # 东财直连成功 → 落盘 + 返回
@@ -159,7 +159,7 @@ LOOP = True           # True=开着就每5分钟自动同步 / False=只跑一�
 
 def fmt(df, kind):
     rows = []
-    for _, r in df.head(80).iterrows():
+    for _, r in df.head(100).iterrows():
         it = {"rank": int(r["当前排名"]), "code": str(r["代码"]),
               "name": str(r["股票名称"]), "price": float(r["最新价"]), "pct": float(r["涨跌幅"])}
         if kind == "up":

@@ -80,7 +80,7 @@ async function loadHot(){
       $('hotbox').innerHTML=h+'</tbody></table>';
       return;
     }
-    const j=await (await fetch('/api/market/hot?kind='+hotKind+'&top=40')).json();
+    const j=await (await fetch('/api/market/hot?kind='+hotKind+'&top=100')).json();
     const rows=(j.ok&&j.rows)?j.rows:[];
     if(!rows.length){ $('hotbox').innerHTML='<div class="neu2">📡 东财'+(hotKind==='up'?'飙升':'人气')+'榜暂不可用（东财对云服务器封IP）。<br>① 看左侧「<b style="color:#7c9ef8">概念热度</b>」（自家宽表·稳）；② 想稳定显示人气榜→<a href="/api/market/hot/sync-script" style="color:#7c9ef8">📥下载本地同步脚本</a>，在你家电脑跑一下即可（住宅IP能直连东财）。</div>'; return; }
     const src=j.source||'', t=esc(j.as_of||'');
