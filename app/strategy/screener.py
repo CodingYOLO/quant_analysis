@@ -105,6 +105,8 @@ FACTOR_GROUPS = [
         "group": "🔥 妖股/情绪启动（连板基因+启动+排雷）",
         "factors": [
             {"key": "demon_gene2", "label": "连板基因·近60日涨停≥2次", "col": "limit_ups_60d", "op": "ge", "val": 2},
+            {"key": "demon_youzi_relay", "label": "🔥有游资接力(近20日≥2日)", "col": "youzi_relay_days", "op": "ge", "val": 2},
+            {"key": "demon_youzi_any", "label": "🔥近期有游资进场(≥1日)", "col": "youzi_relay_days", "op": "ge", "val": 1},
             {"key": "demon_board2", "label": "有过连板(≥2连板)", "col": "max_consec_limit", "op": "ge", "val": 2},
             {"key": "demon_lu_today", "label": "今日涨停(点火)", "col": "is_limit_up", "op": "true"},
             {"key": "demon_hot_turn", "label": "高换手≥7%(情绪活跃)", "col": "turnover_rate", "op": "ge", "val": 7},
@@ -153,6 +155,7 @@ CUSTOM_FIELDS = [
     {"col": "amp20", "label": "近20日均振幅%"}, {"col": "main_net_3d", "label": "主力近3日(亿)"},
     {"col": "up_down_vol", "label": "量价配合(涨量/跌量)"}, {"col": "amp_contract", "label": "振幅收敛比"},
     {"col": "limit_ups_60d", "label": "近60日涨停数"}, {"col": "max_consec_limit", "label": "最高连板"},
+    {"col": "youzi_relay_days", "label": "游资接力天数"},
     {"col": "debt_to_assets", "label": "资产负债率%"}, {"col": "netprofit_yoy", "label": "净利同比%"},
     {"col": "roe", "label": "ROE%"},
 ]
@@ -166,6 +169,7 @@ DISPLAY_COLS = [
     ("ret20", "近20日涨%"), ("vol5_vol20", "量能比5/20"),
     ("up_down_vol", "量价配合"),
     ("limit_ups_60d", "60日涨停"), ("max_consec_limit", "最高连板"),
+    ("youzi_relay_days", "🔥游资接力日"),
     ("debt_to_assets", "负债率%"), ("netprofit_yoy", "净利同比%"),
     ("turnover_rate", "换手%"), ("volume_ratio", "量比"), ("circ_mv_100m", "流通市值(亿)"),
     ("main_net_amount", "主力净流入(亿)"), ("main_net_3d", "主力3日(亿)"), ("elg_net", "超大单(亿)"),
@@ -179,7 +183,7 @@ DISPLAY_COLS = [
 # ──────────────────────────────────────────────
 
 # 因子表结构版本：新增因子列时 +1，使旧缓存自动失效重算（避免读到缺列的旧表）
-_FACTOR_TABLE_VERSION = "v4"
+_FACTOR_TABLE_VERSION = "v5"
 
 
 def _factor_cache_path(date: str) -> Path:
@@ -217,6 +221,7 @@ def build_factor_table(date: str, provider: CompositeProvider | None = None,
     df = _add_technical_factors(df, date, provider)
     df = _add_fund_persistence(df, date, provider)   # 近3日主力净流入(持续性)
     df = _add_fundamentals(df, provider)              # 批量财务(负债率/净利同比/ROE)·妖股排雷
+    df = _add_youzi_relay(df, date, provider)         # 近20日游资接力天数(批量top_inst)
     df = _add_accum_score(df)                          # 慢牛吸筹评分(合成上面多日因子)
 
     df.to_parquet(path, index=False)
@@ -418,6 +423,54 @@ def _latest_fina_period(now=None) -> str:
         if e <= cutoff:
             return e
     return ends[-1]
+
+
+def _youzi_relay_map(provider, date: str, lookback: int = 20) -> dict[str, tuple[int, float]]:
+    """近 N 日全市场游资接力：{ts_code: (有游资净买的天数, 游资净买合计亿)}。
+
+    批量按日拉 top_inst（全市场·1次/日·缓存），按席位名识别游资(type=hot)并只取净买>0，
+    比逐股复盘省百倍取数。供选股结果一眼看"哪些连板票背后有游资在接力"。
+    """
+    from app.factors.breadth_qfq import _recent_trade_dates
+    from app.strategy.lhb_seats import classify_seat
+    try:
+        dates = _recent_trade_dates(provider, date, lookback)
+    except Exception:
+        dates = [date]
+    days_cnt: dict[str, int] = {}
+    net_sum: dict[str, float] = {}
+    seat_cls: dict[str, str] = {}                          # 席位分类缓存(同名席位复用)
+    for d in dates:
+        try:
+            df = provider.get_lhb_inst(d)
+        except Exception:
+            continue
+        if df is None or df.empty or "exalter" not in df.columns or "net_buy" not in df.columns:
+            continue
+        nb = pd.to_numeric(df["net_buy"], errors="coerce")
+        today_ts: set[str] = set()
+        for ts, ex, v in zip(df["ts_code"], df["exalter"], nb):
+            if pd.isna(v) or v <= 0:
+                continue
+            ex = str(ex)
+            typ = seat_cls.get(ex) or seat_cls.setdefault(ex, classify_seat(ex).get("type", ""))
+            if typ == "hot":
+                net_sum[ts] = net_sum.get(ts, 0.0) + float(v) / 1e8
+                today_ts.add(ts)
+        for ts in today_ts:
+            days_cnt[ts] = days_cnt.get(ts, 0) + 1
+    return {ts: (days_cnt[ts], round(net_sum.get(ts, 0.0), 2)) for ts in days_cnt}
+
+
+def _add_youzi_relay(df: pd.DataFrame, date: str, provider) -> pd.DataFrame:
+    """加"近20日游资接力天数 youzi_relay_days"列（无龙虎榜的票为0）。失败优雅跳过。"""
+    try:
+        m = _youzi_relay_map(provider, date)
+        df["youzi_relay_days"] = df["ts_code"].map({t: v[0] for t, v in m.items()}).fillna(0).astype(int)
+        df["youzi_net_yi"] = df["ts_code"].map({t: v[1] for t, v in m.items()})
+    except Exception as e:
+        logger.debug("游资接力计算失败: %s", e)
+    return df
 
 
 def _add_fundamentals(df: pd.DataFrame, provider) -> pd.DataFrame:

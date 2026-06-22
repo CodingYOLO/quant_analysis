@@ -116,6 +116,26 @@ def test_limit_stats_board_threshold() -> None:
     assert ups == 0 and mx == 0
 
 
+def test_youzi_relay_map_counts_recurring() -> None:
+    """跨多日聚合游资席位：A两日游资买(接力)、B仅1日(d1是机构不算游资)。"""
+    class _P:
+        def get_trade_cal(self, s, e):
+            return pd.DataFrame({"cal_date": ["20260601", "20260602", "20260603"], "is_open": [1, 1, 1]})
+
+        def get_lhb_inst(self, d):
+            data = {
+                "20260601": [("A.SZ", "上海溧阳路证券营业部", 1e8), ("B.SZ", "机构专用", 1e8)],
+                "20260602": [("A.SZ", "某券商溧阳路营业部", 0.5e8)],
+                "20260603": [("B.SZ", "佛山某证券营业部", 0.3e8)],
+            }
+            return pd.DataFrame([{"ts_code": t, "exalter": x, "net_buy": n, "buy": n, "sell": 0}
+                                 for t, x, n in data.get(d, [])])
+
+    m = SC._youzi_relay_map(_P(), "20260603", lookback=20)
+    assert m["A.SZ"][0] == 2 and round(m["A.SZ"][1], 2) == 1.5    # 两日接力·净买1.5亿
+    assert m["B.SZ"][0] == 1                                       # 仅游资买那1日(机构日不计)
+
+
 def test_latest_fina_period() -> None:
     import datetime
     assert SC._latest_fina_period(datetime.date(2026, 6, 22)) == "20260331"
