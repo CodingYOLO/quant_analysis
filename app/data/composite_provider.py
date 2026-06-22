@@ -157,6 +157,12 @@ class CompositeProvider(DataProvider):
     def get_cls_news(self, date: str) -> pd.DataFrame:
         return self._ak.get_cls_news(date)
 
+    def get_hot_rank(self) -> pd.DataFrame:
+        return self._ak.get_hot_rank()
+
+    def get_econ_calendar(self) -> pd.DataFrame:
+        return self._ak.get_econ_calendar()
+
     def get_stock_news(self, ts_code: str) -> pd.DataFrame:
         return self._ak.get_stock_news(ts_code)
 

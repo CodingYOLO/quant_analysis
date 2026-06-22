@@ -75,6 +75,18 @@ class AkshareProvider(DataProvider):
     def _fetch_hot_rank(self) -> pd.DataFrame:
         return rate_limited_call("ak_hot_rank", ak.stock_hot_rank_em)
 
+    def get_econ_calendar(self) -> pd.DataFrame:
+        """百度财经日历（当日经济数据/事件·含公布/预期/前值/重要性，含重试）。
+
+        ⚠️ news_economic_baidu 不带 date 参数会返回固定旧日期，必须传当天。
+        """
+        import datetime
+        return self._fetch_econ_calendar(datetime.datetime.now().strftime("%Y%m%d"))
+
+    @_RETRY
+    def _fetch_econ_calendar(self, date: str) -> pd.DataFrame:
+        return rate_limited_call("ak_econ_cal", ak.news_economic_baidu, date=date)
+
     # ---- 实时报价（新浪，指数+个股，轻量按需）----
 
     def get_realtime_quote(self, ts_codes: list[str]) -> pd.DataFrame:

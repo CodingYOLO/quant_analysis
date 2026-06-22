@@ -737,6 +737,54 @@ async def plan_page(request: Request, _user: str = Depends(require_auth)):
     return templates.TemplateResponse(request=request, name="plan.html", context={"page": "plan"})
 
 
+@app.get("/market", response_class=HTMLResponse)
+async def market_page(request: Request, _user: str = Depends(require_auth)):
+    """📡 行情中枢：东财热榜 + 7×24快讯 + 财经日历（盘面速览·主动来查·不推送）。"""
+    return templates.TemplateResponse(request=request, name="market.html", context={"page": "market"})
+
+
+@app.get("/api/market/hot")
+async def api_market_hot(top: int = 40, _user: str = Depends(require_auth)):
+    """东财人气榜 Top N（线程池·3分钟缓存）。"""
+    try:
+        from fastapi.concurrency import run_in_threadpool
+
+        from app.data.composite_provider import CompositeProvider
+        from app.strategy.market_hub import hot_rank
+        return {"ok": True, "rows": await run_in_threadpool(hot_rank, CompositeProvider(), int(top))}
+    except Exception as e:
+        logger.exception("东财热榜失败")
+        return {"ok": False, "msg": str(e)}
+
+
+@app.get("/api/market/news")
+async def api_market_news(n: int = 50, _user: str = Depends(require_auth)):
+    """7×24 快讯（财联社电报·降级东财·线程池·3分钟缓存）。"""
+    try:
+        from fastapi.concurrency import run_in_threadpool
+
+        from app.data.composite_provider import CompositeProvider
+        from app.strategy.market_hub import news_flash
+        return {"ok": True, "rows": await run_in_threadpool(news_flash, CompositeProvider(), int(n))}
+    except Exception as e:
+        logger.exception("7x24快讯失败")
+        return {"ok": False, "msg": str(e)}
+
+
+@app.get("/api/market/calendar")
+async def api_market_calendar(_user: str = Depends(require_auth)):
+    """财经日历（经济数据/事件·线程池·30分钟缓存）。"""
+    try:
+        from fastapi.concurrency import run_in_threadpool
+
+        from app.data.composite_provider import CompositeProvider
+        from app.strategy.market_hub import econ_calendar
+        return {"ok": True, "rows": await run_in_threadpool(econ_calendar, CompositeProvider())}
+    except Exception as e:
+        logger.exception("财经日历失败")
+        return {"ok": False, "msg": str(e)}
+
+
 def _to_float(v):
     """安全转 float：空/无效返回 None（交易计划价格/仓位用）。"""
     try:

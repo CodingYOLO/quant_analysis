@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% block title %}行情中枢 — A股Agent{% endblock %}
+
+{% block extra_style %}
+h1 { font-size:22px; text-align:center; margin-bottom:4px; }
+.sub { text-align:center; color:#9ca3af; font-size:12.5px; margin-bottom:14px; }
+.up { color:#f6465d; } .down { color:#2ebd85; } .neu2 { color:#9ca3af; }
+.cols { display:flex; gap:14px; flex-wrap:wrap; }
+.col { flex:1; min-width:330px; }
+.card { background:#1a1d2e; border:1px solid #2d3052; border-radius:11px; padding:14px 16px; margin-bottom:14px; }
+.card h2 { font-size:15px; color:#7c9ef8; margin-bottom:10px; display:flex; align-items:center; gap:8px; }
+.card h2 .rf { margin-left:auto; font-size:12px; color:#7c9ef8; cursor:pointer; font-weight:400; }
+.scroll { max-height:520px; overflow-y:auto; }
+table { width:100%; border-collapse:collapse; font-size:12.5px; }
+th { background:#232640; color:#9ca3af; font-weight:500; padding:6px 8px; text-align:left; position:sticky; top:0; }
+td { padding:6px 8px; border-bottom:1px solid #1e2138; }
+tr:hover td { background:#1e2138; }
+.nm { color:#e8e8e8; cursor:pointer; } .nm:hover { color:#7c9ef8; }
+.news-item { padding:8px 4px; border-bottom:1px solid #1e2138; }
+.news-item .t { color:#6b7280; font-size:11px; }
+.news-item .lv { font-size:10px; padding:0 5px; border-radius:4px; margin-left:6px; }
+.lv-A { background:#3b1a1a; color:#f87171; } .lv-B { background:#3b2a0a; color:#f0a020; } .lv-C { background:#1a1d2e; color:#9ca3af; }
+.news-item .ti { color:#e8e8e8; font-size:13px; line-height:1.6; margin:2px 0; }
+.news-item .sm { color:#9ca3af; font-size:11.5px; line-height:1.6; }
+.imp { color:#f0a020; letter-spacing:1px; }
+.loading { color:#9ca3af; font-size:13px; padding:10px; }
+{% endblock %}
+
+{% block content %}
+<h1>📡 行情中枢</h1>
+<div class="sub">东财热榜 · 7×24 快讯 · 财经日历——盘面速览，你想看时来查（不推送、不打扰）。点热榜个股名可跳个股360。</div>
+
+<div class="cols">
+  <div class="col">
+    <div class="card">
+      <h2>🔥 东财人气榜 <span class="rf" id="rf-hot">🔄刷新</span></h2>
+      <div class="scroll"><table id="hot"><tbody><tr><td class="loading">⏳ 加载热榜…</td></tr></tbody></table></div>
+    </div>
+    <div class="card">
+      <h2>📅 财经日历 <span class="rf" id="rf-cal">🔄刷新</span></h2>
+      <div class="scroll" id="cal"><div class="loading">⏳ 加载财经日历…</div></div>
+    </div>
+  </div>
+  <div class="col">
+    <div class="card">
+      <h2>⚡ 7×24 快讯 <span class="neu2" style="font-size:11px;font-weight:400">（财联社·每3分钟更新）</span> <span class="rf" id="rf-news">🔄刷新</span></h2>
+      <div class="scroll" id="news"><div class="loading">⏳ 加载快讯…</div></div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_script %}
+<script>
+const $=id=>document.getElementById(id);
+function esc(s){ return (s==null?'':String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function pct(v){ if(v==null||v==='') return '—'; const n=parseFloat(v); const c=n>0?'up':(n<0?'down':'neu2'); return '<span class="'+c+'">'+(n>0?'+':'')+n+'%</span>'; }
+
+async function loadHot(){
+  $('hot').innerHTML='<tbody><tr><td class="loading">⏳ 加载热榜…</td></tr></tbody>';
+  try{
+    const j=await (await fetch('/api/market/hot?top=40')).json();
+    const rows=(j.ok&&j.rows)?j.rows:[];
+    if(!rows.length){ $('hot').innerHTML='<tbody><tr><td class="neu2">暂无数据（东财偶发限流·稍后刷新）</td></tr></tbody>'; return; }
+    let h='<thead><tr><th>排名</th><th>个股</th><th>现价</th><th>涨跌幅</th></tr></thead><tbody>';
+    rows.forEach(r=>{ h+='<tr><td class="neu2">'+r.rank+'</td>'
+      +'<td><span class="nm" data-code="'+esc(r.code)+'">'+esc(r.name)+'</span> <span class="neu2" style="font-size:11px">'+esc(r.code)+'</span></td>'
+      +'<td>'+(r.price??'—')+'</td><td>'+pct(r.pct)+'</td></tr>'; });
+    $('hot').innerHTML=h+'</tbody>';
+  }catch(e){ $('hot').innerHTML='<tbody><tr><td class="neu2">❌ '+esc(e)+'</td></tr></tbody>'; }
+}
+$('hot').addEventListener('click',e=>{ const n=e.target.closest('.nm'); if(n&&n.dataset.code) location.href='/stock?code='+encodeURIComponent(n.dataset.code); });
+
+async function loadNews(){
+  $('news').innerHTML='<div class="loading">⏳ 加载快讯…</div>';
+  try{
+    const j=await (await fetch('/api/market/news?n=60')).json();
+    const rows=(j.ok&&j.rows)?j.rows:[];
+    if(!rows.length){ $('news').innerHTML='<div class="neu2">暂无快讯</div>'; return; }
+    $('news').innerHTML=rows.map(r=>{
+      const lv=r.level?('<span class="lv lv-'+esc(r.level)+'">'+esc(r.level)+'</span>'):'';
+      return '<div class="news-item"><div class="t">'+esc(r.time)+lv+(r.source?(' · '+esc(r.source)):'')+'</div>'
+        +'<div class="ti">'+esc(r.title)+'</div>'+(r.summary?'<div class="sm">'+esc(r.summary)+'</div>':'')+'</div>';
+    }).join('');
+  }catch(e){ $('news').innerHTML='<div class="neu2">❌ '+esc(e)+'</div>'; }
+}
+
+async function loadCal(){
+  $('cal').innerHTML='<div class="loading">⏳ 加载财经日历…</div>';
+  try{
+    const j=await (await fetch('/api/market/calendar')).json();
+    const rows=(j.ok&&j.rows)?j.rows:[];
+    if(!rows.length){ $('cal').innerHTML='<div class="neu2">暂无日历数据</div>'; return; }
+    let h='<table><thead><tr><th>日期</th><th>时间</th><th>地区</th><th>事件</th><th>重要</th><th>公布</th><th>预期</th><th>前值</th></tr></thead><tbody>';
+    rows.forEach(r=>{ const stars='★'.repeat(Math.max(0,Math.min(5,parseInt(r.importance)||0)));
+      h+='<tr><td class="neu2" style="white-space:nowrap">'+esc(r.date)+'</td><td class="neu2">'+esc(r.time)+'</td>'
+        +'<td>'+esc(r.region)+'</td><td>'+esc(r.event)+'</td><td class="imp">'+stars+'</td>'
+        +'<td>'+esc(r.actual||'—')+'</td><td class="neu2">'+esc(r.forecast||'—')+'</td><td class="neu2">'+esc(r.prev||'—')+'</td></tr>'; });
+    $('cal').innerHTML=h+'</tbody></table>';
+  }catch(e){ $('cal').innerHTML='<div class="neu2">❌ '+esc(e)+'</div>'; }
+}
+
+$('rf-hot').onclick=loadHot; $('rf-news').onclick=loadNews; $('rf-cal').onclick=loadCal;
+loadHot(); loadNews(); loadCal();
+</script>
+{% endblock %}
