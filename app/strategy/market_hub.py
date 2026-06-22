@@ -23,6 +23,30 @@ def _hot_disk(key: str) -> Path:
     return d / f"{key}.json"
 
 
+def save_hot_disk(kind: str, rows: list[dict], source: str = "本地同步") -> int:
+    """把热榜写入磁盘（东财直连成功 or 本地电脑同步推送共用）。返回条数。
+
+    本地同步用：家里电脑跑 local_hotrank_sync.py 拉东财→POST /api/market/hot/ingest→落这里。
+    服务器读盘兜底(东财云上限流时)即用此数据，并标注同步时间/来源。
+    """
+    if not rows:
+        return 0
+    payload = {"rows": rows, "ts": time.time(),
+               "as_of": datetime.datetime.now().strftime("%m-%d %H:%M:%S"), "source": source}
+    _hot_disk(f"hot_{kind}").write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    return len(rows)
+
+
+def _load_hot_disk(kind: str) -> dict | None:
+    """读盘热榜（本地同步/上次直连）。按同步时间算 stale(>30分钟视为过期)。"""
+    try:
+        d = json.loads(_hot_disk(f"hot_{kind}").read_text(encoding="utf-8"))
+        d["stale"] = (time.time() - float(d.get("ts", 0))) > 1800
+        return d
+    except Exception:
+        return None
+
+
 def _fmt_hot(df, top: int, kind: str) -> list[dict]:
     rows = []
     for r in df.head(top).to_dict("records"):
@@ -44,27 +68,24 @@ def hot_board(provider: CompositeProvider, kind: str = "rank", top: int = 40) ->
     mem = _CACHE.get(ck)
     if mem and now - mem[0] < 60:               # 60秒内存缓存
         return mem[1]
-    rows = []
+    full = []
     try:                                        # 仅一次(provider 内部已含重试)·不再死磕
         df = provider.get_hot_up() if kind == "up" else provider.get_hot_rank()
         if df is not None and not df.empty:
-            rows = _fmt_hot(df, top, kind)
+            full = _fmt_hot(df, 80, kind)       # 存全量80·读取再按top切
     except Exception:
-        rows = []
-    if rows:
-        res = {"rows": rows, "as_of": datetime.datetime.now().strftime("%m-%d %H:%M:%S"), "stale": False}
+        full = []
+    if full:                                    # 东财直连成功 → 落盘 + 返回
+        save_hot_disk(kind, full, "东财直连")
+        res = {"rows": full[:top], "as_of": datetime.datetime.now().strftime("%m-%d %H:%M:%S"),
+               "stale": False, "source": "东财直连"}
         _CACHE[ck] = (now, res)
-        try:
-            _hot_disk(ck).write_text(json.dumps(res, ensure_ascii=False), encoding="utf-8")
-        except Exception:
-            pass
         return res
-    try:                                        # 东财挂了 → 读上次成功(磁盘)·标 stale
-        d = json.loads(_hot_disk(ck).read_text(encoding="utf-8"))
-        d["stale"] = True
-        return d
-    except Exception:
-        return {"rows": [], "as_of": "", "stale": False}
+    disk = _load_hot_disk(kind)                 # 东财挂了 → 读盘(本地同步/上次直连)
+    if disk and disk.get("rows"):
+        return {"rows": disk["rows"][:top], "as_of": disk.get("as_of", ""),
+                "stale": disk.get("stale", True), "source": disk.get("source", "")}
+    return {"rows": [], "as_of": "", "stale": False, "source": ""}
 
 
 def _cached(key: str, ttl: int, fn) -> list:
@@ -122,6 +143,41 @@ def news_flash(provider: CompositeProvider, n: int = 50) -> list[dict]:
             "url": _clean(r.get("链接")),
         } for r in df.head(n).to_dict("records")]
     return _cached(f"news{n}", 180, _f)
+
+
+# 本地同步脚本（在用户家电脑跑·住宅IP能直连东财·推送到服务器兜底缓存）
+LOCAL_SYNC_SCRIPT = r'''# local_hotrank_sync.py —— 在你【家里电脑】跑·拉东财人气/飙升榜→推送到服务器
+# 用途：东财对云服务器封IP·但你家住宅IP能直连。电脑开着时跑一下(或挂定时)，
+# 服务器就能稳定显示人气榜；电脑没开则显示上次同步的(带时间戳)。需先 pip install akshare requests
+import akshare as ak, requests, base64
+
+SERVER = "http://123.207.223.176:8000"
+AUTH = "Basic " + base64.b64encode(b"admin:Astock@2026").decode()
+
+def fmt(df, kind):
+    rows = []
+    for _, r in df.head(80).iterrows():
+        it = {"rank": int(r["当前排名"]), "code": str(r["代码"]),
+              "name": str(r["股票名称"]), "price": float(r["最新价"]), "pct": float(r["涨跌幅"])}
+        if kind == "up":
+            it["rank_chg"] = int(r["排名较昨日变动"])
+        rows.append(it)
+    return rows
+
+def push(kind, fn):
+    rows = fmt(fn(), kind)
+    requests.post(SERVER + "/api/market/hot/ingest", json={"kind": kind, "rows": rows},
+                  headers={"Authorization": AUTH}, timeout=20)
+    print(f"{kind}: 已推送 {len(rows)} 条")
+
+if __name__ == "__main__":
+    for kind, fn in [("rank", ak.stock_hot_rank_em), ("up", ak.stock_hot_up_em)]:
+        try:
+            push(kind, fn)
+        except Exception as e:
+            print(kind, "失败:", e)
+# 挂定时(可选)：Windows任务计划/Mac crontab·盘中(9:30-15:00)每5分钟跑一次即可。
+'''
 
 
 def econ_calendar(provider: CompositeProvider, max_n: int = 80) -> list[dict]:

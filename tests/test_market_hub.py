@@ -72,14 +72,22 @@ def test_hot_board_up_normalize() -> None:
     assert out["rows"][0]["rank_chg"] == 17 and out["rows"][0]["name"] == "飞凯材料"
 
 
-def test_hot_board_stale_on_failure() -> None:
-    """先成功(写盘)→东财挂了应读上次成功并标 stale。"""
+def test_hot_board_disk_fallback() -> None:
+    """先成功(写盘)→东财挂了应读上次磁盘数据(刚写故fresh·>30min才stale)。"""
     M._CACHE.clear(); _tmp_disk()
     good = pd.DataFrame([{"当前排名": 1, "代码": "300308", "股票名称": "中际旭创", "最新价": 52, "涨跌幅": 9}])
     assert M.hot_board(_Fake(hot=good), "rank", 10)["rows"][0]["name"] == "中际旭创"   # 写盘
     M._CACHE.clear()                                                # 清内存缓存逼它读盘
-    out = M.hot_board(_Fake(hot=pd.DataFrame()), "rank", 10)        # 东财拉空
-    assert out["rows"][0]["name"] == "中际旭创" and out["stale"] is True
+    out = M.hot_board(_Fake(hot=pd.DataFrame()), "rank", 10)        # 东财拉空→读盘
+    assert out["rows"][0]["name"] == "中际旭创" and out["stale"] is False   # 刚写=fresh
+
+
+def test_save_hot_disk_ingest() -> None:
+    """本地同步推送的数据·东财失败时被服务器读出(source=本地同步)。"""
+    M._CACHE.clear(); _tmp_disk()
+    M.save_hot_disk("rank", [{"rank": 1, "code": "600111", "name": "北方稀土", "price": 54, "pct": 5.3}], "本地同步")
+    out = M.hot_board(_Fake(hot=pd.DataFrame()), "rank", 10)        # 东财拉空→读本地同步盘
+    assert out["rows"][0]["name"] == "北方稀土" and out["source"] == "本地同步"
 
 
 def test_empty_safe() -> None:

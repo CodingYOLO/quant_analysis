@@ -82,8 +82,12 @@ async function loadHot(){
     }
     const j=await (await fetch('/api/market/hot?kind='+hotKind+'&top=40')).json();
     const rows=(j.ok&&j.rows)?j.rows:[];
-    if(!rows.length){ $('hotbox').innerHTML='<div class="neu2">📡 东财'+(hotKind==='up'?'飙升':'人气')+'榜暂不可用（东财对云服务器偶发限流/封IP）。<br>建议看左侧「<b style="color:#7c9ef8">概念热度</b>」——用我们自家宽表，稳定可靠。</div>'; return; }
-    const note=j.stale?'<div class="neu2" style="font-size:10.5px;margin-bottom:6px">⚠️ 东财暂不可用·显示上次成功数据（'+esc(j.as_of||'')+'）</div>':(j.as_of?'<div class="neu2" style="font-size:10.5px;margin-bottom:6px">🕐 数据时间 '+esc(j.as_of)+'</div>':'');
+    if(!rows.length){ $('hotbox').innerHTML='<div class="neu2">📡 东财'+(hotKind==='up'?'飙升':'人气')+'榜暂不可用（东财对云服务器封IP）。<br>① 看左侧「<b style="color:#7c9ef8">概念热度</b>」（自家宽表·稳）；② 想稳定显示人气榜→<a href="/api/market/hot/sync-script" style="color:#7c9ef8">📥下载本地同步脚本</a>，在你家电脑跑一下即可（住宅IP能直连东财）。</div>'; return; }
+    const src=j.source||'', t=esc(j.as_of||'');
+    const note = src==='本地同步'
+      ? '<div class="neu2" style="font-size:10.5px;margin-bottom:6px">🕐 由你电脑同步 <b>'+t+'</b>'+(j.stale?'（已超30分钟·去电脑刷新同步）':'')+'</div>'
+      : (j.stale?'<div class="neu2" style="font-size:10.5px;margin-bottom:6px">⚠️ 东财暂不可用·显示上次数据（'+t+'）</div>'
+                : (t?'<div class="neu2" style="font-size:10.5px;margin-bottom:6px">🕐 数据时间 '+t+'·东财直连</div>':''));
     let h=note+'<table><thead><tr><th>排名</th><th>个股</th><th>现价</th><th>涨跌幅</th></tr></thead><tbody>';
     rows.forEach(r=>{ h+='<tr><td class="neu2" style="white-space:nowrap">'+r.rank+(hotKind==='up'?rankChg(r.rank_chg):'')+'</td>'
       +'<td><span class="nm" data-code="'+esc(r.code)+'">'+esc(r.name)+'</span> <span class="neu2" style="font-size:11px">'+esc(r.code)+'</span></td>'

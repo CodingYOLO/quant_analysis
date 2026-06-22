@@ -796,6 +796,30 @@ async def api_market_concept(top: int = 30, _user: str = Depends(require_auth)):
         return {"ok": False, "msg": str(e)}
 
 
+@app.post("/api/market/hot/ingest")
+async def api_market_hot_ingest(request: Request, _user: str = Depends(require_auth)):
+    """接收本地电脑同步的东财热榜（住宅IP直连·绕开云IP限流）。Body: {kind, rows}。"""
+    try:
+        from app.strategy.market_hub import save_hot_disk
+        b = await request.json()
+        kind = b.get("kind") or "rank"
+        n = save_hot_disk(kind, b.get("rows") or [], source="本地同步")
+        return {"ok": bool(n), "saved": n}
+    except Exception as e:
+        logger.exception("热榜同步接收失败")
+        return {"ok": False, "msg": str(e)}
+
+
+@app.get("/api/market/hot/sync-script")
+async def api_market_sync_script(_user: str = Depends(require_auth)):
+    """下载本地同步脚本（在家电脑跑·拉东财热榜推送到服务器·备用方案）。"""
+    from fastapi.responses import Response
+
+    from app.strategy.market_hub import LOCAL_SYNC_SCRIPT
+    return Response(content=LOCAL_SYNC_SCRIPT, media_type="text/x-python",
+                    headers={"Content-Disposition": "attachment; filename=local_hotrank_sync.py"})
+
+
 @app.get("/api/market/news")
 async def api_market_news(n: int = 50, _user: str = Depends(require_auth)):
     """7×24 快讯（财联社电报·降级东财·线程池·3分钟缓存）。"""
