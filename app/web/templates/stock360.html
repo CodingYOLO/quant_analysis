@@ -276,9 +276,22 @@ function renderLhb(d,facts,code){
       +'<div style="font-size:11.5px;margin-top:4px">次日均 <b class="'+c+'">'+(p.avg_t1==null?'—':(p.avg_t1>0?'+':'')+p.avg_t1+'%')+'</b> · T+5均 <b class="'+c+'">'+(p.avg_t5==null?'—':(p.avg_t5>0?'+':'')+p.avg_t5+'%')+'</b></div>'
       +'<div class="neu2" style="font-size:10.5px;margin-top:2px">T+5胜率 '+(p.win_t5==null?'—':p.win_t5+'%')+(p.count<3?'·样本少':'')+'</div></div>';
   });
-  h+='</div><div style="margin-top:8px">'+more+'</div>';
+  h+='</div>';
+  // 🎯 游资接力：哪些游资反复上榜买入(妖股续命硬证据)
+  const relay=(d.relay||[]);
+  if(relay.length){
+    h+='<div style="margin-top:11px"><b style="color:#f0a020;font-size:12.5px">🎯 游资接力（近6月·真金白银）</b>'
+      +'<div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:6px">';
+    relay.forEach(r=>{ const on=r.days>=2, c=r.net_yi>=0?'up':'down';
+      h+='<span style="background:'+(on?'#3b2a0a':'#0f1117')+';border:1px solid '+(on?'#6b5410':'#242842')+';border-radius:8px;padding:4px 9px;font-size:12px">'
+        +(on?'🔥 ':'')+esc(r.nickname||r.name)+' <span class="neu2">×'+r.days+'日</span> 净<span class="'+c+'">'+(r.net_yi>=0?'+':'')+r.net_yi+'亿</span></span>';
+    });
+    h+='</div><div class="neu2" style="font-size:10.5px;margin-top:4px">🔥=同一游资≥2次上榜买入(接力·续命迹象)；只来1次多为一日游。游资按营业部名近似识别，机构匿名为"机构专用"。</div></div>';
+  }
+  h+='<div style="margin-top:8px">'+more+'</div>';
   $('v-lhb').className=''; $('v-lhb').innerHTML=h;
-  facts['龙虎榜复盘']='近6月上榜'+d.count+'次；规律：'+(d.pattern||[]).map(p=>p.category+p.count+'次(次日均'+p.avg_t1+'% T+5均'+p.avg_t5+'% 胜率'+p.win_t5+'%)').join('；');
+  const relayTxt=relay.length?('；游资接力：'+relay.slice(0,5).map(r=>(r.nickname||r.name)+'×'+r.days+'日净'+r.net_yi+'亿').join('、')):'';
+  facts['龙虎榜复盘']='近6月上榜'+d.count+'次；规律：'+(d.pattern||[]).map(p=>p.category+p.count+'次(次日均'+p.avg_t1+'% T+5均'+p.avg_t5+'% 胜率'+p.win_t5+'%)').join('；')+relayTxt;
 }
 
 // —— 综合判断 + 自动存历史 ——

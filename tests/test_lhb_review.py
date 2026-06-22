@@ -94,6 +94,28 @@ def test_review_stock_integration(monkeypatch=None) -> None:
     assert out["pattern"][0]["category"] == "机构净买"
 
 
+def test_short_seat_trims_broker_prefix() -> None:
+    assert R._short_seat("东方财富证券股份有限公司拉萨东环路第二证券营业部") == "拉萨东环路第二"
+    assert R._short_seat("机构专用") == "机构专用"
+
+
+def test_hot_relay_aggregates_recurring_youzi() -> None:
+    """同一游资跨多次上榜 → 出现天数累加、净买求和、按天数排序；非游资席位不计。"""
+    occ = [
+        {"date": "20260601", "seats": [
+            {"name": "拉萨东环路第二", "nickname": "赵老哥", "type": "hot", "net_yi": 0.5},
+            {"name": "机构专用", "nickname": "", "type": "inst", "net_yi": 0.3}]},
+        {"date": "20260603", "seats": [
+            {"name": "拉萨东环路第二", "nickname": "赵老哥", "type": "hot", "net_yi": 0.8}]},
+        {"date": "20260605", "seats": [
+            {"name": "宁波桑田路", "nickname": "", "type": "hot", "net_yi": 0.2}]},
+    ]
+    rows = R._hot_relay(occ)
+    assert rows[0]["nickname"] == "赵老哥" and rows[0]["days"] == 2 and round(rows[0]["net_yi"], 2) == 1.3
+    assert sum(1 for r in rows if r["days"] >= 2) == 1        # 仅赵老哥接力
+    assert all("机构" not in r["name"] for r in rows)          # 机构席位不进游资接力
+
+
 def _run_all() -> None:
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     for fn in fns:
