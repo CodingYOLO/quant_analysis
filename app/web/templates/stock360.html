@@ -108,6 +108,9 @@ table.mini td { padding:6px 8px; border-bottom:1px solid #1e2138; }
 <script>
 const $=id=>document.getElementById(id);
 function esc(s){ return (s==null?'':String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+// 数据时间标注：YYYYMMDD→YYYY-MM-DD；dt() 生成统一的"数据时间/更新频率"小字条
+function fmtD(s){ s=String(s||''); return /^\d{8}$/.test(s)?(s.slice(0,4)+'-'+s.slice(4,6)+'-'+s.slice(6,8)):s; }
+function dt(txt){ return '<div class="neu2" style="font-size:10.5px;margin-bottom:6px">📅 '+txt+'</div>'; }
 let _kc=null, busy=false, _lastVerdict=null, _lastName='', _lastCode='';
 
 // ── 主流程：并行加载各区 → 渲染 → 汇总事实 → 综合判断 → 自动存历史 ──
@@ -143,7 +146,9 @@ function renderProfile(d,facts){
   if(d.name) _lastName=d.name;
   if(d.kline && window.AKline){ try{ _kc=AKline.render('v-kline', d.kline); }catch(e){} }
   const tags=(d.tags||[]).concat((d.chips&&d.chips.tags)||[]);
-  $('v-prof').className=''; $('v-prof').innerHTML=tags.map(t=>'<span class="tag '+(t.level||'')+'">'+esc(t.text)+'</span>').join('') || '<span class="neu2">暂无股性标签</span>';
+  const kd=(d.kline&&d.kline.dates&&d.kline.dates.length)?d.kline.dates[d.kline.dates.length-1]:'';
+  const tagHtml=tags.map(t=>'<span class="tag '+(t.level||'')+'">'+esc(t.text)+'</span>').join('') || '<span class="neu2">暂无股性标签</span>';
+  $('v-prof').className=''; $('v-prof').innerHTML=dt('K线截至 <b>'+fmtD(kd)+'</b> · 日线/筹码盘后更新(非实时)')+tagHtml;
   facts['股性']=tags.map(t=>t.text).join('；');
 }
 
@@ -159,7 +164,8 @@ function renderFund(d,facts){
   if(d.name) _lastName=d.name;
   const t=d.fund_triangle, cls={strong:'ft-strong',warn:'ft-warn',weak:'ft-weak',neutral:'ft-neu'}[t.level]||'ft-neu';
   $('v-fund').className='';
-  $('v-fund').innerHTML='<span class="ftb '+cls+'">'+esc(t.label)+'</span>'
+  $('v-fund').innerHTML=dt('数据日 <b>'+fmtD(d.date)+'</b> · 主力估算=近3日累计 · 北向=当日 · 龙虎榜=近N日(见下方复盘) · Tushare 盘后(收盘后)更新')
+    +'<span class="ftb '+cls+'">'+esc(t.label)+'</span>'
     +'<div style="margin-top:8px;font-size:13px;line-height:1.9">'
     +'主力估算近3日 <b class="'+(t.main_flow_yi>=0?'up':'down')+'">'+(t.main_flow_yi>=0?'+':'')+t.main_flow_yi+'亿</b>（代理口径）<br>'
     +'龙虎榜机构 '+(t.on_lhb?('<b>'+(t.inst_net_yi>=0?'+':'')+t.inst_net_yi+'亿</b>（真金白银）'):'<span class="neu2">无机构席位足迹</span>')+'<br>'
@@ -172,7 +178,8 @@ function renderSector(d,facts){
   if(!d||!d.ok){ $('v-sector').className=''; $('v-sector').innerHTML= industry?('所属行业 <b>'+esc(industry)+'</b>（暂无宽表热度数据）'):'未识别所属行业'; if(industry) facts['板块']='所属行业 '+industry; return; }
   const rise=d.rising?'<span class="up">↑升温</span>':'<span class="down">↓降温</span>', mf=d.money_flow_3d;
   $('v-sector').className='';
-  $('v-sector').innerHTML='所属行业 <b>'+esc(d.name)+'</b>（申万）｜ 热度 <b>'+d.heat+'</b> '+rise+'（近3日Δ'+(d.delta>=0?'+':'')+d.delta+'）'
+  $('v-sector').innerHTML=dt('盘后数据日 <b>'+fmtD(d.trade_date)+'</b> · 概念/行业宽表盘后更新(非实时·盘中看 🔗产业链)')
+    +'所属行业 <b>'+esc(d.name)+'</b>（申万）｜ 热度 <b>'+d.heat+'</b> '+rise+'（近3日Δ'+(d.delta>=0?'+':'')+d.delta+'）'
     +'<br>3日资金 '+(mf!=null?('<b class="'+(mf>=0?'up':'down')+'">'+(mf>=0?'+':'')+mf+'亿</b>'):'—')
     +' ｜ 3日涨跌 '+(d.pct_chg_3d!=null?d.pct_chg_3d+'%':'—')+' ｜ 阶段 <b>'+esc(d.phase||'—')+'</b>';
   facts['板块']='行业'+d.name+' 热度'+d.heat+'('+(d.rising?'升温':'降温')+' Δ'+d.delta+') 3日资金'+(mf!=null?mf+'亿':'—')+' 阶段'+(d.phase||'—');
@@ -184,7 +191,8 @@ async function loadFin(code,facts,store){
 }
 function renderFin(d,facts){
   if(!d||!d.ok){ $('v-fin').textContent=(d&&d.msg)||'—'; return; }
-  let h='<div style="font-size:13px;line-height:1.8">'+esc(d.summary||'')+'</div>';
+  let h=dt('最新报告期 <b>'+esc(d.latest_period||'—')+'</b> · 季报/年报披露后更新(Tushare fina_indicator)')
+    +'<div style="font-size:13px;line-height:1.8">'+esc(d.summary||'')+'</div>';
   const ev=d.events||{}, evp=[];
   if(ev.float&&ev.float.next_days!=null) evp.push('解禁：'+ev.float.next_days+'天后 '+(ev.float.next_ratio?(ev.float.next_ratio+'%'):''));
   if(ev.holder_trade&&ev.holder_trade.de_count) evp.push('减持公告 '+ev.holder_trade.de_count+'次');
@@ -200,7 +208,7 @@ async function loadResearch(code,facts,store){
   catch(e){ $('v-research').textContent='加载失败'; }
 }
 function renderResearch(d,facts){
-  if(window.AResearch){ $('v-research').className=''; $('v-research').innerHTML=AResearch.html(d||{}); }
+  if(window.AResearch){ $('v-research').className=''; $('v-research').innerHTML=dt('东财/同花顺实时抓取(当日缓存) · 各条带机构发布日期')+AResearch.html(d||{}); }
   const bits=[];
   if(d&&d.rating_label) bits.push('东财评级'+d.rating_label);
   if(d&&d.growth_label) bits.push('盈预增速'+d.growth_label);
@@ -218,7 +226,8 @@ async function loadScout(code,facts,store){
 function renderScout(d,facts,code){
   if(!d||!d.ok){ $('v-scout').textContent=(d&&d.msg)||'扫描失败'; return; }
   const rec=new Set(d.recommended||[]);
-  let h='<div class="neu2" style="font-size:12.5px;margin-bottom:6px">💡 '+esc(d.rationale||'')+'</div>';
+  let h=dt('回测窗口 <b>近3个月</b> · 基于日线历史规律(非预测) · 每次分析实时重算')
+    +'<div class="neu2" style="font-size:12.5px;margin-bottom:6px">💡 '+esc(d.rationale||'')+'</div>';
   h+='<table class="mini"><thead><tr><th>评级</th><th>打法</th><th>样本n</th><th>T+5胜率</th><th>T+5期望</th><th>盈亏比</th></tr></thead><tbody>';
   (d.ranked||[]).slice(0,6).forEach(s=>{
     const isRec=rec.has(s.key);
@@ -238,7 +247,8 @@ async function loadNews(code,facts,store){
 }
 function renderNews(d,facts){
   if(!d||!d.ok){ $('v-news').textContent=(d&&d.msg)||'暂无近期新闻'; return; }
-  let h='<div style="font-size:13px;line-height:1.8">'+esc(d.summary||'')+'</div>';
+  let h=dt('博查实时抓取(当日缓存) · 下方 📎 带各条来源与日期')
+    +'<div style="font-size:13px;line-height:1.8">'+esc(d.summary||'')+'</div>';
   if(d.sources&&d.sources.length) h+='<div class="neu2" style="font-size:11px;margin-top:6px">📎 '+d.sources.map(s=>esc(s.site||'')+' '+esc(s.date||'')).join(' · ')+'</div>';
   $('v-news').className=''; $('v-news').innerHTML=h;
   facts['新闻催化']=d.summary||'';
@@ -252,7 +262,8 @@ function renderLhb(d,facts,code){
   const more='<a href="/lhb?review='+encodeURIComponent(code||'')+'" style="color:#7c9ef8;font-size:12px">→ 完整复盘（逐次明细/AI解读）</a>';
   if(!d||!d.ok){ $('v-lhb').className=''; $('v-lhb').innerHTML='<span class="neu2">'+((d&&d.msg)||'—')+'</span>'; return; }
   if(!d.count){ $('v-lhb').className=''; $('v-lhb').innerHTML='<span class="neu2">近6月未上过龙虎榜（波动温和·没触发异动披露）。</span><br>'+more; facts['龙虎榜复盘']='近6月未上过龙虎榜'; return; }
-  let h='<div style="font-size:13px;margin-bottom:8px">近6月上龙虎榜 <b>'+d.count+'</b> 次 · 资金风格规律：</div><div style="display:flex;gap:10px;flex-wrap:wrap">';
+  let h=dt('统计窗口 <b>近6个月</b> · 龙虎榜=交易所 T日盘后披露(异动触发·非每日)')
+    +'<div style="font-size:13px;margin-bottom:8px">近6月上龙虎榜 <b>'+d.count+'</b> 次 · 资金风格规律：</div><div style="display:flex;gap:10px;flex-wrap:wrap">';
   (d.pattern||[]).forEach(p=>{ const c=(p.avg_t5==null)?'neu2':(p.avg_t5>0?'up':'down');
     h+='<div style="flex:1;min-width:155px;background:#0f1117;border:1px solid #242842;border-radius:9px;padding:9px 12px">'
       +'<div style="font-size:12.5px;font-weight:700;color:#cdd6f4">'+esc(p.category)+' <span class="neu2" style="font-size:11px">×'+p.count+'</span></div>'

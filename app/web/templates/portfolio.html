@@ -88,7 +88,7 @@ async function load(){
     $('loading').style.display='none';
     if(!j.ok){ $('empty').style.display='block'; $('empty').textContent='❌ '+(j.msg||'加载失败'); return; }
     _rows=j.rows||[];
-    renderAlerts(j.alerts||[]); renderSummary(j.summary||{});
+    renderAlerts(j.alerts||[]); renderSummary(j.summary||{}, j.date);
     if(!_rows.length){ $('alerts').innerHTML=''; $('empty').style.display='block'; $('empty').textContent='ℹ️ '+(j.msg||'还没有自选/持仓'); return; }
     renderTable();
   }catch(e){ $('loading').textContent='❌ '+e; }
@@ -98,9 +98,12 @@ function renderAlerts(alerts){
   $('alerts').innerHTML='<b style="color:#f0a020;font-size:13px">⚠️ 持仓预警：</b><br>'+alerts.map(a=>
     '<span class="alert a-'+a.level+'">'+esc(a.name)+'：'+esc(a.text)+'</span>').join('');
 }
-function renderSummary(s){
+function renderSummary(s,date){
+  const dd=String(date||''); const dfmt=/^\d{8}$/.test(dd)?(dd.slice(0,4)+'-'+dd.slice(4,6)+'-'+dd.slice(6,8)):dd;
+  const asof=new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'});
   $('summary').innerHTML='<div class="scard">共 <b>'+(s.n||0)+'</b> 只（持仓 <b>'+(s.n_holding||0)+'</b>）</div>'
-    +(s.total_pnl!=null?'<div class="scard">持仓总浮盈 '+pct(s.total_pnl)+'</div>':'');
+    +(s.total_pnl!=null?'<div class="scard">持仓总浮盈 '+pct(s.total_pnl)+'</div>':'')
+    +'<div class="neu2" style="font-size:10.5px;align-self:center">📅 现价=实时报价(拉取于 '+asof+') · 技术/资金截至 <b>'+dfmt+'</b>(盘后)</div>';
 }
 function renderTable(){
   let h='<tr><th>体检</th><th>代码</th><th>名称</th><th>赛道</th><th>现价</th><th>涨跌</th><th>盈亏</th><th>成本/止损</th><th>位置</th><th>主力3日</th><th>操作</th></tr>';

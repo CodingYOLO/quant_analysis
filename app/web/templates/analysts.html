@@ -62,7 +62,7 @@ async function load(){
   try{
     const j=await (await fetch('/api/analysts?year='+$('year').value+(techOnly?'&tech=1':'')+'&top=80')).json();
     $('loading').style.display='none';
-    $('genmeta').textContent=j.ok?('共 '+j.count+' 位'):'';
+    $('genmeta').innerHTML=j.ok?('共 <b>'+j.count+'</b> 位 · 📅 '+esc($('year').value)+' 年度荐股收益排名 · 东财实时抓取(当日缓存)·随研报滚动更新'):'';
     _rows=j.analysts||[];
     if(!j.ok||!_rows.length){ $('empty').style.display='block'; $('empty').textContent='ℹ️ '+(j.msg||'暂无数据'); return; }
     render();
