@@ -743,6 +743,29 @@ async def market_page(request: Request, _user: str = Depends(require_auth)):
     return templates.TemplateResponse(request=request, name="market.html", context={"page": "market"})
 
 
+@app.get("/chain", response_class=HTMLResponse)
+async def chain_page(request: Request, _user: str = Depends(require_auth)):
+    """🔗 产业链：资源材料→制造→应用 三层·每环挂龙头·按今日强度上色+领头羊+风格切换。"""
+    from app.strategy.tech_chain import chain_names
+    return templates.TemplateResponse(request=request, name="chain.html",
+                                      context={"page": "chain", "chains": chain_names()})
+
+
+@app.get("/api/chain")
+async def api_chain(name: str = "", _user: str = Depends(require_auth)):
+    """某条产业链的实时地图（龙头实时表现 + 上色 + 今日风格）。线程池。"""
+    try:
+        from fastapi.concurrency import run_in_threadpool
+
+        from app.data.composite_provider import CompositeProvider
+        from app.strategy.tech_chain import build_chain, chain_names
+        nm = name or chain_names()[0]
+        return await run_in_threadpool(build_chain, CompositeProvider(), nm)
+    except Exception as e:
+        logger.exception("产业链地图失败")
+        return {"ok": False, "msg": str(e)}
+
+
 @app.get("/api/market/hot")
 async def api_market_hot(top: int = 40, kind: str = "rank", _user: str = Depends(require_auth)):
     """东财热榜（kind=rank 人气榜 / up 飙升榜）Top N（线程池·缓存）。"""

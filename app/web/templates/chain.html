@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% block title %}产业链 — A股Agent{% endblock %}
+
+{% block extra_style %}
+h1 { font-size:22px; text-align:center; margin-bottom:4px; }
+.sub { text-align:center; color:#9ca3af; font-size:12.5px; margin-bottom:12px; }
+.up { color:#f6465d; } .down { color:#2ebd85; } .neu2 { color:#9ca3af; }
+.tabs { display:flex; gap:8px; flex-wrap:wrap; justify-content:center; margin-bottom:12px; }
+.tab { font-size:13px; color:#9ca3af; cursor:pointer; padding:6px 14px; border-radius:18px; border:1px solid #2d3052; background:#0f1117; }
+.tab.on { background:#2742a8; color:#fff; border-color:#3358e0; }
+.banner { border-radius:10px; padding:11px 15px; margin-bottom:14px; font-size:13.5px; line-height:1.6; }
+.b-material { background:#2a1d0a; border:1px solid #5a4018; color:#f0a020; }
+.b-tech { background:#0e2a1a; border:1px solid #1a4a30; color:#2ebd85; }
+.b-balanced { background:#161929; border:1px solid #2d3052; color:#9ca3af; }
+.map { display:flex; gap:14px; overflow-x:auto; padding-bottom:6px; }
+.layer { flex:1; min-width:230px; }
+.layer-h { font-size:13px; color:#7c9ef8; font-weight:600; margin-bottom:8px; text-align:center; padding:5px; background:#161929; border-radius:7px; }
+.node { background:#1a1d2e; border:1px solid #2d3052; border-left:4px solid #5b6478; border-radius:9px; padding:10px 12px; margin-bottom:10px; cursor:pointer; }
+.node:hover { border-color:#3358e0; }
+.node.strong { border-left-color:#f6465d; background:#241015; }
+.node.warm { border-left-color:#f0a020; }
+.node.weak { border-left-color:#2ebd85; }
+.node.neutral { border-left-color:#5b6478; }
+.node .nh { display:flex; align-items:center; gap:7px; }
+.node .nm { font-size:13.5px; font-weight:600; color:#e8e8e8; }
+.node .avg { margin-left:auto; font-size:12px; font-weight:700; }
+.node .lead { font-size:12px; color:#cdd6f4; margin-top:5px; }
+.node .lead .ld { color:#fff; font-weight:600; }
+#detail { background:#161929; border:1px solid #242842; border-radius:10px; padding:14px 16px; margin-top:14px; display:none; }
+#detail h3 { font-size:14px; color:#7c9ef8; margin-bottom:10px; }
+.ltab { width:100%; border-collapse:collapse; font-size:13px; }
+.ltab th { background:#232640; color:#9ca3af; font-weight:500; padding:7px 9px; text-align:left; }
+.ltab td { padding:7px 9px; border-bottom:1px solid #1e2138; }
+.ltab tr:hover td { background:#1e2138; }
+.ln { color:#e8e8e8; cursor:pointer; } .ln:hover { color:#7c9ef8; }
+.loading { color:#9ca3af; font-size:13px; padding:14px; }
+{% endblock %}
+
+{% block content %}
+<h1>🔗 科技 · 材料 产业链地图</h1>
+<div class="sub">资源材料 → 制造 → 应用 三层 · 每环挂<b>龙头中军</b> · 颜色=龙头今日强弱(红强绿弱) · 点节点看完整龙头榜（跳个股360）</div>
+
+<div class="tabs" id="tabs">
+  {% for c in chains %}<span class="tab{% if loop.first %} on{% endif %}" data-n="{{ c }}">{{ c }}</span>{% endfor %}
+</div>
+
+<div id="banner" class="banner b-balanced" style="display:none"></div>
+<div id="map" class="map"><div class="loading">⏳ 加载产业链…</div></div>
+<div id="detail"></div>
+{% endblock %}
+
+{% block extra_script %}
+<script>
+const $=id=>document.getElementById(id);
+function esc(s){ return (s==null?'':String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function pct(v){ if(v==null||v==='') return '<span class="neu2">停牌/—</span>'; const n=+v; const c=n>0?'up':(n<0?'down':'neu2'); return '<span class="'+c+'">'+(n>0?'+':'')+n+'%</span>'; }
+let _data=null;
+
+async function loadChain(name){
+  $('map').innerHTML='<div class="loading">⏳ 加载产业链…（取全市场实时·约数秒）</div>';
+  $('detail').style.display='none'; $('banner').style.display='none';
+  try{
+    const j=await (await fetch('/api/chain?name='+encodeURIComponent(name))).json();
+    if(!j.ok){ $('map').innerHTML='<div class="neu2">❌ '+(j.msg||'失败')+'</div>'; return; }
+    _data=j;
+    // 今日风格横幅
+    const s=j.style; $('banner').className='banner b-'+(s.lean||'balanced'); $('banner').style.display='block';
+    $('banner').innerHTML='🧭 <b>今日风格：</b>'+esc(s.text);
+    // 三层地图
+    $('map').innerHTML=j.layers.map((L,li)=>'<div class="layer"><div class="layer-h">'+esc(L.layer)+'</div>'
+      + L.nodes.map((n,ni)=>nodeCard(n,li,ni)).join('') + '</div>').join('');
+  }catch(e){ $('map').innerHTML='<div class="neu2">❌ '+esc(e)+'</div>'; }
+}
+function nodeCard(n,li,ni){
+  const lead=n.lead;
+  const avg=(n.avg_pct==null)?'<span class="neu2">—</span>':pct(n.avg_pct);
+  const leadTxt=lead?('领头羊 <span class="ld">'+esc(lead.name)+'</span> '+pct(lead.pct)):'<span class="neu2">无数据</span>';
+  return '<div class="node '+(n.level||'neutral')+'" data-li="'+li+'" data-ni="'+ni+'">'
+    +'<div class="nh"><span class="nm">'+esc(n.name)+'</span><span class="avg">'+avg+'</span></div>'
+    +'<div class="lead">'+leadTxt+'</div></div>';
+}
+$('map').addEventListener('click',e=>{ const c=e.target.closest('.node'); if(!c||!_data) return;
+  const n=_data.layers[+c.dataset.li].nodes[+c.dataset.ni]; renderDetail(n); });
+function renderDetail(n){
+  let h='<h3>'+esc(n.name)+' · 龙头中军榜（按今日涨幅排序·🏆=结构龙头）</h3>';
+  h+='<table class="ltab"><thead><tr><th>个股</th><th>今日涨跌</th><th>现价</th></tr></thead><tbody>';
+  (n.leaders||[]).forEach(x=>{ h+='<tr><td>'+(x.is_anchor?'🏆 ':'')+'<span class="ln" data-code="'+esc(x.code)+'">'+esc(x.name)+'</span> <span class="neu2" style="font-size:11px">'+esc(x.code)+'</span></td>'
+    +'<td>'+pct(x.pct)+'</td><td>'+(x.price??'—')+'</td></tr>'; });
+  h+='</tbody></table><div class="neu2" style="font-size:11px;margin-top:7px">点个股名跳个股360 · 龙头为手工梳理(行业地位)·强弱用龙头实时表现·非投资建议</div>';
+  $('detail').innerHTML=h; $('detail').style.display='block'; $('detail').scrollIntoView({behavior:'smooth',block:'nearest'});
+}
+$('detail').addEventListener('click',e=>{ const n=e.target.closest('.ln'); if(n&&n.dataset.code) location.href='/stock?code='+encodeURIComponent(n.dataset.code); });
+
+$('tabs').addEventListener('click',e=>{ const t=e.target.closest('.tab'); if(!t) return;
+  document.querySelectorAll('#tabs .tab').forEach(x=>x.classList.toggle('on',x===t)); loadChain(t.dataset.n); });
+loadChain(document.querySelector('#tabs .tab').dataset.n);
+</script>
+{% endblock %}
