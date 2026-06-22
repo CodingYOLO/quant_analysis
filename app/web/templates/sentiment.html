@@ -154,8 +154,14 @@ async function load(){
 document.getElementById('reload').addEventListener('click', ()=>{ clearPreset(); load(); });
 
 // 快捷区间预设：一键回溯历史
-function clearPreset(){ document.querySelectorAll('.preset').forEach(p=>p.classList.remove('active')); }
-document.querySelectorAll('.preset').forEach(p=>p.addEventListener('click', ()=>{
+function clearPreset(){ document.querySelectorAll('.preset:not(.rtype)').forEach(p=>p.classList.remove('active')); }
+// 概念/行业切换：独立处理(切 radarType + 重载雷达)·不走日期区间逻辑
+document.querySelectorAll('.rtype').forEach(p=>p.addEventListener('click', ()=>{
+  if(p.classList.contains('active')) return;
+  document.querySelectorAll('.rtype').forEach(x=>x.classList.remove('active'));
+  p.classList.add('active'); radarType=p.dataset.t; loadRadar();
+}));
+document.querySelectorAll('.preset:not(.rtype)').forEach(p=>p.addEventListener('click', ()=>{
   clearPreset(); p.classList.add('active');
   const days = +p.dataset.d;
   const end = new Date(), start = new Date(); start.setDate(start.getDate()-days);
