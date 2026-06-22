@@ -11,8 +11,10 @@
       background: #0f1117;
       color: #e8e8e8;
       min-height: 100vh;
-      /* 全站等比放大 15%（含表格/卡片/内联小字），缓解"字体太小"。要调整改这一处即可 */
-      zoom: 1.15;
+      /* 用字号放大缓解"字体太小"。注意：不要用 zoom 全站缩放——会破坏 echarts 图表的
+         鼠标坐标换算导致 K线悬浮提示失效。要更大可用浏览器 Cmd +（对图表也安全）。 */
+      font-size: 15px;
+      line-height: 1.5;
     }
     /* ---- 导航 ---- */
     nav {
@@ -56,7 +58,7 @@
     nav a {
       color: #9ca3af;
       text-decoration: none;
-      font-size: 14px;
+      font-size: 15px;
       padding: 4px 8px;
       border-radius: 4px;
       transition: all .15s;
@@ -73,9 +75,9 @@
       padding: 20px 24px;
       margin-bottom: 16px;
     }
-    .card h2 { font-size: 15px; color: #7c9ef8; margin-bottom: 12px; }
+    .card h2 { font-size: 16px; color: #7c9ef8; margin-bottom: 12px; }
     /* ---- 表格 ---- */
-    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
     th {
       background: #232640;
       color: #9ca3af;
