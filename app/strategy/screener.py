@@ -88,6 +88,18 @@ FACTOR_GROUPS = [
         ],
     },
     {
+        "group": "🐌 慢牛吸筹（多日·主力悄悄进）",
+        "factors": [
+            {"key": "accum_score60", "label": "吸筹评分≥60", "col": "accum_score", "op": "ge", "val": 60},
+            {"key": "accum_quiet_vol", "label": "温和放量(5/20日量比1.2~2.5)", "col": "vol5_vol20", "op": "between", "val": [1.2, 2.5]},
+            {"key": "accum_ma20_up", "label": "MA20斜率向上", "col": "ma20_slope", "op": "gt", "val": 0},
+            {"key": "accum_slow_rise", "label": "缓慢走高(近20日3~25%)", "col": "ret20", "op": "between", "val": [3, 25]},
+            {"key": "accum_low_amp", "label": "低波动(近20日均振幅≤5.5%)", "col": "amp20", "op": "le", "val": 5.5},
+            {"key": "accum_hidden", "label": "隐蔽(近20日无大涨/涨停)", "col": "big_up_days_20", "op": "le", "val": 0},
+            {"key": "accum_fund3d", "label": "主力近3日持续净流入", "col": "main_net_3d", "op": "gt", "val": 0},
+        ],
+    },
+    {
         "group": "情绪与人气",
         "factors": [
             {"key": "comment_ge80", "label": "千评得分≥80", "col": "comment_score", "op": "ge", "val": 80},
@@ -117,6 +129,9 @@ CUSTOM_FIELDS = [
     {"col": "main_net_amount", "label": "主力净流入(亿)"}, {"col": "elg_net", "label": "超大单(亿)"},
     {"col": "comment_score", "label": "千评得分"}, {"col": "institution_pct", "label": "机构参与度%"},
     {"col": "popularity_rank", "label": "人气排名"},
+    {"col": "accum_score", "label": "🐌吸筹评分"}, {"col": "ret20", "label": "近20日涨幅%"},
+    {"col": "vol5_vol20", "label": "量能比5/20日"}, {"col": "ma20_slope", "label": "MA20斜率%"},
+    {"col": "amp20", "label": "近20日均振幅%"}, {"col": "main_net_3d", "label": "主力近3日(亿)"},
 ]
 _CUSTOM_COLS = {f["col"] for f in CUSTOM_FIELDS}
 _CUSTOM_OPS = {"ge", "gt", "le", "lt", "eq"}
@@ -125,8 +140,9 @@ _CUSTOM_OPS = {"ge", "gt", "le", "lt", "eq"}
 DISPLAY_COLS = [
     ("ts_code", "代码"), ("name", "名称"), ("industry", "行业"),
     ("close", "最新价"), ("pct_chg", "涨跌幅%"), ("amplitude", "振幅%"),
+    ("accum_score", "🐌吸筹分"), ("ret20", "近20日涨%"), ("vol5_vol20", "量能比5/20"),
     ("turnover_rate", "换手%"), ("volume_ratio", "量比"), ("circ_mv_100m", "流通市值(亿)"),
-    ("main_net_amount", "主力净流入(亿)"), ("elg_net", "超大单(亿)"),
+    ("main_net_amount", "主力净流入(亿)"), ("main_net_3d", "主力3日(亿)"), ("elg_net", "超大单(亿)"),
     ("rps50", "RPS50"), ("rps120", "RPS120"), ("rsi14", "RSI"),
     ("vwap_dev", "VWAP偏离%"), ("comment_score", "千评分"), ("popularity_rank", "人气排名"),
 ]
@@ -136,11 +152,15 @@ DISPLAY_COLS = [
 # 因子表构建（重，按日缓存）
 # ──────────────────────────────────────────────
 
+# 因子表结构版本：新增因子列时 +1，使旧缓存自动失效重算（避免读到缺列的旧表）
+_FACTOR_TABLE_VERSION = "v2"
+
+
 def _factor_cache_path(date: str) -> Path:
     settings = get_settings()
     p = settings.cache_dir / "factor_table"
     p.mkdir(parents=True, exist_ok=True)
-    return p / f"{date}.parquet"
+    return p / f"{date}_{_FACTOR_TABLE_VERSION}.parquet"
 
 
 def build_factor_table(date: str, provider: CompositeProvider | None = None,
@@ -169,6 +189,8 @@ def build_factor_table(date: str, provider: CompositeProvider | None = None,
 
     df = _merge_base(daily, daily_basic, money_flow, stock_basic, comment)
     df = _add_technical_factors(df, date, provider)
+    df = _add_fund_persistence(df, date, provider)   # 近3日主力净流入(持续性)
+    df = _add_accum_score(df)                          # 慢牛吸筹评分(合成上面多日因子)
 
     df.to_parquet(path, index=False)
     logger.info("因子表完成 %s：%d 只股票", date, len(df))
@@ -289,7 +311,115 @@ def _add_technical_factors(df: pd.DataFrame, date: str, provider) -> pd.DataFram
     for key in PATTERN_REGISTRY:
         col = f"pat_{key}"
         df[col] = df["ts_code"].map(lambda ts: pat_hits.get(ts, {}).get(key, False)).fillna(False)
+
+    # 慢牛吸筹·多日因子（复用已加载的130日矩阵·向量化）
+    for col, series in _accum_factor_columns(close_m, high_m, low_m, vol_m).items():
+        df[col] = df["ts_code"].map(series.to_dict())
     return df
+
+
+def _accum_factor_columns(close_m, high_m, low_m, vol_m) -> dict[str, pd.Series]:
+    """从130日价量矩阵算"悄悄放量·缓慢走高"多日因子（每列为 {ts_code: 值} 的 Series）。
+
+    全部向量化（按矩阵列=个股一次算完）：温和放量比 / MA20斜率 / 近20日涨幅 /
+    近20日均振幅 / 近20日大涨天数（隐蔽性）。历史不足的窗口自动跳过该列。
+    """
+    out: dict[str, pd.Series] = {}
+    n = len(close_m)
+    if n >= 20 and vol_m is not None:                         # 温和放量：5日均量 / 20日均量
+        v20 = vol_m.tail(20).mean()
+        out["vol5_vol20"] = vol_m.tail(5).mean() / v20.replace(0, np.nan)
+    if n >= 25:                                               # MA20斜率%：今日MA20 vs 5日前MA20
+        ma20_now, ma20_prev = close_m.tail(20).mean(), close_m.iloc[-25:-5].mean()
+        out["ma20_slope"] = (ma20_now / ma20_prev.replace(0, np.nan) - 1) * 100
+    if n >= 21:                                               # 近20日涨幅%
+        out["ret20"] = (close_m.iloc[-1] / close_m.iloc[-21].replace(0, np.nan) - 1) * 100
+        out["big_up_days_20"] = (close_m.pct_change().tail(20) >= 0.095).sum()   # 近20日大涨(≥9.5%)天数
+    if n >= 21 and high_m is not None and low_m is not None:  # 近20日平均振幅%
+        amp = (high_m - low_m) / close_m.shift(1).replace(0, np.nan) * 100
+        out["amp20"] = amp.tail(20).mean()
+    return out
+
+
+def _add_fund_persistence(df: pd.DataFrame, date: str, provider) -> pd.DataFrame:
+    """近3日主力净流入(亿)·复用 signals._main_flow_3d（与资金三角同口径·已缓存）。"""
+    try:
+        from app.strategy.signals import _main_flow_3d
+        df["main_net_3d"] = df["ts_code"].map(_main_flow_3d(provider, date))
+    except Exception as e:
+        logger.debug("3日主力净流入计算失败: %s", e)
+    return df
+
+
+def _add_accum_score(df: pd.DataFrame) -> pd.DataFrame:
+    """逐股算慢牛吸筹评分 accum_score（缺列以 NaN 占位·评分函数自身做 NaN 兜底）。"""
+    for c in ("vol5_vol20", "ma20_slope", "ret20", "amp20", "big_up_days_20", "main_net_3d"):
+        if c not in df.columns:
+            df[c] = np.nan
+    df["accum_score"] = df.apply(
+        lambda r: _accumulation_score(r["vol5_vol20"], r["ma20_slope"], r["ret20"],
+                                      r["amp20"], r["big_up_days_20"], r["main_net_3d"]),
+        axis=1,
+    )
+    return df
+
+
+# 吸筹评分权重（满分100·配置化·可后续回测校准）：量能25/斜率20/缓涨20/低波15/隐蔽10/资金10
+_ACC_W = {"vol": 25, "slope": 20, "rise": 20, "amp": 15, "hidden": 10, "fund": 10}
+
+
+def _num(x, default=None):
+    """安全转 float，NaN/非数返回 default（纯工具）。"""
+    import math
+    try:
+        f = float(x)
+        return default if math.isnan(f) else f
+    except (TypeError, ValueError):
+        return default
+
+
+def _accumulation_score(vol_ratio, ma20_slope, ret20, amp20, big_up_days, main_net_3d) -> float:
+    """慢牛吸筹评分 0~100（纯函数·零依赖·可单测）。
+
+    刻画"主力悄悄吸筹、缓慢走高"：温和放量(非爆量) + MA20向上 + 小步上涨 +
+    低波动 + 近期没大涨涨停(隐蔽) + 主力近3日持续净流入。各项甜区给分，越偏离越低，
+    缺数据则该项不计分。**评分只刻画吸筹形态强弱，不预测涨跌。**
+    """
+    s = 0.0
+    v = _num(vol_ratio)                                  # 温和放量：甜区 1.2~2.5
+    if v is not None:
+        if 1.2 <= v <= 2.5:
+            s += _ACC_W["vol"]
+        elif 1.0 <= v < 1.2 or 2.5 < v <= 3.2:
+            s += _ACC_W["vol"] * 0.48
+    sl = _num(ma20_slope)                                # MA20向上：缓升最佳，过陡略降
+    if sl is not None:
+        if 0 < sl <= 12:
+            s += _ACC_W["slope"]
+        elif sl > 12:
+            s += _ACC_W["slope"] * 0.5
+    r = _num(ret20)                                      # 缓慢走高：甜区 3~25%
+    if r is not None:
+        if 3 <= r <= 25:
+            s += _ACC_W["rise"]
+        elif 0 <= r < 3:
+            s += _ACC_W["rise"] * 0.4
+        elif 25 < r <= 35:
+            s += _ACC_W["rise"] * 0.3
+    a = _num(amp20)                                      # 低波动：振幅越低越好
+    if a is not None:
+        if a <= 3.5:
+            s += _ACC_W["amp"]
+        elif a <= 5.5:
+            s += _ACC_W["amp"] * 0.6
+        elif a <= 7.5:
+            s += _ACC_W["amp"] * 0.27
+    bd = _num(big_up_days)                               # 隐蔽：近20日无大涨/涨停
+    if bd is not None:
+        s += max(0.0, _ACC_W["hidden"] - bd * 4)
+    if (_num(main_net_3d, 0) or 0) > 0:                  # 主力近3日持续净流入
+        s += _ACC_W["fund"]
+    return round(min(100.0, s), 1)
 
 
 def _detect_patterns(ts, close_m, open_m, high_m, low_m, vol_m) -> dict[str, bool]:
