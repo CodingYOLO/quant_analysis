@@ -16,3 +16,7 @@ build/
 *.db
 *.sqlite
 app/web/static/*.js
+
+# 本地热榜同步(含凭据+运行日志·勿入库)
+scripts/local_hotrank_sync.py
+scripts/hotsync.log
