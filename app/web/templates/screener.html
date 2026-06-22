@@ -154,6 +154,11 @@ document.querySelectorAll('.fbtn').forEach(b => {
     const k = b.dataset.key;
     if (selected.has(k)) { selected.delete(k); b.classList.remove('on'); }
     else { selected.add(k); b.classList.add('on'); }
+    // 选中任一吸筹因子 → 自动切排序到「🐌吸筹评分」。
+    // 必须在查询前切：服务器按排序字段取 top100，否则高吸筹分的票会被 RPS 排序挤掉。
+    if (k.startsWith('accum') && selected.has(k)) {
+      document.getElementById('sort').value = 'accum_score';
+    }
   });
 });
 
