@@ -1179,6 +1179,20 @@ async def api_screen(request: Request, _user: str = Depends(require_auth)):
         return {"ok": False, "error": str(e)}
 
 
+@app.get("/api/sector/strength")
+async def api_sector_strength(date: str = "", _user: str = Depends(require_auth)):
+    """板块强弱总览：各行业 RPS/近5日/站MA60占比/资金/龙头 + 形态判定。读因子表(缓存)·线程池。"""
+    try:
+        from fastapi.concurrency import run_in_threadpool
+
+        from app.strategy.sector_strength import build_sector_strength
+        d = (date or "").replace("-", "") or _last_trade_date()
+        return await run_in_threadpool(build_sector_strength, d, None)
+    except Exception as e:
+        logger.exception("板块强弱总览失败")
+        return {"ok": False, "msg": str(e)}
+
+
 def _resolve_ts_code(raw: str) -> str:
     """归一化股票输入：6位代码补后缀 / 已带后缀直接用 / 名称查 stock_basic。"""
     import re

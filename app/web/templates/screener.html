@@ -77,6 +77,12 @@
     </span>
   </div>
 
+  <!-- 🗺️ 板块强弱榜：先选板块层 -->
+  <div style="margin-bottom:16px">
+    <button class="quickbtn" id="btn-sector" style="border-color:#3358e0;color:#7c9ef8">🗺️ 板块强弱榜（不知道哪个板块好？先看这里）</button>
+    <div id="sector-panel" style="display:none;margin-top:10px"></div>
+  </div>
+
   <div class="factor-cols">
     {% for g in factor_groups %}
     <div class="fgroup">
@@ -200,6 +206,37 @@ document.getElementById('preset-demon').addEventListener('click', () =>
 document.getElementById('preset-dip').addEventListener('click', () =>
   applyPreset(['dip_strong', 'dip_oversold5', 'dip_trend_ok', 'dip_leader', 'risk_not_st', 'risk_pos_equity'], 'rps120'));
 
+// 🗺️ 板块强弱榜：先选板块层(读因子表聚合·各行业强弱+龙头)
+let _sectorLoaded = false;
+document.getElementById('btn-sector').addEventListener('click', async () => {
+  const panel = document.getElementById('sector-panel');
+  if (panel.style.display !== 'none') { panel.style.display = 'none'; return; }
+  panel.style.display = 'block';
+  if (_sectorLoaded) return;
+  panel.innerHTML = '<div class="neu" style="font-size:13px;padding:8px">⏳ 加载板块强弱榜（首次某日要建因子表 ~30-60秒）…</div>';
+  try {
+    const iso = document.getElementById('date').value;
+    const j = await (await fetch('/api/sector/strength' + (iso ? ('?date=' + iso.replace(/-/g, '')) : ''))).json();
+    if (!j.ok) { panel.innerHTML = '<div class="neu">❌ ' + (j.msg || '失败') + '</div>'; return; }
+    const pc = p => p.indexOf('领涨') >= 0 ? '#f6465d' : (p.indexOf('低吸') >= 0 ? '#7c9ef8'
+      : (p.indexOf('震荡') >= 0 && p.indexOf('强') >= 0 ? '#f0a020' : (p.indexOf('破位') >= 0 ? '#2ebd85' : '#9ca3af')));
+    let h = '<div class="neu" style="font-size:11px;margin-bottom:6px">📅 ' + j.date
+      + ' · 按板块平均RPS(强度)排序 · 💎可低吸=强势回调 / 🔴破位=接飞刀区 · 形态启发式不预测涨跌 · 点龙头名进个股360</div>';
+    h += '<div style="max-height:520px;overflow:auto"><table style="font-size:12.5px"><thead><tr>'
+      + '<th>行业</th><th>判定</th><th>强度RPS</th><th>近5日%</th><th>近20日%</th><th>站MA60</th><th>板块资金(亿)</th><th>龙头</th></tr></thead><tbody>';
+    (j.sectors || []).forEach(s => {
+      const ld = (s.leaders || []).map(l => '<span class="code" style="cursor:pointer" onclick="location.href=\'/stock?code=' + l.code + '\'">' + l.name + '</span>').join('、');
+      const sgn = (v, suf) => '<td class="' + (v > 0 ? 'up' : (v < 0 ? 'down' : 'neu')) + '">' + (v > 0 ? '+' : '') + v + (suf || '') + '</td>';
+      h += '<tr><td><b>' + s.industry + '</b> <span class="neu">×' + s.count + '</span></td>'
+        + '<td style="color:' + pc(s.phase) + ';font-weight:600;white-space:nowrap">' + s.phase + '</td>'
+        + '<td><b>' + s.avg_rps + '</b></td>' + sgn(s.avg_ret5) + sgn(s.avg_ret20)
+        + '<td>' + s.ma60_pct + '%</td>' + sgn(s.main_net) + '<td>' + ld + '</td></tr>';
+    });
+    panel.innerHTML = h + '</tbody></table></div>';
+    _sectorLoaded = true;
+  } catch (e) { panel.innerHTML = '<div class="neu">❌ ' + e + '</div>'; }
+});
+
 // 自定义任意字段条件
 const customs = [];
 const OP_TXT = { ge:'≥', gt:'>', le:'≤', lt:'<', eq:'=' };
@@ -256,6 +293,7 @@ function fmtCell(key, v, row) {
     const c = v >= 85 ? '#4ade80' : (v >= 70 ? '#a3e635' : (v >= 55 ? '#fbbf24' : '#9ca3af'));
     return '<td style="font-weight:700;color:' + c + '">' + v + '</td>';
   }
+  if (key === 'is_leader') return '<td>' + (v === true || v === 'true' ? '🏆' : '<span class="neu">—</span>') + '</td>';
   if (key === 'youzi_relay_days') {                          // 游资接力：🔥标≥2日
     const n = +v || 0;
     if (n >= 2) return '<td style="color:#f0a020;font-weight:700">🔥' + n + '日</td>';
@@ -503,6 +541,7 @@ document.getElementById('main-board-only').addEventListener('change', renderTabl
 const _EXPORT_FONT = '-apple-system,"PingFang SC","Microsoft YaHei",sans-serif';
 function _cellText(key, r) {                      // 单元格纯文本（与页面口径一致）
   const v = r[key];
+  if (key === 'is_leader') return (v === true || v === 'true') ? '🏆' : '—';
   if (key === 'youzi_relay_days') { const n = +v || 0; return n >= 2 ? ('🔥' + n + '日') : (n === 1 ? '1日' : '—'); }
   if (v == null || v === '') return (key === 'industry' || key === 'name' || key === 'ts_code') ? '' : '—';
   if (SIGNED.has(key) && typeof v === 'number') return (v > 0 ? '+' : '') + v;

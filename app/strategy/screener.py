@@ -45,6 +45,7 @@ FACTOR_GROUPS = [
             {"key": "mv_50_200", "label": "总市值50-200亿", "col": "total_mv_100m", "op": "between", "val": [50, 200]},
             {"key": "circ_ge100", "label": "流通市值≥100亿", "col": "circ_mv_100m", "op": "ge", "val": 100},
             {"key": "circ_le50", "label": "流通市值≤50亿", "col": "circ_mv_100m", "op": "le", "val": 50, "pos": True},
+            {"key": "only_leader", "label": "🏆只看板块龙头(行业内前2)", "col": "is_leader", "op": "true"},
         ],
     },
     {
@@ -176,7 +177,7 @@ _CUSTOM_OPS = {"ge", "gt", "le", "lt", "eq"}
 
 # 结果表展示列（顺序）
 DISPLAY_COLS = [
-    ("ts_code", "代码"), ("name", "名称"), ("accum_score", "🐌吸筹分"), ("industry", "行业"),
+    ("ts_code", "代码"), ("name", "名称"), ("is_leader", "🏆龙头"), ("accum_score", "🐌吸筹分"), ("industry", "行业"),
     ("close", "最新价"), ("pct_chg", "涨跌幅%"), ("amplitude", "振幅%"),
     ("ret5", "近5日涨%"), ("ret20", "近20日涨%"), ("vol5_vol20", "量能比5/20"),
     ("up_down_vol", "量价配合"),
@@ -195,7 +196,7 @@ DISPLAY_COLS = [
 # ──────────────────────────────────────────────
 
 # 因子表结构版本：新增因子列时 +1，使旧缓存自动失效重算（避免读到缺列的旧表）
-_FACTOR_TABLE_VERSION = "v6"
+_FACTOR_TABLE_VERSION = "v7"
 
 
 def _factor_cache_path(date: str) -> Path:
@@ -234,6 +235,7 @@ def build_factor_table(date: str, provider: CompositeProvider | None = None,
     df = _add_fund_persistence(df, date, provider)   # 近3日主力净流入(持续性)
     df = _add_fundamentals(df, provider)              # 批量财务(负债率/净利同比/ROE)·妖股排雷
     df = _add_youzi_relay(df, date, provider)         # 近20日游资接力天数(批量top_inst)
+    df = _add_leader_flags(df)                         # 板块龙头标记(行业内强+大+活排名)
     df = _add_accum_score(df)                          # 慢牛吸筹评分(合成上面多日因子)
 
     df.to_parquet(path, index=False)
@@ -484,6 +486,23 @@ def _add_youzi_relay(df: pd.DataFrame, date: str, provider) -> pd.DataFrame:
         df["youzi_net_yi"] = df["ts_code"].map({t: v[1] for t, v in m.items()})
     except Exception as e:
         logger.debug("游资接力计算失败: %s", e)
+    return df
+
+
+def _leader_score_series(df: pd.DataFrame) -> pd.Series:
+    """龙头分（向量化）：相对强度(RPS) + 规模(市值百分位) + 流动性(成交百分位）。
+    龙头=板块里"既强、又大、又活"的领头羊，区别于沉睡大白马或小弱票。"""
+    rps = pd.to_numeric(df.get("rps120"), errors="coerce").fillna(0.0)
+    circ_pct = pd.to_numeric(df.get("circ_mv_100m"), errors="coerce").rank(pct=True).fillna(0.0)
+    amt_pct = pd.to_numeric(df.get("amount_100m"), errors="coerce").rank(pct=True).fillna(0.0)
+    return (0.45 * rps + 35 * circ_pct + 20 * amt_pct).round(1)
+
+
+def _add_leader_flags(df: pd.DataFrame, top_n: int = 2) -> pd.DataFrame:
+    """标记板块龙头：行业内按龙头分排名，前 top_n 名为龙头(is_leader)。"""
+    df["leader_score"] = _leader_score_series(df)
+    df["leader_rank"] = df.groupby("industry")["leader_score"].rank(ascending=False, method="first")
+    df["is_leader"] = (df["leader_rank"] <= top_n).fillna(False)
     return df
 
 

@@ -137,6 +137,21 @@ def test_youzi_relay_map_counts_recurring() -> None:
     assert m["B.SZ"][0] == 1                                       # 仅游资买那1日(机构日不计)
 
 
+def test_leader_flags_top2_per_industry() -> None:
+    """行业内按龙头分前2标 is_leader；小弱票不标。"""
+    df = pd.DataFrame({
+        "ts_code": ["a", "b", "c", "d"],
+        "industry": ["甲", "甲", "甲", "乙"],
+        "rps120": [90, 80, 20, 70],
+        "circ_mv_100m": [500, 300, 50, 200],
+        "amount_100m": [10, 8, 1, 5],
+    })
+    out = SC._add_leader_flags(df, top_n=2)
+    flags = dict(zip(out["ts_code"], out["is_leader"]))
+    assert flags["a"] and flags["b"] and not flags["c"]   # 甲行业前2=a,b
+    assert flags["d"]                                       # 乙行业唯一→龙头
+
+
 def test_latest_fina_period() -> None:
     import datetime
     assert SC._latest_fina_period(datetime.date(2026, 6, 22)) == "20260331"
