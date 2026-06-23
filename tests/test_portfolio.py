@@ -36,6 +36,20 @@ def test_health_break_only_yellow() -> None:
     assert lvl == "yellow" and any("破位" in f["text"] for f in flags)
 
 
+def test_health_sector_breakdown_flag() -> None:
+    """所在板块弱势破位 → 出预警；单独不破位仍黄灯。"""
+    lvl, flags = P._health(_row(industry="稀土", sector_phase="🔴弱势破位·避(接飞刀区)"))
+    assert any("板块" in f["text"] and "破位" in f["text"] for f in flags)
+    assert lvl == "yellow"   # 个股自身没破位MA20 → 黄
+
+
+def test_health_break_ma_plus_sector_weak_red() -> None:
+    """个股破位MA20 且 所在板块也破位 → 升级红灯。"""
+    lvl, _ = P._health(_row(above_ma20=False, main_flow_3d=2.0,
+                            sector_phase="🔴弱势破位·避(接飞刀区)"))
+    assert lvl == "red"
+
+
 def test_health_events_yellow() -> None:
     _, f1 = P._health(_row(events={"float": {"next_days": 10, "next_ratio": 3.0}}))
     assert any("解禁" in f["text"] for f in f1)

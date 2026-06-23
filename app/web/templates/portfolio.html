@@ -79,6 +79,11 @@ function bd(code){ const c=(code||'').slice(0,3); if(c==='688'||c==='689')return
   if(c==='300'||c==='301')return '<span class="bd bd-cy">创业</span>'; const p=(code||'').slice(0,1);
   if(p==='8'||p==='4')return '<span class="bd bd-bj">北交</span>'; return ''; }
 const LIGHT={green:'🟢',yellow:'🟡',red:'🔴'};
+// 板块状态小标签：破位/弱势标绿(危险)、强势标红、其余灰
+function sectorTag(phase){ if(!phase) return '';
+  const c = /破位|弱势/.test(phase) ? '#2ebd85' : (/强势|领涨|低吸/.test(phase) ? '#f6465d' : '#9ca3af');
+  const bg = /破位|弱势/.test(phase) ? '#16321f' : (/强势|领涨|低吸/.test(phase) ? '#3b1a1a' : '#1a1d2e');
+  return '<span style="font-size:10px;padding:1px 5px;border-radius:5px;margin-left:5px;background:'+bg+';color:'+c+'" title="所在板块强弱(盘后)">'+phase+'</span>'; }
 let _rows=[];
 
 async function load(){
@@ -115,7 +120,7 @@ function renderTable(){
       +'<td style="font-size:15px" title="'+(r.flags||[]).map(f=>esc(f.text)).join('；')+'">'+(LIGHT[r.health]||'')+'</td>'
       +'<td style="color:#7c9ef8">'+r.ts_code.slice(0,6)+'</td>'
       +'<td>'+esc(r.name)+(r.is_holding?'<span class="hold">持仓</span>':'<span class="watch">自选</span>')+'</td>'
-      +'<td class="neu2">'+esc(r.industry||'')+bd(r.ts_code)+'</td>'
+      +'<td class="neu2">'+esc(r.industry||'')+bd(r.ts_code)+sectorTag(r.sector_phase)+'</td>'
       +'<td>'+(r.price!=null?r.price:'<span class="miss">—</span>')+'</td>'
       +'<td>'+pct(r.pct_chg)+'</td>'
       +'<td>'+(r.pnl!=null?'<b>'+pct(r.pnl)+'</b>':'<span class="miss">—</span>')+'</td>'

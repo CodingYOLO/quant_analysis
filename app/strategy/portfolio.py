@@ -49,10 +49,11 @@ def build_portfolio(provider: CompositeProvider | None = None) -> dict:
     tech = _tech_map(provider, codes, date)
     flows = _flow_map(provider, date)
     industries = _industry_map(provider)
+    sectors = _sector_phase_map(date, provider)
 
     rows = []
     for w in watch:
-        rows.append(_build_row(w, quotes, tech, flows, industries, provider))
+        rows.append(_build_row(w, quotes, tech, flows, industries, sectors, provider))
 
     alerts = _collect_alerts(rows)
     n_hold = sum(1 for r in rows if r["is_holding"])
@@ -63,7 +64,7 @@ def build_portfolio(provider: CompositeProvider | None = None) -> dict:
 
 
 def _build_row(w: dict, quotes: dict, tech: dict, flows: dict,
-               industries: dict, provider: CompositeProvider) -> dict:
+               industries: dict, sectors: dict, provider: CompositeProvider) -> dict:
     """单只体检行。"""
     ts = w["ts_code"]
     q = quotes.get(ts, {})
@@ -72,6 +73,8 @@ def _build_row(w: dict, quotes: dict, tech: dict, flows: dict,
     cost = w.get("cost")
     pnl = round((price / cost - 1) * 100, 2) if (price and cost) else None
     events = _alert_events(ts, provider)
+    ind = industries.get(ts, "")
+    sec = sectors.get(ind) or {}
 
     row = {
         "ts_code": ts, "name": w.get("name") or "", "is_holding": bool(w["is_holding"]),
@@ -80,7 +83,8 @@ def _build_row(w: dict, quotes: dict, tech: dict, flows: dict,
         "price": round(price, 2) if price else None,
         "pct_chg": q.get("pct_chg"),
         "pnl": pnl,
-        "industry": industries.get(ts, ""),
+        "industry": ind,
+        "sector_phase": sec.get("phase", ""), "sector_rps": sec.get("avg_rps"),
         "main_flow_3d": flows.get(ts),
         "ma20": tk.get("ma20"), "ma60": tk.get("ma60"),
         "above_ma20": tk.get("above_ma20"), "above_ma60": tk.get("above_ma60"),
@@ -115,6 +119,9 @@ def _health(r: dict) -> tuple[str, list[dict]]:
         flags.append({"text": f"主力3日净流出 {flow:+.2f}亿", "level": "warn"})
     if r.get("is_holding") and r.get("pnl") is not None and r["pnl"] <= _PNL_WARN:
         flags.append({"text": f"浮亏 {r['pnl']:+.1f}%", "level": "warn"})
+    sector_weak = "破位" in (r.get("sector_phase") or "")          # 所在板块整体弱势破位·防板块退潮
+    if sector_weak:
+        flags.append({"text": f"所在板块【{r.get('industry', '')}】弱势破位·当心板块退潮", "level": "warn"})
 
     ev = r.get("events") or {}
     fl = ev.get("float")
@@ -132,7 +139,9 @@ def _health(r: dict) -> tuple[str, list[dict]]:
         return "green", flags
     danger = any(f["level"] == "danger" for f in flags)
     broke = r.get("above_ma20") is False
-    bad_fundamental = (flow is not None and flow < _FLOW_OUT_YI) or bool(ev.get("float") or ev.get("holder_trade") or ev.get("block"))
+    bad_fundamental = ((flow is not None and flow < _FLOW_OUT_YI)
+                       or bool(ev.get("float") or ev.get("holder_trade") or ev.get("block"))
+                       or sector_weak)            # 破位MA20 且 板块也破位 → 升级红灯
     if danger or (broke and bad_fundamental):
         return "red", flags
     return "yellow", flags
@@ -245,6 +254,24 @@ def _industry_map(provider: CompositeProvider) -> dict:
     try:
         sb = provider.get_stock_basic()
         return dict(zip(sb["ts_code"], sb["industry"].fillna("")))
+    except Exception:
+        return {}
+
+
+def _sector_phase_map(date: str, provider: CompositeProvider) -> dict:
+    """行业 → 板块强弱(phase/avg_rps)。读【最新一份已缓存】的因子表(板块强弱是慢变盘后信号)，
+    无任何缓存则返回空——避免在持仓页触发因子表重建(~30-60秒)拖慢加载；用过选股页后即有缓存。"""
+    try:
+        from app.config import get_settings
+        from app.strategy.screener import _FACTOR_TABLE_VERSION
+        files = sorted((get_settings().cache_dir / "factor_table")
+                       .glob(f"*_{_FACTOR_TABLE_VERSION}.parquet"))
+        if not files:
+            return {}
+        latest = files[-1].name.split("_")[0]          # 最新缓存因子表的交易日
+        from app.strategy.sector_strength import build_sector_strength
+        res = build_sector_strength(latest, provider)
+        return {s["industry"]: s for s in res.get("sectors", [])} if res.get("ok") else {}
     except Exception:
         return {}
 
