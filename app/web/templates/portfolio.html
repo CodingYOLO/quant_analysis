@@ -48,6 +48,7 @@ tr.datarow:hover td { background:#1e2138; cursor:pointer; }
   <label class="lab"><input type="checkbox" id="a_hold" class="chk"> 持仓</label>
   <span class="lab">成本</span><input type="text" class="num" id="a_cost" placeholder="成本价">
   <span class="lab">止损</span><input type="text" class="num" id="a_stop" placeholder="止损价">
+  <span class="lab">目标买入</span><input type="text" class="num" id="a_target" placeholder="买入价" title="设了它,盯盘看板会在现价逼近/到达时提醒">
   <input type="text" id="a_note" placeholder="备注(买入逻辑)" style="min-width:150px">
   <button class="addbtn" id="addbtn">＋ 加入</button>
   <span id="addmsg" class="lab"></span>
@@ -115,7 +116,7 @@ function renderTable(){
   _rows.forEach((r,i)=>{
     const cid='p'+i;
     const pos=(r.above_ma20===false?'<span class="down">破位MA20</span>':'<span class="up">站上MA20</span>')+' 乖离'+pct(r.bias20)+' 距高'+pct(r.dist_high);
-    const cs=(r.cost!=null?('成本'+r.cost):'<span class="miss">—</span>')+(r.stop_loss!=null?' / 止损<span class="down">'+r.stop_loss+'</span>':'');
+    const cs=(r.cost!=null?('成本'+r.cost):'<span class="miss">—</span>')+(r.stop_loss!=null?' / 止损<span class="down">'+r.stop_loss+'</span>':'')+(r.target_price!=null?' / 买入<span style="color:#7c9ef8">'+r.target_price+'</span>':'');
     h+='<tr class="datarow" onclick="toggle('+i+')">'
       +'<td style="font-size:15px" title="'+(r.flags||[]).map(f=>esc(f.text)).join('；')+'">'+(LIGHT[r.health]||'')+'</td>'
       +'<td style="color:#7c9ef8">'+r.ts_code.slice(0,6)+'</td>'
@@ -193,7 +194,7 @@ async function loadKline(code, cid){
 async function addStock(){
   const code=$('a_code').value.trim(); if(!code){ $('addmsg').textContent='请输入代码/名称'; return; }
   $('addmsg').textContent='⏳ 加入中…';
-  const body={code, is_holding:$('a_hold').checked, cost:$('a_cost').value, stop_loss:$('a_stop').value, note:$('a_note').value};
+  const body={code, is_holding:$('a_hold').checked, cost:$('a_cost').value, stop_loss:$('a_stop').value, target_price:$('a_target').value, note:$('a_note').value};
   try{
     const d=await (await fetch('/api/portfolio/add',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})).json();
     if(d.ok){ $('addmsg').textContent='✅ 已加入 '+(d.name||''); ['a_code','a_cost','a_stop','a_note'].forEach(x=>$(x).value=''); $('a_hold').checked=false; load(); loadSignals(); }
@@ -202,7 +203,7 @@ async function addStock(){
 }
 function editRow(i){ const r=_rows[i];
   $('a_code').value=r.ts_code.slice(0,6); $('a_hold').checked=r.is_holding;
-  $('a_cost').value=r.cost??''; $('a_stop').value=r.stop_loss??''; $('a_note').value=r.note||'';
+  $('a_cost').value=r.cost??''; $('a_stop').value=r.stop_loss??''; $('a_target').value=r.target_price??''; $('a_note').value=r.note||'';
   $('addmsg').textContent='↑ 改完点「＋加入」保存'; $('a_code').scrollIntoView({behavior:'smooth'});
 }
 async function delRow(code){

@@ -79,6 +79,7 @@ def _build_row(w: dict, quotes: dict, tech: dict, flows: dict,
     row = {
         "ts_code": ts, "name": w.get("name") or "", "is_holding": bool(w["is_holding"]),
         "cost": cost, "shares": w.get("shares"), "stop_loss": w.get("stop_loss"),
+        "target_price": w.get("target_price"),
         "note": w.get("note") or "",
         "price": round(price, 2) if price else None,
         "pct_chg": q.get("pct_chg"),

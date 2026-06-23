@@ -994,7 +994,7 @@ async def api_portfolio_add(request: Request, _user: str = Depends(require_auth)
         f = lambda k: (float(body[k]) if body.get(k) not in (None, "") else None)
         db.add_watch(ts_code, _stock_name(ts_code), is_holding=bool(body.get("is_holding")),
                      cost=f("cost"), shares=f("shares"), stop_loss=f("stop_loss"),
-                     note=str(body.get("note") or "")[:120])
+                     target_price=f("target_price"), note=str(body.get("note") or "")[:120])
         return {"ok": True, "ts_code": ts_code, "name": _stock_name(ts_code)}
     except Exception as e:
         logger.exception("加入自选失败")
@@ -1010,8 +1010,8 @@ async def api_portfolio_update(request: Request, _user: str = Depends(require_au
         ts_code = _resolve_ts_code(body.get("code", ""))
         if not ts_code:
             return {"ok": False, "msg": "无法识别股票"}
-        fields = {k: body[k] for k in ("is_holding", "cost", "shares", "stop_loss", "note") if k in body}
-        for k in ("cost", "shares", "stop_loss"):
+        fields = {k: body[k] for k in ("is_holding", "cost", "shares", "stop_loss", "target_price", "note") if k in body}
+        for k in ("cost", "shares", "stop_loss", "target_price"):
             if k in fields:
                 fields[k] = float(fields[k]) if fields[k] not in (None, "") else None
         return {"ok": db.update_watch(ts_code, **fields)}

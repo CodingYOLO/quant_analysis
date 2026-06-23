@@ -226,6 +226,7 @@ def init_db() -> None:
                 cost        REAL,               -- 持仓成本价（可空）
                 shares      REAL,               -- 持仓数量/股（可空）
                 stop_loss   REAL,               -- 止损价（可空·用于跌破止损预警）
+                target_price REAL,              -- 目标买入价（可空·用于逼近买入区提醒）
                 note        TEXT,               -- 备注（如买入逻辑）
                 added_at    TEXT DEFAULT (datetime('now','localtime')),
                 updated_at  TEXT DEFAULT (datetime('now','localtime'))
@@ -263,6 +264,9 @@ def init_db() -> None:
         for col, typ in _POOL_NEW_COLS:
             if col not in existing:
                 con.execute(f"ALTER TABLE stock_pool ADD COLUMN {col} {typ}")
+        wl_cols = {row[1] for row in con.execute("PRAGMA table_info(watchlist)")}
+        if "target_price" not in wl_cols:
+            con.execute("ALTER TABLE watchlist ADD COLUMN target_price REAL")
     logger.debug("strategy.db 初始化完成: %s", _get_db_path())
 
 
@@ -682,23 +686,25 @@ def get_summary_stats(is_backtest: int | None = None) -> dict:
 # 自选/持仓（watchlist）：自选盯盘 + 持仓盈亏
 # ──────────────────────────────────────────────
 
-_WATCH_FIELDS = ("name", "is_holding", "cost", "shares", "stop_loss", "note")
+_WATCH_FIELDS = ("name", "is_holding", "cost", "shares", "stop_loss", "target_price", "note")
 
 
 def add_watch(ts_code: str, name: str = "", *, is_holding: bool = False,
               cost: float | None = None, shares: float | None = None,
-              stop_loss: float | None = None, note: str = "") -> None:
+              stop_loss: float | None = None, target_price: float | None = None,
+              note: str = "") -> None:
     """加入自选/持仓（按 ts_code upsert：已存在则更新非空字段，保留 added_at）。"""
     init_db()
     with _conn() as con:
         con.execute(
-            """INSERT INTO watchlist (ts_code, name, is_holding, cost, shares, stop_loss, note)
-               VALUES (?,?,?,?,?,?,?)
+            """INSERT INTO watchlist (ts_code, name, is_holding, cost, shares, stop_loss, target_price, note)
+               VALUES (?,?,?,?,?,?,?,?)
                ON CONFLICT(ts_code) DO UPDATE SET
                  name=excluded.name, is_holding=excluded.is_holding, cost=excluded.cost,
-                 shares=excluded.shares, stop_loss=excluded.stop_loss, note=excluded.note,
+                 shares=excluded.shares, stop_loss=excluded.stop_loss,
+                 target_price=excluded.target_price, note=excluded.note,
                  updated_at=datetime('now','localtime')""",
-            (ts_code, name, int(is_holding), cost, shares, stop_loss, note),
+            (ts_code, name, int(is_holding), cost, shares, stop_loss, target_price, note),
         )
 
 

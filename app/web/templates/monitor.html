@@ -53,11 +53,13 @@ const $=id=>document.getElementById(id);
 function esc(s){ return (s==null?'':String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 function pctStr(v){ if(v==null) return '<span class="neu">—</span>'; const c=v>0?'up':(v<0?'down':'neu'); return '<span class="'+c+'">'+(v>0?'+':'')+v+'%</span>'; }
 
-// 交易时段(本地时间·假设北京时区)
+// 交易时段(本地时间·假设北京时区)。集合竞价细分真实性:9:15-9:20可撤单(价或虚)、9:20-9:25锁定(较真)、9:25开盘价定
 function phase(){
   const n=new Date(), day=n.getDay(), hm=n.getHours()*100+n.getMinutes();
   if(day===0||day===6) return ['closed','周末休市','ph-closed'];
-  if(hm>=915&&hm<930) return ['pre','盘前集合竞价','ph-pre'];
+  if(hm>=915&&hm<920) return ['pre','⏳集合竞价 9:15-9:20(可撤单·价或虚,别全信)','ph-pre'];
+  if(hm>=920&&hm<925) return ['pre','⏳集合竞价 9:20-9:25(已锁定·价较真,高低开基本定)','ph-pre'];
+  if(hm>=925&&hm<930) return ['pre','⏳开盘价已定·待 9:30 连续竞价','ph-pre'];
   if((hm>=930&&hm<=1130)||(hm>=1300&&hm<=1500)) return ['open','盘中·自动刷新','ph-open'];
   if(hm>1130&&hm<1300) return ['post','午间休市','ph-closed'];
   if(hm>1500) return ['post','已收盘·显示收盘价','ph-post'];
@@ -69,7 +71,10 @@ function triggersOf(r){
   const risk=[], opp=[];
   (r.flags||[]).forEach(f=> risk.push({t:f.text, lv:f.level==='danger'?'danger':'warn'}));
   if(r.pct_chg!=null && r.pct_chg<=-5) risk.push({t:'今日大跌 '+r.pct_chg+'%', lv:'warn'});
-  const p=r.price, ma20=r.ma20, ma60=r.ma60;
+  const p=r.price, ma20=r.ma20, ma60=r.ma60, tp=r.target_price;
+  if(p&&tp){ const d=(p/tp-1)*100;       // 你设的目标买入价：到了/逼近
+    if(p<=tp) opp.push({t:'✅已到买入区(目标'+tp+'·现价低'+Math.abs(d).toFixed(1)+'%)', lv:'good'});
+    else if(d<=3) opp.push({t:'逼近买入区(目标'+tp+'·还差'+d.toFixed(1)+'%)', lv:'good'}); }
   if(p&&ma20){ const d=(p/ma20-1)*100; if(Math.abs(d)<=2.5 && (!ma60||p>=ma60)) opp.push({t:'回踩MA20支撑('+d.toFixed(1)+'%)·强势低吸位', lv:'good'}); }
   if(p&&ma60){ const d=(p/ma60-1)*100; if(Math.abs(d)<=2.5) opp.push({t:'回踩MA60支撑('+d.toFixed(1)+'%)·中长强支撑', lv:'good'}); }
   return {risk, opp};
@@ -113,7 +118,8 @@ $('refresh').onclick=load;
 
 function tick(){ load(); const [ph]=phase();
   if(_timer) clearTimeout(_timer);
-  _timer=setTimeout(tick, ph==='open'?60000:300000);   // 盘中60秒·其余5分钟
+  const ms = ph==='open' ? 60000 : (ph==='pre' ? 30000 : 300000);  // 盘中60秒·集合竞价30秒·其余5分钟
+  _timer=setTimeout(tick, ms);
 }
 tick();
 </script>
