@@ -319,6 +319,24 @@ class TushareProvider(DataProvider):
             fields="ts_code,debt_to_assets,netprofit_yoy,roe,or_yoy",
         )
 
+    def get_forecast_by_period(self, period: str) -> pd.DataFrame:
+        """全市场某报告期业绩预告（一次取全·供选股业绩催化）。列：ts_code/type/
+        p_change_min/p_change_max。按 period 缓存一天。"""
+        return cached_daily(
+            name="tushare_forecast_by_period",
+            date_key=period,
+            fetch_fn=lambda: self._fetch_forecast_by_period(period),
+        )
+
+    @_RETRY
+    def _fetch_forecast_by_period(self, period: str) -> pd.DataFrame:
+        return rate_limited_call(
+            "tushare_forecast",
+            self._api.forecast_vip,
+            period=period,
+            fields="ts_code,ann_date,type,p_change_min,p_change_max",
+        )
+
     def _expected_latest_td(self) -> str:
         """日历上"应已有数据的最近交易日"（≤今天的最近开市日）。失败回退今天。"""
         import datetime

@@ -152,6 +152,36 @@ def test_leader_flags_top2_per_industry() -> None:
     assert flags["d"]                                       # 乙行业唯一→龙头
 
 
+def test_forecast_periods_picks_h1_in_june() -> None:
+    """6月底：中报(0630·允许未来15天) + 一季报(0331)，中报在前。"""
+    import datetime
+    assert SC._forecast_periods(datetime.date(2026, 6, 23)) == ["20260630", "20260331"]
+
+
+def test_add_earnings_prefers_h1_and_flags_good() -> None:
+    """每股取最新期(中报优先)；预喜标记；forecast_chg取中值。"""
+    class _P:
+        def get_forecast_by_period(self, period):
+            data = {
+                "20260630": [("A.SZ", "20260623", "预增", 100, 160)],     # A有中报预告·预增
+                "20260331": [("A.SZ", "20260429", "略减", -10, -5),       # A一季报(应被中报覆盖)
+                             ("B.SZ", "20260429", "首亏", -200, -150)],   # B只有一季报·预亏
+            }
+            return pd.DataFrame([{"ts_code": t, "ann_date": a, "type": ty,
+                                  "p_change_min": lo, "p_change_max": hi}
+                                 for t, a, ty, lo, hi in data.get(period, [])])
+
+    df = pd.DataFrame({"ts_code": ["A.SZ", "B.SZ", "C.SZ"]})
+    out = SC._add_earnings(df, _P())
+    a = out[out["ts_code"] == "A.SZ"].iloc[0]
+    assert a["forecast_type"] == "预增" and a["forecast_chg"] == 130.0   # 中报覆盖一季报·(100+160)/2
+    assert a["earn_good"] and a["is_h1_forecast"]
+    b = out[out["ts_code"] == "B.SZ"].iloc[0]
+    assert b["forecast_type"] == "首亏" and not b["earn_good"] and not b["is_h1_forecast"]
+    c = out[out["ts_code"] == "C.SZ"].iloc[0]
+    assert not c["earn_good"] and not c["is_h1_forecast"]                 # 无预告
+
+
 def test_latest_fina_period() -> None:
     import datetime
     assert SC._latest_fina_period(datetime.date(2026, 6, 22)) == "20260331"

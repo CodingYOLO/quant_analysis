@@ -122,6 +122,15 @@ FACTOR_GROUPS = [
         ],
     },
     {
+        "group": "📈 业绩催化（二季度中报预告·7-8月旺季）",
+        "factors": [
+            {"key": "earn_h1", "label": "有中报预告(二季度催化)", "col": "is_h1_forecast", "op": "true"},
+            {"key": "earn_good", "label": "业绩预喜(预增/扭亏/略增)", "col": "earn_good", "op": "true"},
+            {"key": "earn_chg30", "label": "预告净利增≥30%", "col": "forecast_chg", "op": "ge", "val": 30},
+            {"key": "earn_chg100", "label": "预告净利翻倍(≥100%)", "col": "forecast_chg", "op": "ge", "val": 100},
+        ],
+    },
+    {
         "group": "💎 强势龙头·超跌低吸（错杀的好票）",
         "factors": [
             {"key": "dip_strong", "label": "前期强势(RPS120≥70)", "col": "rps120", "op": "ge", "val": 70},
@@ -168,7 +177,7 @@ CUSTOM_FIELDS = [
     {"col": "up_down_vol", "label": "量价配合(涨量/跌量)"}, {"col": "amp_contract", "label": "振幅收敛比"},
     {"col": "ret5", "label": "近5日涨幅%"},
     {"col": "limit_ups_60d", "label": "近60日涨停数"}, {"col": "max_consec_limit", "label": "最高连板"},
-    {"col": "youzi_relay_days", "label": "游资接力天数"},
+    {"col": "youzi_relay_days", "label": "游资接力天数"}, {"col": "forecast_chg", "label": "预告净利变动%"},
     {"col": "debt_to_assets", "label": "资产负债率%"}, {"col": "netprofit_yoy", "label": "净利同比%"},
     {"col": "roe", "label": "ROE%"},
 ]
@@ -183,6 +192,7 @@ DISPLAY_COLS = [
     ("up_down_vol", "量价配合"),
     ("limit_ups_60d", "60日涨停"), ("max_consec_limit", "最高连板"),
     ("youzi_relay_days", "🔥游资接力日"),
+    ("forecast_type", "业绩预告"), ("forecast_chg", "预告净利%"),
     ("debt_to_assets", "负债率%"), ("netprofit_yoy", "净利同比%"),
     ("turnover_rate", "换手%"), ("volume_ratio", "量比"), ("circ_mv_100m", "流通市值(亿)"),
     ("main_net_amount", "主力净流入(亿)"), ("main_net_3d", "主力3日(亿)"), ("elg_net", "超大单(亿)"),
@@ -196,7 +206,7 @@ DISPLAY_COLS = [
 # ──────────────────────────────────────────────
 
 # 因子表结构版本：新增因子列时 +1，使旧缓存自动失效重算（避免读到缺列的旧表）
-_FACTOR_TABLE_VERSION = "v7"
+_FACTOR_TABLE_VERSION = "v8"
 
 
 def _factor_cache_path(date: str) -> Path:
@@ -235,6 +245,7 @@ def build_factor_table(date: str, provider: CompositeProvider | None = None,
     df = _add_fund_persistence(df, date, provider)   # 近3日主力净流入(持续性)
     df = _add_fundamentals(df, provider)              # 批量财务(负债率/净利同比/ROE)·妖股排雷
     df = _add_youzi_relay(df, date, provider)         # 近20日游资接力天数(批量top_inst)
+    df = _add_earnings(df, provider)                  # 业绩预告(中报+一季报·二季度催化)
     df = _add_leader_flags(df)                         # 板块龙头标记(行业内强+大+活排名)
     df = _add_accum_score(df)                          # 慢牛吸筹评分(合成上面多日因子)
 
@@ -518,6 +529,55 @@ def _add_fundamentals(df: pd.DataFrame, provider) -> pd.DataFrame:
                     df[col] = df["ts_code"].map(m)
     except Exception as e:
         logger.debug("批量财务获取失败: %s", e)
+    return df
+
+
+# 业绩预告"预喜"类型（正面催化）
+_EARN_GOOD = {"预增", "略增", "扭亏", "续盈", "预盈", "减亏", "扭亏为盈"}
+
+
+def _forecast_periods(now=None) -> list[str]:
+    """当前正密集预告的报告期 + 上一期（YYYYMMDD·新→旧）。
+
+    季度末会提前预告（如6月底已出中报预告），故允许未来15天内的季度末。
+    """
+    import datetime
+    now = now or datetime.date.today()
+    cutoff = (now + datetime.timedelta(days=15)).strftime("%Y%m%d")
+    ends = sorted((f"{y}{md}" for y in (now.year, now.year - 1)
+                   for md in ("0331", "0630", "0930", "1231")), reverse=True)
+    recent = [e for e in ends if e <= cutoff][:2]
+    return recent or [ends[0]]
+
+
+def _add_earnings(df: pd.DataFrame, provider) -> pd.DataFrame:
+    """业绩预告催化：取最近两期预告(中报优先)，每股留最新一条 → 预告类型/净利变动%/是否预喜/有中报预告。"""
+    try:
+        periods = _forecast_periods()
+        frames = []
+        for pri, p in enumerate(periods):          # pri=0 为最新期(中报)
+            fc = provider.get_forecast_by_period(p)
+            if fc is not None and not fc.empty:
+                fc = fc.copy(); fc["_period"] = p; fc["_pri"] = pri
+                frames.append(fc)
+        if not frames:
+            return df
+        allfc = pd.concat(frames, ignore_index=True)
+        allfc["ann_date"] = allfc.get("ann_date", "").astype(str)
+        allfc = (allfc.sort_values(["_pri", "ann_date"], ascending=[True, False])
+                      .drop_duplicates("ts_code", keep="first"))   # 每股留最新期最新公告
+        chg = (pd.to_numeric(allfc["p_change_min"], errors="coerce")
+               + pd.to_numeric(allfc["p_change_max"], errors="coerce")) / 2
+        allfc = allfc.assign(forecast_chg=chg.round(1))
+        h1 = periods[0]                                            # 最新期=中报视为二季度催化
+        m_type = dict(zip(allfc["ts_code"], allfc["type"].astype(str)))
+        df["forecast_type"] = df["ts_code"].map(m_type)
+        df["forecast_chg"] = df["ts_code"].map(dict(zip(allfc["ts_code"], allfc["forecast_chg"])))
+        df["earn_good"] = df["forecast_type"].isin(_EARN_GOOD).fillna(False)
+        h1_codes = set(allfc.loc[allfc["_period"] == h1, "ts_code"])
+        df["is_h1_forecast"] = df["ts_code"].isin(h1_codes)
+    except Exception as e:
+        logger.debug("业绩预告获取失败: %s", e)
     return df
 
 
