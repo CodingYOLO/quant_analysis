@@ -1141,6 +1141,12 @@ async def api_concept_detail(date: str = "", code: str = "", _user: str = Depend
         return {"ok": False, "error": str(e)}
 
 
+@app.get("/monitor", response_class=HTMLResponse)
+async def monitor_page(request: Request, _user: str = Depends(require_auth)):
+    """盯盘看板：交易时段自动刷新，自选/持仓命中条件(风险/低吸位/板块)才提醒，不下指令。"""
+    return templates.TemplateResponse(request=request, name="monitor.html", context={"page": "monitor"})
+
+
 @app.get("/screener", response_class=HTMLResponse)
 async def screener_page(request: Request, _user: str = Depends(require_auth)):
     """量化因子选股页面。"""
