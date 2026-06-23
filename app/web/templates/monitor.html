@@ -42,7 +42,7 @@ h1 { font-size:22px; text-align:center; margin-bottom:4px; }
 <div class="sec"><h2>✅ 暂无信号 <span class="neu" style="font-size:12px;font-weight:400">其余自选/持仓·一切照旧</span></h2><div id="calm" class="neu" style="font-size:12.5px"></div></div>
 
 <div class="disc">
-  ⚠️ 现价为实时报价、技术/板块为盘后口径(板块状态来自最近一次因子表，收盘后开一次选股页可刷新)。
+  ⚠️ 刷新：集合竞价 <b>6秒</b>/盘中 <b>8秒</b> 拉一次实时价(均线/板块只取一次·每5分钟刷)。⏱ 注意：实时报价源约<b>每数秒</b>才更新一次，再快也拿不到新价——所以这已接近上限，不是越快越好。现价为实时报价、技术/板块为盘后口径(板块状态来自最近一次因子表，收盘后开一次选股页可刷新)。
   本看板<b>只提醒不预测、不下"可加仓/持有"之类指令</b>——和那些"人气飙升=资金抢筹=可加仓"的推送不同：人气榜是散户情绪、不是主力资金，追那种信号往往是高位接盘。<b>到点了我提醒你，买不买、卖不卖、仓位多少，永远你自己定。</b>
 </div>
 {% endblock %}
@@ -66,12 +66,17 @@ function phase(){
   return ['closed','未开盘','ph-closed'];
 }
 
-// 从持仓行算触发条件：风险(复用后端flags+今日大跌) / 机会(回踩支撑·低吸位)
+// 触发条件：价相关项(止损/破位/大跌/浮亏/支撑/买入区)用【实时价】现算；
+// 结构性项(主力流出/减持/大宗/解禁/板块破位)沿用后端盘后flag(不随分钟变)。
 function triggersOf(r){
   const risk=[], opp=[];
-  (r.flags||[]).forEach(f=> risk.push({t:f.text, lv:f.level==='danger'?'danger':'warn'}));
+  (r.flags||[]).forEach(f=>{ if(/流出|减持|大宗|解禁|板块/.test(f.text))   // 只留结构性后端flag
+    risk.push({t:f.text, lv:f.level==='danger'?'danger':'warn'}); });
+  const p=r.price, ma20=r.ma20, ma60=r.ma60, tp=r.target_price, stop=r.stop_loss, cost=r.cost;
+  if(p&&stop&&p<=stop) risk.push({t:'跌破止损位 '+stop, lv:'danger'});
+  if(p&&ma20&&p<ma20) risk.push({t:'跌破MA20(破位 '+((p/ma20-1)*100).toFixed(1)+'%)', lv:'warn'});
   if(r.pct_chg!=null && r.pct_chg<=-5) risk.push({t:'今日大跌 '+r.pct_chg+'%', lv:'warn'});
-  const p=r.price, ma20=r.ma20, ma60=r.ma60, tp=r.target_price;
+  if(r.is_holding&&p&&cost){ const g=(p/cost-1)*100; if(g<=-10) risk.push({t:'浮亏 '+g.toFixed(1)+'%', lv:'warn'}); }
   if(p&&tp){ const d=(p/tp-1)*100;       // 你设的目标买入价：到了/逼近
     if(p<=tp) opp.push({t:'✅已到买入区(目标'+tp+'·现价低'+Math.abs(d).toFixed(1)+'%)', lv:'good'});
     else if(d<=3) opp.push({t:'逼近买入区(目标'+tp+'·还差'+d.toFixed(1)+'%)', lv:'good'}); }
@@ -94,33 +99,52 @@ function card(r, trigs, kind){
     +'<div style="margin-top:6px;font-size:11px" class="neu">所属板块 '+esc(r.industry||'—')+sectorBadge(r.sector_phase)+'</div></div>';
 }
 
-let _timer=null;
-async function load(){
+let _rows=[], _nHold=0, _lastTime='', _fullAt=0;
+
+function render(){
   const [ph,label,cls]=phase();
   $('phase').className='phase '+cls; $('phase').textContent=label;
+  $('meta').textContent='共 '+_rows.length+' 只(持仓 '+_nHold+') · 报价 '+_lastTime;
+  const risk=[], opp=[], calm=[];
+  _rows.forEach(r=>{ const t=triggersOf(r);
+    if(t.risk.length) risk.push(card(r,t.risk,'risk'));
+    else if(t.opp.length) opp.push(card(r,t.opp,'opp'));
+    else calm.push(esc(r.name||r.ts_code)); });
+  $('risk').innerHTML=risk.length?risk.join(''):'<div class="empty">✅ 持仓暂无风险触发</div>';
+  $('opp').innerHTML=opp.length?opp.join(''):'<div class="empty">暂无回踩低吸位/到买入区的票</div>';
+  $('calm').textContent=calm.length?('· '+calm.join(' · ')):'—';
+  $('tally').innerHTML='<span class="t-danger tag" style="margin:0">⚠️ '+risk.length+' 风险</span> <span class="t-good tag" style="margin:0">🟢 '+opp.length+' 机会</span>';
+}
+
+// 重数据(均线/板块/止损/目标/结构flag)——取一次，每5分钟刷新
+async function loadFull(){
   try{
     const j=await (await fetch('/api/portfolio')).json();
-    if(!j.ok){ $('meta').textContent='❌ '+(j.msg||'加载失败'); return; }
-    const rows=(j.rows||[]);
-    $('meta').textContent='共 '+rows.length+' 只(持仓 '+(j.summary&&j.summary.n_holding||0)+') · 报价时间 '+new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
-    const risk=[], opp=[], calm=[];
-    rows.forEach(r=>{ const t=triggersOf(r);
-      if(t.risk.length) risk.push(card(r,t.risk,'risk'));
-      else if(t.opp.length) opp.push(card(r,t.opp,'opp'));
-      else calm.push(esc(r.name||r.ts_code)); });
-    $('risk').innerHTML=risk.length?risk.join(''):'<div class="empty">✅ 持仓暂无风险触发</div>';
-    $('opp').innerHTML=opp.length?opp.join(''):'<div class="empty">暂无回踩到低吸位的票</div>';
-    $('calm').textContent=calm.length?('· '+calm.join(' · ')):'—';
-    $('tally').innerHTML='<span class="t-danger tag" style="margin:0">⚠️ '+risk.length+' 风险</span> <span class="t-good tag" style="margin:0">🟢 '+opp.length+' 低吸位</span>';
+    if(j.ok){ _rows=j.rows||[]; _nHold=(j.summary&&j.summary.n_holding)||0; _fullAt=Date.now();
+      _lastTime=new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit',second:'2-digit'}); render(); }
+    else $('meta').textContent='❌ '+(j.msg||'加载失败');
   }catch(e){ $('meta').textContent='❌ '+e; }
 }
-$('refresh').onclick=load;
+// 轻量实时价——高频拉，只更新现价/涨跌后本地重算触发
+async function pollQuotes(){
+  try{
+    const j=await (await fetch('/api/watch/quotes')).json();
+    if(j.ok&&j.quotes){ _rows.forEach(r=>{ const q=j.quotes[r.ts_code];
+      if(q){ if(q.price!=null) r.price=q.price; if(q.pct_chg!=null) r.pct_chg=q.pct_chg; } });
+      _lastTime=new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit',second:'2-digit'}); render(); }
+  }catch(e){}
+}
+$('refresh').onclick=()=>{ loadFull(); };
 
-function tick(){ load(); const [ph]=phase();
+let _timer=null;
+function tick(){
+  const [ph]=phase();
+  if(Date.now()-_fullAt > 300000) loadFull();      // 每5分钟刷新一次重数据
+  else pollQuotes();                                // 其余只拉实时价
+  const ms = ph==='open' ? 8000 : (ph==='pre' ? 6000 : 120000);  // 盘中8秒·集合竞价6秒·休市2分钟
   if(_timer) clearTimeout(_timer);
-  const ms = ph==='open' ? 60000 : (ph==='pre' ? 30000 : 300000);  // 盘中60秒·集合竞价30秒·其余5分钟
   _timer=setTimeout(tick, ms);
 }
-tick();
+loadFull().then(tick);
 </script>
 {% endblock %}

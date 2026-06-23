@@ -969,6 +969,40 @@ async def api_portfolio(_user: str = Depends(require_auth)):
         return {"ok": False, "msg": str(e)}
 
 
+@app.get("/api/watch/quotes")
+async def api_watch_quotes(_user: str = Depends(require_auth)):
+    """轻量实时报价：只取自选/持仓的现价+涨跌（1次新浪批量）。供盯盘高频刷新，不重算技术/板块。"""
+    try:
+        from fastapi.concurrency import run_in_threadpool
+
+        from app.data.composite_provider import CompositeProvider
+        from app.strategy import db
+        codes = [w["ts_code"] for w in db.get_watchlist()]
+        if not codes:
+            return {"ok": True, "quotes": {}}
+
+        def _q() -> dict:
+            out: dict[str, dict] = {}
+            try:
+                qdf = CompositeProvider().get_realtime_quote(codes)
+            except Exception:
+                return out
+            if qdf is None or qdf.empty:
+                return out
+            for r in qdf.to_dict("records"):
+                try:
+                    out[str(r.get("ts_code"))] = {"price": round(float(r.get("price")), 2),
+                                                  "pct_chg": round(float(r.get("pct_chg")), 2)}
+                except (TypeError, ValueError):
+                    continue
+            return out
+
+        return {"ok": True, "quotes": await run_in_threadpool(_q)}
+    except Exception as e:
+        logger.exception("盯盘报价失败")
+        return {"ok": False, "msg": str(e)}
+
+
 @app.get("/api/portfolio/signals")
 async def api_portfolio_signals(refresh: bool = False, _user: str = Depends(require_auth)):
     """🔔 自选股今日信号：它"最吃的信号"今天是否触发→买/卖点提醒(确定性历史统计)。较重→线程池·按日缓存。"""
