@@ -513,6 +513,39 @@ def _rewrite_run_info(settings, trade_date: str, state: "PipelineState") -> None
     _save_report(trade_date, report)
 
 
+@cli.command("warmup")
+@click.option("--date", "base_date", default="", help="基准交易日 YYYYMMDD，默认今日")
+def run_warmup(base_date: str) -> None:
+    """预热重缓存：全市场因子表 + 大盘情绪仪表盘(默认近30天·含今/明/后覆盖周末)。
+    供收盘后定时跑，用户晚上打开选股/大盘情绪/持仓页直接秒显示(磁盘缓存·重启不丢)。"""
+    import datetime
+    import time
+
+    from app.data.composite_provider import CompositeProvider
+    from app.strategy.market_sentiment import _latest_data_date, build_dashboard
+    from app.strategy.screener import build_factor_table
+    prov = CompositeProvider()
+    base = base_date or datetime.date.today().strftime("%Y%m%d")
+    t0 = time.time()
+    # 1) 因子表（选股/板块强弱榜/持仓板块/超跌低吸都靠它·最重）
+    latest = _latest_data_date(prov, base)
+    try:
+        build_factor_table(latest, prov)
+        console.print(f"[green]✅ 因子表预热 {latest}[/green]")
+    except Exception as e:
+        console.print(f"[yellow]⚠️ 因子表预热失败: {e}[/yellow]")
+    # 2) 大盘情绪默认区间(end=今/明/后·各往前30天·覆盖今晚与周末打开的缓存键)
+    for off in (0, 1, 2):
+        end = (datetime.datetime.strptime(base, "%Y%m%d") + datetime.timedelta(days=off)).strftime("%Y%m%d")
+        start = (datetime.datetime.strptime(end, "%Y%m%d") - datetime.timedelta(days=30)).strftime("%Y%m%d")
+        try:
+            build_dashboard(end, start_date=start)
+            console.print(f"[green]✅ 情绪预热 {start}~{end}[/green]")
+        except Exception as e:
+            console.print(f"[yellow]⚠️ 情绪预热 {end} 失败: {e}[/yellow]")
+    console.print(f"[bold green]🔥 预热完成 · 用时 {time.time() - t0:.0f}秒[/bold green]")
+
+
 if __name__ == "__main__":
     # 支持: python -m app.run --date 20250613
     import sys
