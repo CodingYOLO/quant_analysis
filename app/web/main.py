@@ -1219,6 +1219,19 @@ async def api_screen(request: Request, _user: str = Depends(require_auth)):
         return {"ok": False, "error": str(e)}
 
 
+@app.get("/api/market/radar")
+async def api_market_radar(_user: str = Depends(require_auth)):
+    """全市场盘中异动雷达：热点板块/涨跌幅榜/涨停/涨跌家数(秒读缓存·后台扫描)。"""
+    try:
+        from fastapi.concurrency import run_in_threadpool
+
+        from app.strategy.market_radar import get_market_radar
+        return await run_in_threadpool(get_market_radar, None)
+    except Exception as e:
+        logger.exception("市场雷达失败")
+        return {"ok": False, "msg": str(e)}
+
+
 @app.get("/api/sector/strength")
 async def api_sector_strength(date: str = "", _user: str = Depends(require_auth)):
     """板块强弱总览：各行业 RPS/近5日/站MA60占比/资金/龙头 + 形态判定。读因子表(缓存)·线程池。"""

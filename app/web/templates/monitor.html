@@ -28,7 +28,7 @@ h1 { font-size:22px; text-align:center; margin-bottom:4px; }
 
 {% block content %}
 <h1>🛎️ 盯盘看板</h1>
-<div class="sub">交易时段自动刷新。<b>只在你的自选/持仓命中条件时才提醒</b>(跌破止损/破位/板块退潮=风险，回踩支撑=低吸位)——只报事实、不下指令、不催你追高。</div>
+<div class="sub">交易时段自动刷新。上半屏看<b>全市场异动</b>(热点板块/涨跌幅榜/涨停/涨跌家数)、下半屏看<b>你的持仓自选</b>风险与低吸位——只报事实、不下指令、不催你追高。</div>
 
 <div class="bar">
   <span id="phase" class="phase ph-closed">— —</span>
@@ -37,6 +37,21 @@ h1 { font-size:22px; text-align:center; margin-bottom:4px; }
   <span class="rf" id="refresh" style="font-size:12px;color:#7c9ef8;cursor:pointer">🔄 手动刷新</span>
 </div>
 
+<!-- 🌍 全市场盘中雷达 -->
+<div class="sec">
+  <h2>🌍 全市场盘中雷达 <span class="neu" style="font-size:12px;font-weight:400" id="radar-meta">扫描中…</span></h2>
+  <div id="breadth" style="font-size:13px;margin-bottom:10px"></div>
+  <div style="font-size:13.5px;font-weight:600;color:#7c9ef8;margin:6px 0">🔥 今日热点板块(均涨幅·领涨龙头)</div>
+  <div id="hotsec" class="cards"></div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;margin-top:12px">
+    <div><div style="font-size:13px;font-weight:600;color:#f6465d;margin-bottom:5px">🚀 涨幅榜</div><div id="gainers" style="font-size:12.5px"></div></div>
+    <div><div style="font-size:13px;font-weight:600;color:#2ebd85;margin-bottom:5px">📉 跌幅榜(风险)</div><div id="losers" style="font-size:12.5px"></div></div>
+    <div><div style="font-size:13px;font-weight:600;color:#f0a020;margin-bottom:5px">🔴 涨停板</div><div id="limitups" style="font-size:12.5px"></div></div>
+  </div>
+</div>
+
+<div style="border-top:1px solid #2d3052;margin:18px 0 14px"></div>
+<div class="sub" style="text-align:left;font-size:14px;color:#cdd6f4;font-weight:600;margin-bottom:10px">💼 我的持仓 / 自选</div>
 <div class="sec"><h2>🔴 风险提醒 <span class="neu" style="font-size:12px;font-weight:400">持仓重点·该看一眼</span></h2><div id="risk" class="cards"></div></div>
 <div class="sec"><h2>🟢 低吸位提醒 <span class="neu" style="font-size:12px;font-weight:400">回踩到支撑·可关注(不是叫你买)</span></h2><div id="opp" class="cards"></div></div>
 <div class="sec"><h2>✅ 暂无信号 <span class="neu" style="font-size:12px;font-weight:400">其余自选/持仓·一切照旧</span></h2><div id="calm" class="neu" style="font-size:12.5px"></div></div>
@@ -136,7 +151,27 @@ async function pollQuotes(){
 }
 $('refresh').onclick=()=>{ loadFull(); };
 
-let _timer=null;
+// 🌍 全市场雷达(后台缓存·读得快)
+function rstk(x){ return '<span class="code" style="cursor:pointer" onclick="location.href=\'/stock?code='+x.code+'\'">'+esc(x.name)+'</span> <span class="'+(x.pct>0?'up':(x.pct<0?'down':'neu'))+'">'+(x.pct>0?'+':'')+x.pct+'%</span>'+(x.is_st?' <span style="color:#f0a020;font-size:10px">ST</span>':''); }
+async function loadRadar(){
+  try{
+    const j=await (await fetch('/api/market/radar')).json();
+    if(!j.ok){ $('radar-meta').textContent='❌ '+(j.msg||''); return; }
+    if(j.scanning && !(j.hot_sectors&&j.hot_sectors.length)){ $('radar-meta').textContent='⏳ 首次全市场扫描中(约30秒)…'; return; }
+    $('radar-meta').textContent='扫描于 '+(j.as_of||'')+' · 全市场(约每分钟刷)';
+    const b=j.breadth||{};
+    $('breadth').innerHTML='🌡️ 涨跌家数 <b class="up">涨 '+(b.up||0)+'</b> / <b class="down">跌 '+(b.down||0)+'</b> · 涨停 <b class="up">'+(b.limit_up||0)+'</b> · 跌停 <b class="down">'+(b.limit_down||0)+'</b> <span class="neu">(共 '+(b.total||0)+' 只)</span>';
+    $('hotsec').innerHTML=(j.hot_sectors||[]).map(s=>{ const c=s.avg_pct>0?'up':'down';
+      return '<div class="card opp" style="cursor:default"><div class="top"><span class="nm" style="font-size:14px">'+esc(s.industry)+'</span><span class="px '+c+'">'+(s.avg_pct>0?'+':'')+s.avg_pct+'%</span></div>'
+        +'<div style="font-size:11.5px" class="neu">涨'+s.up+'/'+s.n+' · 涨停'+s.limit_up+' · 领涨 '+rstk({name:s.leader,code:s.leader_code,pct:s.leader_pct})+'</div></div>'; }).join('')||'<div class="empty">—</div>';
+    $('gainers').innerHTML=(j.gainers||[]).slice(0,10).map(rstk).join('<br>')||'—';
+    $('losers').innerHTML=(j.losers||[]).slice(0,8).map(rstk).join('<br>')||'—';
+    const lu=j.limit_ups||[];
+    $('limitups').innerHTML=lu.length?(lu.slice(0,12).map(rstk).join('<br>')+(lu.length>12?'<br><span class="neu">…共 '+lu.length+' 只涨停</span>':'')):'—';
+  }catch(e){ $('radar-meta').textContent='❌ '+e; }
+}
+
+let _timer=null, _rtimer=null;
 function tick(){
   const [ph]=phase();
   if(Date.now()-_fullAt > 300000) loadFull();      // 每5分钟刷新一次重数据
@@ -145,6 +180,11 @@ function tick(){
   if(_timer) clearTimeout(_timer);
   _timer=setTimeout(tick, ms);
 }
+function radarTick(){ loadRadar(); const [ph]=phase();
+  if(_rtimer) clearTimeout(_rtimer);
+  _rtimer=setTimeout(radarTick, (ph==='open'||ph==='pre')?30000:120000);  // 雷达30秒读一次缓存
+}
 loadFull().then(tick);
+radarTick();
 </script>
 {% endblock %}
