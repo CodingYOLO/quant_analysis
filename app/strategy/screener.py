@@ -121,6 +121,17 @@ FACTOR_GROUPS = [
         ],
     },
     {
+        "group": "💎 强势龙头·超跌低吸（错杀的好票）",
+        "factors": [
+            {"key": "dip_strong", "label": "前期强势(RPS120≥70)", "col": "rps120", "op": "ge", "val": 70},
+            {"key": "dip_oversold5", "label": "近5日超跌(≤-5%)", "col": "ret5", "op": "le", "val": -5},
+            {"key": "dip_rsi", "label": "RSI回落(≤45)", "col": "rsi14", "op": "le", "val": 45},
+            {"key": "dip_trend_ok", "label": "趋势未破·站上MA60(防接刀)", "col": "above_ma60", "op": "true"},
+            {"key": "dip_leader", "label": "龙头体格·流通≥100亿", "col": "circ_mv_100m", "op": "ge", "val": 100},
+            {"key": "dip_liquid", "label": "成交活跃·额≥3亿", "col": "amount_100m", "op": "ge", "val": 3},
+        ],
+    },
+    {
         "group": "情绪与人气",
         "factors": [
             {"key": "comment_ge80", "label": "千评得分≥80", "col": "comment_score", "op": "ge", "val": 80},
@@ -154,6 +165,7 @@ CUSTOM_FIELDS = [
     {"col": "vol5_vol20", "label": "量能比5/20日"}, {"col": "ma20_slope", "label": "MA20斜率%"},
     {"col": "amp20", "label": "近20日均振幅%"}, {"col": "main_net_3d", "label": "主力近3日(亿)"},
     {"col": "up_down_vol", "label": "量价配合(涨量/跌量)"}, {"col": "amp_contract", "label": "振幅收敛比"},
+    {"col": "ret5", "label": "近5日涨幅%"},
     {"col": "limit_ups_60d", "label": "近60日涨停数"}, {"col": "max_consec_limit", "label": "最高连板"},
     {"col": "youzi_relay_days", "label": "游资接力天数"},
     {"col": "debt_to_assets", "label": "资产负债率%"}, {"col": "netprofit_yoy", "label": "净利同比%"},
@@ -166,7 +178,7 @@ _CUSTOM_OPS = {"ge", "gt", "le", "lt", "eq"}
 DISPLAY_COLS = [
     ("ts_code", "代码"), ("name", "名称"), ("accum_score", "🐌吸筹分"), ("industry", "行业"),
     ("close", "最新价"), ("pct_chg", "涨跌幅%"), ("amplitude", "振幅%"),
-    ("ret20", "近20日涨%"), ("vol5_vol20", "量能比5/20"),
+    ("ret5", "近5日涨%"), ("ret20", "近20日涨%"), ("vol5_vol20", "量能比5/20"),
     ("up_down_vol", "量价配合"),
     ("limit_ups_60d", "60日涨停"), ("max_consec_limit", "最高连板"),
     ("youzi_relay_days", "🔥游资接力日"),
@@ -183,7 +195,7 @@ DISPLAY_COLS = [
 # ──────────────────────────────────────────────
 
 # 因子表结构版本：新增因子列时 +1，使旧缓存自动失效重算（避免读到缺列的旧表）
-_FACTOR_TABLE_VERSION = "v5"
+_FACTOR_TABLE_VERSION = "v6"
 
 
 def _factor_cache_path(date: str) -> Path:
@@ -388,6 +400,8 @@ def _accum_factor_columns(close_m, high_m, low_m, vol_m) -> dict[str, pd.Series]
     if n >= 25:                                               # MA20斜率%：今日MA20 vs 5日前MA20
         ma20_now, ma20_prev = close_m.tail(20).mean(), close_m.iloc[-25:-5].mean()
         out["ma20_slope"] = (ma20_now / ma20_prev.replace(0, np.nan) - 1) * 100
+    if n >= 6:                                                # 近5日涨幅%(超跌低吸判定)
+        out["ret5"] = (close_m.iloc[-1] / close_m.iloc[-6].replace(0, np.nan) - 1) * 100
     if n >= 21:                                               # 近20日涨幅%
         ret = close_m.pct_change()
         out["ret20"] = (close_m.iloc[-1] / close_m.iloc[-21].replace(0, np.nan) - 1) * 100

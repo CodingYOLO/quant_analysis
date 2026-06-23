@@ -88,6 +88,7 @@ def test_accum_columns_slow_bull() -> None:
     close, high, low, vol = _slow_bull_matrix()
     cols = SC._accum_factor_columns(close, high, low, vol)
     assert cols["ret20"]["A"] > 0                 # 净走高
+    assert "ret5" in cols and cols["ret5"]["A"] > 0   # 近5日涨幅(超跌低吸用·此处为涨)
     assert cols["ma20_slope"]["A"] > 0            # MA20向上
     assert cols["big_up_days_20"]["A"] == 0       # 无大涨 → 隐蔽
     assert cols["up_down_vol"]["A"] > 1.3         # 涨放量/跌缩量 ≈ 140/80
