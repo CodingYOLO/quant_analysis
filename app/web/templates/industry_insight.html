@@ -1,0 +1,143 @@
+{% extends "base.html" %}
+{% block title %}产业认知 — A股Agent{% endblock %}
+
+{% block extra_style %}
+h1 { font-size:22px; text-align:center; margin-bottom:4px; }
+.sub { text-align:center; color:#9ca3af; font-size:12.5px; margin-bottom:14px; line-height:1.7; }
+.searchbar { display:flex; gap:10px; justify-content:center; margin-bottom:10px; flex-wrap:wrap; }
+.searchbar input { background:#0f1117; color:#e8e8e8; border:1px solid #2d3052; border-radius:8px; padding:10px 14px; font-size:15px; width:320px; max-width:70vw; }
+.searchbar button { background:#3358e0; color:#fff; border:none; border-radius:8px; padding:10px 22px; font-size:15px; cursor:pointer; }
+.searchbar button:disabled { opacity:.5; }
+.chips { text-align:center; margin-bottom:16px; }
+.chip { display:inline-block; font-size:12.5px; color:#9ca3af; background:#161929; border:1px solid #2d3052; border-radius:14px; padding:4px 12px; margin:3px; cursor:pointer; }
+.chip:hover { border-color:#5d7cff; color:#fff; }
+.card { background:#1a1d2e; border:1px solid #2d3052; border-radius:11px; padding:18px 22px; margin-bottom:16px; }
+.card h2 { font-size:16px; color:#7c9ef8; margin-bottom:10px; }
+.md h3 { font-size:15px; color:#7c9ef8; margin:14px 0 6px; } .md h4 { font-size:13.5px; color:#a3b3e8; margin:10px 0 4px; }
+.md p { font-size:13.5px; line-height:1.9; margin:5px 0; color:#dfe4f5; }
+.md li { font-size:13.5px; line-height:1.85; margin:3px 0 3px 4px; color:#dfe4f5; }
+.md b { color:#f0c674; } .md .cite { color:#7c9ef8; font-size:11px; }
+.src { font-size:11.5px; color:#9ca3af; line-height:1.8; } .src a { color:#7c9ef8; text-decoration:none; }
+.q { background:#0f1117; border:1px solid #242842; border-radius:9px; padding:12px 14px; margin-bottom:12px; }
+.q .qt { font-size:13.5px; color:#e8e8e8; font-weight:600; margin-bottom:3px; }
+.q .pt { font-size:11px; color:#6b7280; margin-bottom:8px; }
+.q textarea { width:100%; background:#161929; color:#e8e8e8; border:1px solid #2d3052; border-radius:7px; padding:8px; font-size:13px; min-height:60px; font-family:inherit; resize:vertical; }
+.q .sb { background:#2742a8; color:#fff; border:none; border-radius:7px; padding:6px 16px; font-size:12.5px; cursor:pointer; margin-top:6px; }
+.fb { margin-top:8px; padding:10px 12px; background:#10261c; border:1px solid #1f5a3a; border-radius:7px; font-size:13px; line-height:1.8; color:#cde6d6; white-space:pre-wrap; }
+.disc-box { display:flex; flex-direction:column; gap:8px; }
+.bubble { padding:9px 13px; border-radius:11px; font-size:13.5px; line-height:1.8; max-width:88%; white-space:pre-wrap; }
+.bu-user { background:#2742a8; color:#fff; align-self:flex-end; border-radius:11px 11px 2px 11px; }
+.bu-ai { background:#161929; border:1px solid #242842; color:#dfe4f5; align-self:flex-start; border-radius:11px 11px 11px 2px; }
+.disc-in { display:flex; gap:8px; margin-top:10px; }
+.disc-in input { flex:1; background:#161929; color:#e8e8e8; border:1px solid #2d3052; border-radius:8px; padding:9px 12px; font-size:13.5px; }
+.disc-in button { background:#3358e0; color:#fff; border:none; border-radius:8px; padding:0 18px; cursor:pointer; }
+.loading { color:#9ca3af; font-size:13.5px; padding:12px; }
+.disc-note { color:#6b7280; font-size:11.5px; line-height:1.7; margin-top:10px; border-top:1px solid #242842; padding-top:10px; }
+{% endblock %}
+
+{% block content %}
+<h1>🧭 产业认知教练</h1>
+<div class="sub">输入一个产业/主题，给你<b>数据接地</b>的认知卡片(产业链+真假6问+真龙头)，再用<b>练习题(你答→AI反馈)</b>和<b>自由探讨</b>提升认知——不灌结论、不预测涨跌，教你自己判断、不听风就是雨。</div>
+
+<div class="searchbar">
+  <input id="theme" type="text" placeholder="行业/产业主题，如 半导体 / AI算力 / 固态电池 / 机器人" autofocus>
+  <button id="go">生成认知卡片</button>
+</div>
+<div class="chips" id="chips"></div>
+
+<div id="result" style="display:none">
+  <div class="card"><h2 id="card-title">🧭 认知卡片</h2><div id="card" class="md loading">⏳ 正在生成(首次约30-60秒·之后秒开)…</div>
+    <div id="sources" class="src" style="margin-top:12px"></div>
+    <div id="disc-disclaimer" class="disc-note"></div>
+  </div>
+  <div class="card"><h2>🧠 认知练习 <span style="font-size:12px;color:#9ca3af;font-weight:400">先自己答，再看AI反馈——主动输出，认知才长进</span></h2><div id="quiz" class="loading">⏳ 出题中…</div></div>
+  <div class="card"><h2>💬 和AI探讨这个产业 <span style="font-size:12px;color:#9ca3af;font-weight:400">有疑问就追问·可质疑</span></h2>
+    <div id="disc" class="disc-box"></div>
+    <div class="disc-in"><input id="dmsg" type="text" placeholder="问点什么，如：这个产业最大的风险是什么？为什么说存储是核心？"><button id="dsend">发送</button></div>
+  </div>
+</div>
+<div id="hint" class="sub" style="padding:20px">输入产业或点上面的热门主题开始。</div>
+{% endblock %}
+
+{% block extra_script %}
+<script>
+const $=id=>document.getElementById(id);
+function esc(s){ return (s==null?'':String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+// 极简 markdown→html（标题/加粗/列表/段落/引用[n]）
+function md(t){
+  const lines=String(t||'').split('\n'); let h='', inUl=false;
+  const inline=s=>esc(s).replace(/\*\*(.+?)\*\*/g,'<b>$1</b>').replace(/\[(\d+)\]/g,'<span class="cite">[$1]</span>');
+  for(let ln of lines){ ln=ln.replace(/\s+$/,'');
+    if(/^####\s/.test(ln)){ if(inUl){h+='</ul>';inUl=false;} h+='<h4>'+inline(ln.replace(/^####\s/,''))+'</h4>'; }
+    else if(/^###\s/.test(ln)){ if(inUl){h+='</ul>';inUl=false;} h+='<h3>'+inline(ln.replace(/^###\s/,''))+'</h3>'; }
+    else if(/^\s*[-*]\s/.test(ln)){ if(!inUl){h+='<ul>';inUl=true;} h+='<li>'+inline(ln.replace(/^\s*[-*]\s/,''))+'</li>'; }
+    else if(/^\s*\d+[.)、]\s/.test(ln)){ if(!inUl){h+='<ul>';inUl=true;} h+='<li>'+inline(ln.replace(/^\s*\d+[.)、]\s/,''))+'</li>'; }
+    else if(ln.trim()===''){ if(inUl){h+='</ul>';inUl=false;} }
+    else { if(inUl){h+='</ul>';inUl=false;} h+='<p>'+inline(ln)+'</p>'; }
+  }
+  if(inUl) h+='</ul>'; return h;
+}
+const HOT=['半导体','AI算力','固态电池','人形机器人','创新药','稀土永磁','光模块','军工','消费电子','光伏','PCB','医疗器械'];
+$('chips').innerHTML=HOT.map(x=>'<span class="chip">'+x+'</span>').join('');
+$('chips').addEventListener('click',e=>{ const c=e.target.closest('.chip'); if(c){ $('theme').value=c.textContent; go(); }});
+
+let _theme='', _hist=[];
+async function go(){
+  const t=$('theme').value.trim(); if(!t) return;
+  _theme=t; _hist=[]; $('hint').style.display='none'; $('result').style.display='block';
+  $('go').disabled=true; $('card-title').textContent='🧭 「'+esc(t)+'」认知卡片';
+  $('card').className='md loading'; $('card').textContent='⏳ 正在生成(首次约30-60秒·之后秒开)…';
+  $('sources').innerHTML=''; $('quiz').className='loading'; $('quiz').textContent='⏳ 出题中…'; $('disc').innerHTML='';
+  try{
+    const j=await (await fetch('/api/insight/card?theme='+encodeURIComponent(t))).json();
+    if(!j.ok){ $('card').className='md'; $('card').innerHTML='<p>❌ '+esc(j.msg||'生成失败')+'</p>'; $('go').disabled=false; return; }
+    $('card').className='md'; $('card').innerHTML=md(j.card);
+    $('sources').innerHTML=(j.sources&&j.sources.length)?('📎 来源(需自行甄别)：'+j.sources.map(s=>'<a href="'+esc(s.url)+'" target="_blank">'+esc(s.title||s.site||'链接')+'</a>').join(' · ')):'';
+    $('disc-disclaimer').textContent='⚠️ '+(j.disclaimer||'');
+    loadQuiz(t);
+  }catch(e){ $('card').className='md'; $('card').innerHTML='<p>❌ '+esc(e)+'</p>'; }
+  finally{ $('go').disabled=false; }
+}
+$('go').onclick=go; $('theme').addEventListener('keydown',e=>{ if(e.key==='Enter') go(); });
+
+async function loadQuiz(t){
+  try{
+    const j=await (await fetch('/api/insight/quiz?theme='+encodeURIComponent(t))).json();
+    const qs=(j.ok&&j.questions)?j.questions:[];
+    if(!qs.length){ $('quiz').className=''; $('quiz').innerHTML='<span class="neu">出题失败，可在下方直接探讨。</span>'; return; }
+    $('quiz').className='';
+    $('quiz').innerHTML=qs.map((q,i)=>'<div class="q"><div class="qt">Q'+(i+1)+'. '+esc(q.q)+'</div>'
+      +'<div class="pt">考点：'+esc(q.point||'')+'</div>'
+      +'<textarea id="ans'+i+'" placeholder="先写下你的想法(哪怕不确定)…"></textarea>'
+      +'<button class="sb" data-i="'+i+'" data-q="'+esc(q.q)+'">提交看反馈</button>'
+      +'<div class="fb" id="fb'+i+'" style="display:none"></div></div>').join('');
+  }catch(e){ $('quiz').className=''; $('quiz').textContent='❌ '+e; }
+}
+$('quiz').addEventListener('click', async e=>{
+  const b=e.target.closest('.sb'); if(!b) return;
+  const i=b.dataset.i, ans=$('ans'+i).value.trim(); if(!ans){ alert('先写下你的想法'); return; }
+  b.disabled=true; b.textContent='⏳ 批改中…';
+  try{
+    const j=await (await fetch('/api/insight/grade',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({theme:_theme, question:b.dataset.q, answer:ans})})).json();
+    const fb=$('fb'+i); fb.style.display='block'; fb.textContent=j.ok?j.feedback:'❌ '+(j.msg||'批改失败');
+  }catch(e){ $('fb'+i).style.display='block'; $('fb'+i).textContent='❌ '+e; }
+  finally{ b.disabled=false; b.textContent='重新提交'; }
+});
+
+async function send(){
+  const m=$('dmsg').value.trim(); if(!m||!_theme) return; $('dmsg').value='';
+  $('disc').innerHTML+='<div class="bubble bu-user">'+esc(m)+'</div>';
+  const wait=document.createElement('div'); wait.className='bubble bu-ai'; wait.textContent='⏳ 思考中…'; $('disc').appendChild(wait);
+  try{
+    const j=await (await fetch('/api/insight/discuss',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({theme:_theme, history:_hist, msg:m})})).json();
+    wait.innerHTML=j.ok?md(j.reply):'❌ '+esc(j.msg||'失败');
+    if(j.ok){ _hist.push({role:'user',content:m}); _hist.push({role:'assistant',content:j.reply}); }
+  }catch(e){ wait.textContent='❌ '+e; }
+  wait.scrollIntoView({behavior:'smooth',block:'nearest'});
+}
+$('dsend').onclick=send; $('dmsg').addEventListener('keydown',e=>{ if(e.key==='Enter') send(); });
+(function(){ const t=new URLSearchParams(location.search).get('theme'); if(t){ $('theme').value=t; go(); } })();
+</script>
+{% endblock %}

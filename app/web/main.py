@@ -1175,6 +1175,12 @@ async def api_concept_detail(date: str = "", code: str = "", _user: str = Depend
         return {"ok": False, "error": str(e)}
 
 
+@app.get("/insight", response_class=HTMLResponse)
+async def insight_page(request: Request, _user: str = Depends(require_auth)):
+    """产业认知教练：数据接地的认知卡片 + 练习反馈 + 自由探讨。"""
+    return templates.TemplateResponse(request=request, name="industry_insight.html", context={"page": "insight"})
+
+
 @app.get("/monitor", response_class=HTMLResponse)
 async def monitor_page(request: Request, _user: str = Depends(require_auth)):
     """盯盘看板：交易时段自动刷新，自选/持仓命中条件(风险/低吸位/板块)才提醒，不下指令。"""
@@ -1217,6 +1223,69 @@ async def api_screen(request: Request, _user: str = Depends(require_auth)):
     except Exception as e:
         logger.exception("选股失败")
         return {"ok": False, "error": str(e)}
+
+
+@app.get("/api/insight/card")
+async def api_insight_card(theme: str = "", force: bool = False, _user: str = Depends(require_auth)):
+    """产业认知卡片(数据接地·按周缓存)。"""
+    try:
+        from fastapi.concurrency import run_in_threadpool
+
+        from app.strategy.industry_insight import build_insight_card
+        if not theme.strip():
+            return {"ok": False, "msg": "请输入行业/产业主题"}
+        return await run_in_threadpool(build_insight_card, theme.strip(), bool(force), None)
+    except Exception as e:
+        logger.exception("产业认知卡片失败")
+        return {"ok": False, "msg": str(e)}
+
+
+@app.get("/api/insight/quiz")
+async def api_insight_quiz(theme: str = "", _user: str = Depends(require_auth)):
+    """据卡片出思考题(主动回忆)。"""
+    try:
+        from fastapi.concurrency import run_in_threadpool
+
+        from app.strategy.industry_insight import build_insight_card, gen_quiz
+        card = (await run_in_threadpool(build_insight_card, theme.strip(), False, None)).get("card", "")
+        if not card:
+            return {"ok": False, "questions": []}
+        return await run_in_threadpool(gen_quiz, theme.strip(), card, None)
+    except Exception as e:
+        logger.exception("出题失败")
+        return {"ok": False, "msg": str(e), "questions": []}
+
+
+@app.post("/api/insight/grade")
+async def api_insight_grade(request: Request, _user: str = Depends(require_auth)):
+    """批改学习者答案 + 反馈。Body: {theme, question, answer}。"""
+    try:
+        from fastapi.concurrency import run_in_threadpool
+
+        from app.strategy.industry_insight import build_insight_card, grade_answer
+        b = await request.json()
+        card = (await run_in_threadpool(build_insight_card, b.get("theme", "").strip(), False, None)).get("card", "")
+        return await run_in_threadpool(grade_answer, b.get("theme", ""), card,
+                                       b.get("question", ""), b.get("answer", ""), None)
+    except Exception as e:
+        logger.exception("批改失败")
+        return {"ok": False, "msg": str(e)}
+
+
+@app.post("/api/insight/discuss")
+async def api_insight_discuss(request: Request, _user: str = Depends(require_auth)):
+    """围绕产业自由探讨。Body: {theme, history:[{role,content}], msg}。"""
+    try:
+        from fastapi.concurrency import run_in_threadpool
+
+        from app.strategy.industry_insight import build_insight_card, discuss
+        b = await request.json()
+        card = (await run_in_threadpool(build_insight_card, b.get("theme", "").strip(), False, None)).get("card", "")
+        return await run_in_threadpool(discuss, b.get("theme", ""), card,
+                                       b.get("history", []), b.get("msg", ""), None)
+    except Exception as e:
+        logger.exception("探讨失败")
+        return {"ok": False, "msg": str(e)}
 
 
 @app.get("/api/market/radar")
