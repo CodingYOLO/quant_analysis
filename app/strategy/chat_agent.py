@@ -41,7 +41,13 @@ _SYSTEM = (
     "- **务必看清时效**：业绩预告是『前瞻』信号，一旦对应报告期的实际财报已出，该预告就过期作废，**不能再当当前业绩**；"
     "看清公告日与报告期，绝不把一年前的旧预告说成最新「暴雷」。两个数字打架时（如预告 vs 实际财报），以**更新、更接近实际**的为准并点明。\n"
     "- 分清数据性质：**交易所披露的硬数据(可核查) vs 估算/代理口径/联网新闻(需自行甄别)**，分别标清，不可混为一谈。\n"
-    "- 宁可说「这个我没核到来源，需你复查」，也**绝不臆想、绝不把没出处的结论当事实**——这是上次出错的根因，务必杜绝。\n\n"
+    "- **现价与今日涨跌幅**：只能用 stock_quote(新浪实时·带『数据时间』)当轮返回的值；**没调 stock_quote 就绝不报现价/涨幅**，"
+    "**更绝不用你训练记忆里的股价**——你记忆里的价往往过时几个月到几年（曾把现价 74 元说成 28 元），一律不可信。\n"
+    "- **PE/目标价/评级/一致预期**来自研报，**有日期、可能滞后数月**，引用必须标『研报数据·截至X日』、**不得称『实时』**；"
+    "**工具没返回的数字（如目标价为空）绝不编造一个**。谈估值/上涨空间，必须用 stock_quote 的**实时现价**去对研报目标价/EPS——"
+    "若现价已远超研报目标价，要老实说『股价已透支研报预期』，**绝不能用旧价硬说『便宜/有空间』**。\n"
+    "- **任何派生指标**（如『近20日涨X%』『区间涨幅』）工具没明确返回就**不许说**，不准自己脑补编算。\n"
+    "- 宁可说「这个我没核到来源，需你复查」，也**绝不臆想、绝不把没出处的结论当事实**——这是反复出错的根因，务必杜绝。\n\n"
     "【底线·这不是和稀泥而是诚实】\n"
     "- 判断要讲依据，并说清这是「基于现有数据的分析观点」，不是确定性保证。\n"
     "- 不打包票保证涨跌幅/收益率、不说「必涨/稳赚/一定」；**不编造或臆测胜率数字**。\n"
@@ -118,6 +124,7 @@ def _exec_tool(name: str, args: dict, provider: CompositeProvider) -> dict:
 
 
 def _t_quote(args, provider) -> dict:
+    import datetime
     ts, name = _resolve(args.get("stock", ""), provider)
     if not ts:
         return {"error": f"未找到股票「{args.get('stock')}」"}
@@ -128,6 +135,12 @@ def _t_quote(args, provider) -> dict:
             r = q.iloc[0]
             out["现价"] = round(float(r["price"]), 2)
             out["涨跌幅%"] = round(float(r["pct_chg"]), 2)
+            try:
+                out["昨收"] = round(float(r.get("prev_close")), 2)
+            except (TypeError, ValueError):
+                pass
+            out["数据时间"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+            out["来源"] = "新浪实时行情·唯一权威当前价；谈现价/涨幅/估值空间一律用它，绝不用你记忆里的旧价"
     except Exception:
         pass
     try:
@@ -184,11 +197,15 @@ def _t_research(args, provider) -> dict:
     out = {"名称": name}
     em = get_em_research(ts, provider)
     if em.get("ok"):
-        out["东财研报"] = {"近半年机构数": em["n_org"], "篇数": em["n_reports"], "评级": em["ratings"],
-                       "买入占比%": em["buy_ratio"], "盈利预测增速%": em.get("eps_growth")}
+        out["东财研报"] = {"性质": "券商研报口径·非实时·可能滞后数月",
+                       "最新报告日": em.get("latest"),
+                       "近半年机构数": em["n_org"], "篇数": em["n_reports"], "评级": em["ratings"],
+                       "买入占比%": em["buy_ratio"], "盈利预测增速%": em.get("eps_growth"),
+                       "说明": "本工具未提供个股目标价；要谈估值/上涨空间，请用 stock_quote 的实时现价去对比，切勿编造目标价"}
     ths = get_ths_forecast(ts, provider)
     if ths.get("ok"):
-        out["同花顺一致预期"] = {"机构数": ths["max_n_org"],
+        out["同花顺一致预期"] = {"性质": "分析师一致预测(EPS)·非实时行情",
+                          "机构数": ths["max_n_org"],
                           "分年EPS均值": {y["year"]: y["eps_avg"] for y in ths["by_year"]},
                           "隐含增速%": ths.get("eps_growth"), "行业平均EPS": ths.get("ind_avg")}
     return out or {"名称": name, "研报": "暂无"}
