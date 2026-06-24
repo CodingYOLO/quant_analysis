@@ -32,10 +32,61 @@ _FRAMEWORK = (
 )
 
 
+_CARD_VER = "v2"  # 卡片 prompt 版本（加了个股地图）；改 prompt 时 bump，使旧缓存失效
+
+
 def _cache(name: str, key: str) -> Path:
     d = get_settings().cache_dir / "industry_insight" / name
     d.mkdir(parents=True, exist_ok=True)
     return d / f"{key}.json"
+
+
+def _brief_rows(g, n: int) -> list[dict]:
+    """取前 n 行个股，抽成精简字典（名称/代码/市值/业绩/RPS/是否龙头）。供个股清单与 LLM 接地。"""
+    import pandas as pd
+
+    rows: list[dict] = []
+    for _, r in g.head(n).iterrows():
+        def num(k: str, nd: int = 1):
+            v = r.get(k)
+            if pd.isna(v):
+                return None
+            return int(round(float(v))) if nd == 0 else round(float(v), nd)
+        rows.append({
+            "name": str(r.get("name", "")),
+            "code": (str(r["ts_code"])[:6] if pd.notna(r.get("ts_code")) else ""),
+            "净利同比": num("netprofit_yoy"),
+            "预告": (str(r["forecast_type"]) if pd.notna(r.get("forecast_type")) else ""),
+            "预告增幅": num("forecast_chg"),
+            "流通市值": num("circ_mv_100m", 0),
+            "rps": num("rps120", 0),
+            "is_leader": bool(r.get("is_leader")) if pd.notna(r.get("is_leader")) else False,
+        })
+    return rows
+
+
+def _growth_pool(g):
+    """高成长池：非 ST、净利同比为正，按增速降序（扭亏/低基数会偏高，前端会提示）。"""
+    import pandas as pd
+
+    yoy = pd.to_numeric(g.get("netprofit_yoy"), errors="coerce")
+    st = g.get("is_st")
+    st = (pd.Series(False, index=g.index) if st is None else st.fillna(False).astype(bool))
+    pool = g[yoy.notna() & (yoy > 0) & ~st]
+    return pool.sort_values("netprofit_yoy", ascending=False)
+
+
+def _catalyst_pool(g):
+    """催化池：非 ST、有业绩预喜(预增/扭亏/略增)的，按预告净利增幅降序。"""
+    import pandas as pd
+
+    if "earn_good" not in g:
+        return g.iloc[0:0]
+    st = g.get("is_st")
+    st = (pd.Series(False, index=g.index) if st is None else st.fillna(False).astype(bool))
+    pool = g[(g["earn_good"] == True) & ~st]                             # noqa: E712
+    chg = pd.to_numeric(pool.get("forecast_chg"), errors="coerce")
+    return pool.assign(_chg=chg.fillna(-1e9)).sort_values("_chg", ascending=False)
 
 
 def _gather_data(industry: str) -> dict:
@@ -58,10 +109,9 @@ def _gather_data(industry: str) -> dict:
                     "avg_rps120": round(float(pd.to_numeric(g.get("rps120"), errors="coerce").mean()), 1),
                     "净利同比中位": (round(float(yoy.median()), 1) if yoy.notna().any() else None),
                     "业绩预增数": int((g.get("earn_good") == True).sum()) if "earn_good" in g else 0,  # noqa: E712
-                    "龙头": [{"name": str(r["name"]),
-                            "净利同比": (round(float(r["netprofit_yoy"]), 1) if pd.notna(r.get("netprofit_yoy")) else None),
-                            "业绩预告": (str(r["forecast_type"]) if pd.notna(r.get("forecast_type")) else "")}
-                           for _, r in g.sort_values("leader_score", ascending=False).head(5).iterrows()],
+                    "龙头": _brief_rows(g.sort_values("leader_score", ascending=False), 5),
+                    "高成长": _brief_rows(_growth_pool(g), 6),
+                    "催化": _brief_rows(_catalyst_pool(g), 6),
                 })
         from app.strategy.sector_strength import build_sector_strength
         if files:
@@ -99,13 +149,26 @@ def _web_research(theme: str, max_items: int = 10) -> list[dict]:
         return []
 
 
+def _stock_line(prefix: str, l: dict) -> str:
+    """个股一行式：名称(代码) 市值 业绩 预告 RPS，None 字段自动略过。"""
+    bits = [f"流通{l['流通市值']}亿" if l.get("流通市值") is not None else "",
+            f"净利同比{l['净利同比']}%" if l.get("净利同比") is not None else "",
+            (f"{l['预告']}" + (f"+{l['预告增幅']}%" if l.get("预告增幅") is not None else "")) if l.get("预告") else "",
+            f"RPS{l['rps']}" if l.get("rps") is not None else ""]
+    return f"- {prefix} {l['name']}({l.get('code','')})：" + " ".join(b for b in bits if b)
+
+
 def _facts_block(data: dict, web: list[dict]) -> str:
     lines = [f"【系统真实数据·行业「{data.get('industry')}」（数据日{data.get('date','?')}）】"]
     for k in ("n", "avg_rps120", "净利同比中位", "业绩预增数", "板块判定", "近20日涨幅"):
         if data.get(k) is not None:
             lines.append(f"- {k}: {data[k]}")
     for l in data.get("龙头", []):
-        lines.append(f"- 龙头 {l['name']}：净利同比{l['净利同比']} 业绩预告{l['业绩预告']}")
+        lines.append(_stock_line("龙头(强+大+活)", l))
+    for l in data.get("高成长", []):
+        lines.append(_stock_line("高成长(业绩增速)", l))
+    for l in data.get("催化", []):
+        lines.append(_stock_line("业绩催化(预喜)", l))
     lines.append("\n【博查联网检索·产业信息（来源见URL·需甄别）】")
     for i, h in enumerate(web, 1):
         lines.append(f"[{i}] {h['title']}（{h['site']}）：{h['summary']}  {h['url']}")
@@ -117,7 +180,7 @@ def _facts_block(data: dict, web: list[dict]) -> str:
 def build_insight_card(theme: str, force: bool = False, client=None) -> dict:
     """产业认知卡片（数据接地·按周缓存避免重复花费）。返回 {ok, theme, card, sources, model}。"""
     wk = datetime.date.today().strftime("%G%V")          # ISO 年+周
-    cache = _cache("card", f"{hashlib.md5(theme.encode()).hexdigest()[:10]}_{wk}")
+    cache = _cache("card", f"{hashlib.md5(theme.encode()).hexdigest()[:10]}_{_CARD_VER}_{wk}")
     if cache.exists() and not force:
         try:
             return json.loads(cache.read_text(encoding="utf-8"))
@@ -130,7 +193,10 @@ def build_insight_card(theme: str, force: bool = False, client=None) -> dict:
               "1) 产业链结构(上游→中游→下游+核心环节/壁垒)，大白话；\n"
               f"2) 用『{_FRAMEWORK}』逐条判断：哪些是真趋势、哪些是炒作/听风就是雨；\n"
               "3) 真龙头 vs 蹭概念(结合给定龙头业绩区分)；\n"
-              "4) 当前所处阶段 + 主要风险；\n"
+              "4) **个股地图**：把上面【系统真实数据】里给的龙头/高成长/催化个股，对应到产业链的哪个环节、"
+              "一句话点明各自逻辑(卡位/壁垒/业绩驱动)与真假(真受益龙头 vs 纯蹭概念)；"
+              "**只能用给定的这些个股名，绝不许编造其它公司名或杜撰数字**；\n"
+              "5) 当前所处阶段 + 主要风险；\n"
               "**只引用给定数据/检索，不编造数字；说不清就写'数据不足'；标注关键结论的来源[n]；"
               "不预测涨跌、不给买卖建议、不输出胜率。** 用 Markdown，分小标题，控制在 800 字内。\n\n"
               f"{_facts_block(data, web)}")
@@ -159,7 +225,9 @@ def _sys_data_line(data: dict) -> str:
         if data.get(k) is not None:
             parts.append(f"{k}={data[k]}")
     for l in data.get("龙头", []):
-        parts.append(f"龙头{l['name']}净利同比{l['净利同比']}/{l['业绩预告']}")
+        parts.append(f"龙头{l['name']}(流通{l['流通市值']}亿/净利同比{l['净利同比']}%)")
+    for l in data.get("高成长", [])[:4]:
+        parts.append(f"高成长{l['name']}(净利同比{l['净利同比']}%)")
     return " · ".join(parts)
 
 

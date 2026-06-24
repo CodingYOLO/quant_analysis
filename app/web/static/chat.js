@@ -104,6 +104,7 @@ window.AChat = (function () {
       showMsgs(j.messages);
       if (cfg.onNavigate) cfg.onNavigate();
       loadSessions();
+      if (j.generating) attach();             // 该会话仍在后台作答 → 接上流
     }
     async function delSession(id) {
       await fetch("/api/chat/session/" + id + "/delete", { method: "POST" });
@@ -112,6 +113,36 @@ window.AChat = (function () {
         showMsgs([]);
       }
       loadSessions();
+    }
+
+    // 读取一条 SSE 流并渲染进 bubble，返回最终答案文本（send 与 attach 复用）
+    async function pump(resp, bubble) {
+      const reader = resp.body.getReader(), dec = new TextDecoder();
+      let buf = "", answer = "";
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        let i;
+        while ((i = buf.indexOf("\n\n")) >= 0) {
+          const line = buf.slice(0, i);
+          buf = buf.slice(i + 2);
+          if (!line.startsWith("data: ")) continue;
+          let ev;
+          try { ev = JSON.parse(line.slice(6)); } catch (e) { continue; }
+          if (ev.type === "status" || ev.type === "thinking") {
+            if (!answer) bubble.innerHTML = '<span class="aic-status">' + esc(ev.text) + "</span>";
+          } else if (ev.type === "delta") {
+            answer += ev.text;
+            bubble.innerHTML = '<div class="aic-md">' + md(answer) + "</div>";
+            scrollB();
+          } else if (ev.type === "error") {
+            bubble.innerHTML = '<span style="color:#f87171">' + esc(ev.text) + "</span>";
+          }
+        }
+      }
+      if (answer) bubble.innerHTML = '<div class="aic-md">' + md(answer) + "</div>";
+      return answer;
     }
 
     async function send() {
@@ -124,49 +155,50 @@ window.AChat = (function () {
       if (elMsgs().querySelector(".aic-tip")) elMsgs().innerHTML = "";
       addMsg("user", esc(text));
       const bubble = addMsg("ai", '<span class="aic-status">⏳ 正在思考…</span>');
-      let answer = "";
       try {
         const resp = await fetch("/api/chat/stream", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ session_id: sid, message: text }),
         });
-        const reader = resp.body.getReader(), dec = new TextDecoder();
-        let buf = "";
-        while (true) {
-          const { value, done } = await reader.read();
-          if (done) break;
-          buf += dec.decode(value, { stream: true });
-          let i;
-          while ((i = buf.indexOf("\n\n")) >= 0) {
-            const line = buf.slice(0, i);
-            buf = buf.slice(i + 2);
-            if (!line.startsWith("data: ")) continue;
-            let ev;
-            try {
-              ev = JSON.parse(line.slice(6));
-            } catch (e) {
-              continue;
-            }
-            if (ev.type === "status" || ev.type === "thinking") {
-              if (!answer) bubble.innerHTML = '<span class="aic-status">' + esc(ev.text) + "</span>";
-            } else if (ev.type === "delta") {
-              answer += ev.text;
-              bubble.innerHTML = '<div class="aic-md">' + md(answer) + "</div>";
-              scrollB();
-            } else if (ev.type === "error") {
-              bubble.innerHTML = '<span style="color:#f87171">' + esc(ev.text) + "</span>";
-            }
-          }
-        }
-        if (answer) bubble.innerHTML = '<div class="aic-md">' + md(answer) + "</div>";
+        await pump(resp, bubble);
         loadSessions();
       } catch (e) {
-        bubble.innerHTML = '<span style="color:#f87171">❌ ' + esc(e) + "</span>";
+        // 连接断了(切页/网络)：后台仍在作答并会落库，回到本页或刷新即可看到完整回答
+        bubble.innerHTML = '<span class="aic-status">↻ 显示中断，但 AI 仍在后台作答——回到本页或刷新即可看到完整回答。</span>';
       } finally {
         busy = false;
         elSend().disabled = false;
         scrollB();
+      }
+    }
+
+    // 切回页面时：若该会话仍在后台生成，接上流把（剩余的）回答显示出来
+    async function attach() {
+      if (!sid) return;
+      const bubble = addMsg("ai", '<span class="aic-status">⏳ AI 还在作答（你刚切走了，这就接着显示）…</span>');
+      busy = true;
+      if (elSend()) elSend().disabled = true;
+      let attached = false;
+      try {
+        const resp = await fetch("/api/chat/session/" + sid + "/stream");
+        const ct = resp.headers.get("content-type") || "";
+        if (resp.ok && ct.indexOf("event-stream") >= 0 && resp.body) {
+          attached = true;
+          await pump(resp, bubble);
+          loadSessions();
+        }
+      } catch (e) {} finally {
+        busy = false;
+        if (elSend()) elSend().disabled = false;
+        scrollB();
+      }
+      if (!attached) {
+        // 没接上在途流（多半已生成完）→ 用库里最终消息重渲染，保证能看到结果
+        try {
+          const j = await (await fetch("/api/chat/session/" + sid)).json();
+          if (j && j.messages) showMsgs(j.messages);
+        } catch (e) {}
       }
     }
 
@@ -199,6 +231,7 @@ window.AChat = (function () {
           const j = await (await fetch("/api/chat/session/" + sid)).json();
           if (j && j.messages) {
             showMsgs(j.messages);
+            if (j.generating) attach();        // 切回来时仍在后台作答 → 接上流显示
             return;
           }
         } catch (e) {}

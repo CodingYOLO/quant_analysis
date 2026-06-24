@@ -12,10 +12,52 @@ import datetime
 
 from app.strategy.fundamentals import (
     _analyst_summary, _block_trade_calc, _events_summary, _express_summary, _fina_summary,
-    _float_summary, _fmt_period, _holder_trade_summary, _holdernum_summary, _is_quality,
-    _latest_forecast, _margin_summary, _repurchase_summary, _survey_summary, get_analyst_rc,
-    _em_research_summary, _ths_forecast_summary,
+    _float_summary, _fmt_period, _forecast_is_live, _holder_trade_summary, _holdernum_summary,
+    _is_quality, _latest_forecast, _margin_summary, _repurchase_summary, _survey_summary,
+    get_analyst_rc, _em_research_summary, _ths_forecast_summary,
 )
+
+
+class _FakeForecastProvider:
+    """假 provider：只实现 get_forecast，用于测试预告时效过滤（零网络）。"""
+
+    def __init__(self, df: pd.DataFrame) -> None:
+        self._df = df
+
+    def get_forecast(self, ts_code: str) -> pd.DataFrame:
+        return self._df
+
+
+def test_forecast_is_live_dropped_when_actual_out() -> None:
+    """目标期已被实际财报覆盖 → 过期作废（泰晶 2025中报预告 vs 已出的 2026一季报）。"""
+    assert _forecast_is_live("20250630", latest_actual_end="20260331", today="20260624") is False
+    # 仍前瞻：目标期晚于最新实际财报期
+    assert _forecast_is_live("20260630", latest_actual_end="20260331", today="20260624") is True
+
+
+def test_forecast_is_live_fallback_without_actual() -> None:
+    """无实际财报基准时，按 ~150 天兜底：太旧的目标期剔除、近的保留。"""
+    assert _forecast_is_live("20250630", latest_actual_end="", today="20260624") is False
+    assert _forecast_is_live("20260630", latest_actual_end="", today="20260624") is True
+
+
+def test_latest_forecast_drops_stale_keeps_provenance() -> None:
+    """复现泰晶 bug：一年前的中报预告应被剔除（实际财报已到 2026一季报）。"""
+    df = pd.DataFrame([
+        {"ann_date": "20250715", "end_date": "20250630", "type": "预减",
+         "p_change_min": -65.15, "p_change_max": -54.70, "summary": "预计:净利润2000-2600"},
+    ])
+    prov = _FakeForecastProvider(df)
+    assert _latest_forecast("603738.SH", prov, latest_actual_end="20260331") is None
+
+    # 一条真前瞻预告（目标期晚于实际）→ 保留，且带全溯源字段
+    df2 = pd.DataFrame([
+        {"ann_date": "20260710", "end_date": "20260630", "type": "预增",
+         "p_change_min": 120.0, "p_change_max": 160.0, "summary": "预计净利大增"},
+    ])
+    out = _latest_forecast("603738.SH", _FakeForecastProvider(df2), latest_actual_end="20260331")
+    assert out and out["type"] == "预增" and out["period"] == "2026中报"
+    assert out["ann_date"] == "2026-07-10" and out["source"] and out["verify_url"].endswith("603738.html")
 
 
 def test_ths_forecast_summary() -> None:

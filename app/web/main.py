@@ -643,6 +643,37 @@ async def api_lhb_review_note(request: Request, _user: str = Depends(require_aut
         return {"ok": False, "msg": str(e)}
 
 
+# ── AI 投研「后台不中断」生成：在途注册表单例 + SSE 观察者 ─────────────────────
+_CHAT_REGISTRY = None
+
+
+def _chat_registry():
+    """惰性构建在途生成注册表（注入 run_chat 与 db.add_chat_message，便于解耦/单测）。"""
+    global _CHAT_REGISTRY
+    if _CHAT_REGISTRY is None:
+        from app.strategy import db
+        from app.strategy.chat_agent import run_chat
+        from app.strategy.chat_inflight import InflightRegistry
+        _CHAT_REGISTRY = InflightRegistry(run_chat, db.add_chat_message)
+    return _CHAT_REGISTRY
+
+
+async def _sse_tail(job):
+    """把在途任务的事件序列以 SSE 吐给客户端（从头回放，断开/重连都行）；
+    客户端断开只是停止本观察者，后台生成不受影响、照常跑完并落库。"""
+    import asyncio
+    import json as _json
+    i = 0
+    while True:
+        n = len(job.events)
+        while i < n:
+            yield "data: " + _json.dumps(job.events[i], ensure_ascii=False) + "\n\n"
+            i += 1
+        if job.done and i >= len(job.events):
+            break
+        await asyncio.sleep(0.05)
+
+
 @app.get("/api/chat/sessions")
 async def api_chat_sessions(_user: str = Depends(require_auth)):
     """AI 问答会话列表。"""
@@ -659,9 +690,10 @@ async def api_chat_session_new(_user: str = Depends(require_auth)):
 
 @app.get("/api/chat/session/{sid}")
 async def api_chat_session_get(sid: int, _user: str = Depends(require_auth)):
-    """某会话的消息历史。"""
+    """某会话的消息历史 + 是否仍在后台生成（前端切回时据此重新接上流）。"""
     from app.strategy import db
-    return {"ok": True, "messages": db.get_chat_messages(sid)}
+    return {"ok": True, "messages": db.get_chat_messages(sid),
+            "generating": _chat_registry().is_active(sid)}
 
 
 @app.post("/api/chat/session/{sid}/delete")
@@ -672,38 +704,38 @@ async def api_chat_session_delete(sid: int, _user: str = Depends(require_auth)):
 
 @app.post("/api/chat/stream")
 async def api_chat_stream(request: Request, _user: str = Depends(require_auth)):
-    """AI 投研问答·SSE 流式：状态(查数据)+思考+正文流。多轮上下文·答案存库。"""
-    import json as _json
-
+    """AI 投研问答·SSE：生成放后台线程跑(切页/断网不中断·答案必落库)，本响应仅作观察者。"""
     from fastapi.responses import StreamingResponse
 
     from app.strategy import db
-    from app.strategy.chat_agent import run_chat
     body = await request.json()
     sid = int(body.get("session_id") or 0)
     message = str(body.get("message") or "").strip()
     if not sid or not message:
         return {"ok": False, "msg": "缺少 session_id 或 message"}
 
-    def gen():
+    reg = _chat_registry()
+    job = reg.get(sid)
+    if job is None or job.done:                                   # 无在途任务 → 落库用户消息并启动后台生成
         db.add_chat_message(sid, "user", message)
         msgs = db.get_chat_messages(sid)
         if sum(1 for m in msgs if m["role"] == "user") == 1:      # 首条→用它做标题
             db.rename_chat_session(sid, message[:24])
         hist = [{"role": m["role"], "content": m["content"]} for m in msgs][-12:]
-        parts = []
-        try:
-            for ev in run_chat(hist):
-                if ev["type"] == "delta":
-                    parts.append(ev["text"])
-                yield "data: " + _json.dumps(ev, ensure_ascii=False) + "\n\n"
-        except Exception as e:
-            yield "data: " + _json.dumps({"type": "error", "text": str(e)[:120]}, ensure_ascii=False) + "\n\n"
-        if parts:
-            db.add_chat_message(sid, "assistant", "".join(parts))
-        yield "data: " + _json.dumps({"type": "end"}, ensure_ascii=False) + "\n\n"
+        job = reg.start(sid, hist)                                # 已在途则复用，避免重复生成/扣费
 
-    return StreamingResponse(gen(), media_type="text/event-stream",
+    return StreamingResponse(_sse_tail(job), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+@app.get("/api/chat/session/{sid}/stream")
+async def api_chat_reattach(sid: int, _user: str = Depends(require_auth)):
+    """切回页面时重新接上仍在进行(或刚完成)的生成流；无在途任务则返回 inflight:false。"""
+    from fastapi.responses import StreamingResponse
+    job = _chat_registry().get(sid)
+    if job is None:
+        return {"ok": False, "inflight": False}
+    return StreamingResponse(_sse_tail(job), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 

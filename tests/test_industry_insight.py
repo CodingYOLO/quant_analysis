@@ -1,8 +1,59 @@
-"""产业认知：LLM 输出 JSON 数组的鲁棒解析单测(纯函数·零网络)。"""
+"""产业认知：个股清单提取 + LLM JSON 数组鲁棒解析单测(纯函数·零网络)。"""
 
 from __future__ import annotations
 
+import pandas as pd
+
 import app.strategy.industry_insight as II
+
+
+def _sample_df() -> pd.DataFrame:
+    """构造一个含龙头/高成长/ST 的小样本，覆盖各分支。"""
+    return pd.DataFrame([
+        dict(name="龙头甲", ts_code="000001.SZ", industry="半导体", netprofit_yoy=45.0,
+             forecast_type="预增", forecast_chg=80.0, earn_good=True, circ_mv_100m=320.0,
+             rps120=92.0, is_leader=True, is_st=False, leader_score=0.95),
+        dict(name="成长丙", ts_code="000003.SZ", industry="半导体", netprofit_yoy=520.0,
+             forecast_type="扭亏", forecast_chg=300.0, earn_good=True, circ_mv_100m=45.0,
+             rps120=70.0, is_leader=False, is_st=False, leader_score=0.40),
+        dict(name="亏损丁", ts_code="000004.SZ", industry="半导体", netprofit_yoy=-30.0,
+             forecast_type="", forecast_chg=None, earn_good=False, circ_mv_100m=60.0,
+             rps120=30.0, is_leader=False, is_st=False, leader_score=0.20),
+        dict(name="ST戊", ts_code="000005.SZ", industry="半导体", netprofit_yoy=900.0,
+             forecast_type="扭亏", forecast_chg=999.0, earn_good=True, circ_mv_100m=18.0,
+             rps120=50.0, is_leader=False, is_st=True, leader_score=0.10),
+    ])
+
+
+def test_brief_rows_clean_ints() -> None:
+    """市值/RPS 取整、龙头标记、字段齐全。"""
+    g = _sample_df()
+    rows = II._brief_rows(g.sort_values("leader_score", ascending=False), 2)
+    assert rows[0]["name"] == "龙头甲" and rows[0]["is_leader"] is True
+    assert rows[0]["流通市值"] == 320 and isinstance(rows[0]["流通市值"], int)
+    assert rows[0]["rps"] == 92 and rows[0]["code"] == "000001"
+
+
+def test_growth_pool_excludes_st_and_loss() -> None:
+    """高成长池：剔除 ST 与负增长，按净利同比降序。"""
+    names = [r["name"] for r in II._brief_rows(II._growth_pool(_sample_df()), 9)]
+    assert "ST戊" not in names and "亏损丁" not in names
+    assert names == ["成长丙", "龙头甲"]            # 520% 在前
+
+
+def test_catalyst_pool_excludes_st() -> None:
+    """催化池：业绩预喜但剔除 ST，按预告增幅降序。"""
+    names = [r["name"] for r in II._brief_rows(II._catalyst_pool(_sample_df()), 9)]
+    assert "ST戊" not in names
+    assert names == ["成长丙", "龙头甲"]            # 预告 300% 在前
+
+
+def test_stock_line_format() -> None:
+    """个股一行式：含市值/同比/预告/RPS，无'增增'冗余。"""
+    row = II._brief_rows(_sample_df().sort_values("leader_score", ascending=False), 1)[0]
+    line = II._stock_line("龙头", row)
+    assert "流通320亿" in line and "RPS92" in line and "预增+80" in line
+    assert "增增" not in line
 
 
 def test_parse_clean_array() -> None:

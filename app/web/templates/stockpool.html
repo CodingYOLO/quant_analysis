@@ -68,6 +68,7 @@ tr.datarow:hover td { background:#1e2138; cursor:pointer; }
   <select id="fboard"><option value="">板块(全部)</option><option value="主板">主板(可交易)</option><option value="科创">科创</option><option value="创业">创业</option><option value="北交">北交</option></select>
   <select id="sortby"><option value="focus">默认(⭐重点优先)</option><option value="confidence">重点分</option><option value="pct_chg">当日涨跌</option></select>
   <button class="chip" id="reload" style="cursor:pointer;color:#7c9ef8">🔄 加载</button>
+  <button class="chip" id="btn-export" style="cursor:pointer;color:#7c9ef8;border-color:#3358e0" title="把当前筛选/排序后的选股池导出为一张长图，方便保存/分享">📷 导出长图</button>
 </div>
 <div class="databar" id="databar" style="display:none"></div>
 <div id="mktbanner" style="display:none;margin:8px 0;padding:9px 14px;border-radius:8px;font-size:13px;line-height:1.7"></div>
@@ -123,6 +124,7 @@ async function load(){
     if(!j.ok){ L.textContent='❌ '+j.error; document.getElementById('databar').style.display='none'; return; }
     if(!j.available){ L.textContent='⚠️ '+(j.msg||'该日未生成'); document.getElementById('databar').style.display='none'; return; }
     rows=j.rows;
+    window._poolMeta={date:j.date, next_date:j.next_date};   // 供导出长图标题：基于X收盘→推荐Y买入
     // 回填日期框为实际数据日（默认进来时为空，此处显示后端选定的最新池日期）
     if(j.date&&j.date.length===8){ document.getElementById('date').value=j.date.replace(/(\d{4})(\d{2})(\d{2})/,'$1-$2-$3'); }
     renderDatabar(j);
@@ -255,6 +257,7 @@ function render(){
   if(sb==='confidence') data.sort((a,b)=>(b.focus_score||0)-(a.focus_score||0));
   else if(sb==='pct_chg') data.sort((a,b)=>b.pct_chg-a.pct_chg);
   else data.sort((a,b)=>(b.star-a.star)||((b.focus_score||0)-(a.focus_score||0)));
+  window._poolView=data;   // 供「导出长图」用：导出的就是当前筛选/排序后所见
 
   let h='<thead><tr>'+COLS.map(c=>'<th>'+c[0]+'</th>').join('')+'</tr></thead><tbody>';
   data.forEach((r,i)=>{
@@ -438,6 +441,93 @@ async function addWatch(code, el){
     if(el){ el.textContent=d.ok?'✓已加':'✗'; el.title=d.ok?'已加入我的持仓':(d.msg||''); }
   }catch(e){ if(el) el.textContent='✗'; }
 }
+// ── 📷 导出长图（用数据在 canvas 手绘整张表，列不截断；含标题/数据日/重点数）──
+const _PFONT='-apple-system,"PingFang SC","Microsoft YaHei",sans-serif';
+const _RED='#f6465d', _GREEN='#2ebd85', _GREY='#9ca3af', _MISS='#6b7280';
+// 每列(按 COLS 顺序)的纯文本 + 颜色，口径与页面渲染一致
+function _poolCell(ci, r){
+  switch(ci){
+    case 0: return !r.star ? {t:'☆', c:'#3a3f5c'} : (r.is_focus ? {t:'★', c:'#4ade80'} : {t:'★观', c:'#f0a020'});
+    case 1: return {t:(r.ts_code||'').slice(0,6), c:'#7c9ef8'};
+    case 2: { const b=boardOf(r.ts_code); return {t:(r.name||'')+(b!=='主板'?' ['+b+']':''), c:'#e8e8e8'}; }
+    case 3: { const heat=r.theme_heat?(' '+Math.round(r.theme_heat)):''; return {t:(r.theme||'未归类')+heat, c:'#cdd6f4'}; }
+    case 4: { const s=r.focus_score||0; return {t:s.toFixed(0), c: s>=70?_RED:(s>=50?'#f0a020':_GREY)}; }
+    case 5: { const v=r.main_flow_3d;
+      let t=(v==null)?'—':((v>=0?'+':'')+v+'亿'), c=(v==null)?_MISS:(v>=0?_RED:_GREEN);
+      const ft=r.fund_triangle;
+      if(ft){ let lbl=ft.label;
+        if(ft.level==='strong') lbl='💎'+lbl+(ft.inst_net_yi?' 机构+'+ft.inst_net_yi+'亿':'');
+        else if(ft.level==='warn') lbl='⚠️'+lbl+(ft.inst_net_yi?' 机构'+ft.inst_net_yi+'亿':'');
+        t+=' · '+lbl; }
+      return {t, c}; }
+    case 6: {
+      if(r.above_ma5&&r.above_ma10&&r.above_ma20&&r.above_ma60&&r.ma_bull_short) return {t:'完整多头', c:_RED};
+      if(r.above_ma5&&r.above_ma10&&r.ma_bull_short) return {t:'短期多头', c:_RED};
+      if(r.above_ma5&&r.above_ma10) return {t:'站上MA5/10', c:_GREY};
+      if(r.above_ma20) return {t:'跌破MA5/10', c:'#f0a020'};
+      return {t:'破位MA20', c:_GREEN}; }
+    case 7: { const vr=r.vol_ratio, p=r.pct_chg;
+      const lbl=vr>=1.5?'放量':(vr<=0.7?'缩量':'平');
+      const ps=(p==null)?'—':((p>0?'+':'')+p.toFixed(2)+'%');
+      return {t:lbl+vr+' '+ps, c:(p>0?_RED:(p<0?_GREEN:_GREY))}; }
+    case 8: return {t:(r.strategy_label||'—'), c:'#cdd6f4'};
+    case 9: { const buy=(r.buy_low&&r.buy_high)?(r.buy_low.toFixed(2)+'~'+r.buy_high.toFixed(2)):'—'; return {t:buy, c:'#e8e8e8'}; }
+    case 10:{ const v=r.t5_return; if(v==null) return {t:'—', c:_MISS};
+      return {t:(v>0?'+':'')+v.toFixed(2)+'%', c:(v>0?_RED:(v<0?_GREEN:_GREY))}; }
+  }
+  return {t:'', c:'#e8e8e8'};
+}
+document.getElementById('btn-export').addEventListener('click', ()=>{
+  const data=window._poolView||[];
+  if(!data.length){ alert('请先加载选股池（或当前筛选无结果）'); return; }
+  const btn=document.getElementById('btn-export'), old=btn.textContent;
+  btn.disabled=true; btn.textContent='⏳ 生成中…';
+  try{
+    const heads=COLS.map(c=>c[0]);
+    const S=2, PADX=11, ROWH=30, HEADH=36, FS=13, TITLEH=58;
+    const meas=document.createElement('canvas').getContext('2d'); meas.font=FS+'px '+_PFONT;
+    const colW=heads.map((h,ci)=>{
+      let w=meas.measureText(h).width;
+      data.forEach(r=>{ w=Math.max(w, meas.measureText(_poolCell(ci,r).t).width); });
+      return Math.ceil(w)+PADX*2;
+    });
+    const totalW=colW.reduce((a,b)=>a+b,0), totalH=TITLEH+HEADH+data.length*ROWH;
+    // 标题：与页面 databar 同口径（基于X收盘数据分析 → 推荐Y观察/买入）
+    const meta=window._poolMeta||{};
+    const dDate=meta.date||(document.getElementById('date').value||'').replace(/-/g,'');
+    const nextStr=meta.next_date?fmtCN(meta.next_date):'下一交易日';
+    const nstar=data.filter(r=>r.star).length;
+    const titleTxt='📅 本选股池基于 '+fmtCN(dDate)+' 收盘完整数据分析 → 推荐 '+nextStr+' 观察 / 买入';
+    meas.font='bold 16px '+_PFONT;
+    const W=Math.max(totalW, Math.ceil(meas.measureText(titleTxt).width)+PADX*2);   // 标题可能比表还宽
+    const cv=document.createElement('canvas'); cv.width=W*S; cv.height=totalH*S;
+    const ctx=cv.getContext('2d'); ctx.scale(S,S); ctx.textBaseline='middle';
+    ctx.fillStyle='#0f1117'; ctx.fillRect(0,0,W,totalH);
+    ctx.fillStyle='#7c9ef8'; ctx.font='bold 16px '+_PFONT;
+    ctx.fillText(titleTxt, PADX, 22);
+    ctx.fillStyle=_GREY; ctx.font='12px '+_PFONT;
+    ctx.fillText('共 '+data.length+' 只 · ⭐重点 '+nstar+' · astock-agent · 仅供研究·不构成投资建议', PADX, 44);
+    // 表头
+    const headY=TITLEH;
+    ctx.fillStyle='#232640'; ctx.fillRect(0,headY,W,HEADH);
+    let x=0; ctx.font='bold '+FS+'px '+_PFONT; ctx.fillStyle=_GREY;
+    heads.forEach((h,i)=>{ ctx.fillText(h, x+PADX, headY+HEADH/2); x+=colW[i]; });
+    // 数据行（⭐重点高亮·斑马纹）
+    data.forEach((r,ri)=>{
+      const y=headY+HEADH+ri*ROWH;
+      if(r.star){ ctx.fillStyle='rgba(74,222,128,.07)'; ctx.fillRect(0,y,W,ROWH); }
+      else if(ri%2){ ctx.fillStyle='#141729'; ctx.fillRect(0,y,W,ROWH); }
+      let cx=0;
+      heads.forEach((h,i)=>{ const cell=_poolCell(i,r);
+        ctx.font=(i===4?'bold ':'')+FS+'px '+_PFONT; ctx.fillStyle=cell.c;
+        ctx.fillText(cell.t, cx+PADX, y+ROWH/2); cx+=colW[i]; });
+    });
+    const a=document.createElement('a');
+    a.download='选股池_'+(dDate||new Date().toISOString().slice(0,10).replace(/-/g,''))+'.png';
+    a.href=cv.toDataURL('image/png'); a.click();
+  }catch(e){ alert('长图生成失败：'+e); }
+  finally{ btn.disabled=false; btn.textContent=old; }
+});
 load();
 </script>
 {% endblock %}

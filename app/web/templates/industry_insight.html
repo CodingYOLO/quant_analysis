@@ -33,6 +33,24 @@ h1 { font-size:22px; text-align:center; margin-bottom:4px; }
 .disc-in button { background:#3358e0; color:#fff; border:none; border-radius:8px; padding:0 18px; cursor:pointer; }
 .loading { color:#9ca3af; font-size:13.5px; padding:12px; }
 .disc-note { color:#6b7280; font-size:11.5px; line-height:1.7; margin-top:10px; border-top:1px solid #242842; padding-top:10px; }
+.stk-grp { margin-bottom:14px; }
+.stk-h { font-size:13px; color:#a3b3e8; font-weight:600; margin:10px 0 6px; }
+.stk-t { width:100%; border-collapse:collapse; font-size:12.5px; }
+.stk-t th { color:#6b7280; font-weight:500; text-align:left; padding:4px 8px; border-bottom:1px solid #242842; font-size:11.5px; }
+.stk-t td { padding:5px 8px; border-bottom:1px solid #1a1d2e; color:#dfe4f5; white-space:nowrap; }
+.stk-n { color:#7c9ef8; cursor:pointer; font-weight:600; }
+.stk-n:hover { text-decoration:underline; }
+.stk-n .caret { display:inline-block; width:11px; color:#5d7cff; font-size:10px; transition:transform .15s; }
+.stk-n.open .caret { transform:rotate(90deg); }
+.stk-note { font-size:11px; color:#6b7280; margin-top:4px; }
+.exp-row > td { background:#12141f; padding:10px 8px 12px; }
+.exp-k { width:100%; }
+.exp-cap { font-size:10.5px; color:#9ca3af; margin:8px 0 6px; }
+.exp-cap a { color:#7c9ef8; text-decoration:none; }
+.exp-hint { font-size:12px; color:#a3b3e8; margin-top:7px; line-height:1.7; }
+.tag { display:inline-block; font-size:12px; padding:3px 9px; border-radius:7px; margin:3px 5px 3px 0; background:#161929; border:1px solid #242842; color:#cdd6f4; }
+.tag.hot { border-color:#5a1820; color:#f6465d; } .tag.warn { border-color:#5a4018; color:#f0a020; }
+.tag.calm { border-color:#1a4a30; color:#2ebd85; } .tag.info { color:#9ca3af; }
 {% endblock %}
 
 {% block content %}
@@ -50,6 +68,7 @@ h1 { font-size:22px; text-align:center; margin-bottom:4px; }
     <div id="sources" class="src" style="margin-top:12px"></div>
     <div id="disc-disclaimer" class="disc-note"></div>
   </div>
+  <div class="card" id="stocks-card" style="display:none"><h2>📋 这个产业的 A 股清单 <span style="font-size:12px;color:#9ca3af;font-weight:400">龙头·高成长·有催化 — 点名称看个股360 · 数据来自系统因子表(真实)</span></h2><div id="stocks"></div></div>
   <div class="card"><h2>🧠 认知练习 <span style="font-size:12px;color:#9ca3af;font-weight:400">先自己答，再看AI反馈——主动输出，认知才长进</span></h2><div id="quiz" class="loading">⏳ 出题中…</div></div>
   <div class="card"><h2>💬 和AI探讨这个产业 <span style="font-size:12px;color:#9ca3af;font-weight:400">有疑问就追问·可质疑</span></h2>
     <div id="disc" class="disc-box"></div>
@@ -60,6 +79,8 @@ h1 { font-size:22px; text-align:center; margin-bottom:4px; }
 {% endblock %}
 
 {% block extra_script %}
+<script src="/static/echarts.min.js"></script>
+<script src="/static/kline.js"></script>
 <script>
 const $=id=>document.getElementById(id);
 function esc(s){ return (s==null?'':String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
@@ -87,18 +108,75 @@ async function go(){
   _theme=t; _hist=[]; $('hint').style.display='none'; $('result').style.display='block';
   $('go').disabled=true; $('card-title').textContent='🧭 「'+esc(t)+'」认知卡片';
   $('card').className='md loading'; $('card').textContent='⏳ 正在生成(首次约30-60秒·之后秒开)…';
-  $('sources').innerHTML=''; $('quiz').className='loading'; $('quiz').textContent='⏳ 出题中…'; $('disc').innerHTML='';
+  $('sources').innerHTML=''; $('quiz').className='loading'; $('quiz').textContent='⏳ 出题中…'; $('disc').innerHTML=''; $('stocks-card').style.display='none';
   try{
     const j=await (await fetch('/api/insight/card?theme='+encodeURIComponent(t))).json();
     if(!j.ok){ $('card').className='md'; $('card').innerHTML='<p>❌ '+esc(j.msg||'生成失败')+'</p>'; $('go').disabled=false; return; }
     $('card').className='md'; $('card').innerHTML=md(j.card);
     $('sources').innerHTML=(j.sources&&j.sources.length)?('📎 来源(需自行甄别)：'+j.sources.map(s=>'<a href="'+esc(s.url)+'" target="_blank">'+esc(s.title||s.site||'链接')+'</a>').join(' · ')):'';
     $('disc-disclaimer').innerHTML='📅 业绩/资金数据日 <b>'+esc((j.data&&j.data.date)||'—')+'</b>(最新交易日·每晚自动刷新) · 联网信息近1月 · 问答/批改/探讨均接<b>实时真实数据</b>(DeepSeek V4-Pro 最强推理)。<br>⚠️ '+esc(j.disclaimer||'');
+    renderStocks(j.data);
     loadQuiz(t);
   }catch(e){ $('card').className='md'; $('card').innerHTML='<p>❌ '+esc(e)+'</p>'; }
   finally{ $('go').disabled=false; }
 }
 $('go').onclick=go; $('theme').addEventListener('keydown',e=>{ if(e.key==='Enter') go(); });
+
+// 个股清单：龙头/高成长/催化三类，点名称【就地展开】K线+股性标签（复用 /api/stock/profile）
+function stockTable(title, rows, prefix, note){
+  if(!rows||!rows.length) return '';
+  const head='<div class="stk-grp"><div class="stk-h">'+title+'</div>'
+    +'<table class="stk-t"><thead><tr><th>名称</th><th>流通市值</th><th>净利同比</th><th>业绩预告</th><th>RPS</th></tr></thead><tbody>';
+  const body=rows.map((r,i)=>{
+    const yoy=(r['净利同比']==null)?'—':((r['净利同比']>0?'+':'')+r['净利同比']+'%');
+    const fc=r['预告']?(esc(r['预告'])+(r['预告增幅']!=null?(' +'+r['预告增幅']+'%'):'')):'—';
+    const mv=(r['流通市值']==null)?'—':(r['流通市值']+'亿');
+    const rps=(r.rps==null)?'—':r.rps;
+    const star=r.is_leader?'🏆 ':'';
+    const yc=(r['净利同比']>0?'up':(r['净利同比']<0?'down':'neu'));
+    const uid=prefix+i;
+    return '<tr><td class="stk-n" data-code="'+esc(r.code)+'" data-name="'+esc(r.name)+'" data-uid="'+uid+'">'
+      +'<span class="caret">▶</span>'+star+esc(r.name)+'</td>'
+      +'<td>'+mv+'</td><td class="'+yc+'">'+yoy+'</td><td>'+fc+'</td><td>'+rps+'</td></tr>';
+  }).join('');
+  return head+body+'</tbody></table>'+(note?('<div class="stk-note">'+note+'</div>'):'')+'</div>';
+}
+function renderStocks(data){
+  const html=stockTable('🏆 龙头（强+大+活·板块核心权重）', data&&data['龙头'], 'L')
+    +stockTable('🚀 高成长（净利增速最快）', data&&data['高成长'], 'G', '注：扭亏/低基数会让同比偏高，结合流通市值与RPS判断质量。')
+    +stockTable('⚡ 业绩催化（中报/季报预喜·已剔ST）', data&&data['催化'], 'C');
+  if(!html){ $('stocks-card').style.display='none'; return; }
+  $('stocks').innerHTML=html; $('stocks-card').style.display='block';
+}
+// 点名称：就地插入/移除展开行，渲染 K线 + 股性标签（数据来自 /api/stock/profile）
+$('stocks').addEventListener('click', e=>{
+  const n=e.target.closest('.stk-n'); if(n) toggleExpand(n);
+});
+function toggleExpand(n){
+  const tr=n.closest('tr'), uid=n.dataset.uid, nxt=tr.nextElementSibling;
+  if(nxt && nxt.classList.contains('exp-row') && nxt.dataset.uid===uid){ nxt.remove(); n.classList.remove('open'); return; }
+  const er=document.createElement('tr'); er.className='exp-row'; er.dataset.uid=uid;
+  er.innerHTML='<td colspan="5"><div class="exp-k" id="k_'+uid+'" style="height:230px"></div>'
+    +'<div id="t_'+uid+'" class="loading">⏳ 加载K线+股性…</div></td>';
+  tr.after(er); n.classList.add('open');
+  loadProfile(n.dataset.code, n.dataset.name||'', uid);
+}
+async function loadProfile(code, name, uid){
+  const tEl=()=>$('t_'+uid);
+  try{
+    const d=await (await fetch('/api/stock/profile?code='+encodeURIComponent(code))).json();
+    if(tEl()===null) return;                                   // 用户已收起
+    if(!d||!d.ok){ tEl().className=''; tEl().innerHTML='<span class="stk-note">'+esc((d&&d.msg)||'暂无数据')+'</span>'; return; }
+    if(d.kline && window.AKline){ try{ AKline.render('k_'+uid, d.kline); }catch(e){} }
+    const tags=(d.tags||[]).concat((d.chips&&d.chips.tags)||[]);
+    const kd=(d.kline&&d.kline.dates&&d.kline.dates.length)?d.kline.dates[d.kline.dates.length-1]:'';
+    const tagHtml=tags.map(t=>'<span class="tag '+(t.level||'')+'">'+esc(t.text)+'</span>').join('')||'<span class="stk-note">暂无股性标签</span>';
+    const hints=(d.hints&&d.hints.length)?('<div class="exp-hint">📐 '+d.hints.map(esc).join(' · ')+'</div>'):'';
+    tEl().className='';
+    tEl().innerHTML='<div class="exp-cap">📅 K线截至 '+esc(kd)+' · 日线/筹码盘后更新(非实时) 　 '
+      +'<a href="/stock?code='+esc(code)+'" target="_blank">个股360详情 ↗</a></div>'+tagHtml+hints;
+  }catch(e){ if(tEl()){ tEl().className=''; tEl().textContent='❌ '+e; } }
+}
 
 async function loadQuiz(t){
   try{

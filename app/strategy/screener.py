@@ -66,7 +66,12 @@ FACTOR_GROUPS = [
             {"key": "above_ma20", "label": "站上MA20", "col": "above_ma20", "op": "true"},
             {"key": "above_ma60", "label": "站上MA60", "col": "above_ma60", "op": "true"},
             {"key": "above_ma90", "label": "站上MA90", "col": "above_ma90", "op": "true"},
+            {"key": "above_ma120", "label": "站上半年线MA120", "col": "above_ma120", "op": "true"},
             {"key": "above_ma144", "label": "站上MA144", "col": "above_ma144", "op": "true"},
+            {"key": "above_ma250", "label": "站上年线MA250⭐", "col": "above_ma250", "op": "true"},
+            {"key": "ma_bull_full", "label": "均线多头排列(5>10>20>60)", "col": "ma_bull_full", "op": "true"},
+            {"key": "ma250_up", "label": "年线向上(牛熊确认)", "col": "ma250_up", "op": "true"},
+            {"key": "ma20_up", "label": "MA20拐头向上", "col": "ma20_up", "op": "true"},
             {"key": "ema_bull", "label": "EMA14>EMA26(多头)", "col": "ema_bull", "op": "true"},
             {"key": "rps50_ge70", "label": "RPS50≥70", "col": "rps50", "op": "ge", "val": 70},
             {"key": "rps120_ge70", "label": "RPS120≥70", "col": "rps120", "op": "ge", "val": 70},
@@ -206,7 +211,7 @@ DISPLAY_COLS = [
 # ──────────────────────────────────────────────
 
 # 因子表结构版本：新增因子列时 +1，使旧缓存自动失效重算（避免读到缺列的旧表）
-_FACTOR_TABLE_VERSION = "v8"
+_FACTOR_TABLE_VERSION = "v9"   # v9: 趋势组加 MA120/MA250(年线)/多头排列/年线·MA20向上；历史窗口 130→265
 
 
 def _factor_cache_path(date: str) -> Path:
@@ -311,16 +316,38 @@ def _merge_base(daily, daily_basic, money_flow, stock_basic, comment) -> pd.Data
 
 def _add_technical_factors(df: pd.DataFrame, date: str, provider) -> pd.DataFrame:
     """基于历史价格矩阵计算 MA站上/RPS/MACD金叉/RSI/VWAP偏离。"""
-    close_m, open_m, high_m, low_m, vol_m = load_price_matrix(date, provider, n_days=130)
+    # 取 265 个交易日：覆盖年线MA250(+斜率)。原 130 日导致 MA144/MA250 永远不足数据→恒 False
+    close_m, open_m, high_m, low_m, vol_m = load_price_matrix(date, provider, n_days=265)
 
-    # 站上各均线（向量化）
+    # 站上各均线（向量化；要求窗口内真有 n 根有效K线，避免新股/次新用不足数据误判年线）
     last_close = close_m.iloc[-1]
-    for n in (5, 10, 20, 60, 90, 144):
+    ma_latest = {}                                  # n -> (MA值Series, 有效掩码Series)
+    for n in (5, 10, 20, 60, 90, 120, 144, 250):
         if len(close_m) >= n:
-            ma_n = close_m.tail(n).mean()
-            df[f"above_ma{n}"] = df["ts_code"].map((last_close > ma_n).to_dict()).fillna(False)
+            w = close_m.tail(n)
+            ma_n, ok_n = w.mean(), (w.count() >= n)
+            ma_latest[n] = (ma_n, ok_n)
+            df[f"above_ma{n}"] = df["ts_code"].map(((last_close > ma_n) & ok_n).to_dict()).fillna(False)
         else:
             df[f"above_ma{n}"] = False
+
+    # 均线多头排列（完整）：MA5>MA10>MA20>MA60 且各线均有效——强趋势的经典确认
+    if all(n in ma_latest for n in (5, 10, 20, 60)):
+        (m5, o5), (m10, o10), (m20, o20), (m60, o60) = (ma_latest[5], ma_latest[10], ma_latest[20], ma_latest[60])
+        bull = (m5 > m10) & (m10 > m20) & (m20 > m60) & o5 & o10 & o20 & o60
+        df["ma_bull_full"] = df["ts_code"].map(bull.to_dict()).fillna(False)
+    else:
+        df["ma_bull_full"] = False
+
+    # 均线拐头/趋势向上：MA 当前值 vs k 日前（首尾窗口都要够数据）；年线向上=牛熊趋势确认
+    def _slope_up(n: int, k: int):
+        if len(close_m) < n + k:
+            return None
+        w_now, w_prev = close_m.tail(n), close_m.iloc[-(n + k):-k]
+        return (w_now.mean() > w_prev.mean()) & (w_now.count() >= n) & (w_prev.count() >= n)
+    for col, n, k in (("ma20_up", 20, 3), ("ma250_up", 250, 5)):
+        up = _slope_up(n, k)
+        df[col] = df["ts_code"].map(up.to_dict()).fillna(False) if up is not None else False
 
     # RPS（向量化）：calc_rps 内部按价格算 N 日涨幅的全市场百分位
     rps50 = F.calc_rps(close_m, 50) if len(close_m) > 50 else pd.Series(dtype=float)
