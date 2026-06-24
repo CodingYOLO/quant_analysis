@@ -93,7 +93,7 @@ async function go(){
     if(!j.ok){ $('card').className='md'; $('card').innerHTML='<p>❌ '+esc(j.msg||'生成失败')+'</p>'; $('go').disabled=false; return; }
     $('card').className='md'; $('card').innerHTML=md(j.card);
     $('sources').innerHTML=(j.sources&&j.sources.length)?('📎 来源(需自行甄别)：'+j.sources.map(s=>'<a href="'+esc(s.url)+'" target="_blank">'+esc(s.title||s.site||'链接')+'</a>').join(' · ')):'';
-    $('disc-disclaimer').textContent='⚠️ '+(j.disclaimer||'');
+    $('disc-disclaimer').innerHTML='📅 业绩/资金数据日 <b>'+esc((j.data&&j.data.date)||'—')+'</b>(最新交易日·每晚自动刷新) · 联网信息近1月 · 问答/批改/探讨均接<b>实时真实数据</b>(DeepSeek V4-Pro 最强推理)。<br>⚠️ '+esc(j.disclaimer||'');
     loadQuiz(t);
   }catch(e){ $('card').className='md'; $('card').innerHTML='<p>❌ '+esc(e)+'</p>'; }
   finally{ $('go').disabled=false; }

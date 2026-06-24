@@ -152,6 +152,17 @@ def build_insight_card(theme: str, force: bool = False, client=None) -> dict:
     return out
 
 
+def _sys_data_line(data: dict) -> str:
+    """该行业最新交易日的真实数据一行式（供问答/批改/探讨实时接地）。"""
+    parts = [f"行业「{data.get('industry')}」最新数据(数据日{data.get('date', '?')})"]
+    for k in ("n", "avg_rps120", "净利同比中位", "业绩预增数", "板块判定", "近20日涨幅"):
+        if data.get(k) is not None:
+            parts.append(f"{k}={data[k]}")
+    for l in data.get("龙头", []):
+        parts.append(f"龙头{l['name']}净利同比{l['净利同比']}/{l['业绩预告']}")
+    return " · ".join(parts)
+
+
 def gen_quiz(theme: str, card: str, client=None) -> dict:
     """据卡片出 3-4 道苏格拉底式思考题(测真懂没·主动回忆)。返回 {ok, questions:[...]}。"""
     if client is None:
@@ -160,7 +171,7 @@ def gen_quiz(theme: str, card: str, client=None) -> dict:
     prompt = ("你是产业认知教练。根据下面的产业认知卡片，出 3-4 道**思考题**，用来检验/逼出学习者对这个产业的"
               "真正理解(不是死记)。每题考点不同：如核心壁垒、真假趋势辨别、龙头逻辑、风险点。"
               "只输出 JSON 数组，每项 {\"q\":\"题目\",\"point\":\"考点一句话\"}，不要别的。\n\n卡片：\n" + card[:2500])
-    raw = client.chat([{"role": "user", "content": prompt}], task_type="flash", max_tokens=700, temperature=0.5)
+    raw = client.chat([{"role": "user", "content": prompt}], task_type="pro", max_tokens=700, temperature=0.5)
     qs = _parse_json_array(raw)
     return {"ok": bool(qs), "questions": (qs or [])[:4]}
 
@@ -186,10 +197,11 @@ def grade_answer(theme: str, card: str, question: str, answer: str, client=None)
     if client is None:
         from app.llm.client import LLMClient
         client = LLMClient()
-    prompt = (f"你是产业认知教练。学习者在学「{theme}」。下面是认知卡片、一道思考题、和他的回答。"
+    facts = _sys_data_line(_gather_data(theme))            # 实时重取最新交易日真实数据接地
+    prompt = (f"你是产业认知教练。学习者在学「{theme}」。下面是认知卡片、最新真实数据、一道思考题、和他的回答。"
               "请给**建设性反馈**(120-220字)：先肯定答对/有洞见的点，再指出盲区或错误，最后补1个能加深认知的关键点或反问。"
-              "诚实、就事论事、不灌输结论、不预测涨跌。\n\n"
-              f"【卡片】{card[:1800]}\n【思考题】{question}\n【他的回答】{answer}")
+              "**涉及数据请只引用下面给定的真实数据，不编造**；诚实、就事论事、不灌输结论、不预测涨跌。\n\n"
+              f"【最新真实数据】{facts}\n【卡片】{card[:1700]}\n【思考题】{question}\n【他的回答】{answer}")
     raw = client.chat([{"role": "user", "content": prompt}], task_type="pro", max_tokens=600, temperature=0.5)
     return {"ok": bool(raw), "feedback": (raw or "").strip()}
 
@@ -199,8 +211,10 @@ def discuss(theme: str, card: str, history: list[dict], msg: str, client=None) -
     if client is None:
         from app.llm.client import LLMClient
         client = LLMClient()
-    sys = (ANALYST_STANCE + f"\n你是 A 股产业研究员，正和学习者探讨「{theme}」。基于下面认知卡片作答，"
-           "鼓励他独立思考、可反问；不编造数据、不预测涨跌、不给买卖建议；说不清就坦诚说不确定。\n\n卡片：\n" + card[:2200])
+    facts = _sys_data_line(_gather_data(theme))            # 实时重取最新交易日真实数据接地
+    sys = (ANALYST_STANCE + f"\n你是 A 股产业研究员，正和学习者探讨「{theme}」。基于下面认知卡片+最新真实数据作答，"
+           "**涉及具体数字只引用给定的真实数据、绝不编造**；鼓励他独立思考、可反问；不预测涨跌、不给买卖建议；"
+           f"说不清就坦诚说'数据不足/不确定'。\n\n【最新真实数据】{facts}\n\n【认知卡片】\n" + card[:2000])
     msgs = [{"role": "system", "content": sys}]
     for h in (history or [])[-6:]:
         msgs.append({"role": h.get("role", "user"), "content": str(h.get("content", ""))[:1500]})
