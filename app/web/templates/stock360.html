@@ -295,13 +295,25 @@ function renderLhb(d,facts,code){
 }
 
 // —— 综合判断 + 自动存历史 ——
+let _vdCtx=null;   // 失败重试用：暂存本次 code/facts/store
+function _vdFail(msg){
+  $('vd-body').className='';
+  $('vd-body').innerHTML='<span class="neu2">'+msg+'（各区数据仍可参考）</span>'
+    +' <button onclick="retryVerdict()" style="margin-left:10px;padding:4px 13px;font-size:12.5px;background:#2742a8;color:#fff;border:none;border-radius:7px;cursor:pointer">🔄 重新生成</button>';
+}
+function retryVerdict(){
+  if(!_vdCtx) return;
+  $('vd-body').className='loading'; $('vd-body').textContent='⏳ 重新生成综合判断（约 30~60 秒）…';
+  runVerdict(_vdCtx.code,_vdCtx.facts,_vdCtx.store);
+}
 async function runVerdict(code,facts,store){
+  _vdCtx={code,facts,store};
   const name=_lastName||code;
   try{
     const d=await (await fetch('/api/stock/verdict',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,code,sections:facts})})).json();
-    if(!d.ok||!d.stance){ $('vd-body').className=''; $('vd-body').innerHTML='<span class="neu2">综合判断生成失败'+(d.msg?('：'+esc(d.msg)):'')+'（各区数据仍可参考）</span>'; }
+    if(!d.ok||!d.stance){ _vdFail('综合判断生成失败'+(d.msg?('：'+esc(d.msg)):'')); }
     else { _lastVerdict=d; renderVerdict(d); }
-  }catch(e){ $('vd-body').className=''; $('vd-body').textContent='综合判断失败：'+e; }
+  }catch(e){ _vdFail('综合判断失败：'+esc(String(e))); }
   $('export-bar').style.display='flex';
   $('cap-sub').textContent=name+' '+code+' · 生成 '+new Date().toLocaleString('zh-CN');
   // 自动存历史快照（含各区数据 + 判断）

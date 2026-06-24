@@ -63,6 +63,34 @@ def test_build_verdict_empty_facts() -> None:
     assert not out["ok"]
 
 
+class _FlakyClient:
+    """首调返回不可解析(模拟 API 抖动/截断)，次调返回正常 JSON。"""
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def chat(self, messages, **kw) -> str:
+        self.calls += 1
+        return ("服务繁忙，请稍后" if self.calls == 1
+                else '{"stance":"值得关注","score":70,"summary":"ok","bulls":[],"risks":[],"plan":[]}')
+
+
+def test_build_verdict_retries_on_unparseable() -> None:
+    """首次解析不出 stance → 自动重试一次后成功（用唯一 facts 避开缓存）。"""
+    import uuid
+    fake = _FlakyClient()
+    out = V.build_verdict("通富微电", "002156.SZ", {"资金": "唯一" + uuid.uuid4().hex}, client=fake)
+    assert fake.calls == 2 and out["ok"] and out["stance"] == "值得关注"
+
+
+def test_build_verdict_both_fail_empty_stance() -> None:
+    """两次都解析失败 → ok=True 但 stance 为空（前端据此显示"生成失败"+重试按钮）。"""
+    import uuid
+    out = V.build_verdict("x", "002156.SZ", {"资金": "唯一" + uuid.uuid4().hex},
+                          client=_FakeClient("乱七八糟没有JSON"))
+    assert out["ok"] and out["stance"] == ""
+
+
 def _run_all() -> None:
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     for fn in fns:

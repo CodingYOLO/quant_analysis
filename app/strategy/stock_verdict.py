@@ -11,11 +11,14 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import re
 from pathlib import Path
 
 from app.config import get_settings
 from app.llm.stance import ANALYST_STANCE
+
+logger = logging.getLogger(__name__)
 
 _DISCLAIMER = ("以上为基于现有真实数据的综合研判，非涨跌预测、不构成投资建议；"
                "最终买卖与仓位由你决定、风险自负。")
@@ -127,12 +130,19 @@ def build_verdict(name: str, code: str, sections: dict, client=None) -> dict:
     if client is None:
         from app.llm.client import LLMClient
         client = LLMClient()
-    raw = client.chat([{"role": "user", "content": prompt}],
-                      task_type="pro", max_tokens=6000, temperature=0.3)
+
+    def _call() -> dict:
+        return parse_verdict(client.chat([{"role": "user", "content": prompt}],
+                                         task_type="pro", max_tokens=8000, temperature=0.3))
+
+    parsed = _call()
+    if not parsed.get("stance"):          # 空/不可解析(多为 API 瞬时抖动或截断) → 自动重试一次
+        logger.info("[verdict] %s 首次未解析出 stance，重试一次", code)
+        parsed = _call()
 
     st = get_settings()
     model = st.claude_model if st.llm_provider == "claude" else st.deepseek_pro_model
-    out = {"ok": True, **parse_verdict(raw), "model": model, "disclaimer": _DISCLAIMER}
+    out = {"ok": True, **parsed, "model": model, "disclaimer": _DISCLAIMER}
     if out.get("stance"):                  # 仅缓存解析成功的结果
         try:
             cache.write_text(json.dumps(out, ensure_ascii=False), encoding="utf-8")
