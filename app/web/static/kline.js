@@ -19,6 +19,10 @@ window.AKline = (function () {
   function render(elId, kl) {
     const el = document.getElementById(elId);
     if (!el || typeof echarts === 'undefined' || !kl) return null;
+    // 关键：换股/快照还原时上层会 innerHTML='' 清画布但不释放 ECharts 实例，
+    // 旧实例仍登记在该 DOM 上，echarts.init 会复用这个坏实例 → 画到空白。先释放，确保拿到全新实例。
+    const prev = echarts.getInstanceByDom && echarts.getInstanceByDom(el);
+    if (prev) prev.dispose();
     const c = echarts.init(el);
     const ma10 = sma(kl.candle, 10);
     c.setOption({
