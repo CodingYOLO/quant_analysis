@@ -21,6 +21,15 @@
   color: #9ca3af; background: #161929;
 }
 .report-body th { background: #232640; }
+/* 报告类型 Tab 横排 */
+.rc-tabs { display: flex; gap: 6px; flex-wrap: wrap; border-bottom: 1px solid #2d3052; margin-bottom: 14px; }
+.rc-tab { background: transparent; color: #9ca3af; border: none; border-bottom: 2px solid transparent;
+  padding: 9px 16px; font-size: 14.5px; cursor: pointer; white-space: nowrap; margin-bottom: -1px; transition: color .12s; }
+.rc-tab:hover { color: #c9d2f8; }
+.rc-tab.active { color: #7c9ef8; border-bottom-color: #3358e0; font-weight: 600; }
+.rc-cnt { font-size: 12px; color: #6b7280; margin-left: 3px; }
+.rc-tab.active .rc-cnt { color: #7c9ef8; }
+.rc-panel.hidden { display: none; }
 {% endblock %}
 
 {% block content %}
@@ -49,29 +58,35 @@
   <div id="result-body" class="report-body"></div>
 </div>
 
-<!-- 历史报告列表 -->
+<!-- 历史报告列表：报告类型作 Tab 横排，点表头切换，无需上下滚动 -->
 {% if groups %}
-  {% for g in groups %}
   <div class="card">
-    <h2>{{ g.label }} <span class="neu" style="font-weight:400">· {{ g.reports|length }} 份</span></h2>
-    <table>
-      <thead>
-        <tr><th>交易日</th><th>生成时间</th><th>操作</th></tr>
-      </thead>
-      <tbody>
-        {% for r in g.reports %}
-        <tr>
-          <td><strong>{{ r.date }}</strong>
-            {% if loop.first %}<span class="badge badge-yellow" style="margin-left:6px">最新</span>{% endif %}
-          </td>
-          <td class="neu">{{ r.time }}</td>
-          <td><a href="/report/{{ r.name }}" style="color:#7c9ef8;text-decoration:none;font-size:13px">查看 →</a></td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+    <div class="rc-tabs">
+      {% for g in groups %}
+      <button class="rc-tab{% if loop.first %} active{% endif %}" data-cat="{{ g.cat }}">{{ g.label }} <span class="rc-cnt">{{ g.reports|length }}</span></button>
+      {% endfor %}
+    </div>
+    {% for g in groups %}
+    <div class="rc-panel{% if not loop.first %} hidden{% endif %}" data-cat="{{ g.cat }}">
+      <table>
+        <thead>
+          <tr><th>交易日</th><th>生成时间</th><th>操作</th></tr>
+        </thead>
+        <tbody>
+          {% for r in g.reports %}
+          <tr>
+            <td><strong>{{ r.date }}</strong>
+              {% if loop.first %}<span class="badge badge-yellow" style="margin-left:6px">最新</span>{% endif %}
+            </td>
+            <td class="neu">{{ r.time }}</td>
+            <td><a href="/report/{{ r.name }}" style="color:#7c9ef8;text-decoration:none;font-size:13px">查看 →</a></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endfor %}
   </div>
-  {% endfor %}
 {% else %}
   <div class="card">
     <p class="neu" style="padding:16px 0">暂无历史报告。点上方按钮立即生成一份。</p>
@@ -79,6 +94,15 @@
 {% endif %}
 
 <script>
+// 报告类型 Tab 切换：点表头只显示对应类型的清单，无需上下滚动
+document.querySelectorAll('.rc-tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    const cat = tab.dataset.cat;
+    document.querySelectorAll('.rc-tab').forEach(t => t.classList.toggle('active', t.dataset.cat === cat));
+    document.querySelectorAll('.rc-panel').forEach(p => p.classList.toggle('hidden', p.dataset.cat !== cat));
+  });
+});
+
 document.querySelectorAll('.genbtn').forEach(btn => {
   btn.addEventListener('click', async () => {
     const buttons = document.querySelectorAll('.genbtn');

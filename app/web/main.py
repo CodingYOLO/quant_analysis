@@ -125,7 +125,7 @@ async def index(request: Request, _user: str = Depends(require_auth)):
     for cat, label in _CATEGORIES:
         items = [m for m in metas if m["category"] == cat]
         if items:
-            groups.append({"label": label, "reports": items})
+            groups.append({"cat": cat, "label": label, "reports": items})
     return templates.TemplateResponse(
         request=request, name="index.html",
         context={"groups": groups, "total": len(metas), "page": "index"},
