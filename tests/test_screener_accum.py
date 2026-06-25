@@ -63,6 +63,19 @@ def test_score_nan_safe_zero() -> None:
                                   up_down_vol=nan, amp_contract=nan) == 0.0
 
 
+def test_sector_strength_flag() -> None:
+    """板块走强：行业RPS中位≥55且≥3只→True；弱行业/不足3只→False。"""
+    df = pd.DataFrame({
+        "industry": ["半导体"] * 3 + ["钢铁"] * 3 + ["小行业"] * 2,
+        "rps120": [80, 70, 60,   30, 20, 10,   90, 95],   # 半导体中位70强 / 钢铁中位20弱 / 小行业仅2只
+    })
+    out = SC._add_sector_strength_flag(df)
+    by_ind = dict(zip(out["industry"], out["sector_strong"]))
+    assert by_ind["半导体"] is True or out[out.industry == "半导体"]["sector_strong"].all()
+    assert not out[out.industry == "钢铁"]["sector_strong"].any()      # 弱板块
+    assert not out[out.industry == "小行业"]["sector_strong"].any()    # 不足3只
+
+
 def test_score_clamped_to_100() -> None:
     s = SC._accumulation_score(1.6, 5.0, 12.0, 1.0, 0, 99.0, up_down_vol=9.0, amp_contract=0.1)
     assert 0.0 <= s <= 100.0

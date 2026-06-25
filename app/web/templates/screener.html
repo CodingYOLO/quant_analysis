@@ -70,6 +70,8 @@
     <button class="quickbtn" id="preset-demon" style="border-color:#6b2a2a;color:#f87171">🔥 妖股启动（排雷版）</button>
     <button class="quickbtn" id="preset-dip" style="border-color:#2742a8;color:#7c9ef8">💎 强势龙头·超跌低吸</button>
     <button class="quickbtn" id="preset-earn" style="border-color:#5a4018;color:#f0a020">📈 二季度业绩预增</button>
+    <button class="quickbtn" id="preset-break5" style="border-color:#5a2a6b;color:#c084fc">🔄 破五反五·放量真反抽（高质量）</button>
+    <button class="quickbtn" id="preset-ma20life" style="border-color:#2a5a4a;color:#4ade80">🛡️ 机构生命线·稳站20日线</button>
     <span class="neu" style="font-size:11.5px;line-height:1.6;width:100%">
       <b style="color:#4ade80">慢牛吸筹</b>：温和放量＋量价配合＋缓涨＋没大涨，挑"主力悄悄吸"的票（按🐌吸筹分排序）。
       <b style="color:#f87171">🔥妖股启动</b>：<b>连板基因(近60日涨停≥2)</b>＋<b>启动迹象(放量)</b>，且<b>🛡已排雷</b>(剔ST/负净资产/高负债)，按60日涨停数排序。<b>不限市值/价格</b>(实测连板多为中大盘题材龙头);想专挑小盘/低价妖,手动勾「小流通≤50亿」「低价≤15」即可。
@@ -212,6 +214,12 @@ document.getElementById('preset-dip').addEventListener('click', () =>
 // 📈 二季度业绩预增：有中报预告 + 预喜 + 非ST，按预告净利增幅排序
 document.getElementById('preset-earn').addEventListener('click', () =>
   applyPreset(['earn_h1', 'earn_good', 'risk_not_st'], 'forecast_chg'));
+// 🔄 破五反五·放量真反抽（高质量）：放量真反抽 + 本来就强(RPS120≥70) + 站20日线上(趋势没破) + 板块走强 + 排雷
+document.getElementById('preset-break5').addEventListener('click', () =>
+  applyPreset(['pat_break5_recover_vol', 'rps120_ge70', 'above_ma20', 'sector_strong', 'risk_not_st'], 'rps120'));
+// 🛡️ 机构生命线·稳站20日线：稳稳在20日线上方(近5日) + MA20向上(趋势良好·机构愿持仓) + 强势 + 排雷
+document.getElementById('preset-ma20life').addEventListener('click', () =>
+  applyPreset(['stable_above_ma20', 'ma20_up', 'rps120_ge70', 'risk_not_st'], 'rps120'));
 
 // 🗺️ 板块强弱榜：先选板块层(读因子表聚合·各行业强弱+龙头)
 let _sectorLoaded = false;

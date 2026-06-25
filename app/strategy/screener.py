@@ -77,6 +77,7 @@ FACTOR_GROUPS = [
             {"key": "rps50_ge70", "label": "RPS50≥70", "col": "rps50", "op": "ge", "val": 70},
             {"key": "rps120_ge70", "label": "RPS120≥70", "col": "rps120", "op": "ge", "val": 70},
             {"key": "rps_ge80", "label": "RPS综合≥80", "col": "rps_combo", "op": "ge", "val": 80},
+            {"key": "sector_strong", "label": "板块走强(行业RPS中位≥55)", "col": "sector_strong", "op": "true"},
         ],
     },
     {
@@ -212,7 +213,7 @@ DISPLAY_COLS = [
 # ──────────────────────────────────────────────
 
 # 因子表结构版本：新增因子列时 +1，使旧缓存自动失效重算（避免读到缺列的旧表）
-_FACTOR_TABLE_VERSION = "v11"  # v11: 破五反五改为回测形态信号(K线形态组,可回测)、稳站MA20留趋势组；v10起含MA120/MA250
+_FACTOR_TABLE_VERSION = "v12"  # v12: 加 sector_strong(板块走强·行业RPS中位)；v11 破五反五入K线形态组、稳站MA20
 
 
 def _factor_cache_path(date: str) -> Path:
@@ -253,6 +254,7 @@ def build_factor_table(date: str, provider: CompositeProvider | None = None,
     df = _add_youzi_relay(df, date, provider)         # 近20日游资接力天数(批量top_inst)
     df = _add_earnings(df, provider)                  # 业绩预告(中报+一季报·二季度催化)
     df = _add_leader_flags(df)                         # 板块龙头标记(行业内强+大+活排名)
+    df = _add_sector_strength_flag(df)                 # 板块走强标记(所属行业 RPS 中位偏强)
     df = _add_accum_score(df)                          # 慢牛吸筹评分(合成上面多日因子)
 
     df.to_parquet(path, index=False)
@@ -534,6 +536,21 @@ def _add_youzi_relay(df: pd.DataFrame, date: str, provider) -> pd.DataFrame:
         df["youzi_net_yi"] = df["ts_code"].map({t: v[1] for t, v in m.items()})
     except Exception as e:
         logger.debug("游资接力计算失败: %s", e)
+    return df
+
+
+def _add_sector_strength_flag(df: pd.DataFrame, min_n: int = 3, rps_thresh: float = 55.0) -> pd.DataFrame:
+    """标记「板块走强」：所属行业 RPS120 中位数≥阈值 且 行业内有效股票数≥min_n。
+
+    用作"趋势没破·身处强势板块"的过滤层（如配合破五反五·放量，避开弱板块假反抽）。
+    """
+    if "industry" not in df or "rps120" not in df:
+        df["sector_strong"] = False
+        return df
+    rps = pd.to_numeric(df["rps120"], errors="coerce")
+    grp = rps.groupby(df["industry"])
+    med, cnt = grp.transform("median"), grp.transform("count")
+    df["sector_strong"] = ((med >= rps_thresh) & (cnt >= min_n)).fillna(False)
     return df
 
 
