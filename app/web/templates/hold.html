@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}拿得住 — A股Agent{% endblock %}
+
+{% block extra_style %}
+h1 { font-size:22px; text-align:center; margin-bottom:4px; }
+.sub { text-align:center; color:#9ca3af; font-size:12.5px; margin-bottom:16px; line-height:1.7; }
+.hd-card { background:#1a1d2e; border:1px solid #2d3052; border-radius:12px; padding:16px 18px; margin-bottom:14px; border-left:4px solid #3a3f5c; }
+.hd-head { display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; margin-bottom:8px; }
+.hd-name { font-size:16px; font-weight:700; color:#e8e8e8; }
+.hd-code { font-size:12px; color:#7c9ef8; }
+.hd-px { font-size:13px; color:#cdd6f4; }
+.hd-verdict { display:inline-block; font-size:14.5px; font-weight:700; padding:5px 15px; border-radius:9px; }
+.hd-why { font-size:13.5px; color:#cdd6f4; line-height:1.78; margin:9px 0 12px; }
+.hd-checks { display:grid; gap:8px; }
+.chk { background:#12141f; border:1px solid #242842; border-radius:8px; padding:9px 12px; border-left:3px solid #3a3f5c; }
+.chk .cq { font-size:13px; font-weight:600; color:#e8e8e8; margin-bottom:2px; }
+.chk .cd { font-size:12.5px; color:#9ca3af; line-height:1.72; }
+.chk .cn { font-size:11.5px; color:#6b7280; margin-top:4px; }
+.chk.ok { border-left-color:#2ebd85; } .chk.warn { border-left-color:#f0a020; }
+.chk.bad { border-left-color:#f6465d; } .chk.ask { border-left-color:#7c9ef8; }
+.anchor { font-size:11.5px; color:#e5c07b; margin-top:11px; border-top:1px dashed #2d3052; padding-top:8px; line-height:1.6; }
+.hd-links { font-size:11.5px; margin-top:8px; } .hd-links a { color:#7c9ef8; text-decoration:none; }
+.lv-sell { border-left-color:#f6465d; } .lv-warn { border-left-color:#f0a020; }
+.lv-watch { border-left-color:#46b3a3; } .lv-hold { border-left-color:#2ebd85; } .lv-hold_soft { border-left-color:#9ca3af; }
+.v-sell { background:#2a1715; color:#f6465d; } .v-warn { background:#2a2410; color:#f0a020; }
+.v-watch { background:#13282a; color:#46b3a3; } .v-hold { background:#10261c; color:#2ebd85; } .v-hold_soft { background:#1a1d2e; color:#9ca3af; }
+.pnl-up { color:#f6465d; } .pnl-down { color:#2ebd85; }
+{% endblock %}
+
+{% block content %}
+<h1>🤚 拿得住 · 卖不卖决策器</h1>
+<div class="sub"><b>选股决定你赚不赚，卖出决定你赚多少。</b>对每只持仓走一遍《持有手册》四问——能客观判断的（破位/放量缩量/距止损/趋势锚）用真实数据替你答好，只留「逻辑还在吗」给你自查。<br><b style="color:#e5c07b">卖出判定刻意不看你的成本价</b>（治锚定成本）·盈亏只用来判断仓位是否过重。</div>
+<div id="box"><div class="sub" style="padding:20px">⏳ 正在体检持仓并生成决策…</div></div>
+{% endblock %}
+
+{% block extra_script %}
+<script>
+const $=id=>document.getElementById(id);
+function esc(s){ return (s==null?'':String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+async function load(){
+  try{
+    const j=await (await fetch('/api/hold/decisions')).json();
+    if(!j.ok){ $('box').innerHTML='<div class="sub">❌ '+esc(j.msg||'加载失败')+'</div>'; return; }
+    if(!j.decisions||!j.decisions.length){
+      $('box').innerHTML='<div class="hd-card" style="text-align:center;color:#9ca3af;border-left-color:#3a3f5c">还没有持仓。去 <a href="/portfolio" style="color:#7c9ef8">我的持仓</a> 把你买入的票标为「持仓」并填上成本/止损位，这里就会对它逐只给卖出决策。</div>';
+      return;
+    }
+    $('box').innerHTML='<div class="sub" style="text-align:left;margin-bottom:10px;color:#8a90a0">📅 结构数据基于 <b>'+esc(j.date||'')+'</b> 收盘（看日线不看分时·手册原则）·现价实时 · 共 '+j.n_holding+' 只，最该处理的（止损/警惕）排最前。</div>'
+      + j.decisions.map(card).join('')
+      + '<div class="sub" style="margin-top:8px;font-size:11px;color:#6b7280">⚠️ '+esc(j.disclaimer||'')+'</div>';
+  }catch(e){ $('box').innerHTML='<div class="sub">❌ '+esc(String(e))+'</div>'; }
+}
+
+function card(d){
+  const c6=(d.ts_code||'').slice(0,6);
+  const pnl=(d.pnl==null)?'':('<span class="'+(d.pnl>=0?'pnl-up':'pnl-down')+'" style="font-size:12.5px"> · 浮盈亏 '+(d.pnl>0?'+':'')+d.pnl+'%</span>');
+  const px=(d.price!=null)?('现价 '+d.price+(d.pct_chg!=null?(' <span class="'+(d.pct_chg>=0?'pnl-up':'pnl-down')+'">'+(d.pct_chg>0?'+':'')+d.pct_chg+'%</span>'):'')):'';
+  const checks=(d.checks||[]).map(c=>'<div class="chk '+esc(c.state)+'"><div class="cq">'+esc(c.q)+'</div><div class="cd">'+esc(c.detail)+'</div>'+(c.note?('<div class="cn">'+esc(c.note)+'</div>'):'')+'</div>').join('');
+  return '<div class="hd-card lv-'+esc(d.level)+'">'
+    +'<div class="hd-head"><span class="hd-name">'+esc(d.name)+'</span><span class="hd-code">'+esc(c6)+'</span><span class="hd-px">'+px+'</span>'+pnl+'</div>'
+    +'<div><span class="hd-verdict v-'+esc(d.level)+'">'+esc(d.verdict)+'</span></div>'
+    +'<div class="hd-why">'+esc(d.why)+'</div>'
+    +'<div class="hd-checks">'+checks+'</div>'
+    +'<div class="anchor">⚓ '+esc(d.anchor_note||'')+'</div>'
+    +'<div class="hd-links"><a href="/stock?code='+esc(c6)+'" target="_blank">个股360详情 ↗</a> · <a href="/plan?code='+esc(c6)+'" target="_blank">交易计划 ↗</a></div>'
+    +'</div>';
+}
+load();
+</script>
+{% endblock %}

@@ -745,6 +745,12 @@ async def portfolio_page(request: Request, _user: str = Depends(require_auth)):
     return templates.TemplateResponse(request=request, name="portfolio.html", context={"page": "portfolio"})
 
 
+@app.get("/hold", response_class=HTMLResponse)
+async def hold_page(request: Request, _user: str = Depends(require_auth)):
+    """🤚 拿得住：对每只持仓按《持有手册》4问做数据接地的'卖不卖'判定。"""
+    return templates.TemplateResponse(request=request, name="hold.html", context={"page": "hold"})
+
+
 @app.get("/chat", response_class=HTMLResponse)
 async def chat_page(request: Request, _user: str = Depends(require_auth)):
     """🤖 AI 投研助手（全页）：与右下角悬浮窗共用同一套 /api/chat/* 会话与历史，仅入口不同。"""
@@ -998,6 +1004,30 @@ async def api_portfolio(_user: str = Depends(require_auth)):
         return await run_in_threadpool(build_portfolio)
     except Exception as e:
         logger.exception("持仓体检失败")
+        return {"ok": False, "msg": str(e)}
+
+
+@app.get("/api/hold/decisions")
+async def api_hold_decisions(_user: str = Depends(require_auth)):
+    """拿得住·卖出决策器：对每只持仓按《持有手册》4问做数据接地的'卖不卖'判定。"""
+    try:
+        from fastapi.concurrency import run_in_threadpool
+
+        from app.strategy.hold_decision import LEVEL_ORDER, decide
+        from app.strategy.portfolio import build_portfolio
+        data = await run_in_threadpool(build_portfolio)
+        out = []
+        for r in data.get("rows", []):
+            if not r.get("is_holding"):
+                continue
+            out.append({"ts_code": r["ts_code"], "name": r["name"], "price": r.get("price"),
+                        "pct_chg": r.get("pct_chg"), "industry": r.get("industry"),
+                        "sector_phase": r.get("sector_phase"), **decide(r)})
+        out.sort(key=lambda x: LEVEL_ORDER.get(x["level"], 9))   # 最该处理的(止损/警惕)排最前
+        return {"ok": True, "date": data.get("date"), "decisions": out, "n_holding": len(out),
+                "disclaimer": "纪律框架辅助提高决策质量，非涨跌预测、不构成投资建议；卖出判定刻意不看成本价。"}
+    except Exception as e:
+        logger.exception("卖出决策失败")
         return {"ok": False, "msg": str(e)}
 
 

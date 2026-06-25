@@ -89,6 +89,7 @@ def _build_row(w: dict, quotes: dict, tech: dict, flows: dict,
         "main_flow_3d": flows.get(ts),
         "ma20": tk.get("ma20"), "ma60": tk.get("ma60"),
         "above_ma20": tk.get("above_ma20"), "above_ma60": tk.get("above_ma60"),
+        "ma20_up": tk.get("ma20_up"), "volume_ratio": tk.get("volume_ratio"),
         "bias20": tk.get("bias20"), "dist_high": tk.get("dist_high"),
         "events": events,
     }
@@ -213,7 +214,7 @@ def _tech_map(provider: CompositeProvider, codes: list[str], date: str) -> dict:
     """技术位置（MA20/60·乖离·距120日高·一次全市场面板提取自选列）。"""
     from app.data.history_loader import load_price_matrix
     try:
-        close_m, *_ = load_price_matrix(date, provider, n_days=130)
+        close_m, _o, _h, _l, vol_m = load_price_matrix(date, provider, n_days=130)
     except Exception:
         logger.debug("[持仓] 面板加载失败")
         return {}
@@ -228,12 +229,21 @@ def _tech_map(provider: CompositeProvider, codes: list[str], date: str) -> dict:
             continue
         cur = float(s.iloc[-1])
         ma20 = float(s.tail(20).mean())
+        ma20_prev = float(s.iloc[-23:-3].mean()) if len(s) >= 23 else None   # 20日线 3 日前值 → 判向上
         ma60 = float(s.tail(60).mean()) if len(s) >= 60 else None
         high120 = float(s.tail(120).max())
+        vr = None                                                            # 量比=今日量/近5日均量(放量/缩量)
+        if ts in vol_m.columns:
+            v = vol_m[ts].dropna()
+            if len(v) >= 6:
+                vma5 = float(v.iloc[-6:-1].mean())
+                vr = round(float(v.iloc[-1]) / vma5, 2) if vma5 else None
         out[ts] = {
             "close": round(cur, 2), "ma20": round(ma20, 2),
             "ma60": round(ma60, 2) if ma60 else None,
             "above_ma20": cur >= ma20, "above_ma60": (cur >= ma60) if ma60 else None,
+            "ma20_up": (ma20 > ma20_prev) if (ma20 and ma20_prev) else None,
+            "volume_ratio": vr,
             "bias20": round((cur - ma20) / ma20 * 100, 2) if ma20 else None,
             "dist_high": round((cur / high120 - 1) * 100, 2) if high120 else None,
         }
