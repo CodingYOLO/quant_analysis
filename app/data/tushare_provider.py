@@ -89,6 +89,38 @@ class TushareProvider(DataProvider):
             fields="ts_code,ann_date,end_date,type,p_change_min,p_change_max,summary,change_reason",
         )
 
+    def get_stock_company(self, ts_code: str) -> pd.DataFrame:
+        """公司基本信息（主营业务/经营范围/简介/员工数）。变动极少→缓存一天足够。"""
+        import datetime
+        key = f"{ts_code}_{datetime.date.today().strftime('%Y%m%d')}"
+        return cached_daily(
+            name="tushare_stock_company", date_key=key,
+            fetch_fn=lambda: self._fetch_stock_company(ts_code),
+        )
+
+    @_RETRY
+    def _fetch_stock_company(self, ts_code: str) -> pd.DataFrame:
+        return rate_limited_call(
+            "tushare_stock_company", self._api.stock_company, ts_code=ts_code,
+            fields="ts_code,com_name,main_business,business_scope,introduction,employees,province,city",
+        )
+
+    def get_main_business(self, ts_code: str) -> pd.DataFrame:
+        """主营业务构成（按产品·营收/利润；用于看主要产品与占比）。缓存一天。"""
+        import datetime
+        key = f"{ts_code}_{datetime.date.today().strftime('%Y%m%d')}"
+        return cached_daily(
+            name="tushare_fina_mainbz", date_key=key,
+            fetch_fn=lambda: self._fetch_main_business(ts_code),
+        )
+
+    @_RETRY
+    def _fetch_main_business(self, ts_code: str) -> pd.DataFrame:
+        return rate_limited_call(
+            "tushare_fina_mainbz", self._api.fina_mainbz, ts_code=ts_code, type="P",
+            fields="ts_code,end_date,bz_item,bz_sales,bz_profit",
+        )
+
     def get_survey(self, ts_code: str) -> pd.DataFrame:
         """单股机构调研记录（近一年；调研热度=关注度信号）。缓存一天。"""
         import datetime

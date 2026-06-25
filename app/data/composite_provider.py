@@ -57,6 +57,12 @@ class CompositeProvider(DataProvider):
     def get_forecast(self, ts_code: str) -> pd.DataFrame:
         return self._ts.get_forecast(ts_code)
 
+    def get_stock_company(self, ts_code: str) -> pd.DataFrame:
+        return self._ts.get_stock_company(ts_code)
+
+    def get_main_business(self, ts_code: str) -> pd.DataFrame:
+        return self._ts.get_main_business(ts_code)
+
     def get_survey(self, ts_code: str) -> pd.DataFrame:
         return self._ts.get_survey(ts_code)
 

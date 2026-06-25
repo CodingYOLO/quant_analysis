@@ -81,6 +81,7 @@ table.mini td { padding:6px 8px; border-bottom:1px solid #1e2138; }
     <div id="vd-body" class="loading">⏳ 正在汇总各区数据并生成综合判断（约 30~60 秒，数据齐了才下判断）…</div>
   </div>
   <!-- 七大分区 -->
+  <div class="sec"><h2>🏢 公司是干什么的 <span class="neu2" style="font-size:11px">（主营·主要产品·行业地位·护城河）</span></h2><div id="v-company" class="loading">⏳ 加载公司画像…</div></div>
   <div class="sec"><h2>📈 K线 + 股性</h2><div id="v-kline" style="height:300px"></div><div id="v-prof" class="loading">⏳ 加载股性…</div></div>
   <div class="sec"><h2>💰 资金（主力估算 + 龙虎榜机构真钱 + 大盘北向）</h2><div id="v-fund" class="loading">⏳ 加载资金…</div></div>
   <div class="sec"><h2>🏛️ 龙虎榜复盘（近6月·历史规律）</h2><div id="v-lhb" class="loading">⏳ 复盘龙虎榜…</div></div>
@@ -121,6 +122,8 @@ function go(){
   ['v-prof','v-fund','v-lhb','v-sector','v-fin','v-research','v-scout','v-news'].forEach(id=>{ $(id).className='loading'; $(id).textContent='⏳ 加载中…'; });
   $('v-kline').innerHTML=''; _kc=null; $('export-bar').style.display='none';
   $('vd-body').className='loading'; $('vd-body').textContent='⏳ 正在汇总各区数据并生成综合判断…';
+  $('v-company').className='loading'; $('v-company').textContent='⏳ 加载公司画像…';
+  loadCompany(code);                     // 独立加载(不阻塞综合判断)·按月缓存
   const facts={}, store={};
   const jobs=[
     loadProfile(code,facts,store), loadFundThenSector(code,facts,store), loadFin(code,facts,store),
@@ -150,6 +153,40 @@ function renderProfile(d,facts){
   const tagHtml=tags.map(t=>'<span class="tag '+(t.level||'')+'">'+esc(t.text)+'</span>').join('') || '<span class="neu2">暂无股性标签</span>';
   $('v-prof').className=''; $('v-prof').innerHTML=dt('K线截至 <b>'+fmtD(kd)+'</b> · 日线/筹码盘后更新(非实时)')+tagHtml;
   facts['股性']=tags.map(t=>t.text).join('；');
+}
+
+// —— 🏢 公司画像：主营/构成(硬数据) + 地位/排名/护城河(LLM归纳·带来源) ——
+async function loadCompany(code){
+  const el=$('v-company'); el.className='loading'; el.textContent='⏳ 加载公司画像（首次约15-25秒·之后秒开）…';
+  try{ const d=await (await fetch('/api/stock/company?code='+encodeURIComponent(code))).json(); renderCompany(d); }
+  catch(e){ el.className=''; el.innerHTML='<span class="neu2">公司画像加载失败：'+esc(String(e))+'</span>'; }
+}
+function renderCompany(d){
+  const el=$('v-company');
+  if(!d||!d.ok){ el.className=''; el.innerHTML='<span class="neu2">'+esc((d&&d.msg)||'暂无公司画像')+'</span>'; return; }
+  let h='';
+  if(d['定位']) h+='<div style="font-size:14.5px;color:#e8e8e8;line-height:1.75;margin-bottom:10px"><b style="color:#7c9ef8">一句话</b>　'+esc(d['定位'])+'</div>';
+  if(d['主营业务']) h+='<div style="font-size:13px;line-height:1.7;margin:4px 0"><b>主营业务</b>（工商登记）：'+esc(d['主营业务'])+'</div>';
+  if(d['主营构成']&&d['主营构成'].length){
+    h+='<div style="font-size:12.5px;color:#9ca3af;margin:9px 0 3px">主营构成（'+esc(d['构成报告期']||'')+'·按产品营收·Tushare真实）</div>';
+    h+='<table style="width:100%;border-collapse:collapse;font-size:12.5px">';
+    d['主营构成'].forEach(c=>{ const w=Math.max(0,Math.min(100,c['占比']||0));
+      const pct=(c['占比']==null)?'—':(c['占比']+'%'), yi=(c['营收亿']==null)?'':(' <span class="neu2">'+c['营收亿']+'亿</span>');
+      h+='<tr><td style="padding:3px 8px 3px 0;white-space:nowrap;max-width:200px;overflow:hidden;text-overflow:ellipsis">'+esc(c['产品'])+'</td>'
+        +'<td style="width:99%"><div style="background:#141729;border-radius:4px;height:13px"><div style="background:#3358e0;height:13px;border-radius:4px;width:'+w+'%"></div></div></td>'
+        +'<td style="padding:3px 0 3px 8px;white-space:nowrap;text-align:right"><b>'+pct+'</b>'+yi+'</td></tr>';
+    });
+    h+='</table>';
+  }
+  const blk=(label,val,color)=>val?('<div style="margin:8px 0;font-size:13px;line-height:1.75"><b style="color:'+color+'">'+label+'</b>：'+esc(val)+'</div>'):'';
+  h+=blk('行业地位',d['行业地位'],'#7c9ef8')+blk('全球排名',d['全球排名'],'#e5c07b');
+  const list=(label,arr,color)=>{ if(!arr||!arr.length) return '';
+    return '<div style="margin:8px 0"><b style="color:'+color+';font-size:13px">'+label+'</b><ul style="margin:3px 0 0;padding-left:20px;font-size:13px;line-height:1.85">'+arr.map(x=>'<li>'+esc(x)+'</li>').join('')+'</ul></div>'; };
+  h+=list('🏰 核心竞争力（护城河）',d['核心竞争力'],'#4ade80')+list('⚠️ 局限与风险',d['局限与风险'],'#f0a020');
+  if(d['员工数']) h+='<div class="neu2" style="font-size:11.5px;margin-top:7px">员工约 '+Number(d['员工数']).toLocaleString()+' 人</div>';
+  if(d.sources&&d.sources.length) h+='<div class="neu2" style="font-size:11px;margin-top:8px;line-height:1.7">📎 地位/排名来源（需自行甄别）：'+d.sources.slice(0,6).map(s=>'<a href="'+esc(s.url)+'" target="_blank" style="color:#7c9ef8">'+esc(s.title||s.site||'链接')+'</a>').join(' · ')+'</div>';
+  h+='<div class="neu2" style="font-size:10.5px;margin-top:6px">'+esc(d.disclaimer||'')+'</div>';
+  el.className=''; el.innerHTML=h;
 }
 
 async function loadFundThenSector(code,facts,store){
@@ -369,6 +406,7 @@ function replay(s){
   $('hint').style.display='none'; $('result').style.display='block';
   _lastCode=s.code||''; _lastName=s.name||''; _kc=null; $('v-kline').innerHTML='';
   $('code').value=s.name||s.code||'';
+  loadCompany(s.code);                   // 快照无公司画像→按月缓存重取(秒开)
   renderProfile(s.profile||{}, {}); renderFund(s.fund||{}, {}); renderLhb(s.lhb||{}, {}, s.code); renderSector(s.sector||{}, {});
   renderFin(s.fin||{}, {}); renderResearch(s.research||{}, {}); renderScout(s.scout||{}, {}, s.code);
   renderNews(s.news||{}, {});

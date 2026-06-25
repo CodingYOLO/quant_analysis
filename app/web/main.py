@@ -1420,6 +1420,23 @@ async def api_stock_profile(code: str = "", _user: str = Depends(require_auth)):
         return {"ok": False, "msg": str(e)}
 
 
+@app.get("/api/stock/company")
+async def api_stock_company(code: str = "", _user: str = Depends(require_auth)):
+    """公司画像：主营业务/主营构成(Tushare硬数据) + 行业地位/全球排名/护城河(LLM归纳·带来源)。"""
+    try:
+        from fastapi.concurrency import run_in_threadpool
+
+        from app.strategy.company_profile import build_company_profile
+        ts = _resolve_ts_code(code)
+        if not ts:
+            return {"ok": False, "msg": "无法识别股票"}
+        name = _stock_name(ts) or ""
+        return await run_in_threadpool(build_company_profile, ts, name)
+    except Exception as e:
+        logger.exception("公司画像失败")
+        return {"ok": False, "msg": str(e)}
+
+
 @app.get("/api/stock/financials")
 async def api_stock_financials(code: str = "", _user: str = Depends(require_auth)):
     """财报跟踪：ROE/营收净利同比/负债率/毛利率 近几期趋势（Tushare）。"""
