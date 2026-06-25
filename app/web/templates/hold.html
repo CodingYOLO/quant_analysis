@@ -25,12 +25,48 @@ h1 { font-size:22px; text-align:center; margin-bottom:4px; }
 .v-sell { background:#2a1715; color:#f6465d; } .v-warn { background:#2a2410; color:#f0a020; }
 .v-watch { background:#13282a; color:#46b3a3; } .v-hold { background:#10261c; color:#2ebd85; } .v-hold_soft { background:#1a1d2e; color:#9ca3af; }
 .pnl-up { color:#f6465d; } .pnl-down { color:#2ebd85; }
+/* 顶部"手痒拦截"横幅 */
+.intercept { background:linear-gradient(160deg,#2a2316,#161b24); border:1px solid #5a4018; border-radius:12px;
+  padding:14px 18px; margin-bottom:16px; font-size:13.5px; line-height:1.75; color:#e8d9b8; }
+.intercept b { color:#e5c07b; }
+/* 走一遍按钮 */
+.walk-go { font-size:12.5px; font-weight:600; padding:6px 14px; border-radius:8px; border:1px solid #5a4018;
+  background:#2a2316; color:#e5c07b; cursor:pointer; margin-top:10px; }
+.walk-go:hover { background:#3a3320; }
+/* 交互式决策器 overlay */
+.ov { position:fixed; inset:0; background:rgba(8,10,15,.88); backdrop-filter:blur(5px); z-index:200;
+  display:flex; align-items:center; justify-content:center; padding:18px; }
+.ov-inner { background:#161b24; border:1px solid #34424f; border-radius:16px; max-width:580px; width:100%;
+  padding:26px 26px 22px; max-height:92vh; overflow-y:auto; }
+.ov-prog { display:flex; gap:6px; margin-bottom:20px; }
+.ov-prog span { flex:1; height:3px; border-radius:2px; background:#2d3052; transition:.3s; }
+.ov-prog span.on { background:#d4a24e; }
+.ov-tag { font-size:12px; letter-spacing:1.5px; color:#d4a24e; margin-bottom:9px; font-weight:600; font-family:monospace; }
+.ov-q { font-size:clamp(18px,3vw,22px); font-weight:800; color:#f0f3f8; line-height:1.4; margin-bottom:6px; }
+.ov-sub { font-size:13.5px; color:#9ca3af; line-height:1.7; margin-bottom:4px; }
+.ov-data { font-size:13.5px; line-height:1.8; padding:12px 15px; border-radius:10px; margin:16px 0; }
+.ov-data.ok { background:#10261c; color:#cde6d6; border:1px solid #1f5a3a; }
+.ov-data.warn { background:#2a2410; color:#f0c089; border:1px solid #5a4018; }
+.ov-data.bad { background:#2a1715; color:#f0a0a0; border:1px solid #5a2a2a; }
+.ov-data.ask { background:#141b2e; color:#bcc8ea; border:1px solid #2d3a5a; }
+.ov-btns { display:flex; gap:10px; flex-wrap:wrap; margin-top:8px; }
+.ov-btn { font-size:14.5px; font-weight:600; padding:12px 22px; border-radius:11px; border:1px solid #34424f;
+  background:#1a232e; color:#dbe2ea; cursor:pointer; transition:.15s; }
+.ov-btn:hover { border-color:#d4a24e; background:#202b38; transform:translateY(-1px); }
+.ov-btn.primary { background:#2742a8; border-color:#3358e0; color:#fff; }
+.ov-btn.danger { border-color:#5a2a2a; color:#f0a0a0; background:#1f1413; }
+.ov-final-v { font-size:24px; font-weight:900; margin:4px 0 12px; line-height:1.2; }
+.ov-cool { font-size:13.5px; color:#cdd6f4; line-height:1.8; background:#13282a; border:1px solid #1f5a3a;
+  border-radius:10px; padding:13px 15px; margin:14px 0; }
+.ov-x { font-size:13px; color:#8a97a5; cursor:pointer; background:none; border:none; margin-top:12px; padding:0; }
 {% endblock %}
 
 {% block content %}
 <h1>🤚 拿得住 · 卖不卖决策器</h1>
 <div class="sub"><b>选股决定你赚不赚，卖出决定你赚多少。</b>对每只持仓走一遍《持有手册》四问——能客观判断的（破位/放量缩量/距止损/趋势锚）用真实数据替你答好，只留「逻辑还在吗」给你自查。<br><b style="color:#e5c07b">卖出判定刻意不看你的成本价</b>（治锚定成本）·盈亏只用来判断仓位是否过重。</div>
+<div class="intercept">💢 <b>手痒想卖、忍不住盯分时图？先停3秒。</b>分时图的红红绿绿是<b>噪音</b>，不是信号——你的持仓是周级的，用日内波动去判断中线方向，自然每天都被吓出去。<br>下面每只持仓都有「<b>💢 想卖它？走一遍</b>」按钮：点它，强制走完4问再决定。<b>光是这个停顿，就能拦下大半冲动单。</b></div>
 <div id="box"><div class="sub" style="padding:20px">⏳ 正在体检持仓并生成决策…</div></div>
+<div id="ov" class="ov" style="display:none"><div class="ov-inner" id="ov-inner"></div></div>
 {% endblock %}
 
 {% block extra_script %}
@@ -49,8 +85,65 @@ async function load(){
     $('box').innerHTML='<div class="sub" style="text-align:left;margin-bottom:10px;color:#8a90a0">📅 结构数据基于 <b>'+esc(j.date||'')+'</b> 收盘（看日线不看分时·手册原则）·现价实时 · 共 '+j.n_holding+' 只，最该处理的（止损/警惕）排最前。</div>'
       + j.decisions.map(card).join('')
       + '<div class="sub" style="margin-top:8px;font-size:11px;color:#6b7280">⚠️ '+esc(j.disclaimer||'')+'</div>';
+    _decmap={}; j.decisions.forEach(d=>{ _decmap[(d.ts_code||'').slice(0,6)]=d; });
   }catch(e){ $('box').innerHTML='<div class="sub">❌ '+esc(String(e))+'</div>'; }
 }
+
+// ── 💢 交互式"走一遍"决策器：强制逐步走完4问，制造停顿、拦截冲动 ──
+let _decmap={}, _walk=null;
+document.getElementById('box').addEventListener('click', e=>{
+  const b=e.target.closest('.walk-go'); if(b) openWalk(b.dataset.ts);
+});
+function openWalk(c6){
+  const d=_decmap[c6]; if(!d) return;
+  _walk={d:d, i:0, logicBroke:false};
+  $('ov').style.display='flex'; renderStep();
+}
+function closeWalk(){ $('ov').style.display='none'; _walk=null; }
+function prog(active){ let s=''; for(let k=1;k<=4;k++) s+='<span class="'+(k<=active?'on':'')+'"></span>'; return '<div class="ov-prog">'+s+'</div>'; }
+
+function renderStep(){
+  const w=_walk, d=w.d, i=w.i, c=(d.checks||[]);
+  let h='';
+  if(i===0){                                   // 拦截：先停一下
+    h=prog(0)+'<div class="ov-tag">PAUSE · 先停一下</div>'
+      +'<div class="ov-q">你想卖「'+esc(d.name)+'」。</div>'
+      +'<div class="ov-sub">是它的<b style="color:#dbe2ea">趋势真的坏了</b>，还是你只是<b style="color:#f0a0a0">盯着分时图手痒</b>？<br>分时的红绿是噪音。走完下面4问，再决定动不动手。</div>'
+      +'<div class="ov-btns"><button class="ov-btn primary" onclick="step(1)">开始走一遍 →</button>'
+      +'<button class="ov-btn" onclick="closeWalk()">先不卖了</button></div>';
+  } else if(i===1){                            // Q1 逻辑：用户主观选择
+    const q=c[0]||{};
+    h=prog(1)+'<div class="ov-tag">问题 1 / 4 · 逻辑</div>'
+      +'<div class="ov-q">'+esc(q.q||'买入逻辑还在吗？')+'</div>'
+      +'<div class="ov-data ask">'+esc(q.detail||'')+'</div>'
+      +'<div class="ov-btns"><button class="ov-btn primary" onclick="step(2)">逻辑还在，继续 →</button>'
+      +'<button class="ov-btn danger" onclick="logicBroke()">逻辑破了 / 变了</button></div>';
+  } else if(i>=2 && i<=4){                      // Q2-4 客观：直接亮真实数据
+    const q=c[i-1]||{};
+    const last=(i===4);
+    h=prog(i)+'<div class="ov-tag">问题 '+i+' / 4</div>'
+      +'<div class="ov-q">'+esc(q.q||'')+'</div>'
+      +'<div class="ov-data '+esc(q.state||'ask')+'">'+esc(q.detail||'')+(q.note?('<br><span style="opacity:.8;font-size:12px">'+esc(q.note)+'</span>'):'')+'</div>'
+      +'<div class="ov-btns"><button class="ov-btn primary" onclick="step('+(i+1)+')">'+(last?'看最终判定 →':'继续 →')+'</button></div>';
+  } else {                                      // 最终判定 + 冷静收尾
+    let v=d.verdict, lvl=d.level, why=d.why;
+    if(w.logicBroke){ v='逻辑破了 → 清仓'; lvl='sell'; why='你买它的理由已经没了，留着就不再是投资、是赌反弹。逻辑破了就走，无论此刻赚亏。'; }
+    h=prog(4)+'<div class="ov-tag">判定</div>'
+      +'<div class="ov-final-v v-'+esc(lvl)+'" style="padding:6px 16px;border-radius:10px;display:inline-block">'+esc(v)+'</div>'
+      +'<div class="ov-sub" style="margin:10px 0;color:#cdd6f4;font-size:14px">'+esc(why)+'</div>'
+      +'<div class="ov-cool">⚓ '+esc(d.anchor_note||'')+'<br>'
+      + (lvl==='hold'||lvl==='hold_soft'||lvl==='watch'
+          ? '现在，把手从卖出键上拿开。4问没让你卖，就<b>什么都不做</b>——这就是拿得住。手痒了就再回来走一遍。'
+          : '这是<b>纪律卖</b>，不是恐慌卖——两者天差地别。按计划执行，别犹豫、也别全凭情绪加码。')
+      +'</div>'
+      +'<div class="ov-btns"><button class="ov-btn" onclick="renderStep0()">↺ 重走一遍</button>'
+      +'<button class="ov-btn primary" onclick="closeWalk()">知道了</button></div>';
+  }
+  $('ov-inner').innerHTML=h;
+}
+function step(n){ _walk.i=n; renderStep(); }
+function logicBroke(){ _walk.logicBroke=true; _walk.i=5; renderStep(); }
+function renderStep0(){ _walk.i=0; _walk.logicBroke=false; renderStep(); }
 
 function card(d){
   const c6=(d.ts_code||'').slice(0,6);
@@ -63,6 +156,7 @@ function card(d){
     +'<div class="hd-why">'+esc(d.why)+'</div>'
     +'<div class="hd-checks">'+checks+'</div>'
     +'<div class="anchor">⚓ '+esc(d.anchor_note||'')+'</div>'
+    +'<button class="walk-go" data-ts="'+esc(c6)+'">💢 想卖它？走一遍4问</button>'
     +'<div class="hd-links"><a href="/stock?code='+esc(c6)+'" target="_blank">个股360详情 ↗</a> · <a href="/plan?code='+esc(c6)+'" target="_blank">交易计划 ↗</a></div>'
     +'</div>';
 }
