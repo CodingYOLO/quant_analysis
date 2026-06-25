@@ -62,8 +62,10 @@ FACTOR_GROUPS = [
         "group": "趋势与均线",
         "factors": [
             {"key": "above_ma5", "label": "站上MA5", "col": "above_ma5", "op": "true"},
+            {"key": "break5_recover", "label": "破五反五(跌破MA5又收回·洗盘转强)", "col": "break5_recover", "op": "true"},
             {"key": "above_ma10", "label": "站上MA10", "col": "above_ma10", "op": "true"},
-            {"key": "above_ma20", "label": "站上MA20", "col": "above_ma20", "op": "true"},
+            {"key": "above_ma20", "label": "站上MA20(机构生命线)", "col": "above_ma20", "op": "true"},
+            {"key": "stable_above_ma20", "label": "稳站20日线(近5日·机构生命线)", "col": "stable_above_ma20", "op": "true"},
             {"key": "above_ma60", "label": "站上MA60", "col": "above_ma60", "op": "true"},
             {"key": "above_ma90", "label": "站上MA90", "col": "above_ma90", "op": "true"},
             {"key": "above_ma120", "label": "站上半年线MA120", "col": "above_ma120", "op": "true"},
@@ -211,7 +213,7 @@ DISPLAY_COLS = [
 # ──────────────────────────────────────────────
 
 # 因子表结构版本：新增因子列时 +1，使旧缓存自动失效重算（避免读到缺列的旧表）
-_FACTOR_TABLE_VERSION = "v9"   # v9: 趋势组加 MA120/MA250(年线)/多头排列/年线·MA20向上；历史窗口 130→265
+_FACTOR_TABLE_VERSION = "v10"  # v10: 趋势组加 破五反五(跌破MA5又收回)/稳站MA20(近5日)；v9: MA120/MA250/多头排列/历史窗265
 
 
 def _factor_cache_path(date: str) -> Path:
@@ -348,6 +350,24 @@ def _add_technical_factors(df: pd.DataFrame, date: str, provider) -> pd.DataFram
     for col, n, k in (("ma20_up", 20, 3), ("ma250_up", 250, 5)):
         up = _slope_up(n, k)
         df[col] = df["ts_code"].map(up.to_dict()).fillna(False) if up is not None else False
+
+    # 破五反五 / 稳站MA20（需 MA 序列，rolling 一次性算；NaN 比较得 False，新股不会误判）
+    ma5_s, ma20_s = close_m.rolling(5).mean(), close_m.rolling(20).mean()
+    # 破五反五：今日收盘收回 MA5 之上，且最近 3 日内曾收盘跌破 MA5（短线洗盘不破势·反而转强）
+    if len(close_m) >= 8:
+        below5 = close_m < ma5_s
+        recovered = last_close > ma5_s.iloc[-1]                  # 今日站回 MA5
+        dipped = below5.iloc[-4:-1].any()                       # 今日之前 3 日里有跌破
+        br = recovered & dipped & ma5_s.iloc[-1].notna()
+        df["break5_recover"] = df["ts_code"].map(br.to_dict()).fillna(False)
+    else:
+        df["break5_recover"] = False
+    # 稳站MA20：最近 5 日每天收盘≥MA20（"稳稳在20日线上方"·比当日站上更强、更像机构持仓）
+    if len(close_m) >= 24:
+        stable = (close_m.iloc[-5:] >= ma20_s.iloc[-5:]).all() & ma20_s.iloc[-1].notna()
+        df["stable_above_ma20"] = df["ts_code"].map(stable.to_dict()).fillna(False)
+    else:
+        df["stable_above_ma20"] = False
 
     # RPS（向量化）：calc_rps 内部按价格算 N 日涨幅的全市场百分位
     rps50 = F.calc_rps(close_m, 50) if len(close_m) > 50 else pd.Series(dtype=float)
