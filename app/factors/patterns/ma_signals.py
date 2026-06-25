@@ -76,6 +76,36 @@ class FirstAboveMA10:
         return bool(c.iloc[-2] < ma10.iloc[-2] and c.iloc[-1] >= ma10.iloc[-1])
 
 
+class Break5Recover:
+    """破五反五：今日收盘收回 MA5 之上，且最近 3 日内曾收盘跌破 MA5（短线洗盘不破势·转强）。"""
+
+    key, label, min_bars = "break5_recover", "破五反五(跌破MA5又收回)", 10
+
+    def detect(self, o: pd.DataFrame) -> bool:
+        c = o["close"]
+        ma5 = F.ma(c, 5)
+        if _nan(ma5.iloc[-1], ma5.iloc[-2], ma5.iloc[-3], ma5.iloc[-4]):
+            return False
+        recovered = float(c.iloc[-1]) >= float(ma5.iloc[-1])                       # 今日站回 MA5
+        dipped = any(float(c.iloc[-i]) < float(ma5.iloc[-i]) for i in (2, 3, 4))   # 今日之前 3 日有跌破
+        return bool(recovered and dipped)
+
+
+class Break5RecoverVol:
+    """破五反五·放量反抽：在破五反五基础上今日放量（量比≥1.5）——更接近"有效反抽"，用于对比量能是否加分。"""
+
+    key, label, min_bars = "break5_recover_vol", "破五反五·放量反抽(量比≥1.5)", 10
+
+    def detect(self, o: pd.DataFrame) -> bool:
+        c, vol = o["close"], o["vol"]
+        ma5 = F.ma(c, 5)
+        if _nan(ma5.iloc[-1], ma5.iloc[-2], ma5.iloc[-3], ma5.iloc[-4]):
+            return False
+        recovered = float(c.iloc[-1]) >= float(ma5.iloc[-1])
+        dipped = any(float(c.iloc[-i]) < float(ma5.iloc[-i]) for i in (2, 3, 4))
+        return bool(recovered and dipped and F.volume_ratio(vol, 5) >= 1.5)
+
+
 # ── 🅱 强化经典指标（过滤假信号）────────────────────────────────────────────
 
 class MacdGoldAboveZero:
@@ -125,6 +155,7 @@ class BigYangVolume:
 # 注册（新增信号只需在此 register；个股回测 + 因子选股自动出现）
 for _p in (
     MA5CrossMA10(), ShrinkPullbackMA10(), MAShortBull(), FirstAboveMA10(),
+    Break5Recover(), Break5RecoverVol(),
     MacdGoldAboveZero(), RsiOversoldRecover(), BigYangVolume(),
 ):
     register(_p)

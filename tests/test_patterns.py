@@ -77,6 +77,15 @@ def test_min_bars_guard() -> None:
     assert all(v is False for v in hits.values())
 
 
+def test_break5_recover() -> None:
+    """破五反五：近3日内跌破MA5、今日收回MA5之上 → 命中；全程在MA5上方 → 不命中。"""
+    p = PATTERN_REGISTRY["break5_recover"]
+    dip_recover = _ohlcv([10, 10, 10, 10, 10, 10, 10, 10, 8, 8, 11], [1000] * 11)  # 跌破后今日收回
+    assert p.detect(dip_recover) is True
+    no_dip = _ohlcv([10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20], [1000] * 11)      # 一路在MA5上方
+    assert p.detect(no_dip) is False
+
+
 def _run_all() -> None:
     fns = [v for k, v in sorted(globals().items())
            if k.startswith("test_") and callable(v)]
