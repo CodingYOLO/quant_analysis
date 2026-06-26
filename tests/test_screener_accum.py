@@ -63,6 +63,16 @@ def test_score_nan_safe_zero() -> None:
                                   up_down_vol=nan, amp_contract=nan) == 0.0
 
 
+def test_inflow_counts() -> None:
+    """反复净流入计数：净流入天数 + 连续(从最新往回·遇流出/缺数据断)。"""
+    # 升序：旧→新。末尾两天为正 → 连续2；总正天数=4
+    assert SC._inflow_counts([1, -1, 2, -1, 3, 4]) == (4, 2)
+    assert SC._inflow_counts([1, 2, 3]) == (3, 3)            # 全正 → 连续到底
+    assert SC._inflow_counts([1, 2, -1]) == (2, 0)           # 最新为负 → 连续0
+    assert SC._inflow_counts([1, 2, None]) == (2, 0)         # 最新缺数据 → 连续中断
+    assert SC._inflow_counts([None, None]) == (0, 0)
+
+
 def test_sector_strength_flag() -> None:
     """板块走强：行业RPS中位≥55且≥3只→True；弱行业/不足3只→False。"""
     df = pd.DataFrame({

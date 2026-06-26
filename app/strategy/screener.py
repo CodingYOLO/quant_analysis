@@ -107,6 +107,9 @@ FACTOR_GROUPS = [
             {"key": "accum_low_amp", "label": "低波动(近20日均振幅≤5.5%)", "col": "amp20", "op": "le", "val": 5.5},
             {"key": "accum_hidden", "label": "隐蔽(近20日无大涨/涨停)", "col": "big_up_days_20", "op": "le", "val": 0},
             {"key": "accum_fund3d", "label": "主力近3日净流入(大单估算·弱)", "col": "main_net_3d", "op": "gt", "val": 0},
+            {"key": "repeat_inflow6", "label": "主力反复净流入(近10日≥6天·估算)", "col": "inflow_days_10", "op": "ge", "val": 6},
+            {"key": "consec_inflow3", "label": "主力连续净流入≥3天(估算·真持续)", "col": "consec_inflow", "op": "ge", "val": 3},
+            {"key": "sector_inflow5", "label": "板块资金偏持续流入(近10日≥5天·估算)", "col": "sector_inflow_days", "op": "ge", "val": 5},
         ],
     },
     {
@@ -181,6 +184,8 @@ CUSTOM_FIELDS = [
     {"col": "accum_score", "label": "🐌吸筹评分"}, {"col": "ret20", "label": "近20日涨幅%"},
     {"col": "vol5_vol20", "label": "量能比5/20日"}, {"col": "ma20_slope", "label": "MA20斜率%"},
     {"col": "amp20", "label": "近20日均振幅%"}, {"col": "main_net_3d", "label": "主力近3日(亿)"},
+    {"col": "inflow_days_10", "label": "主力净流入天数(近10)"}, {"col": "consec_inflow", "label": "连续净流入天数"},
+    {"col": "sector_inflow_days", "label": "板块流入天数(近10)"},
     {"col": "up_down_vol", "label": "量价配合(涨量/跌量)"}, {"col": "amp_contract", "label": "振幅收敛比"},
     {"col": "ret5", "label": "近5日涨幅%"},
     {"col": "limit_ups_60d", "label": "近60日涨停数"}, {"col": "max_consec_limit", "label": "最高连板"},
@@ -203,6 +208,7 @@ DISPLAY_COLS = [
     ("debt_to_assets", "负债率%"), ("netprofit_yoy", "净利同比%"),
     ("turnover_rate", "换手%"), ("volume_ratio", "量比"), ("circ_mv_100m", "流通市值(亿)"),
     ("main_net_amount", "主力净流入(亿)"), ("main_net_3d", "主力3日(亿)"), ("elg_net", "超大单(亿)"),
+    ("inflow_days_10", "💰流入天数(近10)"), ("consec_inflow", "连续流入天"), ("sector_inflow_days", "板块流入天"),
     ("rps50", "RPS50"), ("rps120", "RPS120"), ("rsi14", "RSI"),
     ("vwap_dev", "VWAP偏离%"), ("comment_score", "千评分"), ("popularity_rank", "人气排名"),
 ]
@@ -213,7 +219,7 @@ DISPLAY_COLS = [
 # ──────────────────────────────────────────────
 
 # 因子表结构版本：新增因子列时 +1，使旧缓存自动失效重算（避免读到缺列的旧表）
-_FACTOR_TABLE_VERSION = "v12"  # v12: 加 sector_strong(板块走强·行业RPS中位)；v11 破五反五入K线形态组、稳站MA20
+_FACTOR_TABLE_VERSION = "v13"  # v13: 加 主力反复净流入(近10日天数/连续)+板块持续流入(估算口径)；v12 sector_strong
 
 
 def _factor_cache_path(date: str) -> Path:
@@ -250,6 +256,7 @@ def build_factor_table(date: str, provider: CompositeProvider | None = None,
     df = _merge_base(daily, daily_basic, money_flow, stock_basic, comment)
     df = _add_technical_factors(df, date, provider)
     df = _add_fund_persistence(df, date, provider)   # 近3日主力净流入(持续性)
+    df = _add_fund_repeat_inflow(df, date, provider)  # 近10日反复净流入(天数/连续)+板块持续流入
     df = _add_fundamentals(df, provider)              # 批量财务(负债率/净利同比/ROE)·妖股排雷
     df = _add_youzi_relay(df, date, provider)         # 近20日游资接力天数(批量top_inst)
     df = _add_earnings(df, provider)                  # 业绩预告(中报+一季报·二季度催化)
@@ -475,6 +482,78 @@ def _add_fund_persistence(df: pd.DataFrame, date: str, provider) -> pd.DataFrame
         df["main_net_3d"] = df["ts_code"].map(_main_flow_3d(provider, date))
     except Exception as e:
         logger.debug("3日主力净流入计算失败: %s", e)
+    return df
+
+
+def _inflow_counts(nets: list) -> tuple[int, int]:
+    """逐日净流入列表(升序·可含 None=缺数据) → (净流入天数, 从最新往回的连续净流入天数)。
+
+    连续从末尾(最新)往回数，遇净流出(≤0)或缺数据(None)即断。纯函数·便于单测。
+    """
+    days = sum(1 for x in nets if x is not None and x > 0)
+    consec = 0
+    for x in reversed(nets):
+        if x is None or x <= 0:
+            break
+        consec += 1
+    return days, consec
+
+
+def _add_fund_repeat_inflow(df: pd.DataFrame, date: str, provider, window: int = 10) -> pd.DataFrame:
+    """主力(估算)资金「反复净流入」：近 window 日 净流入天数 + 连续净流入天数 + 板块持续流入天数。
+
+    对应"反复小幅净流入悄悄吸筹"这套打法——比"近3日累计"更能抓持续性（一根大单撑不出天数）。
+    ⚠️ 口径=超大单+大单的**代理估算**（与资金三角一致），**非真机构钱**（真机构看龙虎榜）。
+    """
+    df["inflow_days_10"] = 0
+    df["consec_inflow"] = 0
+    df["sector_inflow_days"] = 0
+    try:
+        from app.factors.breadth_qfq import _recent_trade_dates
+        dates = _recent_trade_dates(provider, date, window)        # 升序·末=最新
+    except Exception as e:
+        logger.debug("反复净流入: 取交易日失败 %s", e)
+        return df
+    if not dates:
+        return df
+
+    day_nets: list[dict] = []                                      # 逐日 {ts_code: 净流入(亿)}
+    for d in dates:
+        m: dict = {}
+        try:
+            mf = provider.get_money_flow(d)
+        except Exception:
+            mf = None
+        if mf is not None and not mf.empty and "net_mf_amount" in mf.columns:
+            net = pd.to_numeric(mf["net_mf_amount"], errors="coerce")
+            for ts, v in zip(mf["ts_code"], net):
+                if pd.notna(v):
+                    m[ts] = float(v) / 1e4
+        day_nets.append(m)
+
+    # 个股：净流入天数 + 连续净流入天数
+    inflow_days, consec = {}, {}
+    for ts in df["ts_code"]:
+        nets = [m.get(ts) for m in day_nets]
+        if not any(x is not None for x in nets):
+            continue
+        inflow_days[ts], consec[ts] = _inflow_counts(nets)
+    df["inflow_days_10"] = df["ts_code"].map(inflow_days).fillna(0).astype(int)
+    df["consec_inflow"] = df["ts_code"].map(consec).fillna(0).astype(int)
+
+    # 板块：逐日按行业汇总净流入 → 行业净流入天数（先选对持续流入的板块）
+    ind_map = dict(zip(df["ts_code"], df.get("industry", pd.Series("", index=df.index)).fillna("")))
+    sec_days: dict[str, int] = {}
+    for m in day_nets:
+        agg: dict[str, float] = {}
+        for ts, v in m.items():
+            ind = ind_map.get(ts)
+            if ind:
+                agg[ind] = agg.get(ind, 0.0) + v
+        for ind, tot in agg.items():
+            if tot > 0:
+                sec_days[ind] = sec_days.get(ind, 0) + 1
+    df["sector_inflow_days"] = df["industry"].map(sec_days).fillna(0).astype(int)
     return df
 
 
