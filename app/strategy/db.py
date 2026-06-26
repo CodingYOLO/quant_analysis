@@ -469,6 +469,8 @@ _POOL_COLS = [
     "bias20", "dist_high", "risk_penalty",
     "above_ma5", "above_ma10", "ma_bull_short",
     "winner_rate", "block_discount",
+    # 2026-06-26 新增：龙虎榜机构真钱（净买/天数/重点分真钱加分）
+    "inst_net_yi", "inst_buy_days", "inst_bonus",
 ]
 
 # 旧库兼容：新增列（init_db 幂等补列，避免改 CREATE TABLE 后旧库缺列）
@@ -478,6 +480,7 @@ _POOL_NEW_COLS = [
     ("bias20", "REAL"), ("dist_high", "REAL"), ("risk_penalty", "REAL"),
     ("above_ma5", "INTEGER"), ("above_ma10", "INTEGER"), ("ma_bull_short", "INTEGER"),
     ("winner_rate", "REAL"), ("block_discount", "REAL"),
+    ("inst_net_yi", "REAL"), ("inst_buy_days", "INTEGER"), ("inst_bonus", "REAL"),
 ]
 _POOL_JSON = {"sources", "strategies", "risk_flags"}
 

@@ -75,8 +75,10 @@ def build_stock_pool(trade_date: str, provider: CompositeProvider | None = None,
     records = _apply_risk(records, market_label, zhaban_warn)
     # 风险评分附加数据：批量取筹码获利盘 + 近10日大宗折价（出货/抛压信号）
     _load_risk_extras(records, trade_date, provider)
-    # 重点分(强度−风险) + 星标本池最强 Top5（始终标，供观察名单）
-    _compute_focus_scores(records)
+    # 真钱印证：近5日龙虎榜机构净买（A股仅存的个股级真机构钱）→ 供重点分加分
+    _load_inst_real_money(records, trade_date, provider)
+    # 重点分(强度−风险+真钱) + 星标本池最强 Top5（始终标，供观察名单）
+    _compute_focus_scores(records, market_label)
     # 质量门槛收紧：只留重点分≥阈值的强票（宁缺毋滥·对标吴川的精选感）
     n_all = len(records)
     records = [r for r in records if r["focus_score"] >= _POOL_MIN_FOCUS]
@@ -221,6 +223,15 @@ _RISK_BLOCK = (2.0, 9.0, 5.0)     # 大宗折价幅度：2%起、9%封顶 → 0~
 # 当日破位大跌：跌破MA5/10 且当日下跌 → 按跌幅扣分（修"前期强但今天破位还排第一"的后视镜缺陷）。
 _RISK_BREAKDOWN = (2.0, 9.0, 14.0)   # 当日跌幅(跌破MA5/10时)：2%起、9%封顶 → 0~14；放量再×1.3(资金在撤·别接刀)
 _RISK_MAX = 36.0                   # 风险扣分上限
+# 龙虎榜机构「真钱」加分：把 A股仅存的个股级真机构钱(机构席位净买)纳入重点分，让"真钱看好"的票排前。
+# 上榜稀疏→大多数票无足迹(=0分·不罚)；净买加分、净卖扣分；弱市真钱稀缺→加倍看重。
+_INST_LOOKBACK = 5                  # 机构净买回看天数(与资金三角一致)
+_INST_EPS_YI = 0.05                # 机构净买/卖"近似零"带宽(亿)
+_W_INST_BUY = (0.1, 3.0, 12.0)     # 机构净买(亿)：0.1起、3亿封顶 → 0~12 基础加分
+_W_INST_DAY = 2.0                  # 每多一天机构净买 +2(真钱持续吸筹·置信更高)
+_INST_BUY_CAP = 18.0               # 真钱加分上限
+_W_INST_SELL = (0.1, 3.0, 20.0)    # 机构净卖(亿)：0~20 扣分(真钱在撤·更重)
+_WEAK_INST_MULT = 1.5              # 弱市真钱加分×1.5(稀缺·更该看重)
 # 质量门槛：只留重点分≥此值的"真正强的"，收紧池子(对标吴川·宁缺毋滥)。
 # 数量随行情变：弱市少(诚实)；普涨强势日再加 _POOL_MAX 封顶，避免爆量(对标吴川精选感)。
 _POOL_MIN_FOCUS = 60.0
@@ -291,6 +302,41 @@ def _risk_penalty(rec: dict) -> float:
     return round(min(p_bias + p_chase + p_high + p_win + p_blk + p_break, _RISK_MAX), 1)
 
 
+def _inst_bonus(rec: dict, market_label: str) -> float:
+    """龙虎榜机构『真钱』加分：净买加分(含持续天数·弱市×1.5)、净卖扣分。无足迹/近零=0。
+
+    真钱>估算：机构席位是 A股个股层面唯一公开的真金白银，比"主力估算"硬得多。
+    """
+    inst = rec.get("inst_net_yi")
+    if inst is None:
+        return 0.0
+    if inst >= _INST_EPS_YI:                              # 机构真买 → 加分
+        lo, hi, w = _W_INST_BUY
+        b = min(_ramp(inst, lo, hi) * w + (rec.get("inst_buy_days") or 0) * _W_INST_DAY, _INST_BUY_CAP)
+        if market_label in ("弱势", "衰退"):
+            b *= _WEAK_INST_MULT
+        return round(b, 1)
+    if inst <= -_INST_EPS_YI:                             # 机构净卖 → 扣分(真钱在撤)
+        lo, hi, w = _W_INST_SELL
+        return -round(_ramp(-inst, lo, hi) * w, 1)
+    return 0.0
+
+
+def _load_inst_real_money(records: list[dict], trade_date: str, provider: CompositeProvider) -> None:
+    """批量取近5日龙虎榜机构净买(真钱)挂到 records（供重点分真钱加分）。上榜稀疏·失败不阻塞。"""
+    inst_map: dict = {}
+    try:
+        from app.strategy.fund_triangle import _inst_net_map
+        dates = _recent_trade_dates(provider, trade_date, _INST_LOOKBACK)
+        inst_map = _inst_net_map(provider, dates)         # {ts: (机构净买亿, 净买天数)}
+    except Exception as e:
+        logger.debug("[选股池] 龙虎榜机构净买获取失败（忽略）: %s", e)
+    for r in records:
+        v = inst_map.get(r["ts_code"])
+        r["inst_net_yi"] = round(float(v[0]), 2) if v else None
+        r["inst_buy_days"] = int(v[1]) if v else 0
+
+
 def _load_risk_extras(records: list[dict], trade_date: str, provider: CompositeProvider) -> None:
     """批量取筹码获利盘 + 近10日大宗折价，挂到 records（供风险扣分）。全市场批量·失败不阻塞。"""
     winner: dict[str, float] = {}
@@ -339,8 +385,8 @@ def _recent_block_discount(provider: CompositeProvider, end_date: str, n: int = 
     return {ts: round(s[0] / s[1], 2) for ts, s in agg.items() if s[1] > 0}
 
 
-def _compute_focus_scores(records: list[dict]) -> None:
-    """就地计算重点分(强度分 − 风险扣分)并星标本池最强 Top5。资金按当日横截面分位归一。"""
+def _compute_focus_scores(records: list[dict], market_label: str = "震荡") -> None:
+    """就地计算重点分(强度分 − 风险扣分 + 龙虎榜机构真钱加分)并星标本池最强 Top5。"""
     if not records:
         return
     flows = sorted(r["main_flow_3d"] for r in records)
@@ -357,7 +403,8 @@ def _compute_focus_scores(records: list[dict]) -> None:
         strength = (rps * 30 + flow_pct(r["main_flow_3d"]) * 25 + heat * 15
                     + cross * 15 + _vol_health(r["vol_ratio"]) * 10 + _ma_score(r) * 5)
         r["risk_penalty"] = _risk_penalty(r)
-        r["focus_score"] = round(max(strength - r["risk_penalty"], 0.0), 1)   # 风险调整
+        r["inst_bonus"] = _inst_bonus(r, market_label)                        # 龙虎榜机构真钱加分
+        r["focus_score"] = round(min(max(strength - r["risk_penalty"] + r["inst_bonus"], 0.0), 100.0), 1)
 
     for i, r in enumerate(sorted(records, key=lambda x: x["focus_score"], reverse=True)):
         r["star"] = 1 if i < _STAR_TOPN else 0

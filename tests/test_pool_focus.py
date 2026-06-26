@@ -70,6 +70,17 @@ def test_ramp_and_risk_penalty() -> None:
     assert SP._risk_penalty(brk) > 10                                        # -8%破位 → 扣>10
     assert SP._risk_penalty({**brk, "above_ma5": 1, "above_ma10": 1}) == 0.0  # 仍站MA5/10 → 不按破位罚
     assert SP._risk_penalty({**brk, "vol_ratio": 1.6}) > SP._risk_penalty(brk)  # 放量破位更重
+
+
+def test_inst_bonus_real_money() -> None:
+    """龙虎榜机构真钱：净买加分(弱市×1.5·含持续天数)、净卖扣分、无足迹=0。"""
+    assert SP._inst_bonus({"inst_net_yi": None}, "震荡") == 0.0                 # 无足迹→0
+    buy = SP._inst_bonus({"inst_net_yi": 2.0, "inst_buy_days": 2}, "震荡")
+    assert buy > 0                                                             # 机构真买→加分
+    weak = SP._inst_bonus({"inst_net_yi": 2.0, "inst_buy_days": 2}, "弱势")
+    assert abs(weak - buy * 1.5) < 0.2                                         # 弱市×1.5
+    assert SP._inst_bonus({"inst_net_yi": 5.0, "inst_buy_days": 5}, "震荡") <= SP._INST_BUY_CAP  # 封顶
+    assert SP._inst_bonus({"inst_net_yi": -2.0}, "震荡") < 0                    # 机构净卖→扣分
     # 出货(大宗折价)：直接卖压·不门控
     assert SP._risk_penalty({"block_discount": -8.0}) > 0       # 大宗折价8%→出货扣分
     assert SP._risk_penalty({"winner_rate": 60.0, "block_discount": 1.0}) == 0.0  # 健康→不罚
