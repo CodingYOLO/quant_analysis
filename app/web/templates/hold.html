@@ -63,9 +63,18 @@ h1 { font-size:22px; text-align:center; margin-bottom:4px; }
 
 {% block content %}
 <h1>🤚 拿得住 · 卖不卖决策器</h1>
-<div class="sub"><b>选股决定你赚不赚，卖出决定你赚多少。</b>对每只持仓走一遍《持有手册》四问——能客观判断的（破位/放量缩量/距止损/趋势锚）用真实数据替你答好，只留「逻辑还在吗」给你自查。<br><b style="color:#e5c07b">卖出判定刻意不看你的成本价</b>（治锚定成本）·盈亏只用来判断仓位是否过重。</div>
-<div class="intercept">💢 <b>手痒想卖、忍不住盯分时图？先停3秒。</b>分时图的红红绿绿是<b>噪音</b>，不是信号——你的持仓是周级的，用日内波动去判断中线方向，自然每天都被吓出去。<br>下面每只持仓都有「<b>💢 想卖它？走一遍</b>」按钮：点它，强制走完4问再决定。<b>光是这个停顿，就能拦下大半冲动单。</b></div>
-<div id="box"><div class="sub" style="padding:20px">⏳ 正在体检持仓并生成决策…</div></div>
+<div class="sub"><b>选股决定你赚不赚，卖出决定你赚多少。</b>临时手痒想动手时，对<b>任意股票</b>走一遍《持有手册》四问——能客观判断的（破位/放量缩量/距止损/趋势锚）用真实数据替你答好，只留「逻辑还在吗」给你自查。<br><b style="color:#e5c07b">卖出判定刻意不看你的成本价</b>（治锚定成本）·盈亏只用来判断仓位是否过重。</div>
+<div class="intercept">💢 <b>手痒想卖、忍不住盯分时图？先停3秒。</b>分时图的红红绿绿是<b>噪音</b>，不是信号——你的持仓是周级的，用日内波动去判断中线方向，自然每天都被吓出去。<br><b>光是停下来走一遍4问，就能拦下大半冲动单。</b></div>
+<div class="hd-card" style="border-left-color:#d4a24e">
+  <div style="font-size:15.5px;font-weight:700;color:#e8e8e8;margin-bottom:4px">💢 现在很想卖、或忍不住想动手的是哪只？</div>
+  <div class="sub" style="text-align:left;margin:0 0 10px;font-size:12px">输入任意股票（不必是持仓）→ 立刻走一遍冷静判断流程。</div>
+  <div style="display:flex;gap:10px;flex-wrap:wrap">
+    <input id="anycode" placeholder="代码 / 名称，如 通富微电 或 002156" style="flex:1;min-width:200px;background:#0f1117;color:#e8e8e8;border:1px solid #2d3052;border-radius:9px;padding:11px 13px;font-size:14.5px">
+    <button id="anygo" class="ov-btn primary" style="padding:11px 24px">开始冷静走一遍 →</button>
+  </div>
+  <div id="anymsg" class="sub" style="text-align:left;margin:8px 0 0;min-height:8px"></div>
+</div>
+<div id="box"></div>
 <div id="ov" class="ov" style="display:none"><div class="ov-inner" id="ov-inner"></div></div>
 {% endblock %}
 
@@ -79,10 +88,11 @@ async function load(){
     const j=await (await fetch('/api/hold/decisions')).json();
     if(!j.ok){ $('box').innerHTML='<div class="sub">❌ '+esc(j.msg||'加载失败')+'</div>'; return; }
     if(!j.decisions||!j.decisions.length){
-      $('box').innerHTML='<div class="hd-card" style="text-align:center;color:#9ca3af;border-left-color:#3a3f5c">还没有持仓。去 <a href="/portfolio" style="color:#7c9ef8">我的持仓</a> 把你买入的票标为「持仓」并填上成本/止损位，这里就会对它逐只给卖出决策。</div>';
+      $('box').innerHTML='<div class="sub" style="text-align:left;color:#6b7280;font-size:12px;margin-top:6px">（你还没标记持仓——没关系，上面输入框对<b>任意股票</b>都能走一遍。想让某只票常驻这里、并带上成本/止损的判定，去 <a href="/portfolio" style="color:#7c9ef8">我的持仓</a> 标为「持仓」。）</div>';
       return;
     }
-    $('box').innerHTML='<div class="sub" style="text-align:left;margin-bottom:10px;color:#8a90a0">📅 结构数据基于 <b>'+esc(j.date||'')+'</b> 收盘（看日线不看分时·手册原则）·现价实时 · 共 '+j.n_holding+' 只，最该处理的（止损/警惕）排最前。</div>'
+    $('box').innerHTML='<div style="font-size:15px;font-weight:700;color:#e8e8e8;margin:18px 0 6px">📋 你的持仓（逐只决策）</div>'
+      +'<div class="sub" style="text-align:left;margin-bottom:10px;color:#8a90a0">📅 结构数据基于 <b>'+esc(j.date||'')+'</b> 收盘（看日线不看分时·手册原则）·现价实时 · 共 '+j.n_holding+' 只，最该处理的（止损/警惕）排最前。</div>'
       + j.decisions.map(card).join('')
       + '<div class="sub" style="margin-top:8px;font-size:11px;color:#6b7280">⚠️ '+esc(j.disclaimer||'')+'</div>';
     _decmap={}; j.decisions.forEach(d=>{ _decmap[(d.ts_code||'').slice(0,6)]=d; });
@@ -94,11 +104,23 @@ let _decmap={}, _walk=null;
 document.getElementById('box').addEventListener('click', e=>{
   const b=e.target.closest('.walk-go'); if(b) openWalk(b.dataset.ts);
 });
-function openWalk(c6){
-  const d=_decmap[c6]; if(!d) return;
-  _walk={d:d, i:0, logicBroke:false};
-  $('ov').style.display='flex'; renderStep();
+function openWalk(c6){ const d=_decmap[c6]; if(d) openWalkD(d); }
+function openWalkD(d){ _walk={d:d, i:0, logicBroke:false}; $('ov').style.display='flex'; renderStep(); }
+
+// 通用入口：输入任意股票 → 现取数据走一遍（处理临时冲动）
+async function runAny(){
+  const v=$('anycode').value.trim(); if(!v) return;
+  const msg=$('anymsg'), btn=$('anygo');
+  msg.style.color='#9ca3af'; msg.textContent='⏳ 取数据中（约几秒）…'; btn.disabled=true;
+  try{
+    const d=await (await fetch('/api/hold/decide_one?code='+encodeURIComponent(v))).json();
+    if(!d.ok){ msg.style.color='#f0a020'; msg.textContent='❌ '+esc(d.msg||'失败'); return; }
+    msg.textContent=''; openWalkD(d);
+  }catch(e){ msg.style.color='#f0a020'; msg.textContent='❌ '+esc(String(e)); }
+  finally{ btn.disabled=false; }
 }
+$('anygo').onclick=runAny;
+$('anycode').addEventListener('keydown', e=>{ if(e.key==='Enter') runAny(); });
 function closeWalk(){ $('ov').style.display='none'; _walk=null; }
 function prog(active){ let s=''; for(let k=1;k<=4;k++) s+='<span class="'+(k<=active?'on':'')+'"></span>'; return '<div class="ov-prog">'+s+'</div>'; }
 

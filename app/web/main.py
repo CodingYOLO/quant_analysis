@@ -1007,6 +1007,23 @@ async def api_portfolio(_user: str = Depends(require_auth)):
         return {"ok": False, "msg": str(e)}
 
 
+@app.get("/api/hold/decide_one")
+async def api_hold_decide_one(code: str = "", _user: str = Depends(require_auth)):
+    """对任意股票(不必持仓)现取数据走4问——处理"临时冲动想动手"时的冷静判断。"""
+    try:
+        from fastapi.concurrency import run_in_threadpool
+
+        from app.strategy.hold_decision import decide_for_code
+        ts = _resolve_ts_code(code)
+        if not ts:
+            return {"ok": False, "msg": "无法识别股票（输入6位代码/名称）"}
+        name = _stock_name(ts) or ""
+        return await run_in_threadpool(decide_for_code, ts, name)
+    except Exception as e:
+        logger.exception("临时决策失败")
+        return {"ok": False, "msg": str(e)}
+
+
 @app.get("/api/hold/decisions")
 async def api_hold_decisions(_user: str = Depends(require_auth)):
     """拿得住·卖出决策器：对每只持仓按《持有手册》4问做数据接地的'卖不卖'判定。"""

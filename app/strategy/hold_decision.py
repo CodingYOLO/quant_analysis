@@ -88,6 +88,72 @@ def _check_position(row: dict) -> dict:
             "note": "这条只用来判断仓位，不影响上面的卖出判定（卖出只看趋势纪律，不看你赚没赚）。"}
 
 
+def _last_valid(arr):
+    for x in reversed(arr or []):
+        if x is not None:
+            return x
+    return None
+
+
+def decide_for_code(ts_code: str, name: str = "", provider=None) -> dict:
+    """对**任意股票**（不必是持仓）现取数据走4问——处理"临时冲动想动手"时的冷静判断。
+
+    结构信号(站MA20/MA20向上/量比/趋势)从日K算(看日线不看分时·手册原则)，现价用实时；
+    若恰好在你持仓里，自动带出成本/止损/买入理由。返回 {ok, ...decide()}。
+    """
+    if provider is None:
+        from app.data.composite_provider import CompositeProvider
+        provider = CompositeProvider()
+    from app.strategy.stock_profile import build_stock_profile
+    prof = build_stock_profile(ts_code, name, provider)
+    if not prof.get("ok"):
+        return {"ok": False, "msg": prof.get("msg", "数据不足，无法判断")}
+
+    kl = prof.get("kline") or {}
+    closes = [c[1] for c in (kl.get("candle") or []) if c]
+    ma20_arr, ma60_arr, vols = kl.get("ma20") or [], kl.get("ma60") or [], kl.get("vol") or []
+    ma20, ma60 = _last_valid(ma20_arr), _last_valid(ma60_arr)
+
+    price = pct = None                                       # 现价：实时优先，回退到日K收盘
+    try:
+        q = provider.get_realtime_quote([ts_code])
+        if q is not None and not q.empty:
+            price = round(float(q.iloc[0]["price"]), 2)
+            pct = round(float(q.iloc[0]["pct_chg"]), 2)
+    except Exception:
+        pass
+    if price is None and closes:
+        price = round(float(closes[-1]), 2)
+
+    above20 = (price >= ma20) if (price and ma20) else None
+    above60 = (price >= ma60) if (price and ma60) else None
+    ma20_up = (ma20_arr[-1] > ma20_arr[-4]) if (len(ma20_arr) >= 4 and ma20_arr[-1] and ma20_arr[-4]) else None
+    vr = None
+    if len(vols) >= 6 and vols[-1] is not None:
+        prior = [v for v in vols[-6:-1] if v]
+        if prior:
+            vr = round(vols[-1] / (sum(prior) / len(prior)), 2)
+
+    cost = stop = note = pnl = None                         # 若恰好是持仓 → 带出成本/止损/理由
+    try:
+        from app.strategy import db
+        for w in (db.get_watchlist() or []):
+            if w.get("ts_code") == ts_code:
+                cost, stop, note = w.get("cost"), w.get("stop_loss"), w.get("note")
+                break
+        if cost and price:
+            pnl = round((price / cost - 1) * 100, 2)
+    except Exception:
+        pass
+
+    row = {"ts_code": ts_code, "name": name or prof.get("name") or ts_code,
+           "price": price, "pct_chg": pct, "above_ma20": above20, "above_ma60": above60,
+           "ma20_up": ma20_up, "volume_ratio": vr, "ma20": round(ma20, 2) if ma20 else None,
+           "stop_loss": stop, "pnl": pnl, "note": note}
+    return {"ok": True, "name": row["name"], "ts_code": ts_code, "price": price, "pct_chg": pct,
+            "is_holding": bool(cost or stop), **decide(row)}
+
+
 def decide(row: dict) -> dict:
     """对一只持仓给出'卖不卖'的纪律化判定 + 四问逐条（数据接地）。
 
