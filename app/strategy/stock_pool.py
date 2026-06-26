@@ -218,7 +218,9 @@ _RISK_WINNER = (85.0, 96.0, 6.0)  # 获利盘：85%起、96%封顶 → 0~6（普
 # 低位/中位的高获利盘可能是主力吸筹/突破，不该当风险——保护"筹码集中=拉升前"那类票。
 _WINNER_POS_GATE = (-15.0, -3.0)
 _RISK_BLOCK = (2.0, 9.0, 5.0)     # 大宗折价幅度：2%起、9%封顶 → 0~5（折价出货·直接卖压不门控）
-_RISK_MAX = 30.0                   # 风险扣分上限
+# 当日破位大跌：跌破MA5/10 且当日下跌 → 按跌幅扣分（修"前期强但今天破位还排第一"的后视镜缺陷）。
+_RISK_BREAKDOWN = (2.0, 9.0, 14.0)   # 当日跌幅(跌破MA5/10时)：2%起、9%封顶 → 0~14；放量再×1.3(资金在撤·别接刀)
+_RISK_MAX = 36.0                   # 风险扣分上限
 # 质量门槛：只留重点分≥此值的"真正强的"，收紧池子(对标吴川·宁缺毋滥)。
 # 数量随行情变：弱市少(诚实)；普涨强势日再加 _POOL_MAX 封顶，避免爆量(对标吴川精选感)。
 _POOL_MIN_FOCUS = 60.0
@@ -278,7 +280,15 @@ def _risk_penalty(rec: dict) -> float:
     # 大宗折价：block_discount 负=折价；取折价幅度(正值)罚（直接卖压，不门控）
     disc = -(rec.get("block_discount") or 0.0)
     lo, hi, w = _RISK_BLOCK; p_blk = _ramp(disc, lo, hi) * w
-    return round(min(p_bias + p_chase + p_high + p_win + p_blk, _RISK_MAX), 1)
+    # 当日破位大跌：仅当已跌破MA5/10(短线走坏)且当日下跌才罚；放量破位=资金撤·加重(别接刀)
+    p_break = 0.0
+    broke_short = not (rec.get("above_ma5") and rec.get("above_ma10"))
+    drop = -(rec.get("pct_chg") or 0.0)
+    if broke_short and drop > 0:
+        lo, hi, w = _RISK_BREAKDOWN; p_break = _ramp(drop, lo, hi) * w
+        if (rec.get("vol_ratio") or 1.0) >= 1.5:
+            p_break *= 1.3
+    return round(min(p_bias + p_chase + p_high + p_win + p_blk + p_break, _RISK_MAX), 1)
 
 
 def _load_risk_extras(records: list[dict], trade_date: str, provider: CompositeProvider) -> None:

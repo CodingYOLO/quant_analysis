@@ -65,6 +65,11 @@ def test_ramp_and_risk_penalty() -> None:
     # 抛压(高获利盘)：仅高位才计——位置门控保护低位吸筹股
     assert SP._risk_penalty({"winner_rate": 95.0, "dist_high": -2.0}) > 0    # 高位+高获利盘→抛压扣分
     assert SP._risk_penalty({"winner_rate": 95.0, "dist_high": -25.0}) == 0.0  # 低位高获利盘(吸筹)→不罚
+    # 当日破位大跌：跌破MA5/10且大跌→重罚(修"前期强但今天破位仍排第一")；站MA5/10即便下跌也不按此罚
+    brk = {"above_ma5": 0, "above_ma10": 0, "pct_chg": -8.0, "vol_ratio": 1.0, "dist_high": -30.0}
+    assert SP._risk_penalty(brk) > 10                                        # -8%破位 → 扣>10
+    assert SP._risk_penalty({**brk, "above_ma5": 1, "above_ma10": 1}) == 0.0  # 仍站MA5/10 → 不按破位罚
+    assert SP._risk_penalty({**brk, "vol_ratio": 1.6}) > SP._risk_penalty(brk)  # 放量破位更重
     # 出货(大宗折价)：直接卖压·不门控
     assert SP._risk_penalty({"block_discount": -8.0}) > 0       # 大宗折价8%→出货扣分
     assert SP._risk_penalty({"winner_rate": 60.0, "block_discount": 1.0}) == 0.0  # 健康→不罚
