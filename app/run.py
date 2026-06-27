@@ -241,6 +241,21 @@ def watch_scan_cmd(force: bool, no_push: bool) -> None:
         console.print("[dim]无新触发（或非交易时段，用 --force 强测）[/dim]")
 
 
+@cli.command("market-scan")
+@click.option("--force", is_flag=True, default=False, help="忽略交易时段限制（手动测试）")
+@click.option("--no-push", is_flag=True, default=False, help="只算不推（预览）")
+def market_scan_cmd(force: bool, no_push: bool) -> None:
+    """全市场盘中提醒：扫雷达→板块弱转强/涨停潮/强势热点推 Bark（不必加自选）。cron 每15分钟跑。"""
+    from app.strategy.market_alert import scan_market_alerts
+    new = scan_market_alerts(push=not no_push, force=force)
+    if new:
+        console.print(f"[bold green]🌐 全市场新事件 {len(new)} 条{'（已推 Bark）' if not no_push else ''}[/bold green]")
+        for a in new:
+            console.print(f"  {a['title']}: {a['body'].splitlines()[0]}")
+    else:
+        console.print("[dim]无新市场事件（或非交易时段，用 --force 强测）[/dim]")
+
+
 @cli.command("pre")
 @click.option("--date", "trade_date", default="", help="交易日 YYYYMMDD，默认今日")
 @click.option("--no-notify", is_flag=True, default=False)
