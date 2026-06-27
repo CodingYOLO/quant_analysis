@@ -49,9 +49,14 @@
     <table><thead><tr><th>股票</th><th>5分钟</th></tr></thead><tbody id="rtSurge"></tbody></table></div>
 </div>
 
-<div class="card"><h2>📉 资金撤离板块 · 风险<span class="rt-tag">主力在撤 · 留意退潮</span></h2>
-  <table><thead><tr><th>板块</th><th>主动净卖</th><th>均跌</th><th>龙头</th></tr></thead>
-  <tbody id="rtSecOut"></tbody></table></div>
+<div class="rt-2col">
+  <div class="card"><h2>📉 资金撤离板块 · 风险<span class="rt-tag">主力在撤</span></h2>
+    <table><thead><tr><th>板块</th><th>主动净卖</th><th>均跌</th><th>龙头</th></tr></thead>
+    <tbody id="rtSecOut"></tbody></table></div>
+  <div class="card"><h2>💥 急跌 / 闪崩 · 风险<span class="rt-tag">3分钟跌速+放量主动砸</span></h2>
+    <table><thead><tr><th>股票</th><th>3分钟</th><th>主动卖</th><th>级别</th></tr></thead>
+    <tbody id="rtFlash"></tbody></table></div>
+</div>
 
 <div class="card"><h2>💼 我的持仓 · 实时体检<span class="rt-tag">附加 · 非盯盘重心</span></h2>
   <table><thead><tr><th>股票</th><th>涨幅</th><th>量比</th><th>主动买卖</th><th>体检</th></tr></thead>
@@ -84,6 +89,13 @@ function renderSectors(rows){
       <td class="${cls(r.net_yi)}">${sgn(r.net_yi)}亿</td><td class="${cls(r.avg_pct)}">${sgn(r.avg_pct)}%</td>
       <td>${lead(r)}</td><td class="${cls(r.leader_pct)}">${sgn(r.leader_pct)}%</td>
       <td><span class="rt-bar"><i style="width:${op}%"></i></span> ${op}%</td></tr>`;}).join('');
+}
+function renderFlash(rows){
+  if(!rows||!rows.length){ $('rtFlash').innerHTML='<tr><td colspan="4" class="rt-empty">暂无急跌/闪崩</td></tr>'; return; }
+  $('rtFlash').innerHTML=rows.map(r=>{const inn=Math.round((1-r.outer_ratio)*100);
+    const tag=r.tier==='crash'?'<span class="badge badge-red">闪崩</span>':'<span class="badge badge-yellow">急跌</span>';
+    return `<tr><td>${r.name}</td><td class="neg">${r.drop}%</td>
+      <td class="neg">内盘${inn}%</td><td>${tag}</td></tr>`;}).join('');
 }
 function renderTail(t){
   const card=$('rtTailCard');
@@ -138,8 +150,8 @@ async function tick(){
     const d=await (await fetch('/api/realtime/board')).json();
     if(!d.ok){ $('rtStatus').textContent='加载失败：'+(d.msg||''); return; }
     renderStatus(d); renderBreadth(d.breadth); renderSectors(d.sectors); renderThemes(d.themes);
-    renderTail(d.tail); renderSecOut(d.sectors_out); renderFund(d.fund_ranking);
-    renderSurge(d.surge); renderHold(d.holdings);
+    renderTail(d.tail); renderSecOut(d.sectors_out); renderFlash(d.flash);
+    renderFund(d.fund_ranking); renderSurge(d.surge); renderHold(d.holdings);
   }catch(e){ $('rtStatus').textContent='网络错误：'+e; }
 }
 async function testPush(){

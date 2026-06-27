@@ -183,6 +183,33 @@ def detect_theme_fermentation(rows: list[dict], concept_map: dict, *, min_hot: i
     return out
 
 
+def detect_flash_crashes(rows: list[dict], past_prices: dict, *, warn_drop: float = -4.0,
+                         crash_drop: float = -6.0, min_vol_ratio: float = 1.5,
+                         max_outer_ratio: float = 0.45, min_amount: float = 1e8) -> list[dict]:
+    """个股闪崩/急跌预警：瞬时跌速 + 放量 + 主动卖盘(内盘主导)。
+
+    past_prices={code: 约3分钟前价}（取自急拉历史缓冲）。
+    tier: warn(急跌·提醒) / crash(闪崩·极速+放量+主动砸·重点)。
+    """
+    out = []
+    for r in rows:
+        p_old = past_prices.get(r["ts_code"])
+        if not p_old or p_old <= 0 or float(r.get("amount") or 0) < min_amount:
+            continue
+        drop = round((float(r.get("price") or 0) / p_old - 1) * 100, 2)
+        if drop > warn_drop:                       # 跌速未达预警线
+            continue
+        o_ratio = outer_ratio(r.get("inner") or 0, r.get("outer") or 0)
+        vr = float(r.get("vol_ratio") or 0)
+        tier = ("crash" if drop <= crash_drop and vr >= min_vol_ratio
+                and o_ratio <= max_outer_ratio else "warn")
+        out.append({"ts_code": r["ts_code"], "name": r.get("name", ""), "drop": drop,
+                    "tier": tier, "pct_chg": round(float(r.get("pct_chg") or 0), 2),
+                    "outer_ratio": round(o_ratio, 3), "vol_ratio": round(vr, 2)})
+    out.sort(key=lambda x: x["drop"])              # 跌得最狠在前
+    return out
+
+
 def holding_health(row: dict, stop_loss: float | None) -> tuple[str, str]:
     """持仓实时体检 → (标签, 原因)。标签: 健康 / 留意 / 风险。"""
     pct = float(row.get("pct_chg") or 0)

@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import pandas as pd
 
-from app.strategy.realtime_fund import (active_net_yi, detect_limit_breaks,
-                                        detect_theme_fermentation, fund_ranking,
-                                        fund_surge_events, holding_health, outer_ratio,
-                                        sector_board, sector_flow_events, tail_baseline_of,
-                                        tail_movers, tail_sector_flow, velocity_events)
+from app.strategy.realtime_fund import (active_net_yi, detect_flash_crashes,
+                                        detect_limit_breaks, detect_theme_fermentation,
+                                        fund_ranking, fund_surge_events, holding_health,
+                                        outer_ratio, sector_board, sector_flow_events,
+                                        tail_baseline_of, tail_movers, tail_sector_flow,
+                                        velocity_events)
 
 
 def _df() -> pd.DataFrame:
@@ -148,6 +149,23 @@ def test_tail_sector_flow() -> None:
     imap = {"A.SH": "CPO", "B.SH": "CPO", "C.SH": "CPO"}
     sf = tail_sector_flow(now, base, imap)
     assert sf[0]["industry"] == "CPO" and sf[0]["n"] == 3 and sf[0]["net_tail"] > 0
+
+
+def test_flash_crashes_tiers() -> None:
+    """闪崩=极速跌+放量+主动卖;急跌=只够速度;小幅/小额剔除。"""
+    past = {"A.SH": 10.0, "B.SH": 10.0, "C.SH": 10.0, "D.SH": 10.0}
+    rows = [
+        {"ts_code": "A.SH", "name": "闪崩", "price": 9.3, "amount": 2e8, "vol_ratio": 2.0,
+         "inner": 300000, "outer": 100000, "pct_chg": -8},      # -7%·放量·内盘主导 → crash
+        {"ts_code": "B.SH", "name": "急跌", "price": 9.5, "amount": 2e8, "vol_ratio": 1.0,
+         "inner": 100000, "outer": 100000, "pct_chg": -5},      # -5%·不放量 → warn
+        {"ts_code": "C.SH", "name": "小跌", "price": 9.8, "amount": 2e8, "vol_ratio": 2.0,
+         "inner": 300000, "outer": 100000, "pct_chg": -2},      # -2% 未达预警 → 无
+        {"ts_code": "D.SH", "name": "小额", "price": 9.0, "amount": 2e7, "vol_ratio": 3.0,
+         "inner": 300000, "outer": 100000, "pct_chg": -10},     # -10%但成交额<1亿 → 剔除
+    ]
+    res = {f["ts_code"]: f["tier"] for f in detect_flash_crashes(rows, past)}
+    assert res == {"A.SH": "crash", "B.SH": "warn"}
 
 
 def test_empty_inputs_safe() -> None:

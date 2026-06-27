@@ -147,31 +147,39 @@ def build_board() -> dict:
     full = sector_board(df, imap)                          # 全部板块·含龙头
     base["sectors"] = full[:12]                            # 资金涌入榜(机会)
     base["sectors_out"] = [s for s in reversed(full) if s["net_yi"] < 0][:6]   # 资金撤离(风险)
+    records = df.to_dict("records")                       # 转一次·多块复用
     base.update(_radar_block(df, imap))
-    base["themes"] = _theme_block(df)
-    base["tail"] = _tail_block(df, imap)
+    base["themes"] = _theme_block(records)
+    base["tail"] = _tail_block(records, imap)
+    base["flash"] = _flash_block(records)
     base["surge"] = _velocity_block()
     base["holdings"] = _holdings_block()
     return base
 
 
-def _tail_block(df, imap: dict) -> dict:
+def _tail_block(records: list[dict], imap: dict) -> dict:
     """尾盘异动块（仅尾盘时段且已记录14:30基准时填充）。"""
     if not is_tail_session() or not tail_baseline():
         return {}
     from app.strategy.realtime_fund import tail_movers, tail_sector_flow
-    rows, tb = df.to_dict("records"), tail_baseline()
-    mv = tail_movers(rows, tb)
-    return {"sectors": tail_sector_flow(rows, tb, imap, top=8),
+    tb = tail_baseline()
+    mv = tail_movers(records, tb)
+    return {"sectors": tail_sector_flow(records, tb, imap, top=8),
             "ups": [m for m in mv if m["kind"] == "up"][:8],
             "downs": [m for m in mv if m["kind"] == "down"][:8]}
 
 
-def _theme_block(df) -> list[dict]:
+def _flash_block(records: list[dict]) -> list[dict]:
+    """急跌/闪崩监控（3分钟瞬时跌速 + 放量 + 内盘主动砸）。"""
+    from app.strategy.realtime_fund import detect_flash_crashes
+    return detect_flash_crashes(records, past_prices(3.0))[:8]
+
+
+def _theme_block(records: list[dict]) -> list[dict]:
     """题材发酵榜（Tushare概念成分 × 全推实时涨幅）。"""
     from app.strategy.realtime_fund import detect_theme_fermentation
     try:
-        return detect_theme_fermentation(df.to_dict("records"), concept_map())[:8]
+        return detect_theme_fermentation(records, concept_map())[:8]
     except Exception as e:
         logger.warning("[实时枢纽] 题材发酵失败：%s", e)
         return []
