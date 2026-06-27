@@ -110,6 +110,8 @@ FACTOR_GROUPS = [
             {"key": "repeat_inflow6", "label": "主力反复净流入(近10日≥6天·估算)", "col": "inflow_days_10", "op": "ge", "val": 6},
             {"key": "consec_inflow3", "label": "主力连续净流入≥3天(估算·真持续)", "col": "consec_inflow", "op": "ge", "val": 3},
             {"key": "sector_inflow5", "label": "板块资金偏持续流入(近10日≥5天·估算)", "col": "sector_inflow_days", "op": "ge", "val": 5},
+            {"key": "fund_sustained", "label": "真·持续吸筹(非脉冲·近期未退潮·估算)", "col": "fund_sustained", "op": "true"},
+            {"key": "fund_no_pulse", "label": "剔除假流入(脉冲后退潮·估算)", "col": "fund_pulse_fade", "op": "false"},
         ],
     },
     {
@@ -186,6 +188,7 @@ CUSTOM_FIELDS = [
     {"col": "amp20", "label": "近20日均振幅%"}, {"col": "main_net_3d", "label": "主力近3日(亿)"},
     {"col": "inflow_days_10", "label": "主力净流入天数(近10)"}, {"col": "consec_inflow", "label": "连续净流入天数"},
     {"col": "sector_inflow_days", "label": "板块流入天数(近10)"},
+    {"col": "fund_pulse_ratio", "label": "资金脉冲集中度"}, {"col": "fund_recent2d", "label": "近2日资金(亿)"},
     {"col": "up_down_vol", "label": "量价配合(涨量/跌量)"}, {"col": "amp_contract", "label": "振幅收敛比"},
     {"col": "ret5", "label": "近5日涨幅%"},
     {"col": "limit_ups_60d", "label": "近60日涨停数"}, {"col": "max_consec_limit", "label": "最高连板"},
@@ -219,7 +222,7 @@ DISPLAY_COLS = [
 # ──────────────────────────────────────────────
 
 # 因子表结构版本：新增因子列时 +1，使旧缓存自动失效重算（避免读到缺列的旧表）
-_FACTOR_TABLE_VERSION = "v13"  # v13: 加 主力反复净流入(近10日天数/连续)+板块持续流入(估算口径)；v12 sector_strong
+_FACTOR_TABLE_VERSION = "v14"  # v14: 加 资金脉冲质量(真持续/脉冲退潮假流入·借鉴稳智Ai持续vs脉冲)；v13 反复净流入
 
 
 def _factor_cache_path(date: str) -> Path:
@@ -499,6 +502,24 @@ def _inflow_counts(nets: list) -> tuple[int, int]:
     return days, consec
 
 
+def _flow_quality(nets: list, inflow_days: int) -> tuple:
+    """资金脉冲质量（借鉴"持续流入 vs 脉冲后退潮"）：(脉冲集中度, 近2日净亿, 真持续, 脉冲退潮假流入)。
+
+    - 脉冲集中度 = 最大单日流入 / 累计流入（越高=越靠一两天脉冲·越假）；
+    - 近2日净 < 0 = 近期在退潮；
+    - **真持续** = 流入天数≥6 且 非脉冲主导(集中度<0.5) 且 近期未退潮（近2日≥0）；
+    - **脉冲退潮(假流入)** = 有过流入但一两天主导(集中度≥0.6) 且 近期已转流出（近2日<0）。
+    """
+    positives = [x for x in nets if x is not None and x > 0]
+    total_pos = sum(positives)
+    pulse = round(max(positives) / total_pos, 2) if total_pos > 0 else 0.0
+    valid = [x for x in nets if x is not None]
+    recent2 = round(sum(valid[-2:]), 2) if valid else 0.0
+    sustained = inflow_days >= 6 and pulse < 0.5 and recent2 >= 0
+    fade = inflow_days >= 2 and pulse >= 0.6 and recent2 < -0.01
+    return pulse, recent2, sustained, fade
+
+
 def _add_fund_repeat_inflow(df: pd.DataFrame, date: str, provider, window: int = 10) -> pd.DataFrame:
     """主力(估算)资金「反复净流入」：近 window 日 净流入天数 + 连续净流入天数 + 板块持续流入天数。
 
@@ -508,6 +529,10 @@ def _add_fund_repeat_inflow(df: pd.DataFrame, date: str, provider, window: int =
     df["inflow_days_10"] = 0
     df["consec_inflow"] = 0
     df["sector_inflow_days"] = 0
+    df["fund_pulse_ratio"] = np.nan
+    df["fund_recent2d"] = np.nan
+    df["fund_sustained"] = False
+    df["fund_pulse_fade"] = False
     try:
         from app.factors.breadth_qfq import _recent_trade_dates
         dates = _recent_trade_dates(provider, date, window)        # 升序·末=最新
@@ -531,15 +556,22 @@ def _add_fund_repeat_inflow(df: pd.DataFrame, date: str, provider, window: int =
                     m[ts] = float(v) / 1e4
         day_nets.append(m)
 
-    # 个股：净流入天数 + 连续净流入天数
-    inflow_days, consec = {}, {}
+    # 个股：净流入天数/连续 + 脉冲质量(真持续 vs 脉冲后退潮假流入)
+    inflow_days, consec, pulse_r, recent2, sustained, fade = {}, {}, {}, {}, {}, {}
     for ts in df["ts_code"]:
         nets = [m.get(ts) for m in day_nets]
         if not any(x is not None for x in nets):
             continue
-        inflow_days[ts], consec[ts] = _inflow_counts(nets)
+        d, c = _inflow_counts(nets)
+        inflow_days[ts], consec[ts] = d, c
+        pr, r2, sus, fd = _flow_quality(nets, d)
+        pulse_r[ts], recent2[ts], sustained[ts], fade[ts] = pr, r2, sus, fd
     df["inflow_days_10"] = df["ts_code"].map(inflow_days).fillna(0).astype(int)
     df["consec_inflow"] = df["ts_code"].map(consec).fillna(0).astype(int)
+    df["fund_pulse_ratio"] = df["ts_code"].map(pulse_r)
+    df["fund_recent2d"] = df["ts_code"].map(recent2)
+    df["fund_sustained"] = df["ts_code"].map(sustained).fillna(False).astype(bool)
+    df["fund_pulse_fade"] = df["ts_code"].map(fade).fillna(False).astype(bool)
 
     # 板块：逐日按行业汇总净流入 → 行业净流入天数（先选对持续流入的板块）
     ind_map = dict(zip(df["ts_code"], df.get("industry", pd.Series("", index=df.index)).fillna("")))

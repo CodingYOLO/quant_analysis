@@ -73,6 +73,20 @@ def test_inflow_counts() -> None:
     assert SC._inflow_counts([None, None]) == (0, 0)
 
 
+def test_flow_quality_sustained_vs_pulse() -> None:
+    """资金脉冲质量：均匀多日流入=真持续；一两天脉冲后转流出=假流入(脉冲退潮)。"""
+    # 8天里6天小幅流入、近2日还在流入·非脉冲 → 真持续
+    even = [0.3, 0.4, -0.1, 0.5, 0.3, 0.4, 0.2, 0.3]
+    pulse, r2, sus, fade = SC._flow_quality(even, inflow_days=7)
+    assert sus is True and fade is False and pulse < 0.5
+    # 一天大脉冲(+10)主导、近2日转流出 → 脉冲退潮假流入
+    spike = [10.0, 0.2, -0.1, -0.3, -2.0, -1.5]
+    pulse2, r2b, sus2, fade2 = SC._flow_quality(spike, inflow_days=2)
+    assert fade2 is True and sus2 is False and pulse2 >= 0.6 and r2b < 0
+    # 全空 → 不报真持续也不报假流入
+    assert SC._flow_quality([None, None], inflow_days=0) == (0.0, 0.0, False, False)
+
+
 def test_sector_strength_flag() -> None:
     """板块走强：行业RPS中位≥55且≥3只→True；弱行业/不足3只→False。"""
     df = pd.DataFrame({
