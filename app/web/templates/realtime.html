@@ -6,17 +6,19 @@
   .rt-dot { width:9px; height:9px; border-radius:50%; display:inline-block; }
   .rt-live { background:#4ade80; box-shadow:0 0 6px #4ade80; } .rt-off { background:#f87171; }
   .rt-note { font-size:11px; color:#5b6478; font-weight:400; margin-left:8px; }
-  .rt-metrics { display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:12px; }
-  .rt-metric { background:#0f1117; border:1px solid #2d3052; border-radius:8px; padding:12px 14px; }
+  .rt-metrics { display:grid; grid-template-columns:repeat(auto-fit,minmax(115px,1fr)); gap:12px; }
+  .rt-metric { background:#0f1117; border:1px solid #2d3052; border-radius:8px; padding:11px 14px; }
   .rt-metric .lbl { font-size:12px; color:#9ca3af; margin-bottom:5px; }
-  .rt-metric .val { font-size:22px; font-weight:600; }
+  .rt-metric .val { font-size:21px; font-weight:600; }
   .rt-2col { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
   @media (max-width:760px){ .rt-2col { grid-template-columns:1fr; } }
-  .rt-bar { display:inline-block; width:54px; height:7px; border-radius:4px; overflow:hidden; vertical-align:middle; background:#1a3b2a; }
+  .rt-lead { color:#cdd6f4; } .rt-lead b { color:#fff; font-weight:600; }
+  .rt-bar { display:inline-block; width:46px; height:7px; border-radius:4px; overflow:hidden; vertical-align:middle; background:#1a3b2a; }
   .rt-bar > i { display:block; height:100%; background:#f87171; }
   .rt-btn { background:#2742a8; color:#fff; border:none; border-radius:8px; padding:9px 16px; cursor:pointer; font-size:13px; }
   .rt-btn:disabled { opacity:.5; }
   .rt-empty { color:#5b6478; padding:14px; text-align:center; }
+  .card h2 .rt-tag { font-size:11px; font-weight:400; color:#5b6478; margin-left:8px; }
 {% endblock %}
 
 {% block content %}
@@ -25,20 +27,24 @@
 <div class="card"><h2>🌡️ 大盘温度</h2><div class="rt-metrics" id="rtBreadth"></div></div>
 
 <div class="card">
-  <h2>💰 实时资金流向榜 · 主动净买<span class="rt-note">L1内外盘估算 · 非龙虎榜机构真钱</span></h2>
-  <table><thead><tr><th>股票</th><th>现价</th><th>涨幅</th><th>主动净买</th><th>外盘占比</th><th>量比</th></tr></thead>
-  <tbody id="rtFund"></tbody></table>
+  <h2>🏆 板块龙头榜 · 资金涌入<span class="rt-tag">钱往哪走 · 龙头=板块内主动净买最大</span></h2>
+  <table><thead><tr><th>板块</th><th>主动净买</th><th>均涨</th><th>龙头</th><th>龙头涨幅</th><th>龙头外盘</th></tr></thead>
+  <tbody id="rtSectors"></tbody></table>
 </div>
 
 <div class="rt-2col">
-  <div class="card"><h2>🔄 板块资金流 · 主动净买</h2>
-    <table><thead><tr><th>板块</th><th>净买(亿)</th><th>均涨</th><th>家数</th></tr></thead>
-    <tbody id="rtSector"></tbody></table></div>
+  <div class="card"><h2>💰 全市场资金流向榜</h2>
+    <table><thead><tr><th>股票</th><th>涨幅</th><th>主动净买</th><th>外盘</th></tr></thead>
+    <tbody id="rtFund"></tbody></table></div>
   <div class="card"><h2>⚡ 急拉榜 · 5分钟涨速</h2>
     <table><thead><tr><th>股票</th><th>5分钟</th></tr></thead><tbody id="rtSurge"></tbody></table></div>
 </div>
 
-<div class="card"><h2>💼 持仓实时体检</h2>
+<div class="card"><h2>📉 资金撤离板块 · 风险<span class="rt-tag">主力在撤 · 留意退潮</span></h2>
+  <table><thead><tr><th>板块</th><th>主动净卖</th><th>均跌</th><th>龙头</th></tr></thead>
+  <tbody id="rtSecOut"></tbody></table></div>
+
+<div class="card"><h2>💼 我的持仓 · 实时体检<span class="rt-tag">附加 · 非盯盘重心</span></h2>
   <table><thead><tr><th>股票</th><th>涨幅</th><th>量比</th><th>主动买卖</th><th>体检</th></tr></thead>
   <tbody id="rtHold"></tbody></table></div>
 
@@ -53,6 +59,7 @@
 const $=id=>document.getElementById(id);
 const cls=v=> v>0?'pos':(v<0?'neg':'neu');
 const sgn=v=> (v>0?'+':'')+v;
+const lead=r=>`<span class="rt-lead"><b>${r.leader||'-'}</b></span>`;
 
 function renderBreadth(b){
   if(!b||!b.total){ $('rtBreadth').innerHTML='<div class="rt-empty">暂无数据</div>'; return; }
@@ -61,21 +68,25 @@ function renderBreadth(b){
     ['总数',b.total]];
   $('rtBreadth').innerHTML=m.map(x=>`<div class="rt-metric"><div class="lbl">${x[0]}</div><div class="val">${x[1]}</div></div>`).join('');
 }
-function renderFund(rows){
-  if(!rows||!rows.length){ $('rtFund').innerHTML='<tr><td colspan="6" class="rt-empty">暂无数据</td></tr>'; return; }
-  $('rtFund').innerHTML=rows.map(r=>{
-    const op=Math.round(r.outer_ratio*100);
-    return `<tr><td>${r.name}<span class="neu" style="font-size:11px"> ${r.ts_code.slice(0,6)}</span></td>
-      <td>${r.price}</td><td class="${cls(r.pct_chg)}">${sgn(r.pct_chg)}%</td>
-      <td class="${cls(r.net_yi)}">${sgn(r.net_yi)}亿</td>
-      <td><span class="rt-bar"><i style="width:${op}%"></i></span> ${op}%</td>
-      <td class="neu">${r.vol_ratio}</td></tr>`;}).join('');
+function renderSectors(rows){
+  if(!rows||!rows.length){ $('rtSectors').innerHTML='<tr><td colspan="6" class="rt-empty">暂无数据</td></tr>'; return; }
+  $('rtSectors').innerHTML=rows.map(r=>{const op=Math.round((r.leader_outer||0)*100);
+    return `<tr><td><b>${r.industry}</b><span class="neu" style="font-size:11px"> ${r.n}只</span></td>
+      <td class="${cls(r.net_yi)}">${sgn(r.net_yi)}亿</td><td class="${cls(r.avg_pct)}">${sgn(r.avg_pct)}%</td>
+      <td>${lead(r)}</td><td class="${cls(r.leader_pct)}">${sgn(r.leader_pct)}%</td>
+      <td><span class="rt-bar"><i style="width:${op}%"></i></span> ${op}%</td></tr>`;}).join('');
 }
-function renderSector(rows){
-  if(!rows||!rows.length){ $('rtSector').innerHTML='<tr><td colspan="4" class="rt-empty">暂无数据</td></tr>'; return; }
-  $('rtSector').innerHTML=rows.map(r=>`<tr><td>${r.industry}</td>
-    <td class="${cls(r.net_yi)}">${sgn(r.net_yi)}</td><td class="${cls(r.avg_pct)}">${sgn(r.avg_pct)}%</td>
-    <td class="neu">${r.n}</td></tr>`).join('');
+function renderSecOut(rows){
+  if(!rows||!rows.length){ $('rtSecOut').innerHTML='<tr><td colspan="4" class="rt-empty">暂无明显资金撤离</td></tr>'; return; }
+  $('rtSecOut').innerHTML=rows.map(r=>`<tr><td><b>${r.industry}</b></td>
+    <td class="neg">${r.net_yi}亿</td><td class="${cls(r.avg_pct)}">${sgn(r.avg_pct)}%</td><td>${lead(r)}</td></tr>`).join('');
+}
+function renderFund(rows){
+  if(!rows||!rows.length){ $('rtFund').innerHTML='<tr><td colspan="4" class="rt-empty">暂无数据</td></tr>'; return; }
+  $('rtFund').innerHTML=rows.map(r=>{const op=Math.round(r.outer_ratio*100);
+    return `<tr><td>${r.name}</td><td class="${cls(r.pct_chg)}">${sgn(r.pct_chg)}%</td>
+      <td class="${cls(r.net_yi)}">${sgn(r.net_yi)}亿</td>
+      <td><span class="rt-bar"><i style="width:${op}%"></i></span> ${op}%</td></tr>`;}).join('');
 }
 function renderSurge(rows){
   if(!rows||!rows.length){ $('rtSurge').innerHTML='<tr><td colspan="2" class="rt-empty">暂无急拉（或正在积累5分钟历史）</td></tr>'; return; }
@@ -90,17 +101,16 @@ function renderHold(rows){
       <td><span class="badge ${bd[r.label]||'badge-blue'}">${r.label}</span> <span class="neu" style="font-size:11px">${r.reason}</span></td></tr>`;}).join('');
 }
 function renderStatus(d){
-  const live=d.live, s=d.status||{};
-  $('rtStatus').innerHTML=`<span class="rt-dot ${live?'rt-live':'rt-off'}"></span>`+
-    (live?`全推实时 · ${d.count}只 · 更新 ${d.as_of}`:`未实时（${d.msg||'休市/未开盘·开盘自动接入'}）`)+
+  $('rtStatus').innerHTML=`<span class="rt-dot ${d.live?'rt-live':'rt-off'}"></span>`+
+    (d.live?`全推实时 · ${d.count}只 · 更新 ${d.as_of}`:`未实时（${d.msg||'休市/未开盘·开盘自动接入'}）`)+
     `<span class="rt-note">幕数据沪深全推L1 · 每4秒刷新</span>`;
 }
 async function tick(){
   try{
     const d=await (await fetch('/api/realtime/board')).json();
     if(!d.ok){ $('rtStatus').textContent='加载失败：'+(d.msg||''); return; }
-    renderStatus(d); renderBreadth(d.breadth); renderFund(d.fund_ranking);
-    renderSector(d.sector_fund); renderSurge(d.surge); renderHold(d.holdings);
+    renderStatus(d); renderBreadth(d.breadth); renderSectors(d.sectors); renderSecOut(d.sectors_out);
+    renderFund(d.fund_ranking); renderSurge(d.surge); renderHold(d.holdings);
   }catch(e){ $('rtStatus').textContent='网络错误：'+e; }
 }
 async function testPush(){

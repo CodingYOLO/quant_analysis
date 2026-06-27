@@ -41,20 +41,47 @@ def _stock_url(ts_code: str) -> str:
 
 
 def _collect_events() -> list[tuple[str, str, str, str]]:
-    """汇总待推事件 [(dedup_key, title, body, ts_code)]。"""
-    from app.strategy.realtime_fund import fund_surge_events, velocity_events
+    """汇总待推事件 [(dedup_key, title, body, ts_code)]。全市场视角：板块→龙头→资金。"""
+    from app.strategy.realtime_fund import (fund_surge_events, sector_board,
+                                            sector_flow_events, velocity_events)
     df = hub.snapshot().to_df()
+    imap = hub.industry_map()
     events: list[tuple[str, str, str, str]] = []
-    for s in fund_surge_events(df):
-        events.append((f"surge_{s['ts_code']}", f"💰 资金抢筹·{s['name']}",
-                       f"外盘{s['outer_ratio']*100:.0f}%·量比{s['vol_ratio']}·涨{s['pct_chg']}%"
-                       f"·主动净买{s['net_yi']}亿（L1估算·非龙虎榜真钱）", s["ts_code"]))
+    events += _sector_events(sector_flow_events(sector_board(df, imap)))     # 板块资金涌入/撤离
+    events += _surge_events(fund_surge_events(df), imap)                     # 个股资金抢筹(标板块)
     for v in velocity_events(hub.snapshot().prices(), hub.past_prices(5.0), min_move=_VEL_PUSH_MOVE):
         q = hub.snapshot().get(v["ts_code"]) or {}
-        events.append((f"vel_{v['ts_code']}", f"⚡ 急拉·{q.get('name', v['ts_code'])}",
+        ind = imap.get(v["ts_code"], "")
+        events.append((f"vel_{v['ts_code']}", f"⚡ 急拉·{q.get('name', v['ts_code'])}{('·'+ind) if ind else ''}",
                        f"5分钟拉升 +{v['move']}%·现价{q.get('price', '')}", v["ts_code"]))
-    events.extend(_holding_events())
+    events += _holding_events()
     return events
+
+
+def _sector_events(flow: list[dict]) -> list[tuple[str, str, str, str]]:
+    """板块资金事件：涌入(机会)/撤离(风险)，均点名龙头。"""
+    out: list[tuple[str, str, str, str]] = []
+    for s in flow:
+        if s["kind"] == "in":
+            out.append((f"secin_{s['industry']}", f"🔥 资金涌入·{s['industry']}",
+                        f"板块主动净买 +{s['net_yi']}亿·均涨{s['avg_pct']}%·龙头 {s['leader']} "
+                        f"{s['leader_pct']:+.1f}%（L1估算）", s["leader_code"]))
+        else:
+            out.append((f"secout_{s['industry']}", f"⚠️ 资金撤离·{s['industry']}",
+                        f"板块主动净卖 {s['net_yi']}亿·均跌{s['avg_pct']}%·龙头 {s['leader']} "
+                        f"{s['leader_pct']:+.1f}%·留意退潮", s["leader_code"]))
+    return out
+
+
+def _surge_events(surge: list[dict], imap: dict) -> list[tuple[str, str, str, str]]:
+    """个股资金抢筹（标注所属板块，便于判断是不是龙头在领涨）。"""
+    out: list[tuple[str, str, str, str]] = []
+    for s in surge:
+        ind = imap.get(s["ts_code"], "")
+        out.append((f"surge_{s['ts_code']}", f"💰 资金抢筹·{s['name']}{('·'+ind) if ind else ''}",
+                    f"外盘{s['outer_ratio']*100:.0f}%·量比{s['vol_ratio']}·涨{s['pct_chg']}%"
+                    f"·主动净买{s['net_yi']}亿（L1估算·非龙虎榜真钱）", s["ts_code"]))
+    return out
 
 
 def _holding_events() -> list[tuple[str, str, str, str]]:

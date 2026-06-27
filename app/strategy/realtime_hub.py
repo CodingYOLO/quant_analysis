@@ -76,6 +76,11 @@ def past_prices(minutes: float = 5.0) -> dict:
     return older[-1] if older else _HISTORY[0][1]
 
 
+def industry_map() -> dict:
+    """对外暴露行业映射（扫描器/页面共用，避免各自重复加载）。"""
+    return _industry_map()
+
+
 def _industry_map() -> dict:
     """申万二级行业映射（进程内缓存一次；失败返回空 → 板块聚合降级）。"""
     global _IND_MAP
@@ -97,10 +102,12 @@ def build_board() -> dict:
     if df.empty:
         base.update({"msg": "全推未连接（休市或未开盘），开盘自动接入"})
         return base
-    from app.strategy.realtime_fund import fund_ranking, sector_fund
+    from app.strategy.realtime_fund import fund_ranking, sector_board
     base["fund_ranking"] = fund_ranking(df, top=15)
     imap = _industry_map()
-    base["sector_fund"] = sector_fund(df, imap, top=12)
+    full = sector_board(df, imap)                          # 全部板块·含龙头
+    base["sectors"] = full[:12]                            # 资金涌入榜(机会)
+    base["sectors_out"] = [s for s in reversed(full) if s["net_yi"] < 0][:6]   # 资金撤离(风险)
     base.update(_radar_block(df, imap))
     base["surge"] = _velocity_block()
     base["holdings"] = _holdings_block()

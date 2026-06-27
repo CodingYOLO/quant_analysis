@@ -5,8 +5,8 @@ from __future__ import annotations
 import pandas as pd
 
 from app.strategy.realtime_fund import (active_net_yi, fund_ranking, fund_surge_events,
-                                        holding_health, outer_ratio, sector_fund,
-                                        velocity_events)
+                                        holding_health, outer_ratio, sector_board,
+                                        sector_flow_events, velocity_events)
 
 
 def _df() -> pd.DataFrame:
@@ -34,11 +34,35 @@ def test_fund_ranking_order() -> None:
     assert rk[2]["net_yi"] == -1.0                              # 主动卖在最后
 
 
-def test_sector_fund_aggregation() -> None:
-    imap = {"688256.SH": "CPO", "300308.SZ": "CPO", "000002.SZ": "房地产"}
-    sf = sector_fund(_df(), imap)
-    assert sf[0]["industry"] == "CPO" and sf[0]["net_yi"] == 9.0 and sf[0]["n"] == 2
-    assert sf[-1]["industry"] == "房地产" and sf[-1]["net_yi"] == -1.0
+def _sec_df() -> pd.DataFrame:
+    """每板块≥3只（满足成分数门槛）：CPO 资金涌入、房地产 资金撤离。"""
+    return pd.DataFrame([
+        {"ts_code": "688256.SH", "name": "寒武纪", "price": 20.0, "pct_chg": 5.0, "vol_ratio": 3, "inner": 100000.0, "outer": 500000.0},
+        {"ts_code": "300308.SZ", "name": "中际旭创", "price": 10.0, "pct_chg": 4.0, "vol_ratio": 2, "inner": 200000.0, "outer": 300000.0},
+        {"ts_code": "300502.SZ", "name": "新易盛", "price": 100.0, "pct_chg": 6.0, "vol_ratio": 3, "inner": 50000.0, "outer": 150000.0},   # net=10·龙头
+        {"ts_code": "000002.SZ", "name": "万科A", "price": 5.0, "pct_chg": -3.0, "vol_ratio": 1, "inner": 300000.0, "outer": 100000.0},
+        {"ts_code": "600340.SH", "name": "华夏幸福", "price": 10.0, "pct_chg": -2.0, "vol_ratio": 1, "inner": 200000.0, "outer": 100000.0},
+        {"ts_code": "001979.SZ", "name": "招商蛇口", "price": 8.0, "pct_chg": -4.0, "vol_ratio": 1, "inner": 400000.0, "outer": 200000.0},
+    ])
+
+
+_SEC_IMAP = {"688256.SH": "CPO", "300308.SZ": "CPO", "300502.SZ": "CPO",
+             "000002.SZ": "房地产", "600340.SH": "房地产", "001979.SZ": "房地产"}
+
+
+def test_sector_board_with_leader() -> None:
+    board = sector_board(_sec_df(), _SEC_IMAP)
+    assert board[0]["industry"] == "CPO" and board[0]["net_yi"] == 19.0 and board[0]["n"] == 3
+    assert board[0]["leader"] == "新易盛" and board[0]["leader_pct"] == 6.0   # 龙头=板块内吸金最多
+    assert board[-1]["industry"] == "房地产" and board[-1]["net_yi"] == -3.6
+    assert sector_board(_df(), _SEC_IMAP) == []                              # 每板块<3只 → 不计
+
+
+def test_sector_flow_events_in_and_out() -> None:
+    ev = sector_flow_events(sector_board(_sec_df(), _SEC_IMAP))
+    kinds = {e["industry"]: e["kind"] for e in ev}
+    assert kinds["CPO"] == "in" and kinds["房地产"] == "out"                 # 涌入机会 / 撤离风险
+    assert next(e for e in ev if e["kind"] == "in")["leader"] == "新易盛"
 
 
 def test_fund_surge_only_qualified() -> None:
@@ -63,7 +87,7 @@ def test_holding_health() -> None:
 
 def test_empty_inputs_safe() -> None:
     empty = pd.DataFrame()
-    assert fund_ranking(empty) == [] and sector_fund(empty, {}) == []
+    assert fund_ranking(empty) == [] and sector_board(empty, {}) == []
     assert fund_surge_events(empty) == [] and velocity_events({}, {}) == []
 
 

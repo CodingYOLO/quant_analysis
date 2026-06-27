@@ -49,8 +49,11 @@ def fund_ranking(df: pd.DataFrame, top: int = 20) -> list[dict]:
     return out
 
 
-def sector_fund(df: pd.DataFrame, industry_map: dict, top: int = 12) -> list[dict]:
-    """板块主动净买聚合（按申万二级行业求和，降序）。"""
+def sector_board(df: pd.DataFrame, industry_map: dict, top: int | None = None) -> list[dict]:
+    """板块资金榜（按申万二级行业主动净买求和降序），每板块附【龙头=板块内主动净买最大者】。
+
+    龙头用资金口径而非涨幅——跟主力，谁吸金最多谁是真龙头。top=None 返回全部板块。
+    """
     if df is None or df.empty:
         return []
     d = _enrich(df)
@@ -58,11 +61,34 @@ def sector_fund(df: pd.DataFrame, industry_map: dict, top: int = 12) -> list[dic
     d = d[(d["ind"] != "") & ((d["inner"] + d["outer"]) > 0)]
     if d.empty:
         return []
-    g = d.groupby("ind").agg(net_yi=("net_yi", "sum"), n=("ts_code", "count"),
-                             avg_pct=("pct_chg", "mean")).reset_index()
-    g = g.sort_values("net_yi", ascending=False).head(top)
-    return [{"industry": r.ind, "net_yi": round(float(r.net_yi), 2),
-             "n": int(r.n), "avg_pct": round(float(r.avg_pct), 2)} for r in g.itertuples()]
+    rows = []
+    for ind, sub in d.groupby("ind"):
+        if len(sub) < 3:                          # 成分太少统计不稳
+            continue
+        lead = sub.nlargest(1, "net_yi").iloc[0]
+        rows.append({"industry": ind, "net_yi": round(float(sub["net_yi"].sum()), 2),
+                     "avg_pct": round(float(sub["pct_chg"].mean()), 2), "n": int(len(sub)),
+                     "leader": str(lead["name"]), "leader_code": str(lead["ts_code"]),
+                     "leader_pct": round(float(lead["pct_chg"]), 2),
+                     "leader_net_yi": round(float(lead["net_yi"]), 2),
+                     "leader_outer": round(float(lead["outer_ratio"]), 3)})
+    rows.sort(key=lambda x: -x["net_yi"])
+    return rows[:top] if top else rows
+
+
+def sector_flow_events(board: list[dict], *, min_net: float = 3.0,
+                       min_pct: float = 1.0) -> list[dict]:
+    """板块资金事件：涌入(机会)/撤离(风险)，各带龙头。board=sector_board(全量)。
+
+    资金口径（内外盘），与新浪 cron 的涨幅口径弱转强不重叠。
+    """
+    ev = []
+    for s in board:
+        if s["net_yi"] >= min_net and s["avg_pct"] >= min_pct:
+            ev.append({**s, "kind": "in"})        # 资金涌入·机会
+        elif s["net_yi"] <= -min_net and s["avg_pct"] <= -min_pct:
+            ev.append({**s, "kind": "out"})       # 资金撤离·风险
+    return ev
 
 
 def fund_surge_events(df: pd.DataFrame, *, min_outer_ratio: float = 0.62,
