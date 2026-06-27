@@ -55,6 +55,7 @@ def _collect_events() -> list[tuple[str, str, str, str]]:
     _sealed.clear(); _sealed.update(new_sealed)
     events += breaks
     events += _theme_events(detect_theme_fermentation(rows, hub.concept_map()))   # 题材发酵
+    events += _tail_events(rows, imap)                                       # 尾盘异动(14:30后)
     events += _sector_events(sector_flow_events(sector_board(df, imap)))     # 板块资金涌入/撤离
     events += _surge_events(fund_surge_events(df), imap)                     # 个股资金抢筹(标板块)
     for v in velocity_events(hub.snapshot().prices(), hub.past_prices(5.0), min_move=_VEL_PUSH_MOVE):
@@ -90,6 +91,48 @@ def _surge_events(surge: list[dict], imap: dict) -> list[tuple[str, str, str, st
                     f"外盘{s['outer_ratio']*100:.0f}%·量比{s['vol_ratio']}·涨{s['pct_chg']}%"
                     f"·主动净买{s['net_yi']}亿（L1估算·非龙虎榜真钱）", s["ts_code"]))
     return out
+
+
+def _tail_events(rows: list[dict], imap: dict) -> list[tuple[str, str, str, str]]:
+    """尾盘异动(相对14:30)：拉升(抢明天)/跳水(出货)，14:55后附尾盘小结。"""
+    if not hub.is_tail_session():
+        return []
+    hub.record_tail_baseline(rows)                       # 进入尾盘首次记基准(幂等)
+    base = hub.tail_baseline()
+    if not base:
+        return []
+    from app.strategy.realtime_fund import tail_movers
+    out: list[tuple[str, str, str, str]] = []
+    for m in tail_movers(rows, base):
+        if m["kind"] == "up":
+            out.append((f"tailup_{m['ts_code']}", f"🚀 尾盘拉升·{m['name']}",
+                        f"尾盘 +{m['move']}%·尾盘主动净买 +{m['net_tail']}亿·全天{m['pct_chg']:+.1f}%·或抢明天", m["ts_code"]))
+        else:
+            out.append((f"taildown_{m['ts_code']}", f"📉 尾盘跳水·{m['name']}",
+                        f"尾盘 {m['move']}%·尾盘主动净卖 {m['net_tail']}亿·留意主力出货", m["ts_code"]))
+    out += _tail_summary(rows, imap, base)
+    return out
+
+
+def _tail_summary(rows: list[dict], imap: dict, base: dict) -> list[tuple[str, str, str, str]]:
+    """尾盘小结(14:55后一次)：资金流入板块TOP + 尾盘拉升/跳水个股 → 定明天。"""
+    if time.strftime("%H%M") < "1455":
+        return []
+    from app.strategy.realtime_fund import tail_movers, tail_sector_flow
+    sec = tail_sector_flow(rows, base, imap, top=3)
+    mv = tail_movers(rows, base)
+    ups = [m for m in mv if m["kind"] == "up"][:3]
+    downs = [m for m in mv if m["kind"] == "down"][:3]
+    lines = []
+    if sec:
+        lines.append("资金流入板块: " + "、".join(f"{s['industry']}+{s['net_tail']}亿" for s in sec))
+    if ups:
+        lines.append("尾盘拉升: " + "、".join(f"{m['name']}+{m['move']}%" for m in ups))
+    if downs:
+        lines.append("尾盘跳水: " + "、".join(f"{m['name']}{m['move']}%" for m in downs))
+    if not lines:
+        return []
+    return [("tailsummary", "🕒 尾盘小结·定明天", "\n".join(lines) + "\n（14:30→收盘·仅供观察）", "")]
 
 
 def _theme_events(themes: list[dict]) -> list[tuple[str, str, str, str]]:

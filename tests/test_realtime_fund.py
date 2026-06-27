@@ -7,7 +7,8 @@ import pandas as pd
 from app.strategy.realtime_fund import (active_net_yi, detect_limit_breaks,
                                         detect_theme_fermentation, fund_ranking,
                                         fund_surge_events, holding_health, outer_ratio,
-                                        sector_board, sector_flow_events, velocity_events)
+                                        sector_board, sector_flow_events, tail_baseline_of,
+                                        tail_movers, tail_sector_flow, velocity_events)
 
 
 def _df() -> pd.DataFrame:
@@ -114,6 +115,39 @@ def test_theme_fermentation() -> None:
     themes = detect_theme_fermentation(rows, cmap, min_hot=3, min_pct=5.0)
     assert [t["theme"] for t in themes] == ["AI算力"]             # AI 3只达标;银行仅2只不算
     assert themes[0]["n_hot"] == 3 and themes[0]["leaders"][0]["name"] == "票1"
+
+
+def _tail_row(code, price, inner, outer, amount=2e8, pct=0.0):
+    return {"ts_code": code, "name": code[:4], "price": price, "inner": inner,
+            "outer": outer, "amount": amount, "pct_chg": pct}
+
+
+def test_tail_baseline_and_movers() -> None:
+    """以14:30为基准：尾盘+主动买=拉升、尾盘-主动卖=跳水，小幅/小额剔除。"""
+    base = tail_baseline_of([_tail_row("A.SH", 10, 100000, 100000),     # net=0
+                             _tail_row("B.SH", 20, 100000, 100000),
+                             _tail_row("C.SH", 5, 100000, 100000)])
+    now = [_tail_row("A.SH", 10.3, 100000, 400000),                     # +3%·主动买 → 拉升
+           _tail_row("B.SH", 19.4, 400000, 100000),                     # -3%·主动卖 → 跳水
+           _tail_row("C.SH", 5.05, 100000, 400000),                     # +1% 不足2% → 剔除
+           _tail_row("D.SH", 99, 1, 9e9)]                               # 无基准 → 剔除
+    mv = {m["ts_code"]: m["kind"] for m in tail_movers(now, base)}
+    assert mv == {"A.SH": "up", "B.SH": "down"}
+
+
+def test_tail_movers_filters_small_amount() -> None:
+    base = tail_baseline_of([_tail_row("A.SH", 10, 100000, 100000)])
+    now = [_tail_row("A.SH", 10.5, 100000, 500000, amount=2e7)]         # 涨5%但成交额<1亿
+    assert tail_movers(now, base) == []
+
+
+def test_tail_sector_flow() -> None:
+    base = tail_baseline_of([_tail_row(c, 10, 100000, 100000) for c in ("A.SH", "B.SH", "C.SH")])
+    now = [_tail_row("A.SH", 10, 100000, 300000), _tail_row("B.SH", 10, 100000, 300000),
+           _tail_row("C.SH", 10, 100000, 200000)]                       # 三只均主动买流入
+    imap = {"A.SH": "CPO", "B.SH": "CPO", "C.SH": "CPO"}
+    sf = tail_sector_flow(now, base, imap)
+    assert sf[0]["industry"] == "CPO" and sf[0]["n"] == 3 and sf[0]["net_tail"] > 0
 
 
 def test_empty_inputs_safe() -> None:

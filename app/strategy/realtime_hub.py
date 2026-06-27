@@ -22,6 +22,8 @@ _CLIENT: FullPushClient | None = None
 _LOCK = threading.Lock()
 _IND_MAP: dict | None = None
 _CONCEPT_MAP: dict | None = None
+_TAIL_BASE: dict = {}                      # 尾盘14:30基准 {code:{price,net}}
+_TAIL_DATE: str = ""
 _HISTORY: deque = deque(maxlen=16)        # [(epoch, {code: price})]·约采样6-8分钟
 _STALE_SEC = 15                           # 超过此秒数未更新 → 视为非实时
 
@@ -96,6 +98,28 @@ def concept_map() -> dict:
     return _CONCEPT_MAP
 
 
+def is_tail_session(now: float | None = None) -> bool:
+    """是否尾盘时段（14:30-15:00）。"""
+    hm = time.strftime("%H%M", time.localtime(now)) if now else time.strftime("%H%M")
+    return "1430" <= hm <= "1500"
+
+
+def record_tail_baseline(rows: list[dict]) -> None:
+    """进入尾盘首次记录 14:30 基准（幂等·按交易日自动重置）。"""
+    global _TAIL_BASE, _TAIL_DATE
+    today = time.strftime("%Y%m%d")
+    if _TAIL_DATE != today:
+        _TAIL_BASE, _TAIL_DATE = {}, today
+    if not _TAIL_BASE and rows:
+        from app.strategy.realtime_fund import tail_baseline_of
+        _TAIL_BASE = tail_baseline_of(rows)
+
+
+def tail_baseline() -> dict:
+    """当日尾盘基准（跨日自动失效）。"""
+    return _TAIL_BASE if _TAIL_DATE == time.strftime("%Y%m%d") else {}
+
+
 def _industry_map() -> dict:
     """申万二级行业映射（进程内缓存一次；失败返回空 → 板块聚合降级）。"""
     global _IND_MAP
@@ -125,9 +149,22 @@ def build_board() -> dict:
     base["sectors_out"] = [s for s in reversed(full) if s["net_yi"] < 0][:6]   # 资金撤离(风险)
     base.update(_radar_block(df, imap))
     base["themes"] = _theme_block(df)
+    base["tail"] = _tail_block(df, imap)
     base["surge"] = _velocity_block()
     base["holdings"] = _holdings_block()
     return base
+
+
+def _tail_block(df, imap: dict) -> dict:
+    """尾盘异动块（仅尾盘时段且已记录14:30基准时填充）。"""
+    if not is_tail_session() or not tail_baseline():
+        return {}
+    from app.strategy.realtime_fund import tail_movers, tail_sector_flow
+    rows, tb = df.to_dict("records"), tail_baseline()
+    mv = tail_movers(rows, tb)
+    return {"sectors": tail_sector_flow(rows, tb, imap, top=8),
+            "ups": [m for m in mv if m["kind"] == "up"][:8],
+            "downs": [m for m in mv if m["kind"] == "down"][:8]}
 
 
 def _theme_block(df) -> list[dict]:

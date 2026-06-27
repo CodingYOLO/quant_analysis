@@ -195,3 +195,52 @@ def holding_health(row: dict, stop_loss: float | None) -> tuple[str, str]:
     if pct >= 0 and o_ratio >= 0.55:
         return "健康", "资金主动流入"
     return "中性", "量价平稳"
+
+
+def tail_baseline_of(rows: list[dict]) -> dict:
+    """记录尾盘基准（14:30 状态）：{code:{price, net}}。net=当日累计主动净买(亿)。"""
+    return {r["ts_code"]: {"price": float(r.get("price") or 0),
+                           "net": active_net_yi(r.get("inner") or 0, r.get("outer") or 0,
+                                                r.get("price") or 0)}
+            for r in rows if r.get("ts_code")}
+
+
+def tail_movers(rows: list[dict], baseline: dict, *, min_move: float = 2.0,
+                min_amount: float = 1e8) -> list[dict]:
+    """尾盘异动（相对 14:30 基准）：拉升(尾盘主动买·机会) / 跳水(尾盘主动卖·风险)。"""
+    out = []
+    for r in rows:
+        base = baseline.get(r["ts_code"])
+        if not base or base["price"] <= 0 or float(r.get("amount") or 0) < min_amount:
+            continue
+        move = round((float(r.get("price") or 0) / base["price"] - 1) * 100, 2)
+        net_tail = round(active_net_yi(r.get("inner") or 0, r.get("outer") or 0,
+                                       r.get("price") or 0) - base["net"], 2)
+        if move >= min_move and net_tail > 0:
+            kind = "up"
+        elif move <= -min_move and net_tail < 0:
+            kind = "down"
+        else:
+            continue
+        out.append({"ts_code": r["ts_code"], "name": r.get("name", ""), "move": move,
+                    "net_tail": net_tail, "pct_chg": round(float(r.get("pct_chg") or 0), 2), "kind": kind})
+    out.sort(key=lambda x: -abs(x["move"]))
+    return out
+
+
+def tail_sector_flow(rows: list[dict], baseline: dict, industry_map: dict,
+                     top: int = 8) -> list[dict]:
+    """尾盘板块资金净流入（14:30→现在），预示明天热点方向。"""
+    agg: dict = {}
+    for r in rows:
+        base = baseline.get(r["ts_code"])
+        ind = industry_map.get(r["ts_code"], "")
+        if not base or not ind:
+            continue
+        net_tail = active_net_yi(r.get("inner") or 0, r.get("outer") or 0, r.get("price") or 0) - base["net"]
+        a = agg.setdefault(ind, [0.0, 0])
+        a[0] += net_tail
+        a[1] += 1
+    out = [{"industry": k, "net_tail": round(v[0], 2), "n": v[1]} for k, v in agg.items() if v[1] >= 3]
+    out.sort(key=lambda x: -x["net_tail"])
+    return out[:top]
