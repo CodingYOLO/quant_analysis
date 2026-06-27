@@ -153,6 +153,95 @@ def tech_tag(t: dict | None) -> str:
     return "·".join(parts)
 
 
+def _ff(x) -> float:
+    """安全转 float（NaN/None → 0）。"""
+    try:
+        v = float(x)
+        return v if v == v else 0.0
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _scale_aligned(price: float, prev_close: float, factor_close: float) -> bool:
+    """全推昨收 ≈ 因子表收盘(差≤1.5%) → 价格尺度对齐，关键位数值可直接比。
+
+    不对齐 = 除权除息/停牌/数据不齐 → 禁用数值位判定，避免误报破位（数据准确性兜底）。
+    """
+    return bool(price and prev_close and factor_close
+                and abs(prev_close - factor_close) <= max(factor_close * 0.015, 0.01))
+
+
+def tech_context(price: float, prev_close: float, t: dict | None) -> str:
+    """现价 vs 关键位(实时·均线/前高前低) + 均线结构/强度/量能。空→''。
+
+    价格尺度对齐才用数值位（破20日高/下MA20/下MA60）；否则退回昨收均线姿态。
+    """
+    if not t:
+        return ""
+    parts: list[str] = []
+    if t.get("ma_bull_full"):
+        parts.append("多头排列")
+    if _scale_aligned(price, prev_close, _ff(t.get("close"))):
+        h20, l20, ma20, ma60 = _ff(t.get("high20")), _ff(t.get("low20")), _ff(t.get("ma20")), _ff(t.get("ma60"))
+        if h20 and price >= h20:
+            parts.append("破20日高")
+        elif l20 and price <= l20:
+            parts.append("破20日低")
+        if ma20 and price < ma20:
+            parts.append("下MA20")
+        elif ma60 and price < ma60:
+            parts.append("下MA60")
+    elif not t.get("above_ma60"):
+        parts.append("MA60下方")
+    rps = t.get("rps120")
+    if rps is not None and rps == rps:
+        if float(rps) >= 87:
+            parts.append(f"RPS{int(float(rps))}")
+        elif float(rps) < 50:
+            parts.append(f"RPS{int(float(rps))}弱")
+    v = t.get("vol5_vol20")
+    if v is not None and v == v:
+        if float(v) >= 1.5:
+            parts.append("放量")
+        elif float(v) < 0.7:
+            parts.append("缩量")
+    return "·".join(parts)
+
+
+def detect_breakouts(rows: list[dict], past_prices: dict, levels: dict, *,
+                     min_amount: float = 1e8) -> list[dict]:
+    """实时穿越关键位：突破(上穿MA20/破20日新高·机会) / 破位(跌破MA20/MA60/20日低·风险)。
+
+    用约5分钟前价判"刚穿越"。价格尺度对齐(昨收≈因子收盘)才判，防除权误报。
+    levels={code:{ma20,ma60,high20,low20,close}}。
+    """
+    out = []
+    for r in rows:
+        code = r["ts_code"]
+        p, p0 = _ff(r.get("price")), past_prices.get(code)
+        lv = levels.get(code)
+        if not lv or not p or not p0 or _ff(r.get("amount")) < min_amount:
+            continue
+        if not _scale_aligned(p, _ff(r.get("prev_close")), _ff(lv.get("close"))):
+            continue
+        h20, l20, ma20, ma60 = _ff(lv.get("high20")), _ff(lv.get("low20")), _ff(lv.get("ma20")), _ff(lv.get("ma60"))
+        ev = None
+        if h20 and p0 < h20 <= p:
+            ev = ("up", "突破20日新高")
+        elif ma20 and p0 < ma20 <= p:
+            ev = ("up", "上穿MA20")
+        elif l20 and p0 > l20 >= p:
+            ev = ("down", "跌破20日低")
+        elif ma60 and p0 >= ma60 > p:
+            ev = ("down", "跌破MA60支撑")
+        elif ma20 and p0 >= ma20 > p:
+            ev = ("down", "跌破MA20")
+        if ev:
+            out.append({"ts_code": code, "name": r.get("name", ""), "dir": ev[0], "what": ev[1],
+                        "price": round(p, 2), "pct_chg": round(_ff(r.get("pct_chg")), 2)})
+    return out
+
+
 def is_sealed_limit(row: dict) -> tuple[bool, float]:
     """是否封涨停 + 封单量(手)。现价=涨停价即视为封板，封单取买一量。"""
     lu = float(row.get("limit_up") or 0)

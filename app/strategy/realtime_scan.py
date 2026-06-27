@@ -27,7 +27,7 @@ _COOLDOWN_DEFAULT = 1500     # 25分钟
 _COOLDOWN = {
     "crash": 600, "limitbreak": 600,                         # 闪崩/炸板·风险复发快报(10min)
     "warn": 900, "taildown": 900, "hold": 900, "limitweak": 900,
-    "surge": 1200, "vel": 1200, "tailup": 1200,              # 个股机会(20min)
+    "surge": 1200, "vel": 1200, "tailup": 1200, "brk": 1200,  # 个股机会/突破破位(20min)
     "secin": 1500, "secout": 1500, "theme": 1500,            # 板块/题材(25min·另有跨档立即)
     "tailsummary": 999999,                                   # 尾盘小结·当天一次
 }
@@ -67,15 +67,16 @@ def _collect_events() -> list[tuple[str, str, str, str]]:
     from app.strategy.realtime_fund import (detect_limit_breaks, detect_theme_fermentation,
                                             fund_surge_events, sector_board,
                                             sector_flow_events, velocity_events)
-    from app.strategy.realtime_fund import tech_tag
+    from app.strategy.realtime_fund import detect_breakouts, tech_context
     df = hub.snapshot().to_df()
     imap = hub.industry_map()
-    tech = hub.tech_map()                                                   # 昨收技术姿态(均线/前高/强度/量能)
+    tech = hub.tech_map()                                                   # 技术姿态+关键位数值(因子表v15)
     rows = df.to_dict("records")
     events: list[tuple[str, str, str, str]] = []
     breaks, new_sealed = detect_limit_breaks(rows, _sealed)                  # 龙头炸板/开板预警
     _sealed.clear(); _sealed.update(new_sealed)
     events += breaks
+    events += _breakout_events(detect_breakouts(rows, hub.past_prices(5.0), tech))   # 实时突破/破位关键位
     events += _flash_events(rows, tech)                                     # 个股急跌/闪崩(带技术位)
     events += _theme_events(detect_theme_fermentation(rows, hub.concept_map()))   # 题材发酵
     events += _tail_events(rows, imap)                                       # 尾盘异动(14:30后)
@@ -86,12 +87,25 @@ def _collect_events() -> list[tuple[str, str, str, str]]:
         if float(q.get("vol_ratio") or 0) < 1.5:                            # 放量确认·过滤无量急拉(对倒/诱多)
             continue
         ind = imap.get(v["ts_code"], "")
-        tg = tech_tag(tech.get(v["ts_code"]))
+        tg = tech_context(q.get("price"), q.get("prev_close"), tech.get(v["ts_code"]))
         body = f"5分钟拉升 +{v['move']}%·量比{q.get('vol_ratio', '')}·现价{q.get('price', '')}"
         events.append((f"vel_{v['ts_code']}", f"⚡ 急拉·{q.get('name', v['ts_code'])}{('·'+ind) if ind else ''}",
                        body + (f"·{tg}" if tg else ""), v["ts_code"]))
     events += _holding_events()
     return events
+
+
+def _breakout_events(breaks: list[dict]) -> list[tuple[str, str, str, str]]:
+    """实时突破(机会)/破位(风险)关键位推送。"""
+    out: list[tuple[str, str, str, str]] = []
+    for b in breaks:
+        if b["dir"] == "up":
+            out.append((f"brk_up_{b['ts_code']}", f"📈 突破·{b['name']}",
+                        f"{b['what']}·现价{b['price']}·涨{b['pct_chg']:+.1f}%（关键位·昨收口径）", b["ts_code"]))
+        else:
+            out.append((f"brk_dn_{b['ts_code']}", f"📉 破位·{b['name']}",
+                        f"{b['what']}·现价{b['price']}·{b['pct_chg']:+.1f}%·留意（关键位）", b["ts_code"]))
+    return out
 
 
 def _mag_tier(net: float) -> int:
@@ -119,12 +133,13 @@ def _sector_events(flow: list[dict]) -> list[tuple[str, str, str, str]]:
 
 
 def _surge_events(surge: list[dict], imap: dict, tech: dict) -> list[tuple[str, str, str, str]]:
-    """个股资金抢筹（标注板块 + 技术姿态，便于判断是真突破还是均线下方反弹）。"""
-    from app.strategy.realtime_fund import tech_tag
+    """个股资金抢筹（标注板块 + 实时技术位，便于判断是真突破还是均线下方反弹）。"""
+    from app.strategy.realtime_fund import tech_context
     out: list[tuple[str, str, str, str]] = []
     for s in surge:
         ind = imap.get(s["ts_code"], "")
-        tg = tech_tag(tech.get(s["ts_code"]))
+        q = hub.snapshot().get(s["ts_code"]) or {}
+        tg = tech_context(q.get("price"), q.get("prev_close"), tech.get(s["ts_code"]))
         out.append((f"surge_{s['ts_code']}", f"💰 资金抢筹·{s['name']}{('·'+ind) if ind else ''}",
                     f"外盘{s['outer_ratio']*100:.0f}%·量比{s['vol_ratio']}·涨{s['pct_chg']}%"
                     f"·主动净买{s['net_yi']}亿{('·'+tg) if tg else ''}（L1估算·非龙虎榜真钱）", s["ts_code"]))
@@ -139,12 +154,13 @@ def _holding_codes() -> set:
 
 def _flash_events(rows: list[dict], tech: dict) -> list[tuple[str, str, str, str]]:
     """个股急跌/闪崩预警(带技术位:跌破均线更危险 vs 回踩支撑)。持仓命中→最高优先级。"""
-    from app.strategy.realtime_fund import detect_flash_crashes, tech_tag
+    from app.strategy.realtime_fund import detect_flash_crashes, tech_context
     held = _holding_codes()
     out: list[tuple[str, str, str, str]] = []
     for f in detect_flash_crashes(rows, hub.past_prices(3.0)):
         h = f["ts_code"] in held
-        tg = tech_tag(tech.get(f["ts_code"]))
+        q = hub.snapshot().get(f["ts_code"]) or {}
+        tg = tech_context(q.get("price"), q.get("prev_close"), tech.get(f["ts_code"]))
         if f["tier"] == "crash":
             title = f"{'🚨 持仓闪崩·' if h else '💥 闪崩·'}{f['name']}"
             body = (f"3分钟急跌 {f['drop']}%·放量主动砸(内盘{(1 - f['outer_ratio']) * 100:.0f}%·"

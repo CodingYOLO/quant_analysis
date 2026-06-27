@@ -222,7 +222,7 @@ DISPLAY_COLS = [
 # ──────────────────────────────────────────────
 
 # 因子表结构版本：新增因子列时 +1，使旧缓存自动失效重算（避免读到缺列的旧表）
-_FACTOR_TABLE_VERSION = "v14"  # v14: 加 资金脉冲质量(真持续/脉冲退潮假流入·借鉴稳智Ai持续vs脉冲)；v13 反复净流入
+_FACTOR_TABLE_VERSION = "v15"  # v15: 加关键均线/前高前低【数值】(ma5/10/20/60·high20/low20/high60·供盘中实时突破破位判定)；v14 资金脉冲质量
 
 
 def _factor_cache_path(date: str) -> Path:
@@ -370,6 +370,20 @@ def _add_technical_factors(df: pd.DataFrame, date: str, provider) -> pd.DataFram
         df["stable_above_ma20"] = df["ts_code"].map(stable.to_dict()).fillna(False)
     else:
         df["stable_above_ma20"] = False
+
+    # 关键均线 / 前高前低【数值】（供盘中"现价实时突破/跌破关键位"判定）。
+    # 与上方 above_ma 同一口径：close_m/high_m/low_m = Tushare daily 不复权原始价，与全推实时价同尺度；
+    # 无效（窗口不足）则 NaN，实时层只在数值有效且价格尺度对齐时使用。
+    for n in (5, 10, 20, 60):
+        if n in ma_latest:
+            ma_n, ok_n = ma_latest[n]
+            df[f"ma{n}"] = df["ts_code"].map(ma_n.where(ok_n).to_dict())
+        else:
+            df[f"ma{n}"] = np.nan
+    for col, mat, agg, win in (("high20", high_m, "max", 20), ("low20", low_m, "min", 20),
+                               ("high60", high_m, "max", 60)):
+        df[col] = (df["ts_code"].map(getattr(mat.tail(win), agg)().to_dict())
+                   if len(mat) >= win else np.nan)
 
     # RPS（向量化）：calc_rps 内部按价格算 N 日涨幅的全市场百分位
     rps50 = F.calc_rps(close_m, 50) if len(close_m) > 50 else pd.Series(dtype=float)

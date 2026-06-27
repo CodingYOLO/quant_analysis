@@ -179,6 +179,34 @@ def test_tech_tag() -> None:
     assert "MA60下方" in weak and "RPS35弱" in weak and "缩量" in weak
 
 
+def test_tech_context_live_levels() -> None:
+    from app.strategy.realtime_fund import tech_context
+    t = {"ma_bull_full": True, "close": 10.0, "ma20": 9.5, "ma60": 8.0,
+         "high20": 10.5, "low20": 8.5, "rps120": 95, "vol5_vol20": 1.8}
+    # 对齐(昨收10≈因子收盘10)·现价11破20日高
+    assert "破20日高" in tech_context(11.0, 10.0, t) and "多头排列" in tech_context(11.0, 10.0, t)
+    # 现价9跌破MA20
+    assert "下MA20" in tech_context(9.0, 10.0, t)
+    # 不对齐(昨收7 vs 因子收盘10·疑似除权)→ 不报数值位
+    assert "破20日高" not in tech_context(11.0, 7.0, t) and "下MA20" not in tech_context(9.0, 7.0, t)
+
+
+def test_detect_breakouts() -> None:
+    from app.strategy.realtime_fund import detect_breakouts
+    lv = {"A.SH": {"close": 10.0, "ma20": 9.5, "ma60": 8.0, "high20": 10.5, "low20": 8.5}}
+    rows = [{"ts_code": "A.SH", "name": "甲", "price": 10.6, "prev_close": 10.0, "amount": 2e8, "pct_chg": 6}]
+    past = {"A.SH": 10.2}                                       # 5分钟前10.2 < high20 10.5 ≤ 现10.6
+    ev = detect_breakouts(rows, past, lv)
+    assert ev and ev[0]["dir"] == "up" and ev[0]["what"] == "突破20日新高"
+    # 跌破MA20：5分钟前9.6 ≥ 9.5 > 现9.4
+    rows2 = [{"ts_code": "A.SH", "name": "甲", "price": 9.4, "prev_close": 10.0, "amount": 2e8, "pct_chg": -6}]
+    ev2 = detect_breakouts(rows2, {"A.SH": 9.6}, lv)
+    assert ev2 and ev2[0]["dir"] == "down" and "MA20" in ev2[0]["what"]
+    # 不对齐(除权)→ 不判
+    rows3 = [{"ts_code": "A.SH", "name": "甲", "price": 10.6, "prev_close": 7.0, "amount": 2e8, "pct_chg": 6}]
+    assert detect_breakouts(rows3, past, lv) == []
+
+
 def test_empty_inputs_safe() -> None:
     empty = pd.DataFrame()
     assert fund_ranking(empty) == [] and sector_board(empty, {}) == []
