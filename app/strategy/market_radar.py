@@ -86,14 +86,40 @@ def _aggregate_radar(df: pd.DataFrame, industry_map: dict, limit_fn) -> dict:
     }
 
 
-def build_market_radar(provider=None) -> dict:
-    """扫全市场(分批新浪)→ 聚合异动雷达。较慢(~15-27秒)·应由后台调用写缓存。"""
+def _active_universe(provider, n: int) -> list[str]:
+    """取最新因子表中成交额前 n 只（活跃股池）；无则回退全市场。
+
+    板块由其流动性龙头驱动，扫活跃股池基本不漏热点，且只扫 ~n 只 → 快很多、可高频。
+    """
+    try:
+        import glob
+
+        from app.config import get_settings
+        from app.strategy.screener import _FACTOR_TABLE_VERSION
+        files = sorted(glob.glob(str(get_settings().cache_dir / "factor_table"
+                                     / f"*_{_FACTOR_TABLE_VERSION}.parquet")))
+        if files:
+            df = pd.read_parquet(files[-1], columns=["ts_code", "amount_100m"])
+            top = df.nlargest(n, "amount_100m")["ts_code"].tolist()
+            if top:
+                return top
+    except Exception as e:
+        logger.debug("[雷达] 活跃股池获取失败，回退全市场: %s", e)
+    return provider.get_stock_basic()["ts_code"].tolist()
+
+
+def build_market_radar(provider=None, top_active: int | None = None) -> dict:
+    """扫市场(分批新浪)→ 聚合异动雷达。
+
+    top_active=None 扫全市场(~5500只·~20秒·页面用)；传 N 则只扫成交额前 N 的活跃股池
+    (~5秒·可高频·盯盘推送用)。
+    """
     from app.data.composite_provider import CompositeProvider
     from app.nodes.quick_report import _board_limit_pct
     provider = provider or CompositeProvider()
     sb = provider.get_stock_basic()
-    codes = sb["ts_code"].tolist()
     industry_map = dict(zip(sb["ts_code"], sb["industry"].fillna("")))
+    codes = _active_universe(provider, top_active) if top_active else sb["ts_code"].tolist()
     df = _chunked_quotes(provider, codes)
     return _aggregate_radar(df, industry_map, _board_limit_pct)
 

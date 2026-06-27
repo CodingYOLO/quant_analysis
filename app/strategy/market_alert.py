@@ -19,7 +19,8 @@ logger = logging.getLogger(__name__)
 _WEAK_OPEN = -0.8       # 开盘板块均涨幅 ≤ 此 = 弱
 _STRONG_NOW = 0.6       # 现板块均涨幅 ≥ 此 = 强（弱转强阈值）
 _HOT_PCT = 2.5          # 强势热点板块阈值（均涨）
-_LIMIT_LEVELS = (30, 50, 80)   # 涨停潮档位
+_LIMIT_LEVELS = (15, 30, 50)   # 涨停潮档位（活跃股池口径·比全市场口径低·活跃龙头才是情绪核心）
+_ACTIVE_TOP = 800       # 只扫成交额前 N 的活跃股池（快·覆盖热点龙头）→ 可每 2-3 分钟跑
 
 
 def detect_market_events(radar: dict, open_sector_pct: dict, limit_max: int,
@@ -56,7 +57,7 @@ def detect_market_events(radar: dict, open_sector_pct: dict, limit_max: int,
     if crossed:
         lvl = max(crossed)
         events.append((f"limit_{lvl}", "🌐 涨停潮",
-                       f"全市场涨停 {lu} 只（涨{breadth.get('up')}/跌{breadth.get('down')}）·情绪升温"))
+                       f"活跃股涨停 {lu} 只（成交额前800口径·非全市场）·市场情绪升温"))
     return events, cur_pct, lu
 
 
@@ -89,7 +90,7 @@ def scan_market_alerts(provider=None, push: bool = True, force: bool = False) ->
     if not force and not is_market_hours():
         return []
     from app.strategy.market_radar import build_market_radar
-    radar = build_market_radar(provider)
+    radar = build_market_radar(provider, top_active=_ACTIVE_TOP)   # 只扫活跃股池·快·可高频
     if not (radar.get("hot_sectors") or (radar.get("breadth") or {}).get("total")):
         return []
 
