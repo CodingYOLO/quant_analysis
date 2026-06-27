@@ -22,18 +22,38 @@ logger = logging.getLogger(__name__)
 
 _SCAN_INTERVAL = 30          # 秒
 _VEL_PUSH_MOVE = 3.0         # 急拉推送阈值（5分钟涨速%）
+# 推送冷却（秒）：同一事件冷却内不重复；过冷却仍触发=再提醒；程度升级(事件key带档位)立即再推。
+_COOLDOWN_DEFAULT = 1500     # 25分钟
+_COOLDOWN = {
+    "crash": 600, "limitbreak": 600,                         # 闪崩/炸板·风险复发快报(10min)
+    "warn": 900, "taildown": 900, "hold": 900, "limitweak": 900,
+    "surge": 1200, "vel": 1200, "tailup": 1200,              # 个股机会(20min)
+    "secin": 1500, "secout": 1500, "theme": 1500,            # 板块/题材(25min·另有跨档立即)
+    "tailsummary": 999999,                                   # 尾盘小结·当天一次
+}
 _pushed_date = ""
-_pushed: set[str] = set()
+_pushed: dict[str, float] = {}        # key -> 上次推送 epoch（冷却判断）
 _sealed: dict = {}                    # 当前封涨停集合 {code:{peak,name}}·跨扫描持续·炸板检测用
 _thread: threading.Thread | None = None
 _stop = threading.Event()
+
+
+def _cooldown_sec(key: str) -> int:
+    """按事件类型取冷却秒数（key 前缀决定）。"""
+    return _COOLDOWN.get(key.split("_", 1)[0], _COOLDOWN_DEFAULT)
+
+
+def _should_push(key: str, now: float) -> bool:
+    """未推过、或距上次推送已过冷却 → 可推。"""
+    last = _pushed.get(key)
+    return last is None or (now - last) >= _cooldown_sec(key)
 
 
 def _dedup_reset_if_new_day() -> None:
     global _pushed_date, _pushed
     today = datetime.date.today().isoformat()
     if today != _pushed_date:
-        _pushed_date, _pushed = today, set()
+        _pushed_date, _pushed = today, {}
         _sealed.clear()               # 新交易日重置封板集合
 
 
@@ -68,16 +88,25 @@ def _collect_events() -> list[tuple[str, str, str, str]]:
     return events
 
 
+def _mag_tier(net: float) -> int:
+    """资金量级档位(亿)：key 含档位 → 跨档=升级，立即再推(不等冷却)。"""
+    for t in (40, 25, 15, 8, 3):
+        if abs(net) >= t:
+            return t
+    return 3
+
+
 def _sector_events(flow: list[dict]) -> list[tuple[str, str, str, str]]:
-    """板块资金事件：涌入(机会)/撤离(风险)，均点名龙头。"""
+    """板块资金事件：涌入(机会)/撤离(风险)，均点名龙头；key 含量级档位支持升级再推。"""
     out: list[tuple[str, str, str, str]] = []
     for s in flow:
+        tier = _mag_tier(s["net_yi"])
         if s["kind"] == "in":
-            out.append((f"secin_{s['industry']}", f"🔥 资金涌入·{s['industry']}",
+            out.append((f"secin_{s['industry']}_{tier}", f"🔥 资金涌入·{s['industry']}",
                         f"板块主动净买 +{s['net_yi']}亿·均涨{s['avg_pct']}%·龙头 {s['leader']} "
                         f"{s['leader_pct']:+.1f}%（L1估算）", s["leader_code"]))
         else:
-            out.append((f"secout_{s['industry']}", f"⚠️ 资金撤离·{s['industry']}",
+            out.append((f"secout_{s['industry']}_{tier}", f"⚠️ 资金撤离·{s['industry']}",
                         f"板块主动净卖 {s['net_yi']}亿·均跌{s['avg_pct']}%·龙头 {s['leader']} "
                         f"{s['leader_pct']:+.1f}%·留意退潮", s["leader_code"]))
     return out
@@ -184,17 +213,18 @@ def _holding_events() -> list[tuple[str, str, str, str]]:
 
 
 def scan_once(force: bool = False, push: bool = True) -> list[dict]:
-    """扫一次 → 推当日未推过的事件。返回新推列表。"""
+    """扫一次 → 推【过冷却 / 升级到新档】的事件。返回新推列表。"""
     if not force and (not is_market_hours() or not hub.is_live()):
         return []
     _dedup_reset_if_new_day()
     from app.notify.notifier import push_bark
+    now = time.time()
     new: list[dict] = []
     for key, title, body, code in _collect_events():
-        if key in _pushed:
+        if not _should_push(key, now):
             continue
         if (not push) or push_bark(title, body, group="实时盯盘", url=_stock_url(code)):
-            _pushed.add(key)
+            _pushed[key] = now
             new.append({"key": key, "title": title, "body": body})
     return new
 
