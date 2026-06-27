@@ -41,6 +41,7 @@ class Settings(BaseSettings):
     fullpush_host: str = Field("", description="全推TCP host，生产 qt2.chagubang.com")
     fullpush_port: int = Field(0, description="全推TCP端口，生产 8379")
     fullpush_token: str = Field("", description="全推授权token，仅 .env 配置，禁止入库")
+    fullpush_demo: bool = Field(False, description="演示开关：True 时接公开测试端点(回放数据)，休市预览/测试用；周一开盘前自动切回生产")
     # Web报告地址（手机简报末尾附链接，本地留空，部署后填写）
     web_base_url: str = Field("", description="Web报告访问地址，如 http://your-server:8000")
     # Web 登录认证（公网部署必填，留空则不鉴权）

@@ -28,17 +28,26 @@ _HISTORY: deque = deque(maxlen=16)        # [(epoch, {code: price})]·约采样6
 _STALE_SEC = 15                           # 超过此秒数未更新 → 视为非实时
 
 
+# 公开测试端点（回放数据·休市预览/演示用，非生产）
+_DEMO_ENDPOINT = ("test.chagubang.com", 48988, "mushuju")
+
+
 def ensure_started() -> bool:
-    """幂等启动全推客户端（依赖 .env 的 fullpush_*）。未配置则跳过。"""
+    """幂等启动全推客户端。demo 开关→公开测试端点；否则→.env 生产授权。"""
     global _CLIENT
     from app.config import get_settings
     s = get_settings()
-    if not (s.fullpush_host and s.fullpush_port and s.fullpush_token):
+    if s.fullpush_demo:
+        host, port, token = _DEMO_ENDPOINT
+        logger.info("[实时枢纽] 演示模式：接测试端点（回放数据）")
+    elif s.fullpush_host and s.fullpush_port and s.fullpush_token:
+        host, port, token = s.fullpush_host, s.fullpush_port, s.fullpush_token
+    else:
         logger.info("[实时枢纽] 未配置 fullpush_*，跳过全推接入")
         return False
     with _LOCK:
         if _CLIENT is None:
-            _CLIENT = FullPushClient.from_settings(_SNAP)
+            _CLIENT = FullPushClient(host, port, token, _SNAP)
         if not _CLIENT.running:
             _CLIENT.start()
     return True
