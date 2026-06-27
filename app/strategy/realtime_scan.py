@@ -24,6 +24,7 @@ _SCAN_INTERVAL = 30          # 秒
 _VEL_PUSH_MOVE = 3.0         # 急拉推送阈值（5分钟涨速%）
 _pushed_date = ""
 _pushed: set[str] = set()
+_sealed: dict = {}                    # 当前封涨停集合 {code:{peak,name}}·跨扫描持续·炸板检测用
 _thread: threading.Thread | None = None
 _stop = threading.Event()
 
@@ -33,6 +34,7 @@ def _dedup_reset_if_new_day() -> None:
     today = datetime.date.today().isoformat()
     if today != _pushed_date:
         _pushed_date, _pushed = today, set()
+        _sealed.clear()               # 新交易日重置封板集合
 
 
 def _stock_url(ts_code: str) -> str:
@@ -42,11 +44,17 @@ def _stock_url(ts_code: str) -> str:
 
 def _collect_events() -> list[tuple[str, str, str, str]]:
     """汇总待推事件 [(dedup_key, title, body, ts_code)]。全市场视角：板块→龙头→资金。"""
-    from app.strategy.realtime_fund import (fund_surge_events, sector_board,
+    from app.strategy.realtime_fund import (detect_limit_breaks, detect_theme_fermentation,
+                                            fund_surge_events, sector_board,
                                             sector_flow_events, velocity_events)
     df = hub.snapshot().to_df()
     imap = hub.industry_map()
+    rows = df.to_dict("records")
     events: list[tuple[str, str, str, str]] = []
+    breaks, new_sealed = detect_limit_breaks(rows, _sealed)                  # 龙头炸板/开板预警
+    _sealed.clear(); _sealed.update(new_sealed)
+    events += breaks
+    events += _theme_events(detect_theme_fermentation(rows, hub.concept_map()))   # 题材发酵
     events += _sector_events(sector_flow_events(sector_board(df, imap)))     # 板块资金涌入/撤离
     events += _surge_events(fund_surge_events(df), imap)                     # 个股资金抢筹(标板块)
     for v in velocity_events(hub.snapshot().prices(), hub.past_prices(5.0), min_move=_VEL_PUSH_MOVE):
@@ -81,6 +89,17 @@ def _surge_events(surge: list[dict], imap: dict) -> list[tuple[str, str, str, st
         out.append((f"surge_{s['ts_code']}", f"💰 资金抢筹·{s['name']}{('·'+ind) if ind else ''}",
                     f"外盘{s['outer_ratio']*100:.0f}%·量比{s['vol_ratio']}·涨{s['pct_chg']}%"
                     f"·主动净买{s['net_yi']}亿（L1估算·非龙虎榜真钱）", s["ts_code"]))
+    return out
+
+
+def _theme_events(themes: list[dict]) -> list[tuple[str, str, str, str]]:
+    """题材发酵推送（按异动家数分档去重：扩散到更高档可再推一次）。"""
+    out: list[tuple[str, str, str, str]] = []
+    for t in themes:
+        level = 8 if t["n_hot"] >= 8 else (5 if t["n_hot"] >= 5 else 3)
+        leads = "/".join(f"{l['name']}{l['pct']:+.0f}%" for l in t["leaders"])
+        out.append((f"theme_{t['theme']}_{level}", f"🔥 题材发酵·{t['theme']}",
+                    f"{t['n_hot']}只异动·均涨{t['avg_pct']}%·领涨 {leads}", t.get("lead_code", "")))
     return out
 
 

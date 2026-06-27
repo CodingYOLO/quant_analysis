@@ -21,6 +21,7 @@ _SNAP = MarketSnapshot()
 _CLIENT: FullPushClient | None = None
 _LOCK = threading.Lock()
 _IND_MAP: dict | None = None
+_CONCEPT_MAP: dict | None = None
 _HISTORY: deque = deque(maxlen=16)        # [(epoch, {code: price})]·约采样6-8分钟
 _STALE_SEC = 15                           # 超过此秒数未更新 → 视为非实时
 
@@ -81,6 +82,20 @@ def industry_map() -> dict:
     return _industry_map()
 
 
+def concept_map() -> dict:
+    """{概念:[成分 ts_code]}（进程内缓存；底层周缓存）。题材发酵识别用。"""
+    global _CONCEPT_MAP
+    if _CONCEPT_MAP is None:
+        try:
+            from app.data.composite_provider import CompositeProvider
+            from app.factors.theme_wide import concept_members_map
+            _CONCEPT_MAP = concept_members_map(CompositeProvider())
+        except Exception as e:
+            logger.warning("[实时枢纽] 概念成分加载失败：%s", e)
+            _CONCEPT_MAP = {}
+    return _CONCEPT_MAP
+
+
 def _industry_map() -> dict:
     """申万二级行业映射（进程内缓存一次；失败返回空 → 板块聚合降级）。"""
     global _IND_MAP
@@ -109,9 +124,20 @@ def build_board() -> dict:
     base["sectors"] = full[:12]                            # 资金涌入榜(机会)
     base["sectors_out"] = [s for s in reversed(full) if s["net_yi"] < 0][:6]   # 资金撤离(风险)
     base.update(_radar_block(df, imap))
+    base["themes"] = _theme_block(df)
     base["surge"] = _velocity_block()
     base["holdings"] = _holdings_block()
     return base
+
+
+def _theme_block(df) -> list[dict]:
+    """题材发酵榜（Tushare概念成分 × 全推实时涨幅）。"""
+    from app.strategy.realtime_fund import detect_theme_fermentation
+    try:
+        return detect_theme_fermentation(df.to_dict("records"), concept_map())[:8]
+    except Exception as e:
+        logger.warning("[实时枢纽] 题材发酵失败：%s", e)
+        return []
 
 
 def _radar_block(df, imap: dict) -> dict:

@@ -32,6 +32,10 @@
   <tbody id="rtSectors"></tbody></table>
 </div>
 
+<div class="card"><h2>🔥 题材发酵 · 资金做方向<span class="rt-tag">同一题材≥3只异动 = 轮动起点</span></h2>
+  <table><thead><tr><th>题材</th><th>异动数</th><th>均涨</th><th>领涨</th></tr></thead>
+  <tbody id="rtThemes"></tbody></table></div>
+
 <div class="rt-2col">
   <div class="card"><h2>💰 全市场资金流向榜</h2>
     <table><thead><tr><th>股票</th><th>涨幅</th><th>主动净买</th><th>外盘</th></tr></thead>
@@ -76,6 +80,13 @@ function renderSectors(rows){
       <td>${lead(r)}</td><td class="${cls(r.leader_pct)}">${sgn(r.leader_pct)}%</td>
       <td><span class="rt-bar"><i style="width:${op}%"></i></span> ${op}%</td></tr>`;}).join('');
 }
+function renderThemes(rows){
+  if(!rows||!rows.length){ $('rtThemes').innerHTML='<tr><td colspan="4" class="rt-empty">暂无题材发酵</td></tr>'; return; }
+  $('rtThemes').innerHTML=rows.map(r=>{
+    const leads=(r.leaders||[]).map(l=>`${l.name} <span class="${cls(l.pct)}">${sgn(l.pct)}%</span>`).join('、');
+    return `<tr><td><b>${r.theme}</b></td><td class="pos">${r.n_hot}只</td>
+      <td class="${cls(r.avg_pct)}">${sgn(r.avg_pct)}%</td><td style="font-size:12px">${leads}</td></tr>`;}).join('');
+}
 function renderSecOut(rows){
   if(!rows||!rows.length){ $('rtSecOut').innerHTML='<tr><td colspan="4" class="rt-empty">暂无明显资金撤离</td></tr>'; return; }
   $('rtSecOut').innerHTML=rows.map(r=>`<tr><td><b>${r.industry}</b></td>
@@ -109,8 +120,8 @@ async function tick(){
   try{
     const d=await (await fetch('/api/realtime/board')).json();
     if(!d.ok){ $('rtStatus').textContent='加载失败：'+(d.msg||''); return; }
-    renderStatus(d); renderBreadth(d.breadth); renderSectors(d.sectors); renderSecOut(d.sectors_out);
-    renderFund(d.fund_ranking); renderSurge(d.surge); renderHold(d.holdings);
+    renderStatus(d); renderBreadth(d.breadth); renderSectors(d.sectors); renderThemes(d.themes);
+    renderSecOut(d.sectors_out); renderFund(d.fund_ranking); renderSurge(d.surge); renderHold(d.holdings);
   }catch(e){ $('rtStatus').textContent='网络错误：'+e; }
 }
 async function testPush(){

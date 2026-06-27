@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import pandas as pd
 
-from app.strategy.realtime_fund import (active_net_yi, fund_ranking, fund_surge_events,
-                                        holding_health, outer_ratio, sector_board,
-                                        sector_flow_events, velocity_events)
+from app.strategy.realtime_fund import (active_net_yi, detect_limit_breaks,
+                                        detect_theme_fermentation, fund_ranking,
+                                        fund_surge_events, holding_health, outer_ratio,
+                                        sector_board, sector_flow_events, velocity_events)
 
 
 def _df() -> pd.DataFrame:
@@ -83,6 +84,36 @@ def test_holding_health() -> None:
     assert holding_health({"pct_chg": 2, "inner": 100, "outer": 200, "price": 9}, None)[0] == "健康"
     assert holding_health({"pct_chg": 1, "inner": 200, "outer": 100, "price": 9}, None)[0] == "留意"
     assert holding_health({"pct_chg": 1, "inner": 100, "outer": 100, "price": 5}, 6.0)[0] == "风险"
+
+
+def _sealed_row(code, price, lu, bid1, amount=2e8, pct=10.0):
+    return {"ts_code": code, "name": code[:4], "price": price, "limit_up": lu, "pct_chg": pct,
+            "amount": amount, "bid_vol": [bid1, 0, 0, 0, 0]}
+
+
+def test_limit_break_lifecycle() -> None:
+    """封板 → 封单萎缩(开板预警) → 脱板(炸板),三态转换。"""
+    sealed: dict = {}
+    ev1, sealed = detect_limit_breaks([_sealed_row("A.SH", 11.0, 11.0, 10000)], sealed)
+    assert ev1 == [] and "A.SH" in sealed                         # 首次封板·无事件
+    ev2, sealed = detect_limit_breaks([_sealed_row("A.SH", 11.0, 11.0, 3000)], sealed)
+    assert any(k.startswith("limitweak_") for k, *_ in ev2)       # 封单3000<峰值40% → 开板预警
+    ev3, sealed = detect_limit_breaks([_sealed_row("A.SH", 10.5, 11.0, 0, pct=5.0)], sealed)
+    assert any(k == "limitbreak_A.SH" for k, *_ in ev3) and "A.SH" not in sealed   # 脱板=炸板
+
+
+def test_limit_break_filters_small_amount() -> None:
+    ev, sealed = detect_limit_breaks([_sealed_row("B.SH", 11.0, 11.0, 9999, amount=2e7)], {})
+    assert ev == [] and sealed == {}                              # 成交额<1亿 不跟踪
+
+
+def test_theme_fermentation() -> None:
+    cmap = {"AI算力": ["1.SH", "2.SH", "3.SH", "4.SH"], "银行": ["5.SH", "6.SH"]}
+    rows = [{"ts_code": f"{i}.SH", "name": f"票{i}", "pct_chg": p, "amount": 1e8}
+            for i, p in [("1", 8.0), ("2", 6.0), ("3", 5.5), ("4", 2.0), ("5", 7.0), ("6", 6.0)]]
+    themes = detect_theme_fermentation(rows, cmap, min_hot=3, min_pct=5.0)
+    assert [t["theme"] for t in themes] == ["AI算力"]             # AI 3只达标;银行仅2只不算
+    assert themes[0]["n_hot"] == 3 and themes[0]["leaders"][0]["name"] == "票1"
 
 
 def test_empty_inputs_safe() -> None:

@@ -122,6 +122,67 @@ def velocity_events(now: dict, past: dict, *, min_move: float = 2.0) -> list[dic
     return out
 
 
+def is_sealed_limit(row: dict) -> tuple[bool, float]:
+    """是否封涨停 + 封单量(手)。现价=涨停价即视为封板，封单取买一量。"""
+    lu = float(row.get("limit_up") or 0)
+    price = float(row.get("price") or 0)
+    sealed = lu > 0 and price >= lu - 0.01
+    bid1 = (row.get("bid_vol") or [0.0])[0]
+    return sealed, (float(bid1) if sealed else 0.0)
+
+
+def detect_limit_breaks(rows: list[dict], prev_sealed: dict, *,
+                        min_amount: float = 1e8, weak_ratio: float = 0.4) -> tuple[list, dict]:
+    """龙头炸板/开板预警。比对上一轮封板集合 → 事件 + 新封板集合。
+
+    只跟踪成交额≥min_amount 的活跃涨停（避免微小盘噪音）。封单跌破峰值 weak_ratio→开板预警；
+    上轮封板本轮脱板→炸板。返回 ([(key,title,body,code)], new_sealed)。
+    """
+    by_code = {r["ts_code"]: r for r in rows}
+    events, new_sealed = [], {}
+    for code, r in by_code.items():
+        if float(r.get("amount") or 0) < min_amount:
+            continue
+        sealed, seal_vol = is_sealed_limit(r)
+        if not sealed:
+            continue
+        peak = max(seal_vol, prev_sealed.get(code, {}).get("peak", 0.0))
+        new_sealed[code] = {"peak": peak, "name": r.get("name", "")}
+        if peak > 0 and seal_vol < peak * weak_ratio:
+            events.append((f"limitweak_{code}", f"⚠️ 开板预警·{r.get('name', '')}",
+                           f"封单萎缩至峰值 {seal_vol / peak * 100:.0f}%·随时炸板", code))
+    for code, info in prev_sealed.items():
+        if code not in new_sealed:
+            r = by_code.get(code, {})
+            events.append((f"limitbreak_{code}", f"💥 炸板·{info.get('name', '')}",
+                           f"涨停被砸开·现{r.get('pct_chg', '?')}%·板块退潮信号", code))
+    return events, new_sealed
+
+
+def detect_theme_fermentation(rows: list[dict], concept_map: dict, *, min_hot: int = 3,
+                              min_pct: float = 5.0, min_amount: float = 5e7) -> list[dict]:
+    """题材发酵：同一概念≥min_hot 只涨幅≥min_pct% 且有量 → 资金在做这个方向。
+
+    concept_map={概念:[ts_code]}（Tushare 同花顺成分）。按异动家数+均涨排序。
+    """
+    by_code = {r["ts_code"]: r for r in rows}
+    out = []
+    for theme, members in concept_map.items():
+        hot = [by_code[c] for c in members if c in by_code
+               and float(by_code[c].get("pct_chg") or 0) >= min_pct
+               and float(by_code[c].get("amount") or 0) >= min_amount]
+        if len(hot) < min_hot:
+            continue
+        hot.sort(key=lambda x: -float(x.get("pct_chg") or 0))
+        out.append({"theme": theme, "n_hot": len(hot),
+                    "avg_pct": round(sum(float(h.get("pct_chg") or 0) for h in hot) / len(hot), 2),
+                    "lead_code": hot[0]["ts_code"],
+                    "leaders": [{"name": h.get("name", ""), "code": h["ts_code"],
+                                 "pct": round(float(h.get("pct_chg") or 0), 2)} for h in hot[:3]]})
+    out.sort(key=lambda x: (-x["n_hot"], -x["avg_pct"]))
+    return out
+
+
 def holding_health(row: dict, stop_loss: float | None) -> tuple[str, str]:
     """持仓实时体检 → (标签, 原因)。标签: 健康 / 留意 / 风险。"""
     pct = float(row.get("pct_chg") or 0)
