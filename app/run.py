@@ -226,6 +226,21 @@ def run_backtest_cmd(start: str, end: str, use_llm: bool) -> None:
     print_analysis(analysis)
 
 
+@cli.command("watch-scan")
+@click.option("--force", is_flag=True, default=False, help="忽略交易时段限制（手动测试）")
+@click.option("--no-push", is_flag=True, default=False, help="只算不推（预览）")
+def watch_scan_cmd(force: bool, no_push: bool) -> None:
+    """盯盘扫描：交易时段扫自选/持仓，命中触发(到买入价/破止损/异动)推 Bark。cron 每 2-3 分钟跑。"""
+    from app.strategy.watch_alert import scan_watch_alerts
+    alerts = scan_watch_alerts(push=not no_push, force=force)
+    if alerts:
+        console.print(f"[bold green]🛎️ 新触发 {len(alerts)} 条{'（已推 Bark）' if not no_push else ''}[/bold green]")
+        for a in alerts:
+            console.print(f"  {a['name']}: {'; '.join(a['triggers'])}")
+    else:
+        console.print("[dim]无新触发（或非交易时段，用 --force 强测）[/dim]")
+
+
 @cli.command("pre")
 @click.option("--date", "trade_date", default="", help="交易日 YYYYMMDD，默认今日")
 @click.option("--no-notify", is_flag=True, default=False)

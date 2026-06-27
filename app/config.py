@@ -36,6 +36,7 @@ class Settings(BaseSettings):
     # ---------- 推送渠道 ----------
     notify_channel: str = Field("serverchan", description="推送渠道: serverchan | email | none")
     serverchan_send_key: str = Field("", description="Server酱 SendKey")
+    bark_key: str = Field("", description="Bark(iOS推送) key；盯盘实时提醒用，服务端扫描命中即推手机")
     # Web报告地址（手机简报末尾附链接，本地留空，部署后填写）
     web_base_url: str = Field("", description="Web报告访问地址，如 http://your-server:8000")
     # Web 登录认证（公网部署必填，留空则不鉴权）

@@ -168,6 +168,33 @@ class ServerChanNotifier(Notifier):
             return False
 
 
+def push_bark(title: str, body: str, *, key: str = "", group: str = "盯盘",
+              url: str = "", sound: str = "") -> bool:
+    """Bark(iOS) 实时推送（盯盘提醒用）。key 留空则读 settings.bark_key。失败返回 False。
+
+    Bark POST API：POST https://api.day.app/{key}，JSON {title, body, group, isArchive, url}。
+    """
+    from app.config import get_settings
+    key = key or get_settings().bark_key
+    if not key:
+        return False
+    payload = {"title": title[:40], "body": body, "group": group, "isArchive": 1}
+    if url:
+        payload["url"] = url
+    if sound:
+        payload["sound"] = sound
+    try:
+        resp = httpx.post(f"https://api.day.app/{key}", json=payload, timeout=12.0)
+        resp.raise_for_status()
+        ok = resp.json().get("code") == 200
+        if not ok:
+            logger.warning("Bark推送失败: %s", resp.text[:120])
+        return ok
+    except Exception as e:
+        logger.error("Bark推送异常: %s", e)
+        return False
+
+
 class EmailNotifier(Notifier):
     """
     通过 SMTP 发送 HTML 格式邮件。
