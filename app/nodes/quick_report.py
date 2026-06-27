@@ -1487,3 +1487,129 @@ def _window_desc(start_h: int, end_h: int) -> str:
 def _offset_date(date_str: str, days: int) -> str:
     dt = datetime.datetime.strptime(date_str, "%Y%m%d") + datetime.timedelta(days=days)
     return dt.strftime("%Y%m%d")
+
+
+# --------------------------------------------------------------------------- #
+# 非交易日消息面报告（周末/法定节假日）：聚焦研报、关键新闻、机会与风险
+# --------------------------------------------------------------------------- #
+
+_DIGEST_QUERIES = {
+    "daily": [
+        ("A股 最新 重要新闻 政策 影响", "oneWeek"),
+        ("影响A股 外围市场 美股 商品 隔夜", "oneDay"),
+        ("A股 热点题材 机构观点 机会", "oneWeek"),
+    ],
+    "preview": [
+        ("下周 A股 重要日程 经济数据 财报 解禁", "oneWeek"),
+        ("下周 A股 政策 事件 关注 前瞻", "oneWeek"),
+        ("A股 题材 资金 机构策略 下周", "oneWeek"),
+    ],
+}
+
+
+def build_news_digest(mode: str = "daily", ref_date: str | None = None) -> tuple[str, str, str]:
+    """非交易日消息面报告。mode: daily(消息面复盘+前瞻) / preview(下周前瞻)。
+
+    复用 quick_report 的财联社/研报/利空/博查管道 + LLM 综合。无真实来源则拒绝生成。
+    返回 (filepath, title, content)。
+    """
+    from app.strategy.trade_calendar import last_trading_day
+    settings = get_settings()
+    now = datetime.datetime.now()
+    today = now.strftime("%Y%m%d")
+    now_str = now.strftime("%Y-%m-%d %H:%M")
+    ref = ref_date or last_trading_day(today) or today
+
+    news_df = _fetch_news(today, 0, 23)             # 隔夜/全天电报（财联社周末也更新）
+    research_text = _fetch_research_reports(ref)    # 研报（参考最近交易日）
+    web_news = _fetch_digest_web(mode)
+
+    label = "下周前瞻" if mode == "preview" else "消息面"
+    if news_df.empty and not research_text and not web_news:
+        body = (f"## ⚠️ {label}暂无内容\n\n> 三路信息源（财联社/研报/联网检索）均无新内容，"
+                f"本系统拒绝在无真实来源时生成分析。")
+    else:
+        body = _generate_digest_analysis(mode, label, now_str, news_df, research_text, web_news, ref)
+        body += "\n" + _web_source_block(web_news)
+
+    title = f"A股{label}（非交易日）"
+    full = f"# {title}\n> 📅 **{now_str}** ｜ 消息面 · 机会与风险\n\n{body}"
+    filepath = settings.report_dir / f"{today}_{now.strftime('%H%M')}_digest_{mode}.md"
+    filepath.write_text(full, encoding="utf-8")
+    return str(filepath), title, full
+
+
+def _fetch_digest_web(mode: str) -> list[dict]:
+    """博查联网检索消息面/前瞻要闻（未配置或失败返回空）。"""
+    queries = _DIGEST_QUERIES.get(mode, _DIGEST_QUERIES["daily"])
+    try:
+        from app.data.web_search import BochaSearchClient
+        client = BochaSearchClient()
+        if not client.enabled:
+            return []
+        seen, out = set(), []
+        for q, fr in queries:
+            for r in client.search(q, count=5, freshness=fr):
+                t = r.get("title", "")
+                if t and t not in seen:
+                    seen.add(t)
+                    out.append(r)
+        return out[:12]
+    except Exception as e:
+        logger.debug("[消息面] 博查检索失败: %s", e)
+        return []
+
+
+def _digest_news_text(news_df: pd.DataFrame) -> str:
+    """财联社电报 → 喂 LLM 的文本（带来源+时间）。"""
+    if news_df is None or news_df.empty:
+        return ""
+    title_col = "标题" if "标题" in news_df.columns else news_df.columns[0]
+    time_col = "发布时间" if "发布时间" in news_df.columns else news_df.columns[1]
+    lines = []
+    for _, row in news_df.head(80).iterrows():
+        t = str(row.get(time_col, ""))[:16]
+        raw = str(row.get(title_col, ""))
+        title = raw.split("】")[-1].strip() if "】" in raw else raw
+        lines.append(f"[财联社 {t}] {title[:150]}")
+    return "\n".join(lines)
+
+
+def _generate_digest_analysis(mode: str, label: str, now_str: str, news_df: pd.DataFrame,
+                              research_text: str, web_news: list[dict], ref: str) -> str:
+    """DeepSeek 综合消息面报告（铁律：只用提供信息、标来源、按时效过滤）。"""
+    from app.llm.client import LLMClient
+    llm = LLMClient()
+    prompt = _build_digest_prompt(mode, label, now_str, _digest_news_text(news_df),
+                                  research_text, _format_web_news(web_news), ref)
+    messages = [
+        {"role": "system", "content": (
+            "你是专业A股策略分析师。当前是【非交易日】，无实时行情，聚焦消息面。\n"
+            "【铁律】只分析用户提供的信息，严禁编造或引用未出现的内容；每条结论末尾标注来源和时间"
+            "（[财联社 时间]/[博查·站点 日期]/[研报]）。分析落地到具体板块与代表性个股（附6位代码）。\n"
+            "【时效】只用最近消息；过期预告/旧政策须注明日期，不得当作新动向。")},
+        {"role": "user", "content": prompt},
+    ]
+    return llm.chat(messages, task_type="pro", max_tokens=3500)
+
+
+def _build_digest_prompt(mode: str, label: str, now_str: str, news_text: str,
+                         research_text: str, web_text: str, ref: str) -> str:
+    if mode == "preview":
+        ask = ("请写一份【下周前瞻】，分模块：\n"
+               "1. 📅 下周重要日程（经济数据/会议/解禁/财报窗口·有具体日期才写）\n"
+               "2. 🚀 潜在机会（题材/政策受益方向 + 代表个股6位代码 + 逻辑）\n"
+               "3. ⚠️ 风险提示（解禁/减持/监管/外围）\n"
+               "4. 🎯 重点跟踪（3-5只个股 + 跟踪理由）")
+    else:
+        ask = ("请写一份【非交易日消息面复盘 + 前瞻】，分模块：\n"
+               "1. 📰 关键新闻/政策动向（对A股的影响）\n"
+               "2. 📑 研报精选观点（行业/个股）\n"
+               "3. 🚀 潜在机会（题材方向 + 代表个股6位代码）\n"
+               "4. ⚠️ 风险提示（利空/解禁/监管）\n"
+               "5. 🌍 外围市场（美股/商品/汇率·对A股含义）")
+    return (f"当前时间：{now_str}（非交易日）。参考交易日：{ref}。\n\n{ask}\n\n"
+            f"要求：每条结论标来源+时间；无具体来源不要编造。\n\n"
+            f"【财联社电报】\n{news_text or '（无）'}\n\n"
+            f"【研报】\n{research_text or '（无）'}\n\n"
+            f"【联网检索】\n{web_text or '（无）'}\n")

@@ -256,11 +256,25 @@ def market_scan_cmd(force: bool, no_push: bool) -> None:
         console.print("[dim]无新市场事件（或非交易时段，用 --force 强测）[/dim]")
 
 
+def _skip_non_trading_day(label: str) -> bool:
+    """非交易日返回 True（调用方应跳过）。节假日撞工作日时防常规快讯空跑。"""
+    try:
+        from app.strategy.trade_calendar import is_trading_day
+        if not is_trading_day():
+            console.print(f"[yellow]⏸ 非交易日，跳过{label}（消息面报告另出）[/yellow]")
+            return True
+    except Exception:
+        pass
+    return False
+
+
 @cli.command("pre")
 @click.option("--date", "trade_date", default="", help="交易日 YYYYMMDD，默认今日")
 @click.option("--no-notify", is_flag=True, default=False)
 def run_pre(trade_date: str, no_notify: bool) -> None:
     """生成盘前快讯（隔夜消息+今日方向）。"""
+    if not trade_date and _skip_non_trading_day("盘前快讯"):
+        return
     from app.nodes.quick_report import build_quick_report
     td = trade_date or None
     filepath, title, content = build_quick_report("pre", td)
@@ -274,6 +288,8 @@ def run_pre(trade_date: str, no_notify: bool) -> None:
 @click.option("--no-notify", is_flag=True, default=False)
 def run_mid(trade_date: str, no_notify: bool) -> None:
     """生成盘中半天快讯（上午催化+午后策略）。"""
+    if not trade_date and _skip_non_trading_day("盘中快讯"):
+        return
     from app.nodes.quick_report import build_quick_report
     td = trade_date or None
     filepath, title, content = build_quick_report("mid", td)
@@ -289,6 +305,8 @@ def run_mid(trade_date: str, no_notify: bool) -> None:
               help="完整版：标题标注'完整版'，用于晚间资金数据入库后的二次推送")
 def run_post_quick(trade_date: str, no_notify: bool, full: bool) -> None:
     """生成盘后复盘快讯（全天新闻驱动复盘+明日预判）。"""
+    if not trade_date and _skip_non_trading_day("盘后快讯"):
+        return
     from app.nodes.quick_report import build_quick_report
     td = trade_date or None
     label_suffix = "完整版" if full else "速报"
@@ -307,6 +325,28 @@ def _push_quick_report(title: str, content: str) -> None:
             console.print("[green]📱 快讯已推送到手机[/green]")
     except Exception as e:
         console.print(f"[yellow]⚠️ 推送失败: {e}[/yellow]")
+
+
+@cli.command("news-digest")
+@click.option("--mode", default="daily", type=click.Choice(["daily", "preview"]),
+              help="daily=消息面复盘+前瞻；preview=下周前瞻")
+@click.option("--force", is_flag=True, default=False, help="忽略交易日判定，强制生成")
+@click.option("--no-notify", is_flag=True, default=False)
+def run_news_digest(mode: str, force: bool, no_notify: bool) -> None:
+    """非交易日消息面报告（仅非交易日生成；研报/新闻/机会/风险）。"""
+    if not force:
+        from app.strategy.trade_calendar import is_last_nontrading_before_open, is_trading_day
+        if is_trading_day():
+            console.print("[yellow]⏸ 今日为交易日，跳过消息面报告[/yellow]")
+            return
+        if mode == "preview" and not is_last_nontrading_before_open():
+            console.print("[yellow]⏸ 非'重开前最后一晚'，跳过下周前瞻[/yellow]")
+            return
+    from app.nodes.quick_report import build_news_digest
+    filepath, title, content = build_news_digest(mode)
+    console.print(f"\n[bold green]✅ {title} 已生成[/bold green]  {filepath}\n")
+    if not no_notify:
+        _push_quick_report(title, content)
 
 
 @cli.command("web")
