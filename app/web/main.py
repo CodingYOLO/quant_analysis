@@ -42,6 +42,19 @@ _security = HTTPBasic()
 _SESSION_LABEL = {"pre": "盘前", "mid": "盘中", "post": "盘后"}
 
 
+@app.on_event("startup")
+async def _startup_realtime() -> None:
+    """启动全推实时枢纽 + 盯盘扫描线程。休市连不上不报错，开盘自动接入。"""
+    try:
+        from app.strategy.realtime_hub import ensure_started
+        from app.strategy.realtime_scan import start_scanner
+        ensure_started()
+        start_scanner()
+        logger.info("实时枢纽与盯盘扫描线程已启动")
+    except Exception:
+        logger.exception("实时枢纽启动失败（不影响其余功能）")
+
+
 # ──────────────────────────────────────────────
 # 认证
 # ──────────────────────────────────────────────
@@ -1079,6 +1092,42 @@ async def api_watch_quotes(_user: str = Depends(require_auth)):
         return {"ok": True, "quotes": await run_in_threadpool(_q)}
     except Exception as e:
         logger.exception("盯盘报价失败")
+        return {"ok": False, "msg": str(e)}
+
+
+@app.get("/realtime", response_class=HTMLResponse)
+async def realtime_page(request: Request, _user: str = Depends(require_auth)):
+    """实时盯盘看板（全推L1·秒级刷新·资金流向/板块/急拉/持仓体检）。"""
+    return templates.TemplateResponse(request=request, name="realtime.html",
+                                      context={"page": "realtime"})
+
+
+@app.get("/api/realtime/board")
+async def api_realtime_board(_user: str = Depends(require_auth)):
+    """实时看板数据（读进程内全推快照·线程池避免阻塞事件循环）。"""
+    try:
+        from fastapi.concurrency import run_in_threadpool
+
+        from app.strategy.realtime_hub import build_board, status
+        board = await run_in_threadpool(build_board)
+        board["status"] = status()
+        return board
+    except Exception as e:
+        logger.exception("实时看板失败")
+        return {"ok": False, "msg": str(e)}
+
+
+@app.post("/api/realtime/scan")
+async def api_realtime_scan(force: bool = False, _user: str = Depends(require_auth)):
+    """手动触发一次盯盘扫描推送（force=true 可休市用测试端点演示）。"""
+    try:
+        from fastapi.concurrency import run_in_threadpool
+
+        from app.strategy.realtime_scan import scan_once
+        new = await run_in_threadpool(scan_once, force, True)
+        return {"ok": True, "pushed": new, "n": len(new)}
+    except Exception as e:
+        logger.exception("盯盘扫描失败")
         return {"ok": False, "msg": str(e)}
 
 

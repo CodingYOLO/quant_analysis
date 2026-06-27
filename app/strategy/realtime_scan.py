@@ -1,0 +1,107 @@
+"""实时盯盘扫描器（进程内·喂自全推快照 → 推 Bark）。
+
+只做全推独有信号，避免与现有新浪 cron（弱转强/涨停潮/集合竞价）重复推送：
+  - 资金抢筹：外盘占比高 + 放量 + 上涨 + 主动净买达标
+  - 急拉：约5分钟涨速达标
+  - 持仓异动：你的持仓急跌/破位/资金转主动卖 → 提示「走一遍」冷静流程
+每个事件当天只推一次（进程内去重）。后台线程每 ~30 秒跑一次。
+"""
+
+from __future__ import annotations
+
+import datetime
+import logging
+import threading
+import time
+
+from app.config import get_settings
+from app.strategy import realtime_hub as hub
+from app.strategy.watch_alert import is_market_hours
+
+logger = logging.getLogger(__name__)
+
+_SCAN_INTERVAL = 30          # 秒
+_VEL_PUSH_MOVE = 3.0         # 急拉推送阈值（5分钟涨速%）
+_pushed_date = ""
+_pushed: set[str] = set()
+_thread: threading.Thread | None = None
+_stop = threading.Event()
+
+
+def _dedup_reset_if_new_day() -> None:
+    global _pushed_date, _pushed
+    today = datetime.date.today().isoformat()
+    if today != _pushed_date:
+        _pushed_date, _pushed = today, set()
+
+
+def _stock_url(ts_code: str) -> str:
+    base = get_settings().web_base_url.rstrip("/")
+    return f"{base}/stock?code={ts_code[:6]}" if base else ""
+
+
+def _collect_events() -> list[tuple[str, str, str, str]]:
+    """汇总待推事件 [(dedup_key, title, body, ts_code)]。"""
+    from app.strategy.realtime_fund import fund_surge_events, velocity_events
+    df = hub.snapshot().to_df()
+    events: list[tuple[str, str, str, str]] = []
+    for s in fund_surge_events(df):
+        events.append((f"surge_{s['ts_code']}", f"💰 资金抢筹·{s['name']}",
+                       f"外盘{s['outer_ratio']*100:.0f}%·量比{s['vol_ratio']}·涨{s['pct_chg']}%"
+                       f"·主动净买{s['net_yi']}亿（L1估算·非龙虎榜真钱）", s["ts_code"]))
+    for v in velocity_events(hub.snapshot().prices(), hub.past_prices(5.0), min_move=_VEL_PUSH_MOVE):
+        q = hub.snapshot().get(v["ts_code"]) or {}
+        events.append((f"vel_{v['ts_code']}", f"⚡ 急拉·{q.get('name', v['ts_code'])}",
+                       f"5分钟拉升 +{v['move']}%·现价{q.get('price', '')}", v["ts_code"]))
+    events.extend(_holding_events())
+    return events
+
+
+def _holding_events() -> list[tuple[str, str, str, str]]:
+    out: list[tuple[str, str, str, str]] = []
+    for h in hub.build_board().get("holdings", []):
+        if h["label"] in ("留意", "风险"):
+            out.append((f"hold_{h['ts_code']}_{h['label']}", f"🚨 持仓·{h['name']} {h['label']}",
+                        f"{h['reason']}·现{h['pct_chg']}%·外盘{h['outer_ratio']*100:.0f}%"
+                        f"\n→ 别冲动，先走一遍「拿得住」冷静流程", h["ts_code"]))
+    return out
+
+
+def scan_once(force: bool = False, push: bool = True) -> list[dict]:
+    """扫一次 → 推当日未推过的事件。返回新推列表。"""
+    if not force and (not is_market_hours() or not hub.is_live()):
+        return []
+    _dedup_reset_if_new_day()
+    from app.notify.notifier import push_bark
+    new: list[dict] = []
+    for key, title, body, code in _collect_events():
+        if key in _pushed:
+            continue
+        if (not push) or push_bark(title, body, group="实时盯盘", url=_stock_url(code)):
+            _pushed.add(key)
+            new.append({"key": key, "title": title, "body": body})
+    return new
+
+
+def _loop() -> None:
+    while not _stop.is_set():
+        try:
+            hub.record_history()
+            scan_once()
+        except Exception as e:
+            logger.warning("[实时扫描] 异常：%s", e)
+        _stop.wait(_SCAN_INTERVAL)
+
+
+def start_scanner() -> None:
+    """启动后台扫描线程（幂等）。"""
+    global _thread
+    if _thread and _thread.is_alive():
+        return
+    _stop.clear()
+    _thread = threading.Thread(target=_loop, name="realtime-scan", daemon=True)
+    _thread.start()
+
+
+def stop_scanner() -> None:
+    _stop.set()

@@ -50,6 +50,11 @@ class MarketSnapshot:
         with self._lock:
             return len(self._data)
 
+    def prices(self) -> dict[str, float]:
+        """{ts_code: 现价} 轻量快照（供急拉/涨速采样）。"""
+        with self._lock:
+            return {c: float(q.get("price") or 0.0) for c, q in self._data.items()}
+
     @property
     def updated_at(self) -> float:
         """最近一次写入的本地时间戳（epoch 秒）；从未写入为 0。"""
