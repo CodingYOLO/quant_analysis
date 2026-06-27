@@ -22,6 +22,9 @@ _CLIENT: FullPushClient | None = None
 _LOCK = threading.Lock()
 _IND_MAP: dict | None = None
 _CONCEPT_MAP: dict | None = None
+_TECH_MAP: dict | None = None
+_TECH_COLS = ["ma_bull_full", "above_ma20", "above_ma60", "above_ma120", "above_ma250",
+              "ma20_up", "stable_above_ma20", "rps120", "pat_breakout_high_20", "vol5_vol20"]
 _TAIL_BASE: dict = {}                      # 尾盘14:30基准 {code:{price,net}}
 _TAIL_DATE: str = ""
 _HISTORY: deque = deque(maxlen=16)        # [(epoch, {code: price})]·约采样6-8分钟
@@ -107,6 +110,31 @@ def concept_map() -> dict:
     return _CONCEPT_MAP
 
 
+def tech_map() -> dict:
+    """{ts_code: 技术姿态dict}（昨收口径·读最新因子表·进程内缓存）。给实时信号补量价/技术位。"""
+    global _TECH_MAP
+    if _TECH_MAP is None:
+        try:
+            import glob
+
+            import pandas as pd
+            from app.config import get_settings
+            from app.strategy.screener import _FACTOR_TABLE_VERSION
+            files = sorted(glob.glob(str(get_settings().cache_dir / "factor_table"
+                                         / f"*_{_FACTOR_TABLE_VERSION}.parquet")))
+            if files:
+                df = pd.read_parquet(files[-1])
+                cols = [c for c in _TECH_COLS if c in df.columns]
+                _TECH_MAP = {r["ts_code"]: {k: r.get(k) for k in cols}
+                             for r in df[["ts_code"] + cols].to_dict("records")}
+            else:
+                _TECH_MAP = {}
+        except Exception as e:
+            logger.warning("[实时枢纽] 技术姿态加载失败：%s", e)
+            _TECH_MAP = {}
+    return _TECH_MAP
+
+
 def is_tail_session(now: float | None = None) -> bool:
     """是否尾盘时段（14:30-15:00）。"""
     hm = time.strftime("%H%M", time.localtime(now)) if now else time.strftime("%H%M")
@@ -150,8 +178,12 @@ def build_board() -> dict:
     if df.empty:
         base.update({"msg": "全推未连接（休市或未开盘），开盘自动接入"})
         return base
-    from app.strategy.realtime_fund import fund_ranking, sector_board
-    base["fund_ranking"] = fund_ranking(df, top=15)
+    from app.strategy.realtime_fund import fund_ranking, sector_board, tech_tag
+    fr = fund_ranking(df, top=15)
+    tm = tech_map()
+    for r in fr:                                          # 资金榜补技术姿态(均线/前高/强度/量能)
+        r["tech"] = tech_tag(tm.get(r["ts_code"]))
+    base["fund_ranking"] = fr
     imap = _industry_map()
     full = sector_board(df, imap)                          # 全部板块·含龙头
     base["sectors"] = full[:12]                            # 资金涌入榜(机会)

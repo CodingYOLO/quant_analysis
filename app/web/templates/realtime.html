@@ -124,7 +124,8 @@ function renderSecOut(rows){
 function renderFund(rows){
   if(!rows||!rows.length){ $('rtFund').innerHTML='<tr><td colspan="4" class="rt-empty">暂无数据</td></tr>'; return; }
   $('rtFund').innerHTML=rows.map(r=>{const op=Math.round(r.outer_ratio*100);
-    return `<tr><td>${r.name}</td><td class="${cls(r.pct_chg)}">${sgn(r.pct_chg)}%</td>
+    return `<tr><td>${r.name}${r.tech?`<div class="neu" style="font-size:11px">${r.tech}</div>`:''}</td>
+      <td class="${cls(r.pct_chg)}">${sgn(r.pct_chg)}%</td>
       <td class="${cls(r.net_yi)}">${sgn(r.net_yi)}亿</td>
       <td><span class="rt-bar"><i style="width:${op}%"></i></span> ${op}%</td></tr>`;}).join('');
 }

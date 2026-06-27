@@ -168,6 +168,17 @@ def test_flash_crashes_tiers() -> None:
     assert res == {"A.SH": "crash", "B.SH": "warn"}
 
 
+def test_tech_tag() -> None:
+    from app.strategy.realtime_fund import tech_tag
+    assert tech_tag(None) == "" and tech_tag({}) == ""
+    strong = tech_tag({"ma_bull_full": True, "pat_breakout_high_20": True,
+                       "rps120": 92, "vol5_vol20": 1.8})
+    assert "多头排列" in strong and "破20日高" in strong and "RPS92" in strong and "放量" in strong
+    weak = tech_tag({"ma_bull_full": False, "above_ma20": False, "above_ma60": False,
+                     "rps120": 35, "vol5_vol20": 0.6})
+    assert "MA60下方" in weak and "RPS35弱" in weak and "缩量" in weak
+
+
 def test_empty_inputs_safe() -> None:
     empty = pd.DataFrame()
     assert fund_ranking(empty) == [] and sector_board(empty, {}) == []

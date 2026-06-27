@@ -122,6 +122,37 @@ def velocity_events(now: dict, past: dict, *, min_move: float = 2.0) -> list[dic
     return out
 
 
+def tech_tag(t: dict | None) -> str:
+    """技术姿态短标签（昨收口径·读自因子表）：均线位置·突破·强度·量能。
+
+    给实时信号补"技术位置 + 量价"上下文，避免只看涨跌幅误导。空数据返回 ''。
+    """
+    if not t:
+        return ""
+    parts: list[str] = []
+    if t.get("ma_bull_full"):
+        parts.append("多头排列")
+    elif t.get("above_ma20"):
+        parts.append("站MA20")
+    elif not t.get("above_ma60"):
+        parts.append("MA60下方")              # 弱：均线压制
+    if t.get("pat_breakout_high_20"):
+        parts.append("破20日高")
+    rps = t.get("rps120")
+    if rps is not None and rps == rps:        # 非 NaN
+        if float(rps) >= 87:
+            parts.append(f"RPS{int(float(rps))}")
+        elif float(rps) < 50:
+            parts.append(f"RPS{int(float(rps))}弱")
+    v = t.get("vol5_vol20")
+    if v is not None and v == v:
+        if float(v) >= 1.5:
+            parts.append("放量")
+        elif float(v) < 0.7:
+            parts.append("缩量")              # 量价背离警惕
+    return "·".join(parts)
+
+
 def is_sealed_limit(row: dict) -> tuple[bool, float]:
     """是否封涨停 + 封单量(手)。现价=涨停价即视为封板，封单取买一量。"""
     lu = float(row.get("limit_up") or 0)
