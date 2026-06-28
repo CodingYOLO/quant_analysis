@@ -242,6 +242,33 @@ def detect_breakouts(rows: list[dict], past_prices: dict, levels: dict, *,
     return out
 
 
+def altitude_risk(price: float, prev_close: float, t: dict | None) -> str:
+    """高位/追高风险：高位连板(昨收≥4连板) + 远离MA60乖离(≥40%)。价格对齐才判乖离。空→''。"""
+    if not t:
+        return ""
+    parts = []
+    cb = int(_ff(t.get("consec_limit_now")))
+    if cb >= 4:
+        parts.append(f"高位{cb}板")
+    if _scale_aligned(price, prev_close, _ff(t.get("close"))):
+        ma60 = _ff(t.get("ma60"))
+        if ma60 and price / ma60 - 1 >= 0.40:
+            parts.append(f"乖离+{(price / ma60 - 1) * 100:.0f}%")
+    return "·".join(parts)
+
+
+def rel_strength_tag(pct: float, sector_avg: float | None) -> str:
+    """个股相对板块强弱：领涨(强于板块≥1.5%) / 弱于板块(≤-1.5%)。真龙头应强于板块。"""
+    if sector_avg is None:
+        return ""
+    diff = pct - sector_avg
+    if diff >= 1.5:
+        return "领涨板块"
+    if diff <= -1.5:
+        return "弱于板块"
+    return ""
+
+
 def _sentiment_state(top_board: int, promo_rate: float, premium: float,
                      bao_rate: float, sealed: int, limit_down: int) -> tuple[str, str]:
     """情绪状态判定（赚钱效应/连板高度/炸板率综合）。返回 (状态, emoji)。"""

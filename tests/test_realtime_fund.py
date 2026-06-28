@@ -231,6 +231,22 @@ def test_sentiment_state_labels() -> None:
     assert _sentiment_state(5, 50, 2, 25, 40, 0)[0] == "升温"
 
 
+def test_altitude_risk() -> None:
+    from app.strategy.realtime_fund import altitude_risk
+    t = {"consec_limit_now": 5, "close": 10.0, "ma60": 6.0}
+    r = altitude_risk(14.0, 10.0, t)                          # 5连板 + 14/6-1=133%乖离
+    assert "高位5板" in r and "乖离" in r
+    assert altitude_risk(7.0, 10.0, {"consec_limit_now": 1, "close": 10.0, "ma60": 6.9}) == ""  # 1板·乖离小
+    assert altitude_risk(14.0, 5.0, t) == "高位5板"           # 昨收5≠因子10不对齐→不判乖离·仅连板
+
+
+def test_rel_strength_tag() -> None:
+    from app.strategy.realtime_fund import rel_strength_tag
+    assert rel_strength_tag(8.0, 3.0) == "领涨板块"           # +5 强于板块
+    assert rel_strength_tag(2.0, 6.0) == "弱于板块"           # -4 跟风弱
+    assert rel_strength_tag(5.0, 4.5) == "" and rel_strength_tag(5.0, None) == ""
+
+
 def test_empty_inputs_safe() -> None:
     empty = pd.DataFrame()
     assert fund_ranking(empty) == [] and sector_board(empty, {}) == []

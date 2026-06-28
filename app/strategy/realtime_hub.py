@@ -207,12 +207,14 @@ def build_board() -> dict:
     if df.empty:
         base.update({"msg": "全推未连接（休市或未开盘），开盘自动接入"})
         return base
-    from app.strategy.realtime_fund import fund_ranking, sector_board, tech_context
+    from app.strategy.realtime_fund import (altitude_risk, fund_ranking, sector_board, tech_context)
     fr = fund_ranking(df, top=15)
     tm = tech_map()
     pcmap = dict(zip(df["ts_code"], df["prev_close"]))    # 昨收(尺度对齐校验用)
-    for r in fr:                                          # 资金榜补实时技术位(现价vs关键位+量价)
-        r["tech"] = tech_context(r.get("price"), pcmap.get(r["ts_code"]), tm.get(r["ts_code"]))
+    for r in fr:                                          # 资金榜补实时技术位 + 高位风险
+        price, prev, t = r.get("price"), pcmap.get(r["ts_code"]), tm.get(r["ts_code"])
+        r["tech"] = "·".join(x for x in (tech_context(price, prev, t),
+                                         altitude_risk(price or 0, prev or 0, t)) if x)
     base["fund_ranking"] = fr
     imap = _industry_map()
     full = sector_board(df, imap)                          # 全部板块·含龙头
