@@ -381,24 +381,32 @@ def _velocity_block() -> list[dict]:
 
 
 def _watch_block() -> list[dict]:
-    """自选/持仓实时盯盘（读自选库全部·持仓在前·组内按涨幅排）。
+    """自选/持仓实时盯盘（读自选库全部·永远镜像完整名单·不漏票）。
 
-    之前只回 is_holding=1，用户的自选(is_holding=0)全被漏掉→看板"没同步自选"。现自选/持仓都回，
-    用 is_holding 区分；持仓带止损做体检，自选同样给实时量价+体检读数。
+    之前两个坑：①只回 is_holding=1，自选(is_holding=0)全漏；②快照无该票就 `continue` 跳过，
+    导致全推未推送的票(休市/停牌/演示端部分覆盖)凭空消失→用户以为"同步坏了"。
+    现：自选/持仓都回；有行情给实时量价+体检，无行情仍列出并标「待接入」。
     """
     from app.strategy import db
     from app.strategy.realtime_fund import holding_health, outer_ratio
     out = []
     for w in db.get_watchlist():
+        is_hold = bool(w.get("is_holding"))
         q = _SNAP.get(w["ts_code"])
-        if not q:
+        if not q:                                    # 全推暂无该票(休市/停牌/演示端只覆盖部分)→仍列出·标待接入
+            out.append({"ts_code": w["ts_code"], "name": w.get("name") or w["ts_code"][:6],
+                        "is_holding": is_hold, "pct_chg": None, "vol_ratio": None,
+                        "outer_ratio": None, "label": "待接入", "reason": "全推暂无推送",
+                        "no_quote": True})
             continue
         label, reason = holding_health(q, w.get("stop_loss"))
-        out.append({"ts_code": w["ts_code"], "name": q.get("name", ""),
-                    "is_holding": bool(w.get("is_holding")),
+        out.append({"ts_code": w["ts_code"], "name": q.get("name", "") or w.get("name", ""),
+                    "is_holding": is_hold,
                     "pct_chg": round(float(q.get("pct_chg") or 0), 2),
                     "vol_ratio": round(float(q.get("vol_ratio") or 0), 2),
                     "outer_ratio": outer_ratio(q.get("inner") or 0, q.get("outer") or 0),
-                    "label": label, "reason": reason})
-    out.sort(key=lambda x: (not x["is_holding"], -x["pct_chg"]))   # 持仓在前·组内涨幅降序
+                    "label": label, "reason": reason, "no_quote": False})
+    # 持仓在前；有行情在前(按涨幅降序)，无行情(待接入)垫底
+    out.sort(key=lambda x: (not x["is_holding"], x["no_quote"],
+                            -(x["pct_chg"] if x["pct_chg"] is not None else -999)))
     return out

@@ -199,9 +199,15 @@ function renderSurge(rows){
 function renderWatch(rows){
   if(!rows||!rows.length){ $('rtHold').innerHTML='<tr><td colspan="5" class="rt-empty">还没有自选（在「自选盯盘」加入后，盘中实时显示）</td></tr>'; return; }
   const bd={'健康':'badge-green','中性':'badge-blue','留意':'badge-yellow','风险':'badge-red'};
-  $('rtHold').innerHTML=rows.map(r=>{const op=Math.round(r.outer_ratio*100);
+  $('rtHold').innerHTML=rows.map(r=>{
     const tag=r.is_holding?'<span class="badge badge-blue" style="font-size:10px;margin-left:4px">持仓</span>'
                           :'<span class="badge" style="font-size:10px;margin-left:4px;background:#262a3e;color:#9ca3af">自选</span>';
+    if(r.no_quote){   // 全推暂无该票(休市/停牌/演示端部分覆盖)·仍列出·不让自选凭空消失
+      return `<tr><td>${r.name}${tag}</td><td class="neu">—</td><td class="neu">—</td><td class="neu">—</td>
+        <td><span class="badge" style="background:#262a3e;color:#8a90a0">待接入</span>
+        <span class="neu" style="font-size:11px">${r.reason||'全推暂无推送'}</span></td></tr>`;
+    }
+    const op=Math.round(r.outer_ratio*100);
     return `<tr><td>${r.name}${tag}</td><td class="${cls(r.pct_chg)}">${sgn(r.pct_chg)}%</td>
       <td class="neu">${r.vol_ratio}</td><td>${op>=50?'<span class=pos>主动买</span>':'<span class=neg>主动卖</span>'} ${op}%</td>
       <td><span class="badge ${bd[r.label]||'badge-blue'}">${r.label}</span> <span class="neu" style="font-size:11px">${r.reason}</span></td></tr>`;}).join('');
