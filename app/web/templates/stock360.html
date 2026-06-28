@@ -47,12 +47,16 @@ table.mini td { padding:6px 8px; border-bottom:1px solid #1e2138; }
 #hist-card .hrow { display:flex; align-items:center; gap:10px; padding:7px 4px; border-bottom:1px solid #1e2138; font-size:12.5px; }
 #hist-card .hrow:hover { background:#1e2138; }
 #hist-card .hview { color:#7c9ef8; cursor:pointer; } #hist-card .hdel { color:#8a90a0; cursor:pointer; }
-/* 打印(导出PDF)：仅留分析内容 */
+/* 打印(导出PDF)：仅留分析内容（报告标题 #cap-head 保留，含股票名+板块） */
 @media print {
-  nav, .searchbar, .sub, #hist-card, #cap-head, .s-noexport, #aic-btn, #aic-panel { display:none !important; }
+  nav, .searchbar, .sub, #hist-card, .s-noexport, #aic-btn, #aic-panel { display:none !important; }
   body, .sec { background:#fff !important; color:#000 !important; }
 }
-#cap-head { display:none; }
+/* 报告标题：股票名 + 代码 + 所属板块(申万)。在 #result 内，分析后即显，导出同样带上 */
+#cap-head { display:block; }
+#cap-sub .rpt-name { color:#cdd6f4; font-size:15px; font-weight:700; }
+#cap-sub .rpt-sec { display:inline-block; background:#2a2440; color:#b794f6; border:1px solid #4a3d6a; border-radius:6px; padding:1px 8px; font-size:12px; font-weight:600; }
+@media print { #cap-sub .rpt-name { color:#000 !important; } #cap-sub .rpt-sec { color:#6b46c1 !important; border-color:#6b46c1 !important; background:#f3effa !important; } }
 {% endblock %}
 
 {% block content %}
@@ -112,13 +116,23 @@ function esc(s){ return (s==null?'':String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;
 // 数据时间标注：YYYYMMDD→YYYY-MM-DD；dt() 生成统一的"数据时间/更新频率"小字条
 function fmtD(s){ s=String(s||''); return /^\d{8}$/.test(s)?(s.slice(0,4)+'-'+s.slice(4,6)+'-'+s.slice(6,8)):s; }
 function dt(txt){ return '<div class="neu2" style="font-size:10.5px;margin-bottom:6px">📅 '+txt+'</div>'; }
-let _kc=null, busy=false, _lastVerdict=null, _lastName='', _lastCode='';
+let _kc=null, busy=false, _lastVerdict=null, _lastName='', _lastCode='', _lastSector='';
+
+// 报告标题：股票名（粗体）+ 代码 + 所属板块(申万行业·琥珀胶囊)。名/板块就绪即刷新，导出同样带上。
+function setReportTitle(suffix){
+  const nm=_lastName||_lastCode||'';
+  const code=(_lastCode&&_lastCode!==nm)?_lastCode:'';            // 输入名时不重复显示
+  const sec=_lastSector?(' · <span class="rpt-sec">'+esc(_lastSector)+'</span>'):'';
+  $('cap-sub').innerHTML='<span class="rpt-name">'+esc(nm)+'</span>'
+    +(code?' <span class="neu2">'+esc(code)+'</span>':'')+sec
+    +(suffix?' <span class="neu2">· '+esc(suffix)+'</span>':'');
+}
 
 // ── 主流程：并行加载各区 → 渲染 → 汇总事实 → 综合判断 → 自动存历史 ──
 function go(){
   const code=$('code').value.trim(); if(!code||busy) return;
-  busy=true; $('go').disabled=true; _lastCode=code; _lastName=code;
-  $('hint').style.display='none'; $('result').style.display='block';
+  busy=true; $('go').disabled=true; _lastCode=code; _lastName=code; _lastSector='';
+  $('hint').style.display='none'; $('result').style.display='block'; setReportTitle();
   ['v-prof','v-fund','v-lhb','v-sector','v-fin','v-research','v-scout','v-news'].forEach(id=>{ $(id).className='loading'; $(id).textContent='⏳ 加载中…'; });
   $('v-kline').innerHTML=''; _kc=null; $('export-bar').style.display='none';
   $('vd-body').className='loading'; $('vd-body').textContent='⏳ 正在汇总各区数据并生成综合判断…';
@@ -146,7 +160,7 @@ async function loadProfile(code,facts,store){
 }
 function renderProfile(d,facts){
   if(!d||!d.ok){ $('v-prof').textContent='—'; return; }
-  if(d.name) _lastName=d.name;
+  if(d.name){ _lastName=d.name; setReportTitle(); }
   if(d.kline && window.AKline){ try{ _kc=AKline.render('v-kline', d.kline); }catch(e){} }
   const tags=(d.tags||[]).concat((d.chips&&d.chips.tags)||[]);
   const kd=(d.kline&&d.kline.dates&&d.kline.dates.length)?d.kline.dates[d.kline.dates.length-1]:'';
@@ -191,14 +205,14 @@ function renderCompany(d){
 
 async function loadFundThenSector(code,facts,store){
   let industry='';
-  try{ const d=await (await fetch('/api/stock/fund?code='+encodeURIComponent(code))).json(); store.fund=d; industry=(d&&d.industry)||''; renderFund(d,facts); }
+  try{ const d=await (await fetch('/api/stock/fund?code='+encodeURIComponent(code))).json(); store.fund=d; industry=(d&&d.industry)||''; if(industry){ _lastSector=industry; setReportTitle(); } renderFund(d,facts); }
   catch(e){ $('v-fund').textContent='加载失败'; }
   try{ const s=await (await fetch('/api/sector/heat?type=industry&name='+encodeURIComponent(industry))).json(); s._industry=industry; store.sector=s; renderSector(s,facts); }
   catch(e){ $('v-sector').textContent= industry?'加载失败':'未识别所属行业'; }
 }
 function renderFund(d,facts){
   if(!d||!d.ok||!d.fund_triangle){ $('v-fund').textContent='—'; return; }
-  if(d.name) _lastName=d.name;
+  if(d.name){ _lastName=d.name; setReportTitle(); }
   const t=d.fund_triangle, cls={strong:'ft-strong',warn:'ft-warn',weak:'ft-weak',neutral:'ft-neu'}[t.level]||'ft-neu';
   const score=(t.consistency==null?50:t.consistency), slabel=t.consistency_label||'';
   const sColor=score>=75?'#f6c343':(score>=58?'#f0a020':(score<=35?'#2ebd85':'#9ca3af'));
@@ -352,7 +366,7 @@ async function runVerdict(code,facts,store){
     else { _lastVerdict=d; renderVerdict(d); }
   }catch(e){ _vdFail('综合判断失败：'+esc(String(e))); }
   $('export-bar').style.display='flex';
-  $('cap-sub').textContent=name+' '+code+' · 生成 '+new Date().toLocaleString('zh-CN');
+  setReportTitle('生成 '+new Date().toLocaleString('zh-CN'));
   // 自动存历史快照（含各区数据 + 判断）
   const snapshot={code, name, verdict:_lastVerdict, profile:store.profile, fund:store.fund,
     lhb:store.lhb, sector:store.sector, fin:store.fin, research:store.research, scout:store.scout, news:store.news};
@@ -405,6 +419,7 @@ async function openHistory(id){
 function replay(s){
   $('hint').style.display='none'; $('result').style.display='block';
   _lastCode=s.code||''; _lastName=s.name||''; _kc=null; $('v-kline').innerHTML='';
+  _lastSector=(s.sector&&(s.sector._industry||s.sector.name))||(s.fund&&s.fund.industry)||'';
   $('code').value=s.name||s.code||'';
   loadCompany(s.code);                   // 快照无公司画像→按月缓存重取(秒开)
   renderProfile(s.profile||{}, {}); renderFund(s.fund||{}, {}); renderLhb(s.lhb||{}, {}, s.code); renderSector(s.sector||{}, {});
@@ -414,7 +429,7 @@ function replay(s){
   else { $('vd-body').className=''; $('vd-body').innerHTML='<span class="neu2">该快照无综合判断</span>'; }
   $('export-bar').style.display='flex';
   $('btn-plan').href='/plan?code='+encodeURIComponent(s.code||'');
-  $('cap-sub').textContent=(s.name||'')+' '+(s.code||'')+' · 历史快照';
+  setReportTitle('历史快照');
 }
 
 // —— 导出长图 / PDF ——
@@ -433,7 +448,6 @@ function restoreCharts(restore){ document.querySelectorAll('._capimg').forEach(i
 $('btn-img').addEventListener('click', async ()=>{
   if(typeof html2canvas==='undefined'){ alert('图片库未加载，请刷新重试'); return; }
   const btn=$('btn-img'), old=btn.textContent; btn.disabled=true; btn.textContent='⏳ 生成中…';
-  $('cap-head').style.display='block';
   const hidden=[]; document.querySelectorAll('#result .s-noexport').forEach(el=>{ hidden.push([el,el.style.display]); el.style.display='none'; });
   const restore=chartsToImg();
   try{
@@ -441,12 +455,12 @@ $('btn-img').addEventListener('click', async ()=>{
     const canvas=await html2canvas(node,{scale:2,backgroundColor:'#0f1117',useCORS:true,windowWidth:node.scrollWidth});
     const a=document.createElement('a'); a.download=exportName('png'); a.href=canvas.toDataURL('image/png'); a.click();
   }catch(e){ alert('长图生成失败：'+e); }
-  finally{ restoreCharts(restore); hidden.forEach(([el,d])=>el.style.display=d); $('cap-head').style.display='none'; btn.disabled=false; btn.textContent=old; }
+  finally{ restoreCharts(restore); hidden.forEach(([el,d])=>el.style.display=d); btn.disabled=false; btn.textContent=old; }
 });
 $('btn-pdf').addEventListener('click', ()=>{
-  const old=document.title; document.title=exportName('').replace(/\.$/,''); $('cap-head').style.display='block';
+  const old=document.title; document.title=exportName('').replace(/\.$/,'');
   window.print();
-  setTimeout(()=>{ document.title=old; $('cap-head').style.display='none'; }, 800);
+  setTimeout(()=>{ document.title=old; }, 800);
 });
 
 loadHistory();   // 进页面即载入历史
