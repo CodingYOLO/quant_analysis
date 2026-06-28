@@ -215,13 +215,13 @@ def _surge_events(surge: list[dict], imap: dict, tech: dict, sec_avg: dict,
 
 
 def _stock_lines(stock: str, sec: str = "", mkt: str = "") -> str:
-    """个股 / 板块 / 大盘 分块多行（每行带标签·一眼可分·降认知负荷）。"""
-    lines = [f"个股 {stock}"]
+    """个股 / 板块 / 大盘 分块（同一行内用 ▸ 分隔·紧凑又一眼可分·不占多行竖向空间）。"""
+    blocks = [f"个股 {stock}"]
     if sec:
-        lines.append(f"板块 {sec}")
+        blocks.append(f"板块 {sec}")
     if mkt:
-        lines.append(f"大盘 {mkt}")
-    return "\n".join(lines)
+        blocks.append(f"大盘 {mkt}")
+    return " ▸ ".join(blocks)
 
 
 def _sec_line(ind: str, sec_avg, rel: str = "") -> str:
