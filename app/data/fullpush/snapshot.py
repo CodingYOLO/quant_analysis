@@ -71,6 +71,17 @@ class MarketSnapshot:
         with self._lock:
             return {c: float(q.get("price") or 0.0) for c, q in self._data.items()}
 
+    def net_amounts(self) -> dict[str, float]:
+        """{ts_code: 当日累计主动净买(亿)} 轻量（不建DataFrame·供资金持续/脉冲采样）。"""
+        with self._lock:
+            out = {}
+            for c, q in self._data.items():
+                inner = float(q.get("inner") or 0.0)
+                outer = float(q.get("outer") or 0.0)
+                price = float(q.get("price") or 0.0)
+                out[c] = (outer - inner) * price / 1e6
+            return out
+
     @property
     def updated_at(self) -> float:
         """最近一次写入的本地时间戳（epoch 秒）；从未写入为 0。"""

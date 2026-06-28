@@ -231,6 +231,15 @@ def test_sentiment_state_labels() -> None:
     assert _sentiment_state(5, 50, 2, 25, 40, 0)[0] == "升温"
 
 
+def test_fund_flow_quality() -> None:
+    from app.strategy.realtime_fund import fund_flow_quality
+    assert fund_flow_quality([0.5, 1.0, 1.5, 2.0]) == "资金持续"      # 一路增·当前=峰值
+    assert fund_flow_quality([2.0, 3.0, 2.5, 1.0]) == "脉冲退潮"      # 峰3·现1<0.7峰
+    assert fund_flow_quality([1.0, 1.05, 1.1]) == "资金持续"          # 稳增近峰
+    assert fund_flow_quality([1.0, 2.0]) == ""                       # 样本<3
+    assert fund_flow_quality([-1.0, -0.5, -0.2]) == ""               # 净流出不评
+
+
 def test_altitude_risk() -> None:
     from app.strategy.realtime_fund import altitude_risk
     t = {"consec_limit_now": 5, "close": 10.0, "ma60": 6.0}

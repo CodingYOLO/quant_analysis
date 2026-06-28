@@ -31,6 +31,7 @@ _TECH_COLS = ["ma_bull_full", "above_ma20", "above_ma60", "above_ma120", "above_
 _TAIL_BASE: dict = {}                      # 尾盘14:30基准 {code:{price,net}}
 _TAIL_DATE: str = ""
 _HISTORY: deque = deque(maxlen=16)        # [(epoch, {code: price})]·约采样6-8分钟
+_NET_HISTORY: deque = deque(maxlen=20)     # [(epoch, {code: 主动净买亿})]·资金持续/脉冲判定
 _STALE_SEC = 15                           # 超过此秒数未更新 → 视为非实时
 
 
@@ -105,6 +106,18 @@ def record_history() -> None:
     prices = _SNAP.prices()
     if prices:
         _HISTORY.append((time.time(), prices))
+
+
+def record_net_history() -> None:
+    """采样各股当日累计主动净买，供资金持续/脉冲判定（扫描线程定期调用）。"""
+    nets = _SNAP.net_amounts()
+    if nets:
+        _NET_HISTORY.append((time.time(), nets))
+
+
+def net_series(code: str) -> list:
+    """某股最近若干采样的主动净买序列（升序·最早→最新）。"""
+    return [nets[code] for _, nets in _NET_HISTORY if code in nets]
 
 
 def past_prices(minutes: float = 5.0) -> dict:

@@ -180,14 +180,17 @@ def _sector_events(flow: list[dict]) -> list[tuple[str, str, str, str]]:
 def _surge_events(surge: list[dict], imap: dict, tech: dict,
                   sec_avg: dict) -> list[tuple[str, str, str, str]]:
     """个股资金抢筹（板块 + 实时技术位 + 高位风险 + 相对板块强弱：是真龙头突破还是跟风/追高）。"""
+    from app.strategy.realtime_fund import fund_flow_quality
     out: list[tuple[str, str, str, str]] = []
     for s in surge:
         ind = imap.get(s["ts_code"], "")
         q = hub.snapshot().get(s["ts_code"]) or {}
+        fq = fund_flow_quality(hub.net_series(s["ts_code"]))     # 资金持续/脉冲退潮
         tg = _stock_context_tags(q, tech.get(s["ts_code"]), sec_avg.get(ind))
+        tags = "·".join(x for x in (fq, tg) if x)
         out.append((f"surge_{s['ts_code']}", f"💰 资金抢筹·{s['name']}{('·'+ind) if ind else ''}",
                     f"外盘{s['outer_ratio']*100:.0f}%·量比{s['vol_ratio']}·涨{s['pct_chg']}%"
-                    f"·主动净买{s['net_yi']}亿{('·'+tg) if tg else ''}（L1估算·非龙虎榜真钱）", s["ts_code"]))
+                    f"·主动净买{s['net_yi']}亿{('·'+tags) if tags else ''}（L1估算·非龙虎榜真钱）", s["ts_code"]))
     return out
 
 
@@ -343,6 +346,7 @@ def _loop() -> None:
         try:
             _health_check()                                 # 心跳:断流告警+新浪兜底
             hub.record_history()
+            hub.record_net_history()                        # 资金持续/脉冲采样
             scan_once()
         except Exception as e:
             logger.warning("[实时扫描] 异常：%s", e)

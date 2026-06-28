@@ -242,6 +242,24 @@ def detect_breakouts(rows: list[dict], past_prices: dict, levels: dict, *,
     return out
 
 
+def fund_flow_quality(net_series: list) -> str:
+    """主动净买时序(升序·最早→最新) → 资金持续 / 脉冲退潮 / ''。
+
+    持续 = 当前接近峰值且还在增（真吸筹）；脉冲退潮 = 明显回落于峰值（吸筹停/在撤·疑对倒一脉冲）。
+    """
+    s = [float(x) for x in net_series if x is not None]
+    if len(s) < 3:
+        return ""
+    now, peak = s[-1], max(s)
+    if now <= 0 or peak <= 0:
+        return ""                                  # 没在净流入·不评
+    if now >= peak * 0.9 and s[-1] >= s[-2]:
+        return "资金持续"
+    if now <= peak * 0.7:
+        return "脉冲退潮"
+    return ""
+
+
 def altitude_risk(price: float, prev_close: float, t: dict | None) -> str:
     """高位/追高风险：高位连板(昨收≥4连板) + 远离MA60乖离(≥40%)。价格对齐才判乖离。空→''。"""
     if not t:
