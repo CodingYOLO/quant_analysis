@@ -87,8 +87,8 @@
     <h3 style="margin:0;text-align:left">🔭 板块广度雷达
       <span class="neu" style="font-weight:400;font-size:12px">（切板块看广度趋势 + 今日低吸雷达·烂板块已过滤）</span></h3>
     <span style="margin-left:auto"></span>
-    <span class="preset rtype active" data-t="concept">概念</span>
-    <span class="preset rtype" data-t="industry">行业</span>
+    <span class="preset rtype" data-t="concept">概念</span>
+    <span class="preset rtype active" data-t="industry">行业</span>
   </div>
   <div id="radar-asof" style="display:none;font-size:12px;background:#2a1d0a;border:1px solid #5a4018;color:#f0a020;border-radius:8px;padding:7px 12px;margin-bottom:10px"></div>
   <div id="radar-status" class="neu" style="font-size:13px;padding:6px 0">⏳ 加载板块雷达…</div>
@@ -309,7 +309,7 @@ function render(d){
 }
 
 // ── 🔭 板块广度雷达（独立加载，不依赖情绪主数据）──
-let radarType='concept';
+let radarType='industry';
 async function loadRadar(){
   const st=document.getElementById('radar-status');
   st.style.display='block'; st.textContent='⏳ 加载板块雷达…';
