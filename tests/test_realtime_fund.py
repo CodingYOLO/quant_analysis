@@ -207,6 +207,30 @@ def test_detect_breakouts() -> None:
     assert detect_breakouts(rows3, past, lv) == []
 
 
+def test_sentiment_thermometer() -> None:
+    from app.strategy.realtime_fund import sentiment_thermometer
+    consec = {"A.SH": 5, "B.SH": 0, "C.SH": 2, "D.SH": 1}
+    rows = [
+        {"ts_code": "A.SH", "name": "龙头", "price": 11.0, "high": 11.0, "limit_up": 11.0, "limit_down": 9.0, "pct_chg": 10},   # 昨5板·今封→6板
+        {"ts_code": "B.SH", "name": "首板", "price": 11.0, "high": 11.0, "limit_up": 11.0, "limit_down": 9.0, "pct_chg": 10},   # 昨0·今封→1板
+        {"ts_code": "C.SH", "name": "炸板", "price": 10.3, "high": 11.0, "limit_up": 11.0, "limit_down": 9.0, "pct_chg": 3},    # 触板未封=炸板
+        {"ts_code": "D.SH", "name": "亏钱", "price": 9.5, "high": 10.2, "limit_up": 11.0, "limit_down": 9.0, "pct_chg": -5},    # 昨涨停今跌
+    ]
+    s = sentiment_thermometer(rows, consec)
+    assert s["sealed"] == 2 and s["touched"] == 3 and s["bao"] == 1              # A/B封·C炸板
+    assert s["top_board"] == 6 and s["top_name"] == "龙头"                       # 空间板=6
+    assert {x["board"]: x["n"] for x in s["ladder"]} == {6: 1, 1: 1}             # 梯队
+    assert s["promo_rate"] == round(1 / 3 * 100, 1)                             # 昨涨停A/C/D·今封仅A
+
+
+def test_sentiment_state_labels() -> None:
+    from app.strategy.realtime_fund import _sentiment_state
+    assert _sentiment_state(7, 60, 3, 20, 50, 0)[0] == "高潮过热"
+    assert _sentiment_state(4, 15, -3, 50, 30, 2)[0] == "退潮分歧"    # 赚钱效应负/高炸板
+    assert _sentiment_state(2, 0, -5, 0, 10, 15)[0] == "冰点"         # 封板少+跌停多
+    assert _sentiment_state(5, 50, 2, 25, 40, 0)[0] == "升温"
+
+
 def test_empty_inputs_safe() -> None:
     empty = pd.DataFrame()
     assert fund_ranking(empty) == [] and sector_board(empty, {}) == []

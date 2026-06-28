@@ -26,7 +26,8 @@ _TECH_MAP: dict | None = None
 _TECH_MAP_KEY = ""                          # 已加载的因子表文件路径（变了就重载）
 _TECH_COLS = ["ma_bull_full", "above_ma20", "above_ma60", "above_ma120", "above_ma250",
               "ma20_up", "stable_above_ma20", "rps120", "pat_breakout_high_20", "vol5_vol20",
-              "ma20", "ma60", "high20", "low20", "close"]   # v15: 关键位数值(供实时突破/破位)
+              "ma20", "ma60", "high20", "low20", "close",   # v15: 关键位数值(供实时突破/破位)
+              "consec_limit_now"]                            # v16: 昨收当前连板(情绪温度计)
 _TAIL_BASE: dict = {}                      # 尾盘14:30基准 {code:{price,net}}
 _TAIL_DATE: str = ""
 _HISTORY: deque = deque(maxlen=16)        # [(epoch, {code: price})]·约采样6-8分钟
@@ -219,6 +220,7 @@ def build_board() -> dict:
     base["sectors_out"] = [s for s in reversed(full) if s["net_yi"] < 0][:6]   # 资金撤离(风险)
     records = df.to_dict("records")                       # 转一次·多块复用
     base.update(_radar_block(df, imap))
+    base["sentiment"] = _sentiment_block(records, tm)     # 情绪温度计(连板梯队/晋级率/炸板率)
     base["themes"] = _theme_block(records)
     base["tail"] = _tail_block(records, imap)
     base["flash"] = _flash_block(records)
@@ -243,6 +245,13 @@ def _flash_block(records: list[dict]) -> list[dict]:
     """急跌/闪崩监控（3分钟瞬时跌速 + 放量 + 内盘主动砸）。"""
     from app.strategy.realtime_fund import detect_flash_crashes
     return detect_flash_crashes(records, past_prices(3.0))[:8]
+
+
+def _sentiment_block(records: list[dict], tm: dict) -> dict:
+    """情绪温度计（连板梯队/空间板/晋级率/炸板率·消费昨收当前连板）。"""
+    from app.strategy.realtime_fund import sentiment_thermometer
+    consec = {c: (t.get("consec_limit_now") or 0) for c, t in tm.items()}
+    return sentiment_thermometer(records, consec)
 
 
 def _theme_block(records: list[dict]) -> list[dict]:

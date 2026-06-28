@@ -142,16 +142,23 @@ def test_accum_columns_counts_big_up_days() -> None:
 
 
 def test_limit_stats_counts_and_consec() -> None:
-    """主板(9.8%)：三个涨停日、其中两连板。"""
+    """主板(9.8%)：三个涨停日、最高两连板；末日涨停但前日平→当前连板=1。"""
     close = pd.Series([10.0, 11.0, 12.1, 12.1, 13.31])   # 涨幅%≈ [_,10,10,0,10]
-    ups, mx = SC._limit_stats(close, 9.8)
-    assert ups == 3 and mx == 2
+    ups, mx, cur = SC._limit_stats(close, 9.8)
+    assert ups == 3 and mx == 2 and cur == 1             # 末日单独涨停→当前连板1
+
+
+def test_limit_stats_current_streak_ending() -> None:
+    """末尾两连板 → 当前连板=2（区别于'最高连板'）。"""
+    close = pd.Series([10.0, 9.0, 9.9, 10.89])           # 涨幅%≈ [_,-10,10,10]
+    ups, mx, cur = SC._limit_stats(close, 9.8)
+    assert cur == 2 and mx == 2
 
 
 def test_limit_stats_board_threshold() -> None:
     """创业板涨停≈20%，+10% 不算涨停。"""
-    ups, mx = SC._limit_stats(pd.Series([10.0, 11.0, 12.1]), 19.8)
-    assert ups == 0 and mx == 0
+    ups, mx, cur = SC._limit_stats(pd.Series([10.0, 11.0, 12.1]), 19.8)
+    assert ups == 0 and mx == 0 and cur == 0
 
 
 def test_youzi_relay_map_counts_recurring() -> None:

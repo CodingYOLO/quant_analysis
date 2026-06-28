@@ -222,7 +222,7 @@ DISPLAY_COLS = [
 # ──────────────────────────────────────────────
 
 # 因子表结构版本：新增因子列时 +1，使旧缓存自动失效重算（避免读到缺列的旧表）
-_FACTOR_TABLE_VERSION = "v15"  # v15: 加关键均线/前高前低【数值】(ma5/10/20/60·high20/low20/high60·供盘中实时突破破位判定)；v14 资金脉冲质量
+_FACTOR_TABLE_VERSION = "v16"  # v16: 加 consec_limit_now(截至昨收当前连板·情绪温度计连板梯队/晋级率用)；v15 关键位数值
 
 
 def _factor_cache_path(date: str) -> Path:
@@ -397,7 +397,7 @@ def _add_technical_factors(df: pd.DataFrame, date: str, provider) -> pd.DataFram
     name_map = dict(zip(df["ts_code"], df.get("name", pd.Series("", index=df.index)).fillna("")))
     macd_gold, rsi14, vwap_dev, vol_ratio = {}, {}, {}, {}
     kdj_gold, ema_bull, td9, long_up, long_dn = {}, {}, {}, {}, {}
-    limit60, maxboard = {}, {}                     # 妖股：近60日涨停天数 / 近120日最高连板
+    limit60, maxboard, consecnow = {}, {}, {}      # 近60日涨停天数 / 近120日最高连板 / 截至昨收当前连板
     pat_hits: dict[str, dict[str, bool]] = {}
     for ts in close_m.columns:
         s = close_m[ts].dropna()
@@ -405,7 +405,7 @@ def _add_technical_factors(df: pd.DataFrame, date: str, provider) -> pd.DataFram
             continue
         try:
             hi, lo = high_m[ts].dropna(), low_m[ts].dropna()
-            limit60[ts], maxboard[ts] = _limit_stats(s, _board_limit_pct(ts, name_map.get(ts, "")))
+            limit60[ts], maxboard[ts], consecnow[ts] = _limit_stats(s, _board_limit_pct(ts, name_map.get(ts, "")))
             macd_gold[ts] = F.macd_golden_cross(s)
             rsi14[ts] = float(F.rsi(s, 14).iloc[-1])
             kdj_gold[ts] = F.kdj_golden_cross(s, hi, lo)
@@ -434,6 +434,7 @@ def _add_technical_factors(df: pd.DataFrame, date: str, provider) -> pd.DataFram
     df["long_lower"] = df["ts_code"].map(long_dn).fillna(False)
     df["limit_ups_60d"] = df["ts_code"].map(limit60)          # 妖股：近60日涨停天数
     df["max_consec_limit"] = df["ts_code"].map(maxboard)      # 妖股：近120日最高连板
+    df["consec_limit_now"] = df["ts_code"].map(consecnow)     # 截至昨收当前连板数(情绪温度计连板梯队用)
     # K线形态布尔列 pat_<key>
     for key in PATTERN_REGISTRY:
         col = f"pat_{key}"
@@ -445,11 +446,11 @@ def _add_technical_factors(df: pd.DataFrame, date: str, provider) -> pd.DataFram
     return df
 
 
-def _limit_stats(close: pd.Series, board_limit_pct: float) -> tuple[int, int]:
-    """单股涨停统计（纯函数·可单测）：近60日涨停天数 + 近120日最高连板。
+def _limit_stats(close: pd.Series, board_limit_pct: float) -> tuple[int, int, int]:
+    """单股涨停统计（纯函数·可单测）：近60日涨停天数 + 近120日最高连板 + 当前连板。
 
     涨停判定：当日涨幅 ≥ 板块涨停幅 -0.3%（消化四舍五入/盘中价差）。
-    Returns: (近60日涨停天数, 近120日最高连续涨停天数)。
+    Returns: (近60日涨停天数, 近120日最高连续涨停天数, 截至最后一日的当前连续涨停天数)。
     """
     ret = close.pct_change() * 100
     thr = board_limit_pct - 0.3
@@ -459,7 +460,13 @@ def _limit_stats(close: pd.Series, board_limit_pct: float) -> tuple[int, int]:
     for b in seq:
         run = run + 1 if b else 0
         mx = max(mx, run)
-    return ups60, mx
+    cur = 0                                          # 当前连板=从最后一日往前数连续涨停
+    for b in reversed(seq):
+        if b:
+            cur += 1
+        else:
+            break
+    return ups60, mx, cur
 
 
 def _accum_factor_columns(close_m, high_m, low_m, vol_m) -> dict[str, pd.Series]:

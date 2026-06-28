@@ -242,6 +242,62 @@ def detect_breakouts(rows: list[dict], past_prices: dict, levels: dict, *,
     return out
 
 
+def _sentiment_state(top_board: int, promo_rate: float, premium: float,
+                     bao_rate: float, sealed: int, limit_down: int) -> tuple[str, str]:
+    """情绪状态判定（赚钱效应/连板高度/炸板率综合）。返回 (状态, emoji)。"""
+    if sealed < 15 and limit_down >= 10:
+        return "冰点", "🧊"
+    if premium <= -2 or promo_rate < 20 or bao_rate > 45:
+        return "退潮分歧", "🌧️"
+    if top_board >= 6 and promo_rate >= 45 and bao_rate < 30:
+        return "高潮过热", "🔥"
+    if premium >= 1 and promo_rate >= 35 and bao_rate < 35:
+        return "升温", "☀️"
+    return "震荡修复", "⛅"
+
+
+def sentiment_thermometer(rows: list[dict], consec_map: dict) -> dict:
+    """A股短线情绪温度计：涨停/炸板率/连板梯队/最高连板(空间板)/晋级率(赚钱效应)。
+
+    rows: 快照(price/high/limit_up/limit_down/pct_chg)；consec_map: {code: 昨收当前连板数}。
+    今日连板 = 昨收连板 + 1（若今日封板）；晋级率/溢价 = 昨日涨停(connsec≥1)今日表现。
+    """
+    touched = sealed = limit_down = 0
+    ladder: dict[int, int] = {}
+    top_board, top_name, top_code = 0, "", ""
+    promo_total = promo_up = 0
+    promo_sum = 0.0
+    for r in rows:
+        code = r["ts_code"]
+        price, high = _ff(r.get("price")), _ff(r.get("high"))
+        lu, ld, pct = _ff(r.get("limit_up")), _ff(r.get("limit_down")), _ff(r.get("pct_chg"))
+        if lu > 0 and high >= lu - 0.01:
+            touched += 1
+        sealed_now = lu > 0 and price >= lu - 0.01
+        if sealed_now:
+            sealed += 1
+            board = int(_ff(consec_map.get(code))) + 1
+            ladder[board] = ladder.get(board, 0) + 1
+            if board > top_board:
+                top_board, top_name, top_code = board, r.get("name", ""), code
+        if ld > 0 and price <= ld + 0.01:
+            limit_down += 1
+        if _ff(consec_map.get(code)) >= 1:            # 昨日涨停/连板 → 今日表现=赚钱效应
+            promo_total += 1
+            promo_sum += pct
+            if sealed_now:
+                promo_up += 1
+    bao = max(touched - sealed, 0)
+    bao_rate = round(bao / touched * 100, 1) if touched else 0.0
+    promo_rate = round(promo_up / promo_total * 100, 1) if promo_total else 0.0
+    premium = round(promo_sum / promo_total, 2) if promo_total else 0.0
+    state, emoji = _sentiment_state(top_board, promo_rate, premium, bao_rate, sealed, limit_down)
+    return {"sealed": sealed, "limit_down": limit_down, "touched": touched, "bao": bao,
+            "bao_rate": bao_rate, "top_board": top_board, "top_name": top_name, "top_code": top_code,
+            "promo_rate": promo_rate, "promo_premium": premium, "state": state, "emoji": emoji,
+            "ladder": [{"board": b, "n": ladder[b]} for b in sorted(ladder, reverse=True)]}
+
+
 def is_sealed_limit(row: dict) -> tuple[bool, float]:
     """是否封涨停 + 封单量(手)。现价=涨停价即视为封板，封单取买一量。"""
     lu = float(row.get("limit_up") or 0)

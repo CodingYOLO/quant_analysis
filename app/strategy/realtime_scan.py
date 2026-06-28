@@ -31,6 +31,7 @@ _COOLDOWN = {
     "warn": 900, "taildown": 900, "hold": 900, "limitweak": 900,
     "surge": 1200, "vel": 1200, "tailup": 1200, "brk": 1200,  # 个股机会/突破破位(20min)
     "secin": 1500, "secout": 1500, "theme": 1500,            # 板块/题材(25min·另有跨档立即)
+    "senti": 3600,                                           # 情绪状态转折(1小时·防flapping)
     "tailsummary": 999999,                                   # 尾盘小结·当天一次
 }
 _pushed_date = ""
@@ -69,12 +70,14 @@ def _collect_events() -> list[tuple[str, str, str, str]]:
     from app.strategy.realtime_fund import (detect_limit_breaks, detect_theme_fermentation,
                                             fund_surge_events, sector_board,
                                             sector_flow_events, velocity_events)
-    from app.strategy.realtime_fund import detect_breakouts, tech_context
+    from app.strategy.realtime_fund import detect_breakouts, sentiment_thermometer, tech_context
     df = hub.snapshot().to_df()
     imap = hub.industry_map()
-    tech = hub.tech_map()                                                   # 技术姿态+关键位数值(因子表v15)
+    tech = hub.tech_map()                                                   # 技术姿态+关键位数值+昨收连板(因子表v16)
     rows = df.to_dict("records")
     events: list[tuple[str, str, str, str]] = []
+    consec = {c: (t.get("consec_limit_now") or 0) for c, t in tech.items()}
+    events += _sentiment_events(sentiment_thermometer(rows, consec))        # 情绪转折(退潮/冰点/高潮)
     breaks, new_sealed = detect_limit_breaks(rows, _sealed)                  # 龙头炸板/开板预警
     _sealed.clear(); _sealed.update(new_sealed)
     events += breaks
@@ -95,6 +98,16 @@ def _collect_events() -> list[tuple[str, str, str, str]]:
                        body + (f"·{tg}" if tg else ""), v["ts_code"]))
     events += _holding_events()
     return events
+
+
+def _sentiment_events(s: dict) -> list[tuple[str, str, str, str]]:
+    """情绪转折推送：仅在 退潮分歧/冰点(风险) 或 高潮过热 时推（决定能否打板追高）。"""
+    if s.get("state") not in ("退潮分歧", "冰点", "高潮过热"):
+        return []
+    body = (f"{s['emoji']}情绪{s['state']}·空间板{s['top_board']}板"
+            f"{('·'+s['top_name']) if s['top_name'] else ''}·晋级率{s['promo_rate']}%"
+            f"·炸板率{s['bao_rate']}%·赚钱效应{s['promo_premium']:+.1f}%")
+    return [(f"senti_{s['state']}", f"🌡️ 情绪·{s['state']}", body, s.get("top_code", ""))]
 
 
 def _breakout_events(breaks: list[dict]) -> list[tuple[str, str, str, str]]:
