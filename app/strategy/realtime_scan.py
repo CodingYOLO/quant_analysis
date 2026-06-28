@@ -22,6 +22,8 @@ logger = logging.getLogger(__name__)
 
 _SCAN_INTERVAL = 30          # 秒
 _VEL_PUSH_MOVE = 3.0         # 急拉推送阈值（5分钟涨速%）
+_HEALTH_ALERT_AFTER = 180    # 盘中全推断流超此秒数 → Bark 告警
+_health: dict = {"alerted": False, "outage_start": 0.0}    # 心跳状态
 # 推送冷却（秒）：同一事件冷却内不重复；过冷却仍触发=再提醒；程度升级(事件key带档位)立即再推。
 _COOLDOWN_DEFAULT = 1500     # 25分钟
 _COOLDOWN = {
@@ -254,9 +256,49 @@ def scan_once(force: bool = False, push: bool = True) -> list[dict]:
     return new
 
 
+def _health_decision(market_hours: bool, fullpush_live: bool, outage_sec: float,
+                     alerted: bool) -> str:
+    """心跳决策（纯函数·可测）：'alert'(首次断流告警) / 'recover'(恢复通知) / 'reset' / 'hold'。"""
+    if not market_hours:
+        return "reset"
+    if fullpush_live:
+        return "recover" if alerted else "reset"
+    if outage_sec >= _HEALTH_ALERT_AFTER and not alerted:
+        return "alert"
+    return "hold"
+
+
+def _push_health(title: str, body: str) -> None:
+    from app.notify.notifier import push_bark
+    base = get_settings().web_base_url.rstrip("/")
+    push_bark(title, body, group="盯盘", url=(f"{base}/realtime" if base else ""))
+
+
+def _health_check() -> None:
+    """心跳：盘中全推断流 → 新浪兜底填快照（保命）+ 超时 Bark 告警 + 恢复通知。"""
+    now = time.time()
+    mkt = is_market_hours()
+    live = hub.is_live() if mkt else True
+    if mkt and not live:
+        if not _health["outage_start"]:
+            _health["outage_start"] = now
+        hub.fallback_fill_from_sina()                       # 全推断了·新浪填快照·看板不空
+    outage = (now - _health["outage_start"]) if _health["outage_start"] else 0.0
+    d = _health_decision(mkt, live, outage, _health["alerted"])
+    if d == "alert":
+        _push_health("⚠️ 盯盘数据断流", f"全推已断约 {outage / 60:.0f} 分钟·已切新浪兜底"
+                     "(仅涨跌幅·无内外盘资金)·看板仍可看")
+        _health["alerted"] = True
+    elif d in ("recover", "reset"):
+        if d == "recover":
+            _push_health("✅ 盯盘数据恢复", "全推已恢复实时供数·内外盘/资金维度恢复")
+        _health.update(alerted=False, outage_start=0.0)
+
+
 def _loop() -> None:
     while not _stop.is_set():
         try:
+            _health_check()                                 # 心跳:断流告警+新浪兜底
             hub.record_history()
             scan_once()
         except Exception as e:

@@ -142,9 +142,11 @@ function renderHold(rows){
       <td><span class="badge ${bd[r.label]||'badge-blue'}">${r.label}</span> <span class="neu" style="font-size:11px">${r.reason}</span></td></tr>`;}).join('');
 }
 function renderStatus(d){
-  $('rtStatus').innerHTML=`<span class="rt-dot ${d.live?'rt-live':'rt-off'}"></span>`+
-    (d.live?`全推实时 · ${d.count}只 · 更新 ${d.as_of}`:`未实时（${d.msg||'休市/未开盘·开盘自动接入'}）`)+
-    `<span class="rt-note">幕数据沪深全推L1 · 每4秒刷新</span>`;
+  const src=(d.status||{}).source||''; let dot,txt;
+  if(d.live){ dot='rt-live'; txt=`全推实时 · ${d.count}只 · 更新 ${d.as_of}`; }
+  else if(src==='新浪兜底'){ dot='rt-off'; txt=`⚠️ 全推断流·新浪兜底中（仅涨跌幅·无内外盘资金）· ${d.count}只`; }
+  else { dot='rt-off'; txt=`未实时（${d.msg||'休市/未开盘·开盘自动接入'}）`; }
+  $('rtStatus').innerHTML=`<span class="rt-dot ${dot}"></span>`+txt+`<span class="rt-note">幕数据沪深全推L1 · 每4秒刷新</span>`;
 }
 async function tick(){
   try{

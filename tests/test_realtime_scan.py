@@ -31,6 +31,17 @@ def test_mag_tier_escalation() -> None:
     assert f"secout_X_{rs._mag_tier(-3)}" != f"secout_X_{rs._mag_tier(-16)}"   # 升级=新key
 
 
+def test_health_decision() -> None:
+    """心跳决策：非交易/正常/恢复/断流未到阈值/断流告警/已告警不重复。"""
+    aa = rs._HEALTH_ALERT_AFTER
+    assert rs._health_decision(False, True, 0, False) == "reset"      # 非交易时段
+    assert rs._health_decision(True, True, 0, False) == "reset"       # 正常·未告警
+    assert rs._health_decision(True, True, 0, True) == "recover"      # 之前告警·现恢复
+    assert rs._health_decision(True, False, aa - 1, False) == "hold"  # 断流未到阈值
+    assert rs._health_decision(True, False, aa + 1, False) == "alert" # 断流超阈值·首次告警
+    assert rs._health_decision(True, False, aa + 99, True) == "hold"  # 已告警·不重复
+
+
 def _run_all() -> None:
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     for fn in fns:

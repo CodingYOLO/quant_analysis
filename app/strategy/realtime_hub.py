@@ -63,13 +63,35 @@ def snapshot() -> MarketSnapshot:
 
 
 def is_live() -> bool:
-    """全推是否在实时供数（用于决定走全推还是回退新浪）。"""
+    """**全推**是否在实时供数（新浪兜底填的不算）。决定走全推信号还是降级。"""
+    return not _SNAP.fullpush_stale(_STALE_SEC)
+
+
+def data_fresh() -> bool:
+    """快照是否有新数据（任意来源·全推或新浪兜底）。"""
     return not _SNAP.is_stale(_STALE_SEC)
+
+
+def fallback_fill_from_sina(top_active: int = 800) -> int:
+    """全推断流时·用新浪批量报价填充快照（保命：涨跌幅维度·无内外盘）。返回填充只数。"""
+    try:
+        from app.data.composite_provider import CompositeProvider
+        from app.strategy.market_radar import _active_universe, _chunked_quotes
+        provider = CompositeProvider()
+        df = _chunked_quotes(provider, _active_universe(provider, top_active))
+        if df is None or df.empty:
+            return 0
+        rows = df.to_dict("records")
+        _SNAP.update_external(rows)
+        return len(rows)
+    except Exception as e:
+        logger.warning("[实时枢纽] 新浪兜底填充失败：%s", e)
+        return 0
 
 
 def status() -> dict:
     return {"running": bool(_CLIENT and _CLIENT.running), "live": is_live(),
-            "count": _SNAP.count(), "as_of": _as_of_str()}
+            "source": _SNAP.source, "count": _SNAP.count(), "as_of": _as_of_str()}
 
 
 def _as_of_str() -> str:

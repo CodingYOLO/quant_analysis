@@ -84,6 +84,17 @@ def test_snapshot_update_get_count() -> None:
     assert snap.get("600000.SH")["price"] == 10.23
 
 
+def test_snapshot_source_and_fullpush() -> None:
+    """区分'全推活'与'数据新'：新浪兜底刷新数据但不算全推活。"""
+    snap = MarketSnapshot()
+    assert snap.fullpush_stale(60) is True and snap.source == ""        # 从未写入
+    snap.update_many(parse_message(_SAMPLE))                            # 全推路径
+    assert snap.source == "全推" and snap.fullpush_stale(60) is False
+    assert snap.is_stale(60) is False
+    snap.update_external([{"ts_code": "000001.SZ", "name": "X", "price": 10.0}])  # 新浪兜底
+    assert snap.source == "新浪兜底" and snap.is_stale(60) is False     # 数据仍新(新浪填的)
+
+
 def test_snapshot_to_df_columns() -> None:
     snap = MarketSnapshot()
     snap.update_many(parse_message(_SAMPLE))
