@@ -129,12 +129,13 @@ def _cache_file(theme_type: str, name: str, end: str, days: int, max_n: int) -> 
 
 
 def get_board_members(provider: CompositeProvider, name: str, theme_type: str) -> list[str]:
-    """解析板块成分 ts_code 列表。industry 走 stock_basic；concept 走同花顺成分（周缓存）。"""
-    if theme_type == "industry":
+    """解析板块成分 ts_code 列表。industry/industry_l3 走 stock_basic；concept 走同花顺成分（周缓存）。"""
+    if theme_type in ("industry", "industry_l3"):
+        col = "industry_l3" if theme_type == "industry_l3" else "industry"
         sb = provider.get_stock_basic()
-        if sb is None or "industry" not in sb.columns:
+        if sb is None or col not in sb.columns:
             return []
-        return sb[sb["industry"].astype(str) == name]["ts_code"].astype(str).tolist()
+        return sb[sb[col].astype(str) == name]["ts_code"].astype(str).tolist()
     from app.factors.theme_wide import concept_members_map
     return concept_members_map(provider).get(name, [])
 

@@ -476,32 +476,34 @@ class TushareProvider(DataProvider):
         l2 = dict(zip(sw["ts_code"], sw["l2_name"]))
         out["industry_l1"] = out["ts_code"].map(l1)           # 申万一级（供上卷/大方向聚合）
         out["industry"] = out["ts_code"].map(l2).fillna(out["industry_src"])  # 申万二级=主口径，缺则回退
+        if "l3_name" in sw.columns:                           # 申万三级（PCB/光纤光缆/封测… 炒股精确口径·广度雷达用）
+            out["industry_l3"] = out["ts_code"].map(dict(zip(sw["ts_code"], sw["l3_name"])))
         return out
 
     def get_sw_industry_map(self) -> pd.DataFrame:
         """
         全市场个股 → 申万行业映射（当前成分 is_new=Y），按 ISO 周缓存（成分变动慢）。
 
-        列：ts_code / l1_code / l1_name / l2_code / l2_name。
+        列：ts_code / l1_code / l1_name / l2_code / l2_name / l3_code / l3_name。
         申万（SW2021）是 A 股机构标准行业口径，比 stock_basic.industry 更规范、更细。
         """
         import datetime
         iso = datetime.date.today().isocalendar()
         return cached_daily(
-            name="tushare_sw_industry",
+            name="tushare_sw_industry_l3",                     # _l3: 含申万三级·与旧缓存区分(强制刷新)
             date_key=f"{iso[0]}W{iso[1]:02d}",
             fetch_fn=self._fetch_sw_industry_map,
         )
 
     @_RETRY
     def _fetch_sw_industry_map(self) -> pd.DataFrame:
-        """分页拉取申万当前成分（index_member_all 单页上限 3000，offset 翻页）。"""
+        """分页拉取申万当前成分（index_member_all 单页上限 3000，offset 翻页）。含申万三级。"""
         frames: list[pd.DataFrame] = []
         offset = 0
         while True:
             df = rate_limited_call(
                 "tushare_sw_member", self._api.index_member_all, is_new="Y",
-                fields="l1_code,l1_name,l2_code,l2_name,ts_code,name",
+                fields="l1_code,l1_name,l2_code,l2_name,l3_code,l3_name,ts_code,name",
                 offset=offset, limit=3000,
             )
             if df is None or df.empty:
@@ -513,7 +515,9 @@ class TushareProvider(DataProvider):
         if not frames:
             return pd.DataFrame()
         out = pd.concat(frames, ignore_index=True).drop_duplicates("ts_code")
-        return out[["ts_code", "l1_code", "l1_name", "l2_code", "l2_name"]]
+        cols = [c for c in ["ts_code", "l1_code", "l1_name", "l2_code", "l2_name",
+                            "l3_code", "l3_name"] if c in out.columns]
+        return out[cols]
 
     def get_trade_cal(self, start_date: str, end_date: str) -> pd.DataFrame:
         """交易日历。"""

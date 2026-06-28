@@ -453,12 +453,15 @@ def stock_pool_cmd(trade_date: str, no_reason: bool, skip_if_fresh: bool) -> Non
               help="交易日：YYYYMMDD / last（默认最近交易日）")
 def build_wide_cmd(trade_date: str) -> None:
     """计算并落库 theme_heat_all_in_one 宽表（行业 + 同花顺概念，供 LLM 分析页读取）。"""
-    from app.factors.theme_wide import build_industry_wide, build_concept_wide
+    from app.factors.theme_wide import (build_concept_wide, build_industry_l3_wide,
+                                         build_industry_wide)
 
     td = _resolve_date(trade_date)
-    console.print(f"\n[bold cyan]🧮 计算主题宽表[/bold cyan]  交易日 {td}（行业 + 概念，首次约3-5分钟）\n")
+    console.print(f"\n[bold cyan]🧮 计算主题宽表[/bold cyan]  交易日 {td}（行业二级/三级 + 概念，首次约3-5分钟）\n")
     ind = build_industry_wide(td, persist=True)
-    console.print(f"[green]✅ 行业：{len(ind)} 个[/green]")
+    console.print(f"[green]✅ 行业(申万二级)：{len(ind)} 个[/green]")
+    l3 = build_industry_l3_wide(td, persist=True)
+    console.print(f"[green]✅ 细分(申万三级·PCB/光纤光缆/封测…)：{len(l3)} 个[/green]")
     con = build_concept_wide(td, persist=True)
     console.print(f"[green]✅ 概念：{len(con)} 个 → data_cache/theme_heat.db[/green]")
     # 预算各板块广度时序（复用全市场面板）→ 前端切板块秒开

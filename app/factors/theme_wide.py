@@ -34,6 +34,8 @@ def build_industry_wide(
     k_norm: float = 1.0,
     persist: bool = True,
     lookback: int = 145,
+    industry_map: "pd.DataFrame | None" = None,
+    theme_type: str = "industry",
 ) -> list[ThemeWideRow]:
     """
     计算指定交易日全部行业的宽表行。
@@ -43,6 +45,8 @@ def build_industry_wide(
         provider:   数据接口
         k_norm:     money_flow_3d_norm 的系数 k【需校准 C2】
         persist:    是否落库 theme_heat.db
+        industry_map: 可选 {ts_code, industry} 分组映射；传入则按它聚合（如申万三级），默认申万二级。
+        theme_type: 落库的板块类型（industry / industry_l3 …）。
 
     Returns:
         ThemeWideRow 列表。
@@ -54,16 +58,22 @@ def build_industry_wide(
     if close_m is None or close_m.empty:
         logger.warning("[宽表] %s 价格矩阵为空", trade_date)
         return []
-    stats = calc_sector_stats(trade_date, provider, close_m)
+    stats = calc_sector_stats(trade_date, provider, close_m, industry_map=industry_map)
     if not stats:
         return []
 
-    # ---- 2. 行业成分映射 ----
-    sb = provider.get_stock_basic()
-    ind_members: dict[str, list[str]] = {
-        str(ind): grp["ts_code"].tolist()
-        for ind, grp in sb.dropna(subset=["industry"]).groupby("industry")
-    }
+    # ---- 2. 行业成分映射（传入 industry_map 则按它，否则用 stock_basic 申万二级）----
+    if industry_map is not None:
+        ind_members: dict[str, list[str]] = {
+            str(n): g["ts_code"].tolist()
+            for n, g in industry_map.dropna(subset=["industry"]).groupby("industry")
+        }
+    else:
+        sb = provider.get_stock_basic()
+        ind_members = {
+            str(ind): grp["ts_code"].tolist()
+            for ind, grp in sb.dropna(subset=["industry"]).groupby("industry")
+        }
 
     # ---- 3. 前复权面板（多档广度 + 多周期复权收益）----
     panel = build_qfq_panel(trade_date, provider, lookback=lookback)
@@ -83,13 +93,27 @@ def build_industry_wide(
         codes = ind_members.get(st.industry, [])
         rows.append(_build_one_row(
             st, codes, trade_date, panel,
-            dates7, code2net_by_date, top100, top300, k_norm, pop_weights,
+            dates7, code2net_by_date, top100, top300, k_norm, pop_weights, theme_type,
         ))
 
     if persist:
         upsert_rows(rows)
-        logger.info("[宽表] %s 行业宽表写入 %d 行", trade_date, len(rows))
+        logger.info("[宽表] %s %s 宽表写入 %d 行", trade_date, theme_type, len(rows))
     return rows
+
+
+def build_industry_l3_wide(trade_date: str, provider: "CompositeProvider | None" = None,
+                           **kw) -> list[ThemeWideRow]:
+    """申万三级宽表（印制电路板/光纤光缆/封测/面板… 炒股精确细分）。复用二级管线·按 industry_l3 聚合。"""
+    provider = provider or CompositeProvider()
+    sb = provider.get_stock_basic()
+    if "industry_l3" not in sb.columns:
+        logger.warning("[宽表] stock_basic 无 industry_l3 列，跳过申万三级")
+        return []
+    l3_map = (sb[["ts_code", "industry_l3"]].dropna(subset=["industry_l3"])
+              .rename(columns={"industry_l3": "industry"}))
+    return build_industry_wide(trade_date, provider, industry_map=l3_map,
+                               theme_type="industry_l3", **kw)
 
 
 # ──────────────────────────────────────────────
@@ -98,6 +122,7 @@ def build_industry_wide(
 
 def _build_one_row(
     st, codes, trade_date, panel, dates7, code2net_by_date, top100, top300, k_norm, pop_weights,
+    theme_type: str = "industry",
 ) -> ThemeWideRow:
     n = len(codes)
     breadth = compute_breadth(panel, codes, BREADTH_WINDOWS) if n else {f"ma{w}": None for w in BREADTH_WINDOWS}
@@ -116,7 +141,7 @@ def _build_one_row(
     return ThemeWideRow(
         theme_name=st.industry,
         trade_date=trade_date,
-        theme_type="industry",
+        theme_type=theme_type,
         sample_count=n,
         sample_reliability=reliability,
         money_flow_1d=money["1d"], money_flow_3d=money["3d"],

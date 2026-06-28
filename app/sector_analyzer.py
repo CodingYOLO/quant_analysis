@@ -41,6 +41,7 @@ def calc_sector_stats(
     trade_date: str,
     provider: DataProvider,
     close_m: pd.DataFrame,
+    industry_map: pd.DataFrame | None = None,
 ) -> list[SectorStat]:
     """
     计算各行业板块热度评分、人气集中度、次日风险、分层决策。
@@ -49,12 +50,15 @@ def calc_sector_stats(
         trade_date: 交易日 YYYYMMDD
         provider:   数据接口（CompositeProvider）
         close_m:    历史收盘价矩阵（index=日期str, columns=ts_code），至少含25日
+        industry_map: 可选·{ts_code, industry} 分组映射；传入则按它聚合（支持申万三级等细分），
+                      默认申万二级。所有 _calc_*_by_industry 均按此映射分组。
 
     Returns:
         SectorStat 列表，按决策评分降序排列
     """
-    industry_map = _load_industry_map(provider)
-    if industry_map.empty:
+    if industry_map is None:
+        industry_map = _load_industry_map(provider)
+    if industry_map is None or industry_map.empty:
         logger.warning("[板块分析] 无法获取行业映射，跳过")
         return []
 
