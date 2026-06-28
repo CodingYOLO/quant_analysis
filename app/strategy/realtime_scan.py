@@ -296,10 +296,23 @@ def scan_once(force: bool = False, push: bool = True) -> list[dict]:
     for key, title, body, code in _collect_events():
         if not _should_push(key, now):
             continue
-        if (not push) or push_bark(title, body, group="实时盯盘", url=_stock_url(code)):
+        if (not push) or push_bark(title, body, group="实时盯盘",
+                                   url=_stock_url(code), level=_bark_level(key, title)):
             _pushed[key] = now
             new.append({"key": key, "title": title, "body": body})
     return new
+
+
+def _bark_level(key: str, title: str) -> str:
+    """信号重要度 → Bark 级别：timeSensitive(穿透勿扰) / active(正常) / passive(静默)。"""
+    if "持仓" in title:                                     # 你的持仓·最该打断
+        return "timeSensitive"
+    p = key.split("_", 1)[0]
+    if p in ("crash", "limitbreak", "senti"):              # 闪崩/炸板/情绪转折=高优风险
+        return "timeSensitive"
+    if p == "theme" or key.startswith("brk_up"):           # 题材/个股突破=低优·静默
+        return "passive"
+    return "active"
 
 
 def _health_decision(market_hours: bool, fullpush_live: bool, outage_sec: float,
@@ -317,7 +330,8 @@ def _health_decision(market_hours: bool, fullpush_live: bool, outage_sec: float,
 def _push_health(title: str, body: str) -> None:
     from app.notify.notifier import push_bark
     base = get_settings().web_base_url.rstrip("/")
-    push_bark(title, body, group="盯盘", url=(f"{base}/realtime" if base else ""))
+    push_bark(title, body, group="盯盘", level="timeSensitive",   # 断流/恢复=穿透勿扰
+              url=(f"{base}/realtime" if base else ""))
 
 
 def _health_check() -> None:

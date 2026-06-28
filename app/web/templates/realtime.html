@@ -24,6 +24,11 @@
 {% block content %}
 <div class="rt-status" id="rtStatus"><span class="rt-dot rt-off"></span> 连接中…</div>
 
+<div class="card" id="rtBriefCard" style="display:none;border-left:3px solid #7c9ef8;border-radius:0;">
+  <div style="font-size:12px;color:#9ca3af;margin-bottom:4px;">📌 此刻该干啥（综合情绪/广度/资金）</div>
+  <div id="rtBrief" style="font-size:16px;font-weight:500;line-height:1.6;"></div>
+</div>
+
 <div class="card"><h2>🌡️ 大盘温度</h2><div class="rt-metrics" id="rtBreadth"></div></div>
 
 <div class="card"><h2>🔥 情绪温度计 · 短线周期<span class="rt-tag">连板梯队/赚钱效应/炸板率·决定能否打板追高</span></h2>
@@ -100,6 +105,11 @@ function renderFlash(rows){
     return `<tr><td>${r.name}</td><td class="neg">${r.drop}%</td>
       <td class="neg">内盘${inn}%</td><td>${tag}</td></tr>`;}).join('');
 }
+function renderBrief(t){
+  const c=$('rtBriefCard');
+  if(!t){ c.style.display='none'; return; }
+  c.style.display=''; $('rtBrief').textContent=t;
+}
 function renderSenti(s){
   if(!s||!s.touched){ $('rtSenti').innerHTML='<div class="rt-empty">暂无涨停数据（盘前/休市）</div>'; return; }
   const ladder=(s.ladder||[]).map(x=>`${x.board}板×${x.n}`).join(' · ')||'—';
@@ -166,7 +176,7 @@ async function tick(){
   try{
     const d=await (await fetch('/api/realtime/board')).json();
     if(!d.ok){ $('rtStatus').textContent='加载失败：'+(d.msg||''); return; }
-    renderStatus(d); renderBreadth(d.breadth); renderSenti(d.sentiment); renderSectors(d.sectors); renderThemes(d.themes);
+    renderStatus(d); renderBrief(d.brief); renderBreadth(d.breadth); renderSenti(d.sentiment); renderSectors(d.sectors); renderThemes(d.themes);
     renderTail(d.tail); renderSecOut(d.sectors_out); renderFlash(d.flash);
     renderFund(d.fund_ranking); renderSurge(d.surge); renderHold(d.holdings);
   }catch(e){ $('rtStatus').textContent='网络错误：'+e; }

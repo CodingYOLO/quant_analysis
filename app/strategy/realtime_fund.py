@@ -343,6 +343,27 @@ def sentiment_thermometer(rows: list[dict], consec_map: dict) -> dict:
             "ladder": [{"board": b, "n": ladder[b]} for b in sorted(ladder, reverse=True)]}
 
 
+def market_brief(sentiment: dict, breadth: dict, top_in: str = "") -> str:
+    """一句话市场状态 + 操作倾向（综合情绪周期/广度/资金）。收口成'此刻该干啥'。"""
+    s = sentiment or {}
+    b = breadth or {}
+    st, tb = s.get("state", ""), int(s.get("top_board", 0) or 0)
+    prem, bao = float(s.get("promo_premium", 0) or 0), float(s.get("bao_rate", 0) or 0)
+    if st == "冰点":
+        op = "🧊 空仓观望·等情绪修复"
+    elif st == "退潮分歧":
+        op = "🌧️ 防守为主·别追高·减仓不强标的"
+    elif st == "高潮过热":
+        op = "🔥 持有强势但防高位分歧·不追新高位板"
+    elif st == "升温":
+        op = "☀️ 可低吸强势龙头/打首板" + (f"·资金涌入{top_in}" if top_in else "")
+    else:
+        op = "⛅ 震荡·精选强于板块的真龙头·控仓"
+    core = (f"涨{b.get('up', 0)}/跌{b.get('down', 0)}·涨停{b.get('limit_up', 0)}/跌停{b.get('limit_down', 0)}"
+            f"·空间板{tb}板·赚钱效应{prem:+.1f}%·炸板率{bao}%")
+    return f"{op}　（{core}）"
+
+
 def is_sealed_limit(row: dict) -> tuple[bool, float]:
     """是否封涨停 + 封单量(手)。现价=涨停价即视为封板，封单取买一量。"""
     lu = float(row.get("limit_up") or 0)

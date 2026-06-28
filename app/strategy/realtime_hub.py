@@ -241,6 +241,10 @@ def build_board() -> dict:
     base["flash"] = _flash_block(records)
     base["surge"] = _velocity_block()
     base["holdings"] = _holdings_block()
+    from app.strategy.realtime_fund import market_brief
+    secs = base.get("sectors") or []
+    top_in = secs[0]["industry"] if secs and secs[0].get("net_yi", 0) > 0 else ""
+    base["brief"] = market_brief(base.get("sentiment", {}), base.get("breadth", {}), top_in)
     return base
 
 

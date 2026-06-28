@@ -231,6 +231,17 @@ def test_sentiment_state_labels() -> None:
     assert _sentiment_state(5, 50, 2, 25, 40, 0)[0] == "升温"
 
 
+def test_market_brief() -> None:
+    from app.strategy.realtime_fund import market_brief
+    b1 = market_brief({"state": "退潮分歧", "top_board": 3, "promo_premium": -2.5, "bao_rate": 48},
+                      {"up": 1500, "down": 3000, "limit_up": 20, "limit_down": 15})
+    assert "防守" in b1 and "空间板3板" in b1 and "炸板率48" in b1
+    b2 = market_brief({"state": "升温", "top_board": 5, "promo_premium": 2.0, "bao_rate": 20},
+                      {"up": 3000, "down": 1500, "limit_up": 50, "limit_down": 2}, "CPO")
+    assert "低吸" in b2 and "CPO" in b2
+    assert "空仓" in market_brief({"state": "冰点"}, {})
+
+
 def test_fund_flow_quality() -> None:
     from app.strategy.realtime_fund import fund_flow_quality
     assert fund_flow_quality([0.5, 1.0, 1.5, 2.0]) == "资金持续"      # 一路增·当前=峰值

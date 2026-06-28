@@ -169,10 +169,11 @@ class ServerChanNotifier(Notifier):
 
 
 def push_bark(title: str, body: str, *, key: str = "", group: str = "盯盘",
-              url: str = "", sound: str = "") -> bool:
+              url: str = "", sound: str = "", level: str = "") -> bool:
     """Bark(iOS) 实时推送（盯盘提醒用）。key 留空则读 settings.bark_key。失败返回 False。
 
-    Bark POST API：POST https://api.day.app/{key}，JSON {title, body, group, isArchive, url}。
+    Bark POST API：POST https://api.day.app/{key}，JSON {title, body, group, isArchive, url, level}。
+    level: timeSensitive(穿透勿扰) / active(正常) / passive(静默) — 信号重要度分级用。
     """
     from app.config import get_settings
     key = key or get_settings().bark_key
@@ -183,6 +184,8 @@ def push_bark(title: str, body: str, *, key: str = "", group: str = "盯盘",
         payload["url"] = url
     if sound:
         payload["sound"] = sound
+    if level:
+        payload["level"] = level
     try:
         resp = httpx.post(f"https://api.day.app/{key}", json=payload, timeout=12.0)
         resp.raise_for_status()
