@@ -97,8 +97,9 @@ def _collect_events() -> list[tuple[str, str, str, str]]:
             continue
         ind = imap.get(v["ts_code"], "")
         stock = f"现价{q.get('price', '')}·5分钟+{v['move']}%·量比{q.get('vol_ratio', '')}"
-        events.append((f"vel_{v['ts_code']}", f"⚡ 急拉·{q.get('name', v['ts_code'])}",
-                       _stock_lines(stock, _sec_line(ind, sec_avg.get(ind)), mkt), v["ts_code"]))
+        nm = q.get("name", v["ts_code"])
+        events.append((f"vel_{v['ts_code']}", f"⚡ 急拉·{nm}",
+                       _stock_lines(nm, stock, _sec_line(ind, sec_avg.get(ind)), mkt), v["ts_code"]))
     events += _holding_events()
     return events
 
@@ -156,11 +157,11 @@ def _breakout_events(breaks: list[dict], tech: dict, mkt: str = "", imap: dict |
             alt = altitude_risk(q.get("price") or 0, q.get("prev_close") or 0, tech.get(b["ts_code"]))
             stock = f"{b['what']}·现价{b['price']}·涨{b['pct_chg']:+.1f}%" + (f"·⚠{alt.split('·')[0]}" if alt else "")
             out.append((f"brk_up_{b['ts_code']}", f"📈 突破·{b['name']}",
-                        _stock_lines(stock, sec, mkt), b["ts_code"]))
+                        _stock_lines(b["name"], stock, sec, mkt), b["ts_code"]))
         else:
             stock = f"{b['what']}·现价{b['price']}·{b['pct_chg']:+.1f}%"
             out.append((f"brk_dn_{b['ts_code']}", f"📉 破位·{b['name']}",
-                        _stock_lines(stock, sec), b["ts_code"]))
+                        _stock_lines(b["name"], stock, sec), b["ts_code"]))
     return out
 
 
@@ -210,13 +211,13 @@ def _surge_events(surge: list[dict], imap: dict, tech: dict, sec_avg: dict,
             stock += "·⚠" + alt.split("·")[0]
         sec = _sec_line(ind, sec_avg.get(ind), rel_strength_tag(s["pct_chg"], sec_avg.get(ind)))
         out.append((f"surge_{s['ts_code']}", f"💰 资金抢筹·{s['name']}",
-                    _stock_lines(stock, sec, mkt), s["ts_code"]))
+                    _stock_lines(s["name"], stock, sec, mkt), s["ts_code"]))
     return out
 
 
-def _stock_lines(stock: str, sec: str = "", mkt: str = "") -> str:
-    """个股 / 板块 / 大盘 分块（同一行内用 ▸ 分隔·紧凑又一眼可分·不占多行竖向空间）。"""
-    blocks = [f"个股 {stock}"]
+def _stock_lines(name: str, stock: str, sec: str = "", mkt: str = "") -> str:
+    """个股(用股票名当标签) / 板块 / 大盘 分块（▸ 分隔·一行内·紧凑又一眼可分）。"""
+    blocks = [f"{name} {stock}"]
     if sec:
         blocks.append(f"板块 {sec}")
     if mkt:
@@ -258,10 +259,10 @@ def _flash_events(rows: list[dict], tech: dict, imap: dict,
         if f["tier"] == "crash":
             title = f"{'🚨 持仓闪崩·' if h else '💥 闪崩·'}{f['name']}"
             stock = f"现价{q.get('price', '')}·3分钟急跌 {f['drop']}%·放量主动砸"
-            out.append((f"crash_{f['ts_code']}", title, _stock_lines(stock, sec), f["ts_code"]))
+            out.append((f"crash_{f['ts_code']}", title, _stock_lines(f["name"], stock, sec), f["ts_code"]))
         else:
             out.append((f"warn_{f['ts_code']}", f"{'⚠️ 持仓急跌·' if h else '⚡ 急跌·'}{f['name']}",
-                        _stock_lines(f"现价{q.get('price', '')}·3分钟急跌 {f['drop']}%", sec), f["ts_code"]))
+                        _stock_lines(f["name"], f"现价{q.get('price', '')}·3分钟急跌 {f['drop']}%", sec), f["ts_code"]))
     return out
 
 
