@@ -189,6 +189,68 @@ def auction_alerts(rows: list[dict], watch: dict, *, gap_th: float = 7.0
     return out
 
 
+def auction_sector_strength(rows: list[dict], imap: dict, *, top: int = 10,
+                            min_n: int = 3) -> list[dict]:
+    """集合竞价板块强弱（按行业竞价均涨/高开排序·纯价格口径·竞价可用）。
+
+    Returns: [{industry, avg_gap, n, leader, leader_pct, leader_code}]，按 avg_gap 降序。
+    """
+    from collections import defaultdict
+    buckets: dict[str, list[dict]] = defaultdict(list)
+    for r in rows:
+        ind = imap.get(r.get("ts_code"))
+        if ind:
+            buckets[ind].append(r)
+    out = []
+    for ind, items in buckets.items():
+        if len(items) < min_n:
+            continue
+        avg = sum(_ff(x.get("pct_chg")) for x in items) / len(items)
+        lead = max(items, key=lambda x: _ff(x.get("pct_chg")))
+        out.append({"industry": ind, "avg_gap": round(avg, 2), "n": len(items),
+                    "leader": lead.get("name", ""), "leader_code": lead.get("ts_code", ""),
+                    "leader_pct": round(_ff(lead.get("pct_chg")), 2)})
+    out.sort(key=lambda x: x["avg_gap"], reverse=True)
+    return out[:top]
+
+
+def auction_sentiment(rows: list[dict]) -> dict:
+    """集合竞价全市场情绪：高开/低开家数 + 竞价涨停/跌停数 + 状态一句话（纯价格口径）。"""
+    up = down = limit_up = limit_down = 0
+    for r in rows:
+        pct = _ff(r.get("pct_chg"))
+        if pct > 0:
+            up += 1
+        elif pct < 0:
+            down += 1
+        if pct >= 9.5:
+            limit_up += 1
+        elif pct <= -9.5:
+            limit_down += 1
+    total = up + down
+    if total == 0:
+        return {}
+    if up > down * 1.5:
+        state = "普涨高开·情绪暖"
+    elif down > up * 1.5:
+        state = "普跌低开·情绪冷"
+    else:
+        state = "高低分歧"
+    return {"up": up, "down": down, "limit_up": limit_up, "limit_down": limit_down, "state": state}
+
+
+def auction_movers(rows: list[dict], imap: dict, *, top: int = 10) -> dict:
+    """集合竞价高开/低开个股排行（纯价格口径）。Returns {high:[...], low:[...]}。"""
+    def _fmt(r: dict) -> dict:
+        return {"name": r.get("name", ""), "ts_code": r.get("ts_code", ""),
+                "pct_chg": round(_ff(r.get("pct_chg")), 2), "price": r.get("price"),
+                "industry": imap.get(r.get("ts_code"), "")}
+    rated = sorted((r for r in rows if r.get("pct_chg") is not None),
+                   key=lambda r: _ff(r.get("pct_chg")), reverse=True)
+    return {"high": [_fmt(r) for r in rated[:top]],
+            "low": [_fmt(r) for r in reversed(rated[-top:])] if len(rated) >= top else []}
+
+
 def _ff(x) -> float:
     """安全转 float（NaN/None → 0）。"""
     try:

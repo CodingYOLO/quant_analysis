@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import datetime
 
-from app.strategy.realtime_fund import auction_alerts
+from app.strategy.realtime_fund import (auction_alerts, auction_movers, auction_sector_strength,
+                                        auction_sentiment)
 from app.strategy.realtime_hub import market_session
 
 
@@ -53,6 +54,49 @@ def test_auction_small_gap_no_alert() -> None:
 def test_auction_missing_quote_skipped() -> None:
     watch = {"X": {"name": "测试", "is_holding": False, "stop_loss": None}}
     assert auction_alerts([], watch) == []            # 快照里没有该票 → 跳过
+
+
+def _mkt_rows() -> list[dict]:
+    # 半导体集体高开、煤炭普跌
+    return [
+        {"ts_code": "A.SZ", "name": "芯片甲", "pct_chg": 9.8, "price": 11.0},
+        {"ts_code": "B.SZ", "name": "芯片乙", "pct_chg": 6.0, "price": 22.0},
+        {"ts_code": "C.SZ", "name": "芯片丙", "pct_chg": 4.2, "price": 33.0},
+        {"ts_code": "D.SH", "name": "煤炭甲", "pct_chg": -3.0, "price": 8.0},
+        {"ts_code": "E.SH", "name": "煤炭乙", "pct_chg": -9.7, "price": 5.0},
+        {"ts_code": "F.SH", "name": "煤炭丙", "pct_chg": -1.0, "price": 6.0},
+    ]
+
+
+_IMAP = {"A.SZ": "半导体", "B.SZ": "半导体", "C.SZ": "半导体",
+         "D.SH": "煤炭", "E.SH": "煤炭", "F.SH": "煤炭"}
+
+
+def test_auction_sector_strength_ranks_by_gap() -> None:
+    out = auction_sector_strength(_mkt_rows(), _IMAP, min_n=3)
+    assert out[0]["industry"] == "半导体" and out[0]["avg_gap"] > 0      # 半导体均高开居首
+    assert out[0]["leader"] == "芯片甲" and out[0]["n"] == 3
+    assert out[-1]["industry"] == "煤炭" and out[-1]["avg_gap"] < 0
+
+
+def test_auction_sector_min_n_filter() -> None:
+    rows = [{"ts_code": "A.SZ", "name": "甲", "pct_chg": 5.0}]
+    assert auction_sector_strength(rows, {"A.SZ": "半导体"}, min_n=3) == []   # 不足3只不计
+
+
+def test_auction_sentiment_counts_and_state() -> None:
+    s = auction_sentiment(_mkt_rows())
+    assert s["up"] == 3 and s["down"] == 3
+    assert s["limit_up"] == 1 and s["limit_down"] == 1                    # 9.8↑ / -9.7↓
+    assert s["state"] == "高低分歧"
+    assert auction_sentiment([]) == {}
+
+
+def test_auction_movers_high_low() -> None:
+    m = auction_movers(_mkt_rows(), _IMAP, top=2)
+    assert [x["name"] for x in m["high"]] == ["芯片甲", "芯片乙"]
+    assert m["high"][0]["industry"] == "半导体"
+    assert m["low"][0]["name"] == "煤炭乙"                                  # -9.7 最低
 
 
 def _run_all() -> None:

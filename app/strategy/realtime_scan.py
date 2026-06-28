@@ -328,11 +328,29 @@ def _holding_events() -> list[tuple[str, str, str, str]]:
     return out
 
 
+_AUC_SECTOR_TH = 2.0          # 板块竞价均高开 ≥ 此值(%)才推"竞价强势板块"
+
+
 def _auction_events() -> list[tuple[str, str, str, str]]:
-    """集合竞价时段(9:15-9:30)：只盯自选/持仓竞价异动(高开/低开/破止损)，不跑连续行情信号。"""
-    from app.strategy.realtime_fund import auction_alerts
+    """集合竞价时段(9:15-9:30) 全市场信号(纯价格口径)：自选/持仓异动 + 板块竞价强弱 + 竞价情绪。
+
+    竞价无连续成交，内外盘/量比/急拉/闪崩等量资金信号不可用→留连续档；价格类全市场信号照跑。
+    """
+    from app.strategy.realtime_fund import (auction_alerts, auction_sector_strength,
+                                            auction_sentiment)
     rows = hub.snapshot().to_df().to_dict("records")
-    return auction_alerts(rows, hub.watch_meta())
+    imap = hub.industry_map()
+    events = list(auction_alerts(rows, hub.watch_meta()))                 # ① 自选/持仓优先
+    for s in auction_sector_strength(rows, imap, top=5):                  # ② 板块竞价方向
+        if s["avg_gap"] >= _AUC_SECTOR_TH:
+            events.append((f"auc_sec_{s['industry']}", f"🔆 竞价强势板块·{s['industry']}",
+                           f"{s['industry']} 竞价均高开+{s['avg_gap']}%（{s['n']}只）·"
+                           f"龙头 {s['leader']} +{s['leader_pct']}%", s["leader_code"]))
+    se = auction_sentiment(rows)                                          # ③ 全市场竞价情绪
+    if se:
+        events.append(("auc_senti", "🌅 集合竞价情绪",
+                       f"高开{se['up']}/低开{se['down']} · 竞价涨停{se['limit_up']}只 · {se['state']}", ""))
+    return events
 
 
 def scan_once(force: bool = False, push: bool = True) -> list[dict]:

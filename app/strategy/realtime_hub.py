@@ -248,6 +248,9 @@ def build_board() -> dict:
     if df.empty:
         base.update({"msg": "全推未连接（休市或未开盘），开盘自动接入"})
         return base
+    imap = _industry_map()
+    if base["session"] in ("auction", "pre_open"):        # 集合竞价：全市场价格类信号(量资金信号开盘后才有意义)
+        return _auction_board(base, df, imap)
     from app.strategy.realtime_fund import (altitude_risk, fund_ranking, sector_board, tech_context)
     fr = fund_ranking(df, top=15)
     tm = tech_map()
@@ -257,7 +260,6 @@ def build_board() -> dict:
         r["tech"] = "·".join(x for x in (tech_context(price, prev, t),
                                          altitude_risk(price or 0, prev or 0, t)) if x)
     base["fund_ranking"] = fr
-    imap = _industry_map()
     full = sector_board(df, imap)                          # 全部板块·含龙头
     base["sectors"] = full[:12]                            # 资金涌入榜(机会)
     base["sectors_out"] = [s for s in reversed(full) if s["net_yi"] < 0][:6]   # 资金撤离(风险)
@@ -272,6 +274,22 @@ def build_board() -> dict:
     secs = base.get("sectors") or []
     top_in = secs[0]["industry"] if secs and secs[0].get("net_yi", 0) > 0 else ""
     base["brief"] = market_brief(base.get("sentiment", {}), base.get("breadth", {}), top_in)
+    return base
+
+
+def _auction_board(base: dict, df, imap: dict) -> dict:
+    """集合竞价看板（9:15-9:30）：全市场纯价格口径——板块竞价强弱 / 高开低开排行 / 竞价情绪 / 涨跌家数。
+
+    内外盘资金/急拉/闪崩等量资金信号竞价时无意义，开盘后(continuous)才出，故此处不算。
+    """
+    from app.strategy.realtime_fund import auction_movers, auction_sector_strength, auction_sentiment
+    records = df.to_dict("records")
+    base["auction"] = {
+        "sectors": auction_sector_strength(records, imap, top=10),    # 板块竞价方向
+        "movers": auction_movers(records, imap, top=10),              # 高开/低开排行
+        "sentiment": auction_sentiment(records),                      # 全市场竞价情绪
+    }
+    base.update(_radar_block(df, imap))                               # breadth(涨跌家数/竞价涨停·价格口径有效)
     return base
 
 
