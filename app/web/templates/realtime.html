@@ -29,15 +29,17 @@
   <div id="rtBrief" style="font-size:16px;font-weight:500;line-height:1.6;"></div>
 </div>
 
-<!-- 集合竞价(9:15-9:30) 全市场·纯价格口径·仅竞价时段显示 -->
+<!-- 集合竞价(9:15-9:30) 全市场·价格+盘口口径·仅竞价时段显示 -->
 <div class="card" id="rtAucCard" style="display:none;border:1px solid #3358e0">
-  <h2>🔔 集合竞价 · 全市场<span class="rt-tag">竞价价格口径·今日方向第一手（内外盘/资金开盘后才有）</span></h2>
+  <h2>🔔 集合竞价 · 全市场<span class="rt-tag" id="rtAucPhase">竞价方向第一手·委比=资金承接/抛压</span></h2>
   <div id="rtAucSenti" style="font-size:15px;margin-bottom:12px"></div>
   <div class="rt-2col">
-    <div class="card" style="margin:0"><h2 style="font-size:14px">🔆 板块竞价强弱</h2>
-      <table><thead><tr><th>板块</th><th>均高开</th><th>龙头</th></tr></thead><tbody id="rtAucSec"></tbody></table></div>
-    <div class="card" style="margin:0"><h2 style="font-size:14px">🔼 竞价高开排行</h2>
-      <table><thead><tr><th>股票</th><th>高开</th><th>板块</th></tr></thead><tbody id="rtAucHigh"></tbody></table></div>
+    <div class="card" style="margin:0"><h2 style="font-size:14px">🔆 板块竞价强弱 · 热度 · 资金方向</h2>
+      <table><thead><tr><th>板块</th><th>均高开</th><th>竞价额</th><th>委比</th><th>龙头</th></tr></thead>
+      <tbody id="rtAucSec"></tbody></table></div>
+    <div class="card" style="margin:0"><h2 style="font-size:14px">🔼 竞价高开排行 · 量/委比</h2>
+      <table><thead><tr><th>股票</th><th>高开</th><th>额(亿)</th><th>量比</th><th>委比</th></tr></thead>
+      <tbody id="rtAucHigh"></tbody></table></div>
   </div>
 </div>
 
@@ -122,22 +124,30 @@ function renderBrief(t){
   if(!t){ c.style.display='none'; return; }
   c.style.display=''; $('rtBrief').textContent=t;
 }
+const AUC_SESS={auction:true,auction_lock:true,pre_open:true};
+function ent(v){ return `<span class="${v>0?'pos':(v<0?'neg':'neu')}">${sgn(v)}%</span>`; }   // 委比:+承接/-抛压
 function renderAuction(d){
-  const card=$('rtAucCard'), a=d.auction, isAuc=(d.session==='auction'||d.session==='pre_open');
-  if(!isAuc||!a){ card.style.display='none'; return; }
+  const card=$('rtAucCard'), a=d.auction;
+  if(!AUC_SESS[d.session]||!a){ card.style.display='none'; return; }
   card.style.display='';
+  // 9:20-9:25 不可撤单 = 真实意图，醒目提示
+  $('rtAucPhase').innerHTML = d.session==='auction_lock'
+    ? '🔒 9:20-9:25 不可撤单 · 委比/竞价额=真实意图'
+    : (d.session==='auction' ? '⚠️ 9:15-9:20 可撤单 · 诱单多·仅参考' : '9:25-9:30 过渡 · 开盘价已定');
   const s=a.sentiment||{};
   $('rtAucSenti').innerHTML = s.state
     ? `<b>${s.state}</b> · 高开 <span class="pos">${s.up}</span> / 低开 <span class="neg">${s.down}</span> · 竞价涨停 <span class="pos">${s.limit_up}</span> / 跌停 <span class="neg">${s.limit_down}</span>`
     : '竞价数据汇总中…';
   const secs=a.sectors||[];
   $('rtAucSec').innerHTML = secs.length ? secs.map(x=>`<tr><td><b>${x.industry}</b> <span class="neu" style="font-size:11px">${x.n}只</span></td>
-    <td class="${cls(x.avg_gap)}">${sgn(x.avg_gap)}%</td><td>${x.leader} <span class="${cls(x.leader_pct)}">${sgn(x.leader_pct)}%</span></td></tr>`).join('')
-    : '<tr><td colspan="3" class="rt-empty">暂无</td></tr>';
+    <td class="${cls(x.avg_gap)}">${sgn(x.avg_gap)}%</td><td class="neu">${x.amount_yi}亿</td><td>${ent(x.entrust)}</td>
+    <td>${x.leader} <span class="${cls(x.leader_pct)}">${sgn(x.leader_pct)}%</span></td></tr>`).join('')
+    : '<tr><td colspan="5" class="rt-empty">暂无</td></tr>';
   const hi=(a.movers||{}).high||[];
-  $('rtAucHigh').innerHTML = hi.length ? hi.map(x=>`<tr><td>${x.name}</td><td class="${cls(x.pct_chg)}">${sgn(x.pct_chg)}%</td>
-    <td class="neu" style="font-size:11px">${x.industry}</td></tr>`).join('')
-    : '<tr><td colspan="3" class="rt-empty">暂无</td></tr>';
+  $('rtAucHigh').innerHTML = hi.length ? hi.map(x=>{const seal=x.seal_up?' <span class="badge badge-red" style="font-size:9px">一字</span>':'';
+    return `<tr><td>${x.name}${seal} <span class="neu" style="font-size:10px">${x.industry}</span></td><td class="${cls(x.pct_chg)}">${sgn(x.pct_chg)}%</td>
+    <td class="neu">${x.amount_yi}</td><td class="neu">${x.vol_ratio}</td><td>${ent(x.entrust)}</td></tr>`;}).join('')
+    : '<tr><td colspan="5" class="rt-empty">暂无</td></tr>';
 }
 function renderSenti(s){
   if(!s||!s.touched){ $('rtSenti').innerHTML='<div class="rt-empty">暂无涨停数据（盘前/休市）</div>'; return; }
@@ -196,13 +206,13 @@ function renderWatch(rows){
       <td class="neu">${r.vol_ratio}</td><td>${op>=50?'<span class=pos>主动买</span>':'<span class=neg>主动卖</span>'} ${op}%</td>
       <td><span class="badge ${bd[r.label]||'badge-blue'}">${r.label}</span> <span class="neu" style="font-size:11px">${r.reason}</span></td></tr>`;}).join('');
 }
-const SESS={auction:'🔔 集合竞价',pre_open:'🔔 集合竞价·过渡',continuous:'全推实时',closed:'全推实时'};
+const SESS={auction:'🔔 集合竞价·可撤单',auction_lock:'🔒 集合竞价·不可撤单',pre_open:'🔔 集合竞价·过渡',continuous:'全推实时',closed:'全推实时'};
 function renderStatus(d){
   const src=(d.status||{}).source||'', sess=d.session||'closed'; let dot,txt;
   if(d.live){ dot='rt-live'; txt=`${SESS[sess]||'全推实时'} · ${d.count}只 · 更新 ${d.as_of}`; }
   else if(src==='新浪兜底'){ dot='rt-off'; txt=`⚠️ 全推断流·新浪兜底中（仅涨跌幅·无内外盘资金）· ${d.count}只`; }
   else { dot='rt-off';
-    const hint=(sess==='auction'||sess==='pre_open')?'集合竞价·全推接入中':(d.msg||'休市/未开盘·开盘自动接入');
+    const hint=AUC_SESS[sess]?'集合竞价·全推接入中':(d.msg||'休市/未开盘·开盘自动接入');
     txt=`未实时（${hint}）`; }
   $('rtStatus').innerHTML=`<span class="rt-dot ${dot}"></span>`+txt+`<span class="rt-note">幕数据沪深全推L1 · 每4秒刷新</span>`;
 }

@@ -340,11 +340,12 @@ def _auction_events() -> list[tuple[str, str, str, str]]:
                                             auction_sentiment)
     rows = hub.snapshot().to_df().to_dict("records")
     imap = hub.industry_map()
-    events = list(auction_alerts(rows, hub.watch_meta()))                 # ① 自选/持仓优先
-    for s in auction_sector_strength(rows, imap, top=5):                  # ② 板块竞价方向
+    events = list(auction_alerts(rows, hub.watch_meta()))                 # ① 自选/持仓优先(含委比承接)
+    for s in auction_sector_strength(rows, imap, top=5):                  # ② 板块方向(均高开+热度额+委比)
         if s["avg_gap"] >= _AUC_SECTOR_TH:
+            flow = f"·委比{'+' if s['entrust'] >= 0 else ''}{s['entrust']}%({'承接' if s['entrust'] > 0 else '抛压'})" if s["entrust"] else ""
             events.append((f"auc_sec_{s['industry']}", f"🔆 竞价强势板块·{s['industry']}",
-                           f"{s['industry']} 竞价均高开+{s['avg_gap']}%（{s['n']}只）·"
+                           f"{s['industry']} 均高开+{s['avg_gap']}%·额{s['amount_yi']}亿{flow}·"
                            f"龙头 {s['leader']} +{s['leader_pct']}%", s["leader_code"]))
     se = auction_sentiment(rows)                                          # ③ 全市场竞价情绪
     if se:
@@ -365,7 +366,7 @@ def scan_once(force: bool = False, push: bool = True) -> list[dict]:
     from app.notify.notifier import push_bark
     now = time.time()
     new: list[dict] = []
-    events = _auction_events() if sess in ("auction", "pre_open") else _collect_events()
+    events = _auction_events() if sess in hub._AUCTION_SESSIONS else _collect_events()
     for key, title, body, code in events:
         if not _should_push(key, now):
             continue

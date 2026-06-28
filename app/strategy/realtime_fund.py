@@ -177,23 +177,38 @@ def auction_alerts(rows: list[dict], watch: dict, *, gap_th: float = 7.0
         name = meta.get("name") or q.get("name", "")
         tag = "持仓" if meta.get("is_holding") else "自选"
         stop = meta.get("stop_loss")
+        ent = entrust_ratio(q.get("bid_vol"), q.get("ask_vol"))          # 委比=承接/抛压
+        vr = _ff(q.get("vol_ratio"))
+        flow = f"·委比{'+' if ent >= 0 else ''}{ent}%({'承接' if ent > 0 else '抛压'})" if ent else ""
+        heat = f"·量比{vr:.1f}" if vr else ""
         if stop and price and float(price) <= float(stop):
             out.append((f"auc_stop_{code}", f"🛑 {tag}竞价破止损·{name}",
-                        f"{name} 竞价{price}·已跌破止损{stop}（开盘即承压·按纪律预案）", code))
+                        f"{name} 竞价{price}·已跌破止损{stop}{flow}（开盘即承压·按纪律预案）", code))
         elif pct >= gap_th:
             out.append((f"auc_up_{code}", f"🔼 {tag}竞价高开·{name}",
-                        f"{name} 竞价高开 +{pct:.1f}%（留意是否兑现/冲高回落）", code))
+                        f"{name} 竞价高开+{pct:.1f}%{heat}{flow}（高开是否有量承接？）", code))
         elif pct <= -gap_th:
             out.append((f"auc_down_{code}", f"🔽 {tag}竞价低开·{name}",
-                        f"{name} 竞价低开 {pct:.1f}%（低开幅度大·注意情绪/避雷）", code))
+                        f"{name} 竞价低开{pct:.1f}%{flow}（低开幅度大·注意情绪/避雷）", code))
     return out
+
+
+def entrust_ratio(bid_vol, ask_vol) -> float:
+    """委比 = (委买总量 - 委卖总量) / (委买+委卖) × 100。
+
+    集合竞价无内外盘，五档委买委卖比是"资金流方向"的真身：
+    +承接强(买盘排队·想进) / -抛压强(卖盘排队·想出)。9:20-9:25 不可撤单时最可信。
+    """
+    b = sum(_ff(v) for v in (bid_vol or []))
+    a = sum(_ff(v) for v in (ask_vol or []))
+    return round((b - a) / (b + a) * 100, 1) if (b + a) else 0.0
 
 
 def auction_sector_strength(rows: list[dict], imap: dict, *, top: int = 10,
                             min_n: int = 3) -> list[dict]:
-    """集合竞价板块强弱（按行业竞价均涨/高开排序·纯价格口径·竞价可用）。
+    """集合竞价板块：均高开(强弱) + 竞价额(热度) + 委比(资金方向)。纯价格+盘口口径·竞价可用。
 
-    Returns: [{industry, avg_gap, n, leader, leader_pct, leader_code}]，按 avg_gap 降序。
+    Returns: [{industry, avg_gap, n, amount_yi, entrust, leader, leader_pct, leader_code}]，按 avg_gap 降序。
     """
     from collections import defaultdict
     buckets: dict[str, list[dict]] = defaultdict(list)
@@ -206,8 +221,13 @@ def auction_sector_strength(rows: list[dict], imap: dict, *, top: int = 10,
         if len(items) < min_n:
             continue
         avg = sum(_ff(x.get("pct_chg")) for x in items) / len(items)
+        amt = sum(_ff(x.get("amount")) for x in items)
+        bid = sum(_ff(v) for x in items for v in (x.get("bid_vol") or []))
+        ask = sum(_ff(v) for x in items for v in (x.get("ask_vol") or []))
+        ent = round((bid - ask) / (bid + ask) * 100, 1) if (bid + ask) else 0.0
         lead = max(items, key=lambda x: _ff(x.get("pct_chg")))
         out.append({"industry": ind, "avg_gap": round(avg, 2), "n": len(items),
+                    "amount_yi": round(amt / 1e8, 2), "entrust": ent,
                     "leader": lead.get("name", ""), "leader_code": lead.get("ts_code", ""),
                     "leader_pct": round(_ff(lead.get("pct_chg")), 2)})
     out.sort(key=lambda x: x["avg_gap"], reverse=True)
@@ -240,10 +260,17 @@ def auction_sentiment(rows: list[dict]) -> dict:
 
 
 def auction_movers(rows: list[dict], imap: dict, *, top: int = 10) -> dict:
-    """集合竞价高开/低开个股排行（纯价格口径）。Returns {high:[...], low:[...]}。"""
+    """集合竞价高开/低开个股排行：竞价额(热度)+量比+委比(方向)+一字板。Returns {high:[...], low:[...]}。"""
     def _fmt(r: dict) -> dict:
+        lu, px = _ff(r.get("limit_up")), _ff(r.get("price"))
+        ld = _ff(r.get("limit_down"))
         return {"name": r.get("name", ""), "ts_code": r.get("ts_code", ""),
-                "pct_chg": round(_ff(r.get("pct_chg")), 2), "price": r.get("price"),
+                "pct_chg": round(_ff(r.get("pct_chg")), 2), "price": px,
+                "amount_yi": round(_ff(r.get("amount")) / 1e8, 2),
+                "vol_ratio": round(_ff(r.get("vol_ratio")), 2),
+                "entrust": entrust_ratio(r.get("bid_vol"), r.get("ask_vol")),
+                "seal_up": bool(lu and px and px >= lu - 0.001),       # 竞价一字涨停
+                "seal_down": bool(ld and px and px <= ld + 0.001),     # 竞价一字跌停
                 "industry": imap.get(r.get("ts_code"), "")}
     rated = sorted((r for r in rows if r.get("pct_chg") is not None),
                    key=lambda r: _ff(r.get("pct_chg")), reverse=True)

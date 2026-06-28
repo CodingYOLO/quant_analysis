@@ -5,7 +5,7 @@ from __future__ import annotations
 import datetime
 
 from app.strategy.realtime_fund import (auction_alerts, auction_movers, auction_sector_strength,
-                                        auction_sentiment)
+                                        auction_sentiment, entrust_ratio)
 from app.strategy.realtime_hub import market_session
 
 
@@ -15,7 +15,8 @@ def _ts(y: int, m: int, d: int, hh: int, mm: int) -> float:
 
 def test_market_session_windows() -> None:
     # 2026-06-29 周一
-    assert market_session(_ts(2026, 6, 29, 9, 18)) == "auction"        # 集合竞价
+    assert market_session(_ts(2026, 6, 29, 9, 18)) == "auction"        # 9:15-9:20 可撤单
+    assert market_session(_ts(2026, 6, 29, 9, 22)) == "auction_lock"   # 9:20-9:25 不可撤单(关键)
     assert market_session(_ts(2026, 6, 29, 9, 26)) == "pre_open"       # 9:25-9:30 过渡
     assert market_session(_ts(2026, 6, 29, 9, 35)) == "continuous"
     assert market_session(_ts(2026, 6, 29, 13, 30)) == "continuous"
@@ -97,6 +98,34 @@ def test_auction_movers_high_low() -> None:
     assert [x["name"] for x in m["high"]] == ["芯片甲", "芯片乙"]
     assert m["high"][0]["industry"] == "半导体"
     assert m["low"][0]["name"] == "煤炭乙"                                  # -9.7 最低
+
+
+def test_entrust_ratio() -> None:
+    assert entrust_ratio([100, 50], [30, 20]) == 50.0                     # 委买150 vs 委卖50 → +50%承接
+    assert entrust_ratio([10], [90]) == -80.0                            # 抛压
+    assert entrust_ratio([], []) == 0.0 and entrust_ratio(None, None) == 0.0
+
+
+def test_auction_movers_orderbook_and_seal() -> None:
+    rows = [{"ts_code": "A.SZ", "name": "一字板", "pct_chg": 10.0, "price": 11.0,
+             "limit_up": 11.0, "amount": 3.2e8, "vol_ratio": 8.5,
+             "bid_vol": [900, 100], "ask_vol": [0, 0]}]
+    h = auction_movers(rows, {"A.SZ": "半导体"}, top=5)["high"][0]
+    assert h["seal_up"] is True                                          # 价==涨停价 → 一字
+    assert h["amount_yi"] == 3.2 and h["vol_ratio"] == 8.5
+    assert h["entrust"] == 100.0                                         # 全是委买·满承接
+
+
+def test_auction_sector_aggregates_amount_and_entrust() -> None:
+    rows = [{"ts_code": "A.SZ", "name": "甲", "pct_chg": 5.0, "amount": 1e8,
+             "bid_vol": [80], "ask_vol": [20]},
+            {"ts_code": "B.SZ", "name": "乙", "pct_chg": 3.0, "amount": 1e8,
+             "bid_vol": [60], "ask_vol": [40]},
+            {"ts_code": "C.SZ", "name": "丙", "pct_chg": 4.0, "amount": 1e8,
+             "bid_vol": [60], "ask_vol": [40]}]
+    s = auction_sector_strength(rows, {"A.SZ": "半导体", "B.SZ": "半导体", "C.SZ": "半导体"}, min_n=3)[0]
+    assert s["amount_yi"] == 3.0                                         # 三只各1亿
+    assert s["entrust"] == 33.3                                          # 委买200/委卖100 → (200-100)/300=+33.3%
 
 
 def _run_all() -> None:

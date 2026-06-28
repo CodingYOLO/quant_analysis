@@ -184,8 +184,10 @@ def is_tail_session(now: float | None = None) -> bool:
 
 
 def market_session(now: float | None = None) -> str:
-    """交易时段（含集合竞价）：
-    'auction'(9:15-9:25 开盘集合竞价) / 'pre_open'(9:25-9:30 过渡) /
+    """交易时段（含集合竞价·区分可撤/不可撤）：
+    'auction'(9:15-9:20 可撤单·诱单多·仅参考) /
+    'auction_lock'(9:20-9:25 不可撤单·真实意图·委比/竞价额最可信) /
+    'pre_open'(9:25-9:30 过渡) /
     'continuous'(连续竞价 9:30-11:30 / 13:00-15:00) / 'closed'(休市)。
     """
     import datetime
@@ -193,13 +195,18 @@ def market_session(now: float | None = None) -> str:
     if dt.weekday() >= 5:
         return "closed"
     hm = dt.strftime("%H%M")
-    if "0915" <= hm < "0925":
+    if "0915" <= hm < "0920":
         return "auction"
+    if "0920" <= hm < "0925":
+        return "auction_lock"
     if "0925" <= hm < "0930":
         return "pre_open"
     if ("0930" <= hm <= "1130") or ("1300" <= hm <= "1500"):
         return "continuous"
     return "closed"
+
+
+_AUCTION_SESSIONS = ("auction", "auction_lock", "pre_open")     # 集合竞价全时段(看板/扫描判定用)
 
 
 def watch_meta() -> dict:
@@ -249,7 +256,7 @@ def build_board() -> dict:
         base.update({"msg": "全推未连接（休市或未开盘），开盘自动接入"})
         return base
     imap = _industry_map()
-    if base["session"] in ("auction", "pre_open"):        # 集合竞价：全市场价格类信号(量资金信号开盘后才有意义)
+    if base["session"] in _AUCTION_SESSIONS:              # 集合竞价：全市场价格+盘口信号(内外盘资金开盘后才有)
         return _auction_board(base, df, imap)
     from app.strategy.realtime_fund import (altitude_risk, fund_ranking, sector_board, tech_context)
     fr = fund_ranking(df, top=15)
