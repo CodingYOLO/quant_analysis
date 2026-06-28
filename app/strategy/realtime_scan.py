@@ -197,19 +197,25 @@ def _surge_events(surge: list[dict], imap: dict, tech: dict, sec_avg: dict,
     for s in surge:
         ind = imap.get(s["ts_code"], "")
         q = hub.snapshot().get(s["ts_code"]) or {}
-        rel = rel_strength_tag(s["pct_chg"], sec_avg.get(ind))
-        ctx = [_sec_situation(ind, sec_avg.get(ind), rel)]                 # 板块情况
+        t = tech.get(s["ts_code"]) or {}
+        # 量价本体：现价·涨幅·主动净买·外盘%·量比（资金抢筹的核心数据·必留）
+        core = (f"现价{q.get('price', '')}·涨{s['pct_chg']}%·主动净买{s['net_yi']}亿"
+                f"·外盘{s['outer_ratio'] * 100:.0f}%·量比{s['vol_ratio']}")
+        # 板块情况 + 强度 + 风险
+        ctx = [_sec_situation(ind, sec_avg.get(ind), rel_strength_tag(s["pct_chg"], sec_avg.get(ind)))]
+        rps = t.get("rps120")
+        if rps is not None and rps == rps:
+            ctx.append(f"RPS{int(float(rps))}")
         fq = fund_flow_quality(hub.net_series(s["ts_code"]))
         if fq == "脉冲退潮":
             ctx.append("⚠脉冲退潮")
-        alt = altitude_risk(q.get("price") or 0, q.get("prev_close") or 0, tech.get(s["ts_code"]))
+        alt = altitude_risk(q.get("price") or 0, q.get("prev_close") or 0, t)
         if alt:
             ctx.append("⚠" + alt.split("·")[0])
         if mkt:
             ctx.append(mkt)
         tail = "·".join(x for x in ctx if x)
-        body = (f"现价{q.get('price', '')}·涨{s['pct_chg']}%·主动净买{s['net_yi']}亿"
-                + (f" ｜ {tail}" if tail else ""))
+        body = core + (f" ｜ {tail}" if tail else "")
         out.append((f"surge_{s['ts_code']}", f"💰 资金抢筹·{s['name']}{('·'+ind) if ind else ''}",
                     body, s["ts_code"]))
     return out
