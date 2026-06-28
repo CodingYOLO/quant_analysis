@@ -86,6 +86,7 @@ _CATEGORIES = [
     ("mid", "☀️ 盘中快讯"),
     ("post", "🌙 盘后复盘"),
     ("digest", "📰 消息面 / 前瞻"),   # 非交易日(周末/节假日)消息面复盘 + 下周前瞻
+    ("poolcheck", "📋 选股池盘前体检"),   # 交易日开盘前·选股池消息面体检(利好/利空/舆情)
 ]
 
 
@@ -112,6 +113,9 @@ def _parse_report_meta(path: Path) -> dict:
             mode = parts[3] if len(parts) >= 4 else "daily"
             kind = "下周前瞻" if mode == "preview" else "消息面复盘"
             return {"name": stem, "category": "digest", "kind": kind,
+                    "date": display_date, "time": gen_time}
+        if session == "poolcheck":   # YYYYMMDD_HHMM_poolcheck：选股池盘前消息面体检
+            return {"name": stem, "category": "poolcheck", "kind": "选股池盘前体检",
                     "date": display_date, "time": gen_time}
         label = _SESSION_LABEL.get(session, session)
         return {"name": stem, "category": session, "kind": f"{label}快讯",

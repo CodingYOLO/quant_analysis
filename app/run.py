@@ -349,6 +349,28 @@ def run_news_digest(mode: str, force: bool, no_notify: bool) -> None:
         _push_quick_report(title, content)
 
 
+@cli.command("pool-check")
+@click.option("--force", is_flag=True, default=False, help="忽略交易日判定，强制运行")
+@click.option("--no-notify", is_flag=True, default=False, help="不推送 Bark")
+def run_pool_check_cmd(force: bool, no_notify: bool) -> None:
+    """盘前·选股池消息面体检（交易日开盘前·对现有池逐只扫隔夜/周末新公告→利好/利空+博查舆情）。
+
+    技术选股结果周末不变；本命令只刷新消息面：减持/解禁/业绩预告/快报/大宗/回购 + 舆情。
+    周一一跑自然覆盖整个周末。
+    """
+    if not force:
+        from app.strategy.trade_calendar import is_trading_day
+        if not is_trading_day():
+            console.print("[yellow]⏸ 今日非交易日，跳过选股池盘前体检[/yellow]")
+            return
+    from app.strategy.pool_premarket import run_pool_check
+    res = run_pool_check(push=not no_notify)
+    if res:
+        console.print(f"\n[bold green]✅ {res[1]} 已生成[/bold green]  {res[0]}\n")
+    else:
+        console.print("[yellow]⏸ 暂无选股池，跳过盘前体检[/yellow]")
+
+
 @cli.command("web")
 @click.option("--host", default="0.0.0.0", show_default=True)
 @click.option("--port", default=8000, show_default=True)
