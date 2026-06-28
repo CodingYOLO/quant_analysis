@@ -255,8 +255,6 @@ def _flash_events(rows: list[dict], tech: dict, imap: dict,
         if f["tier"] == "crash":
             title = f"{'🚨 持仓闪崩·' if h else '💥 闪崩·'}{f['name']}{('·'+ind) if ind else ''}"
             body = f"现价{q.get('price', '')}·3分钟急跌 {f['drop']}%·放量主动砸" + (f" ｜ {sec}" if sec else "")
-            if h:
-                body += "\n→ 你的持仓，立刻走一遍「拿得住」"
             out.append((f"crash_{f['ts_code']}", title, body, f["ts_code"]))
         else:
             out.append((f"warn_{f['ts_code']}", f"{'⚠️ 持仓急跌·' if h else '⚡ 急跌·'}{f['name']}{('·'+ind) if ind else ''}",
@@ -277,7 +275,7 @@ def _tail_events(rows: list[dict], imap: dict) -> list[tuple[str, str, str, str]
     for m in tail_movers(rows, base):
         if m["kind"] == "up":
             out.append((f"tailup_{m['ts_code']}", f"🚀 尾盘拉升·{m['name']}",
-                        f"尾盘 +{m['move']}%·尾盘主动净买 +{m['net_tail']}亿·全天{m['pct_chg']:+.1f}%·或抢明天", m["ts_code"]))
+                        f"尾盘 +{m['move']}%·尾盘主动净买 +{m['net_tail']}亿·全天{m['pct_chg']:+.1f}%", m["ts_code"]))
         else:
             out.append((f"taildown_{m['ts_code']}", f"📉 尾盘跳水·{m['name']}",
                         f"尾盘 {m['move']}%·尾盘主动净卖 {m['net_tail']}亿·留意主力出货", m["ts_code"]))
@@ -322,8 +320,7 @@ def _holding_events() -> list[tuple[str, str, str, str]]:
     for h in hub.build_board().get("holdings", []):
         if h["label"] in ("留意", "风险"):
             out.append((f"hold_{h['ts_code']}_{h['label']}", f"🚨 持仓·{h['name']} {h['label']}",
-                        f"{h['reason']}·现{h['pct_chg']}%·外盘{h['outer_ratio']*100:.0f}%"
-                        f"\n→ 别冲动，先走一遍「拿得住」冷静流程", h["ts_code"]))
+                        f"{h['reason']}·现{h['pct_chg']}%·外盘{h['outer_ratio']*100:.0f}%", h["ts_code"]))
     return out
 
 
