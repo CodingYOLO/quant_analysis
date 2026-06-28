@@ -9,18 +9,38 @@
 }
 .genbtn:hover:not(:disabled) { background: #3d4068; color: #fff; }
 .genbtn:disabled { opacity: .5; cursor: not-allowed; }
-.report-body { font-size: 14px; line-height: 1.7; }
-.report-body table { margin: 12px 0; }
+/* 报告正文——深色主题完整样式（渲染器已改输出无样式片段，颜色全由此处掌控）*/
+.report-body { font-size: 14px; line-height: 1.7; color: #d1d5db; }
 .report-body h1 { font-size: 20px; color: #7c9ef8; margin: 16px 0 8px; }
 .report-body h2 { font-size: 17px; color: #c9d2f8; margin: 16px 0 8px; }
 .report-body h3 { font-size: 15px; color: #a8b3e0; margin: 14px 0 6px; }
-.report-body ul { margin: 8px 0 8px 20px; }
-.report-body li { margin: 4px 0; }
+.report-body h4 { font-size: 14px; color: #e8e8e8; margin: 14px 0 6px; }
+.report-body p  { margin: 8px 0; color: #d1d5db; }
+.report-body ul, .report-body ol { margin: 8px 0 8px 22px; padding: 0; }
+.report-body li { margin: 5px 0; color: #d1d5db; line-height: 1.7; }
+.report-body strong { color: #f3f4f6; }
+.report-body a { color: #7c9ef8; }
+.report-body hr { border: none; border-top: 1px solid #2d3052; margin: 18px 0; }
 .report-body blockquote {
   border-left: 3px solid #3d4068; padding: 4px 12px; margin: 8px 0;
-  color: #9ca3af; background: #161929;
+  color: #9ca3af; background: #161929; border-radius: 0 4px 4px 0;
 }
-.report-body th { background: #232640; }
+.report-body code { background: #232640; color: #a5b4fc; padding: 2px 6px; border-radius: 4px; font-size: 12px; }
+.report-body pre { background: #232640; padding: 12px 16px; border-radius: 6px; overflow-x: auto; margin: 10px 0; }
+.report-body pre code { background: none; padding: 0; }
+/* 表格：深色 + 宽表横向滚动（杜绝白底偶数行/深色字隐形）*/
+.report-body table {
+  display: block; overflow-x: auto; max-width: 100%;
+  border-collapse: collapse; margin: 14px 0; font-size: 13px; white-space: nowrap;
+}
+.report-body th {
+  background: #232640; color: #c9d2f8; font-weight: 600;
+  padding: 9px 14px; text-align: left; border-bottom: 2px solid #3358e0; white-space: nowrap;
+}
+.report-body td { padding: 8px 14px; border-bottom: 1px solid #242842; color: #d1d5db; white-space: nowrap; }
+.report-body tr:nth-child(even) { background: #161929; }
+.report-body tr:nth-child(odd)  { background: #1a1d2e; }
+.report-body tr:hover td { background: #232846; }
 /* 报告类型 Tab 横排 */
 .rc-tabs { display: flex; gap: 6px; flex-wrap: wrap; border-bottom: 1px solid #2d3052; margin-bottom: 14px; }
 .rc-tab { background: transparent; color: #9ca3af; border: none; border-bottom: 2px solid transparent;
@@ -30,6 +50,15 @@
 .rc-cnt { font-size: 12px; color: #6b7280; margin-left: 3px; }
 .rc-tab.active .rc-cnt { color: #7c9ef8; }
 .rc-panel.hidden { display: none; }
+/* 预览卡片工具栏 + 导出按钮 */
+.result-toolbar { display:flex; align-items:center; justify-content:space-between; gap:14px; flex-wrap:wrap; margin-bottom:12px; }
+.rc-actions { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+.rc-actions button, .rc-actions a {
+  background:#1a1d2e; color:#c9d2f8; border:1px solid #3358e0; border-radius:8px;
+  padding:7px 14px; font-size:13px; cursor:pointer; text-decoration:none; white-space:nowrap;
+}
+.rc-actions button:hover, .rc-actions a:hover { background:#2742a8; color:#fff; }
+.rc-actions button:disabled { opacity:.6; cursor:wait; }
 {% endblock %}
 
 {% block content %}
@@ -54,7 +83,13 @@
 </div>
 
 <div class="card" id="result-card" style="display:none">
-  <h2 id="result-title">报告预览</h2>
+  <div class="result-toolbar">
+    <h2 id="result-title" style="margin:0">报告预览</h2>
+    <div class="rc-actions">
+      <button id="exp-img" title="生成整页长图，便于微信/社交分享">📷 导出长图</button>
+      <a id="exp-full" href="#" target="_blank" title="打开完整报告页（可导出 PDF·文字可选中）">📄 导出 PDF / 完整页 →</a>
+    </div>
+  </div>
   <div id="result-body" class="report-body"></div>
 </div>
 
@@ -94,7 +129,10 @@
   </div>
 {% endif %}
 
+<script src="/static/html2canvas.min.js"></script>
 <script>
+let _genName = '';   // 最近一次生成的报告名（供导出长图/完整页链接）
+
 // 报告类型 Tab 切换：点表头只显示对应类型的清单，无需上下滚动
 document.querySelectorAll('.rc-tab').forEach(tab => {
   tab.addEventListener('click', () => {
@@ -123,6 +161,8 @@ document.querySelectorAll('.genbtn').forEach(btn => {
         document.getElementById('result-card').style.display = 'block';
         document.getElementById('result-title').textContent = data.title;
         document.getElementById('result-body').innerHTML = data.html;
+        _genName = data.name || '';
+        document.getElementById('exp-full').href = '/report/' + _genName;
         const pushMsg = notify ? (data.pushed ? '　📱 已推送到邮箱/微信' : '　⚠️ 推送失败（检查推送配置）') : '';
         statusEl.innerHTML = '✅ 生成成功，已保存到报告列表 · <a href="/report/' + data.name + '" style="color:#7c9ef8">查看 →</a>' + pushMsg;
         document.getElementById('result-card').scrollIntoView({ behavior: 'smooth' });
@@ -135,6 +175,26 @@ document.querySelectorAll('.genbtn').forEach(btn => {
       buttons.forEach(b => b.disabled = false);
     }
   });
+});
+
+// 导出长图：把预览正文 html2canvas 截成 PNG（深色底·便于微信分享）
+document.getElementById('exp-img').addEventListener('click', async () => {
+  const node = document.getElementById('result-body');
+  if (!node || !node.innerHTML.trim()) { return; }
+  if (typeof html2canvas === 'undefined') { alert('图片库未加载，请刷新后重试'); return; }
+  const btn = document.getElementById('exp-img'), old = btn.textContent;
+  btn.disabled = true; btn.textContent = '⏳ 生成中…';
+  try {
+    const canvas = await html2canvas(node, { scale: 2, backgroundColor: '#12141c',
+      useCORS: true, windowWidth: node.scrollWidth });
+    const a = document.createElement('a');
+    a.download = 'A股Agent_报告_' + (_genName || 'preview') + '.png';
+    a.href = canvas.toDataURL('image/png'); a.click();
+  } catch (e) {
+    alert('长图生成失败（报告过长或浏览器限制），可点「导出 PDF / 完整页」。\n' + e);
+  } finally {
+    btn.disabled = false; btn.textContent = old;
+  }
 });
 </script>
 {% endblock %}

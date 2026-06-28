@@ -121,9 +121,13 @@ def _parse_report_meta(path: Path) -> dict:
 
 
 def _render_markdown(md_text: str) -> str:
-    """复用通知模块的 Markdown→HTML（含表格/列表归一化，渲染稳定）。"""
-    from app.notify.notifier import _md_to_html
-    return _md_to_html(md_text)
+    """Markdown→HTML 正文片段（网页深色主题用）。
+
+    用 fragment 版而非邮件版：邮件版自带白底内联 <style>（td/p 深色字、
+    偶数行白底），嵌进深色页面会让大半文字隐形。样式交给页面 .md-body/.report-body。
+    """
+    from app.notify.notifier import _md_to_html_fragment
+    return _md_to_html_fragment(md_text)
 
 
 # ──────────────────────────────────────────────

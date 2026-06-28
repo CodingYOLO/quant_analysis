@@ -71,21 +71,26 @@ def _normalize_md_tables(md_text: str) -> str:
     return "\n".join(result)
 
 
-def _md_to_html(md_text: str) -> str:
-    """
-    将 Markdown 转为带样式的 HTML，适合邮件客户端展示。
-    依赖 markdown 库（pip install markdown）。
+def _md_to_html_fragment(md_text: str) -> str:
+    """Markdown → HTML 正文片段（无 <style>/<html>/footer）。
+
+    供网页深色主题自行套样式用——避免邮件白底内联样式泄漏到深色页面
+    （否则 td/p 继承 #222 深色字、tr:nth-child(even) 套白底，深色页上半数文字隐形）。
     """
     md_text = _normalize_md_tables(md_text)
     try:
         import markdown as md_lib
-        body = md_lib.markdown(
-            md_text,
-            extensions=["tables", "fenced_code"],
-        )
+        return md_lib.markdown(md_text, extensions=["tables", "fenced_code"])
     except ImportError:
-        # 降级：简单替换换行
-        body = md_text.replace("\n", "<br>")
+        return md_text.replace("\n", "<br>")        # 降级：简单替换换行
+
+
+def _md_to_html(md_text: str) -> str:
+    """
+    将 Markdown 转为带样式的完整 HTML 文档，适合邮件客户端展示（白底）。
+    依赖 markdown 库（pip install markdown）。
+    """
+    body = _md_to_html_fragment(md_text)
 
     return f"""<!DOCTYPE html>
 <html>
