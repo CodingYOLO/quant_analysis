@@ -359,10 +359,13 @@ def _breadth_series(provider, end_date: str, range_dates: list[str]) -> dict:
         logger.warning("[情绪] 广度矩阵加载失败: %s", e)
         return {"all": [], "micro": [], "mid": [], "large": []}
 
-    # 流通市值分层（用最新 daily_basic）
+    # 流通市值分层（用最近可用交易日的 daily_basic）。
+    # end_date 可能是周末/节假日/盘中未发布 → 直接用它会取空，导致微盘/中盘/大盘三条线全缺。
+    # 市值分层稳定，回退到最近交易日即可（修复"广度图只剩全市场一条线"）。
     cap_tier = {}
     try:
-        db = provider.get_daily_basic(end_date)
+        cap_date = _latest_data_date(provider, end_date)
+        db = provider.get_daily_basic(cap_date)
         if db is not None and not db.empty:
             for ts, cmv in zip(db["ts_code"], pd.to_numeric(db["circ_mv"], errors="coerce")):
                 if pd.isna(cmv):
