@@ -85,8 +85,8 @@ def _collect_events() -> list[tuple[str, str, str, str]]:
     breaks, new_sealed = detect_limit_breaks(rows, _sealed)                  # 龙头炸板/开板预警
     _sealed.clear(); _sealed.update(new_sealed)
     events += breaks
-    events += _breakout_events(detect_breakouts(rows, hub.past_prices(5.0), tech), tech, mkt)   # 实时突破/破位
-    events += _flash_events(rows, tech)                                     # 个股急跌/闪崩(带技术位)
+    events += _breakout_events(detect_breakouts(rows, hub.past_prices(5.0), tech), tech, mkt, imap)   # 实时突破/破位
+    events += _flash_events(rows, tech, imap, sec_avg)                       # 个股急跌/闪崩(现价+板块)
     events += _theme_events(detect_theme_fermentation(rows, hub.concept_map()))   # 题材发酵
     events += _tail_events(rows, imap)                                       # 尾盘异动(14:30后)
     events += _sector_events(sector_flow_events(sector_board(df, imap)))     # 板块资金涌入/撤离
@@ -96,7 +96,9 @@ def _collect_events() -> list[tuple[str, str, str, str]]:
         if float(q.get("vol_ratio") or 0) < 1.5:                            # 放量确认·过滤无量急拉(对倒/诱多)
             continue
         ind = imap.get(v["ts_code"], "")
-        body = f"5分钟+{v['move']}%·量比{q.get('vol_ratio', '')}" + (f"·{mkt}" if mkt else "")
+        ctx = "·".join(x for x in (_sec_situation(ind, sec_avg.get(ind), ""), mkt) if x)
+        body = (f"现价{q.get('price', '')}·5分钟+{v['move']}%·量比{q.get('vol_ratio', '')}"
+                + (f" ｜ {ctx}" if ctx else ""))
         events.append((f"vel_{v['ts_code']}", f"⚡ 急拉·{q.get('name', v['ts_code'])}{('·'+ind) if ind else ''}",
                        body, v["ts_code"]))
     events += _holding_events()
@@ -141,21 +143,25 @@ def _sentiment_events(s: dict) -> list[tuple[str, str, str, str]]:
     return [(f"senti_{s['state']}", f"🌡️ 情绪·{s['state']}", body, s.get("top_code", ""))]
 
 
-def _breakout_events(breaks: list[dict], tech: dict, mkt: str = "") -> list[tuple[str, str, str, str]]:
+def _breakout_events(breaks: list[dict], tech: dict, mkt: str = "",
+                     imap: dict | None = None) -> list[tuple[str, str, str, str]]:
     """实时突破(机会)/破位(风险)关键位推送；突破附高位风险 + 大盘环境(高位突破/逆势=追高)。"""
     from app.strategy.realtime_fund import altitude_risk
+    imap = imap or {}
     out: list[tuple[str, str, str, str]] = []
     for b in breaks:
+        ind = imap.get(b["ts_code"], "")
+        suf = ("·" + ind) if ind else ""
         if b["dir"] == "up":
             q = hub.snapshot().get(b["ts_code"]) or {}
             alt = altitude_risk(q.get("price") or 0, q.get("prev_close") or 0, tech.get(b["ts_code"]))
             warn = "·".join(x for x in (("⚠" + alt) if alt else "", mkt) if x)
-            out.append((f"brk_up_{b['ts_code']}", f"📈 突破·{b['name']}",
+            out.append((f"brk_up_{b['ts_code']}", f"📈 突破·{b['name']}{suf}",
                         f"{b['what']}·现价{b['price']}·涨{b['pct_chg']:+.1f}%"
-                        f"{('·'+warn) if warn else ''}（关键位·昨收口径）", b["ts_code"]))
+                        f"{('·'+warn) if warn else ''}", b["ts_code"]))
         else:
-            out.append((f"brk_dn_{b['ts_code']}", f"📉 破位·{b['name']}",
-                        f"{b['what']}·现价{b['price']}·{b['pct_chg']:+.1f}%·留意（关键位）", b["ts_code"]))
+            out.append((f"brk_dn_{b['ts_code']}", f"📉 破位·{b['name']}{suf}",
+                        f"{b['what']}·现价{b['price']}·{b['pct_chg']:+.1f}%·留意", b["ts_code"]))
     return out
 
 
@@ -185,30 +191,42 @@ def _sector_events(flow: list[dict]) -> list[tuple[str, str, str, str]]:
 
 def _surge_events(surge: list[dict], imap: dict, tech: dict, sec_avg: dict,
                   mkt: str = "") -> list[tuple[str, str, str, str]]:
-    """个股资金抢筹·精简推送：涨幅 + 主动净买 + 最多3个关键标(领涨/资金持续/风险)。详细多维看看板。"""
+    """个股资金抢筹：现价+涨幅+主动净买 ｜ 板块情况(均涨+领涨/弱于)+风险。详细全维看看板。"""
     from app.strategy.realtime_fund import altitude_risk, fund_flow_quality, rel_strength_tag
     out: list[tuple[str, str, str, str]] = []
     for s in surge:
         ind = imap.get(s["ts_code"], "")
         q = hub.snapshot().get(s["ts_code"]) or {}
-        flags: list[str] = []
-        if rel_strength_tag(s["pct_chg"], sec_avg.get(ind)) == "领涨板块":
-            flags.append("领涨")
+        rel = rel_strength_tag(s["pct_chg"], sec_avg.get(ind))
+        ctx = [_sec_situation(ind, sec_avg.get(ind), rel)]                 # 板块情况
         fq = fund_flow_quality(hub.net_series(s["ts_code"]))
-        if fq == "资金持续":
-            flags.append("资金持续")
-        elif fq == "脉冲退潮":
-            flags.append("⚠脉冲退潮")
+        if fq == "脉冲退潮":
+            ctx.append("⚠脉冲退潮")
         alt = altitude_risk(q.get("price") or 0, q.get("prev_close") or 0, tech.get(s["ts_code"]))
         if alt:
-            flags.append("⚠" + alt.split("·")[0])
+            ctx.append("⚠" + alt.split("·")[0])
         if mkt:
-            flags.append(mkt)
-        tag = "·".join(flags[:3])
-        body = f"涨{s['pct_chg']}%·主动净买{s['net_yi']}亿" + (f"·{tag}" if tag else "")
+            ctx.append(mkt)
+        tail = "·".join(x for x in ctx if x)
+        body = (f"现价{q.get('price', '')}·涨{s['pct_chg']}%·主动净买{s['net_yi']}亿"
+                + (f" ｜ {tail}" if tail else ""))
         out.append((f"surge_{s['ts_code']}", f"💰 资金抢筹·{s['name']}{('·'+ind) if ind else ''}",
                     body, s["ts_code"]))
     return out
+
+
+def _sec_situation(ind: str, sec_avg, rel: str) -> str:
+    """板块情况短语：板块均涨 + 个股相对板块(领涨/弱于)。"""
+    if not ind:
+        return ""
+    parts = []
+    if sec_avg is not None:
+        parts.append(f"板块均涨{sec_avg:+.1f}%")
+    if rel == "领涨板块":
+        parts.append("领涨")
+    elif rel == "弱于板块":
+        parts.append("⚠弱于板块")
+    return "·".join(parts)
 
 
 def _holding_codes() -> set:
@@ -217,22 +235,26 @@ def _holding_codes() -> set:
     return {w["ts_code"] for w in db.get_watchlist() if w.get("is_holding")}
 
 
-def _flash_events(rows: list[dict], tech: dict) -> list[tuple[str, str, str, str]]:
-    """个股急跌/闪崩预警·精简。持仓命中→最高优先级 + 提示走拿得住。详细看看板。"""
+def _flash_events(rows: list[dict], tech: dict, imap: dict,
+                  sec_avg: dict) -> list[tuple[str, str, str, str]]:
+    """个股急跌/闪崩预警：现价+跌速+主动砸 + 板块情况。持仓命中→最高优先级 + 走拿得住。"""
     from app.strategy.realtime_fund import detect_flash_crashes
     held = _holding_codes()
     out: list[tuple[str, str, str, str]] = []
     for f in detect_flash_crashes(rows, hub.past_prices(3.0)):
         h = f["ts_code"] in held
+        ind = imap.get(f["ts_code"], "")
+        q = hub.snapshot().get(f["ts_code"]) or {}
+        sec = _sec_situation(ind, sec_avg.get(ind), "")
         if f["tier"] == "crash":
-            title = f"{'🚨 持仓闪崩·' if h else '💥 闪崩·'}{f['name']}"
-            body = f"3分钟急跌 {f['drop']}%·放量主动砸"
+            title = f"{'🚨 持仓闪崩·' if h else '💥 闪崩·'}{f['name']}{('·'+ind) if ind else ''}"
+            body = f"现价{q.get('price', '')}·3分钟急跌 {f['drop']}%·放量主动砸" + (f" ｜ {sec}" if sec else "")
             if h:
                 body += "\n→ 你的持仓，立刻走一遍「拿得住」"
             out.append((f"crash_{f['ts_code']}", title, body, f["ts_code"]))
         else:
-            out.append((f"warn_{f['ts_code']}", f"{'⚠️ 持仓急跌·' if h else '⚡ 急跌·'}{f['name']}",
-                        f"3分钟急跌 {f['drop']}%·留意主动砸盘", f["ts_code"]))
+            out.append((f"warn_{f['ts_code']}", f"{'⚠️ 持仓急跌·' if h else '⚡ 急跌·'}{f['name']}{('·'+ind) if ind else ''}",
+                        f"现价{q.get('price', '')}·3分钟急跌 {f['drop']}%·留意主动砸盘", f["ts_code"]))
     return out
 
 
