@@ -193,6 +193,8 @@ def tech_context(price: float, prev_close: float, t: dict | None) -> str:
             parts.append("下MA60")
     elif not t.get("above_ma60"):
         parts.append("MA60下方")
+    if t.get("macd_gold"):
+        parts.append("MACD金叉")               # 昨收口径·技术共振
     rps = t.get("rps120")
     if rps is not None and rps == rps:
         if float(rps) >= 87:

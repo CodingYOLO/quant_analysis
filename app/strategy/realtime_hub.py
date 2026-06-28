@@ -27,7 +27,7 @@ _TECH_MAP_KEY = ""                          # 已加载的因子表文件路径�
 _TECH_COLS = ["ma_bull_full", "above_ma20", "above_ma60", "above_ma120", "above_ma250",
               "ma20_up", "stable_above_ma20", "rps120", "pat_breakout_high_20", "vol5_vol20",
               "ma20", "ma60", "high20", "low20", "close",   # v15: 关键位数值(供实时突破/破位)
-              "consec_limit_now"]                            # v16: 昨收当前连板(情绪温度计)
+              "consec_limit_now", "macd_gold"]               # v16: 昨收当前连板 + MACD金叉
 _TAIL_BASE: dict = {}                      # 尾盘14:30基准 {code:{price,net}}
 _TAIL_DATE: str = ""
 _HISTORY: deque = deque(maxlen=16)        # [(epoch, {code: price})]·约采样6-8分钟
