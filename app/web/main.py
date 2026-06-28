@@ -1143,8 +1143,8 @@ async def api_realtime_board(_user: str = Depends(require_auth)):
     try:
         from fastapi.concurrency import run_in_threadpool
 
-        from app.strategy.realtime_hub import build_board, status
-        board = await run_in_threadpool(build_board)
+        from app.strategy.realtime_hub import build_board_cached, status
+        board = await run_in_threadpool(build_board_cached)   # TTL缓存·支撑前端2s轮询不加压
         board["status"] = status()
         return board
     except Exception as e:

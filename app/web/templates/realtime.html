@@ -214,7 +214,7 @@ function renderStatus(d){
   else { dot='rt-off';
     const hint=AUC_SESS[sess]?'集合竞价·全推接入中':(d.msg||'休市/未开盘·开盘自动接入');
     txt=`未实时（${hint}）`; }
-  $('rtStatus').innerHTML=`<span class="rt-dot ${dot}"></span>`+txt+`<span class="rt-note">幕数据沪深全推L1 · 每4秒刷新</span>`;
+  $('rtStatus').innerHTML=`<span class="rt-dot ${dot}"></span>`+txt+`<span class="rt-note">幕数据沪深全推L1 · 每2秒刷新</span>`;
 }
 async function tick(){
   try{
@@ -233,6 +233,6 @@ async function testPush(){
   }catch(e){ $('rtPushMsg').textContent='错误：'+e; }
   b.disabled=false;
 }
-tick(); setInterval(tick, 4000);
+tick(); setInterval(tick, 2000);
 </script>
 {% endblock %}

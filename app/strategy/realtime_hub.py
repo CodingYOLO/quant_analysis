@@ -246,6 +246,28 @@ def _industry_map() -> dict:
     return _IND_MAP
 
 
+_BOARD_CACHE: dict = {"data": None, "ts": 0.0}
+_BOARD_TTL = 1.5                          # 看板缓存(秒)：多标签页/高频轮询也最多每~1.5s重算一次全市场
+_BOARD_CLOCK = threading.Lock()
+
+
+def build_board_cached() -> dict:
+    """带 TTL 缓存的看板。
+
+    底层快照已是秒级(全推TCP推)，但 build_board 要重算全市场(~5400只)资金榜/板块/情绪，
+    单 worker 上每请求都算会拖垮。缓存把全市场计算上限锁在~每1.5s一次，前端就能更快轮询(2s)而不加压。
+    """
+    c = _BOARD_CACHE
+    if c["data"] is not None and time.time() - c["ts"] < _BOARD_TTL:
+        return c["data"]
+    with _BOARD_CLOCK:
+        if c["data"] is not None and time.time() - c["ts"] < _BOARD_TTL:   # 双检·避免并发重复算
+            return c["data"]
+        c["data"] = build_board()
+        c["ts"] = time.time()
+        return c["data"]
+
+
 def build_board() -> dict:
     """汇总实时看板数据（资金榜/板块/大盘温度/急拉/持仓体检）。"""
     df = _SNAP.to_df()
