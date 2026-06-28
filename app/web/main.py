@@ -1007,6 +1007,27 @@ async def api_plan_qmt_script(_user: str = Depends(require_auth)):
                     headers={"Content-Disposition": "attachment; filename=qmt_executor.py"})
 
 
+@app.get("/api/portfolio/list")
+async def api_portfolio_list(_user: str = Depends(require_auth)):
+    """秒级返回自选名单（纯 DB 读·不算现价/技术/资金）。供页面先渲染骨架，体检数据再异步填。"""
+    try:
+        from app.strategy import db
+        rows = [{
+            "ts_code": w["ts_code"],
+            "name": w.get("name") or w["ts_code"][:6],
+            "is_holding": bool(w.get("is_holding")),
+            "cost": w.get("cost"),
+            "stop_loss": w.get("stop_loss"),
+            "target_price": w.get("target_price"),
+            "note": w.get("note") or "",
+        } for w in db.get_watchlist()]
+        return {"ok": True, "rows": rows, "n": len(rows),
+                "n_holding": sum(1 for r in rows if r["is_holding"])}
+    except Exception as e:
+        logger.exception("自选名单读取失败")
+        return {"ok": False, "msg": str(e)}
+
+
 @app.get("/api/portfolio")
 async def api_portfolio(_user: str = Depends(require_auth)):
     """持仓体检 + 事件预警（现价/盈亏/技术/资金/事件/健康灯）。较重→线程池。"""

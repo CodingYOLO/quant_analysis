@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}我的持仓 — A股Agent{% endblock %}
+{% block title %}自选盯盘 — A股Agent{% endblock %}
 
 {% block extra_style %}
 h1 { font-size:22px; text-align:center; margin-bottom:4px; }
@@ -37,10 +37,10 @@ tr.datarow:hover td { background:#1e2138; cursor:pointer; }
 {% endblock %}
 
 {% block content %}
-<h1>💼 我的持仓</h1>
+<h1>👀 自选盯盘</h1>
 <div class="note">
-  自选盯盘 + 持仓盈亏 + <b>持仓体检</b>(🟢健康/🟡留意/🔴警惕) + <b>事件预警</b>(跌破止损/破位/解禁/减持/大宗折价主动提示)。
-  现价用实时报价、技术用日线、资金为主力估算·事件来自公开数据。<b>不预测涨跌、不构成建议</b>，止损/仓位自行决策。
+  加入你<b>观察的票</b>(不必持仓)，自动<b>体检</b>(🟢健康/🟡留意/🔴警惕) + <b>事件预警</b>(破位/跌破止损/解禁/减持/大宗折价主动提示)。
+  想看盈亏就勾「持仓」填成本。现价用实时报价、技术用日线、资金为主力估算·事件来自公开数据。<b>不预测涨跌、不构成建议</b>，止损/仓位自行决策。
 </div>
 
 <div class="addbar">
@@ -63,7 +63,7 @@ tr.datarow:hover td { background:#1e2138; cursor:pointer; }
   <div id="signals" class="neu2" style="font-size:12.5px">⏳ 扫描今日信号（首次约 10-40 秒·之后秒回）…</div>
 </div>
 <div id="summary" class="summary"></div>
-<div id="loading" class="neu2" style="padding:14px">⏳ 体检中（现价/技术/资金/事件·首次约 5-15 秒）…</div>
+<div id="loading" class="neu2" style="padding:14px">⏳ 读取自选名单…</div>
 <div id="empty" class="neu2" style="display:none;padding:12px"></div>
 <div id="dash" style="display:none;overflow-x:auto"><table id="tbl"></table></div>
 {% endblock %}
@@ -87,47 +87,76 @@ function sectorTag(phase){ if(!phase) return '';
   return '<span style="font-size:10px;padding:1px 5px;border-radius:5px;margin-left:5px;background:'+bg+';color:'+c+'" title="所在板块强弱(盘后)">'+phase+'</span>'; }
 let _rows=[];
 
-async function load(){
-  $('loading').style.display='block'; $('dash').style.display='none'; $('empty').style.display='none';
+// 两段式加载：先秒显名单骨架(loadList·纯DB)，再后台填体检数据(loadLive·现价/技术/资金)
+async function reload(){ if(await loadList()) loadLive(); }
+
+// 阶段一：自选名单即时可见（代码/名称/成本/止损·体检列先占位）
+async function loadList(){
+  $('loading').style.display='none'; $('empty').style.display='none';
+  try{
+    const j=await (await fetch('/api/portfolio/list')).json();
+    if(!j.ok){ $('empty').style.display='block'; $('empty').textContent='❌ '+(j.msg||'加载失败'); return false; }
+    const rows=j.rows||[];
+    if(!rows.length){ _rows=[]; $('alerts').innerHTML=''; $('summary').innerHTML=''; $('dash').style.display='none';
+      $('empty').style.display='block'; $('empty').textContent='ℹ️ 还没有自选——在上方输入代码/名称，加入你观察的票'; return false; }
+    _rows=rows.map(r=>({...r, _pending:true}));
+    $('alerts').innerHTML='<span class="neu2" style="font-size:12px">⏳ 预警体检中…</span>';
+    renderSummary({n:j.n, n_holding:j.n_holding}, null);   // date=null → 右侧显示「体检中」
+    renderTable();                                          // 骨架即时渲染
+    return true;
+  }catch(e){ $('empty').style.display='block'; $('empty').textContent='❌ '+e; return false; }
+}
+
+// 阶段二：体检数据回填（失败/抖动则保留骨架，不打断已显示的名单）
+async function loadLive(){
   try{
     const j=await (await fetch('/api/portfolio')).json();
-    $('loading').style.display='none';
-    if(!j.ok){ $('empty').style.display='block'; $('empty').textContent='❌ '+(j.msg||'加载失败'); return; }
+    if(!j.ok) return;
     _rows=j.rows||[];
     renderAlerts(j.alerts||[]); renderSummary(j.summary||{}, j.date);
-    if(!_rows.length){ $('alerts').innerHTML=''; $('empty').style.display='block'; $('empty').textContent='ℹ️ '+(j.msg||'还没有自选/持仓'); return; }
     renderTable();
-  }catch(e){ $('loading').textContent='❌ '+e; }
+  }catch(e){ /* 保留骨架 */ }
 }
 function renderAlerts(alerts){
-  if(!alerts.length){ $('alerts').innerHTML='<span class="neu2" style="font-size:12px">✅ 持仓暂无触发预警</span>'; return; }
-  $('alerts').innerHTML='<b style="color:#f0a020;font-size:13px">⚠️ 持仓预警：</b><br>'+alerts.map(a=>
+  if(!alerts.length){ $('alerts').innerHTML='<span class="neu2" style="font-size:12px">✅ 暂无触发预警</span>'; return; }
+  $('alerts').innerHTML='<b style="color:#f0a020;font-size:13px">⚠️ 盯盘预警：</b><br>'+alerts.map(a=>
     '<span class="alert a-'+a.level+'">'+esc(a.name)+'：'+esc(a.text)+'</span>').join('');
 }
+// date 为空表示体检数据未到（骨架阶段），右侧显示「体检中」而非具体截止日
 function renderSummary(s,date){
   const dd=String(date||''); const dfmt=/^\d{8}$/.test(dd)?(dd.slice(0,4)+'-'+dd.slice(4,6)+'-'+dd.slice(6,8)):dd;
   const asof=new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'});
+  const tail = date
+    ? '📅 现价=实时报价(拉取于 '+asof+') · 技术/资金截至 <b>'+dfmt+'</b>(盘后)'
+    : '⏳ 现价/技术/资金体检中…';
   $('summary').innerHTML='<div class="scard">共 <b>'+(s.n||0)+'</b> 只（持仓 <b>'+(s.n_holding||0)+'</b>）</div>'
     +(s.total_pnl!=null?'<div class="scard">持仓总浮盈 '+pct(s.total_pnl)+'</div>':'')
-    +'<div class="neu2" style="font-size:10.5px;align-self:center">📅 现价=实时报价(拉取于 '+asof+') · 技术/资金截至 <b>'+dfmt+'</b>(盘后)</div>';
+    +'<div class="neu2" style="font-size:10.5px;align-self:center">'+tail+'</div>';
 }
+const WAIT='<span class="miss">·</span>';   // 体检未到的占位
 function renderTable(){
   let h='<tr><th>体检</th><th>代码</th><th>名称</th><th>赛道</th><th>现价</th><th>涨跌</th><th>盈亏</th><th>成本/止损</th><th>位置</th><th>主力3日</th><th>操作</th></tr>';
   _rows.forEach((r,i)=>{
-    const cid='p'+i;
-    const pos=(r.above_ma20===false?'<span class="down">破位MA20</span>':'<span class="up">站上MA20</span>')+' 乖离'+pct(r.bias20)+' 距高'+pct(r.dist_high);
+    const cid='p'+i, P=r._pending;   // 名单已到、体检(现价/技术/资金)未到 → 占位，不显误导值
+    const health = P ? '<span title="体检中…">⏳</span>' : (LIGHT[r.health]||'');
+    const price  = P ? WAIT : (r.price!=null?r.price:'<span class="miss">—</span>');
+    const chg    = P ? WAIT : pct(r.pct_chg);
+    const pnl    = P ? WAIT : (r.pnl!=null?'<b>'+pct(r.pnl)+'</b>':'<span class="miss">—</span>');
+    const pos    = P ? WAIT : (r.above_ma20===false?'<span class="down">破位MA20</span>':'<span class="up">站上MA20</span>')+' 乖离'+pct(r.bias20)+' 距高'+pct(r.dist_high);
+    const flow   = P ? WAIT : (r.main_flow_3d!=null?pct(r.main_flow_3d,0)+'亿':'<span class="miss">—</span>');
+    const track  = '<span class="neu2">'+esc(r.industry||'')+'</span>'+bd(r.ts_code)+(P?'':sectorTag(r.sector_phase));
     const cs=(r.cost!=null?('成本'+r.cost):'<span class="miss">—</span>')+(r.stop_loss!=null?' / 止损<span class="down">'+r.stop_loss+'</span>':'')+(r.target_price!=null?' / 买入<span style="color:#7c9ef8">'+r.target_price+'</span>':'');
     h+='<tr class="datarow" onclick="toggle('+i+')">'
-      +'<td style="font-size:15px" title="'+(r.flags||[]).map(f=>esc(f.text)).join('；')+'">'+(LIGHT[r.health]||'')+'</td>'
+      +'<td style="font-size:15px" title="'+(r.flags||[]).map(f=>esc(f.text)).join('；')+'">'+health+'</td>'
       +'<td style="color:#7c9ef8">'+r.ts_code.slice(0,6)+'</td>'
       +'<td>'+esc(r.name)+(r.is_holding?'<span class="hold">持仓</span>':'<span class="watch">自选</span>')+'</td>'
-      +'<td class="neu2">'+esc(r.industry||'')+bd(r.ts_code)+sectorTag(r.sector_phase)+'</td>'
-      +'<td>'+(r.price!=null?r.price:'<span class="miss">—</span>')+'</td>'
-      +'<td>'+pct(r.pct_chg)+'</td>'
-      +'<td>'+(r.pnl!=null?'<b>'+pct(r.pnl)+'</b>':'<span class="miss">—</span>')+'</td>'
+      +'<td>'+track+'</td>'
+      +'<td>'+price+'</td>'
+      +'<td>'+chg+'</td>'
+      +'<td>'+pnl+'</td>'
       +'<td style="font-size:11px">'+cs+'</td>'
       +'<td style="font-size:11px">'+pos+'</td>'
-      +'<td>'+(r.main_flow_3d!=null?pct(r.main_flow_3d,0)+'亿':'<span class="miss">—</span>')+'</td>'
+      +'<td>'+flow+'</td>'
       +'<td><span class="op" onclick="event.stopPropagation();editRow('+i+')">✏️编辑</span>'
         +'<span class="op del" onclick="event.stopPropagation();delRow(\''+r.ts_code+'\')">🗑删</span></td></tr>';
     h+='<tr id="row_'+cid+'" style="display:none"><td colspan="11" style="padding:0"><div class="detail" id="d_'+cid+'"></div></td></tr>';
@@ -197,7 +226,7 @@ async function addStock(){
   const body={code, is_holding:$('a_hold').checked, cost:$('a_cost').value, stop_loss:$('a_stop').value, target_price:$('a_target').value, note:$('a_note').value};
   try{
     const d=await (await fetch('/api/portfolio/add',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})).json();
-    if(d.ok){ $('addmsg').textContent='✅ 已加入 '+(d.name||''); ['a_code','a_cost','a_stop','a_note'].forEach(x=>$(x).value=''); $('a_hold').checked=false; load(); loadSignals(); }
+    if(d.ok){ $('addmsg').textContent='✅ 已加入 '+(d.name||''); ['a_code','a_cost','a_stop','a_note'].forEach(x=>$(x).value=''); $('a_hold').checked=false; reload(); loadSignals(); }
     else $('addmsg').textContent='❌ '+(d.msg||'失败');
   }catch(e){ $('addmsg').textContent='❌ '+e; }
 }
@@ -207,8 +236,8 @@ function editRow(i){ const r=_rows[i];
   $('addmsg').textContent='↑ 改完点「＋加入」保存'; $('a_code').scrollIntoView({behavior:'smooth'});
 }
 async function delRow(code){
-  if(!confirm('从持仓移除 '+code+'？')) return;
-  try{ await fetch('/api/portfolio/remove',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code})}); load(); }catch(e){}
+  if(!confirm('从自选移除 '+code+'？')) return;
+  try{ await fetch('/api/portfolio/remove',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code})}); reload(); }catch(e){}
 }
 // 🔔 今日信号（异步·体检后填充·按日缓存）
 async function loadSignals(refresh){
@@ -236,6 +265,6 @@ function sigCard(it){
 $('sigbtn').onclick=()=>loadSignals(true);
 $('addbtn').onclick=addStock;
 $('a_code').addEventListener('keydown',e=>{ if(e.key==='Enter') addStock(); });
-load(); loadSignals();
+reload(); loadSignals();
 </script>
 {% endblock %}
