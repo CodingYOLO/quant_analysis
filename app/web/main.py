@@ -85,6 +85,7 @@ _CATEGORIES = [
     ("pre", "🌅 盘前快讯"),
     ("mid", "☀️ 盘中快讯"),
     ("post", "🌙 盘后复盘"),
+    ("digest", "📰 消息面 / 前瞻"),   # 非交易日(周末/节假日)消息面复盘 + 下周前瞻
 ]
 
 
@@ -105,8 +106,13 @@ def _parse_report_meta(path: Path) -> dict:
         gen_time = datetime.datetime.fromtimestamp(path.stat().st_mtime).strftime("%H:%M")
     except Exception:
         gen_time = ""
-    if len(parts) >= 3:  # 快讯
+    if len(parts) >= 3:  # 快讯 / 非交易日消息面报告
         session = parts[2]
+        if session == "digest":   # YYYYMMDD_HHMM_digest_{daily|preview}：非交易日消息面报告
+            mode = parts[3] if len(parts) >= 4 else "daily"
+            kind = "下周前瞻" if mode == "preview" else "消息面复盘"
+            return {"name": stem, "category": "digest", "kind": kind,
+                    "date": display_date, "time": gen_time}
         label = _SESSION_LABEL.get(session, session)
         return {"name": stem, "category": session, "kind": f"{label}快讯",
                 "date": display_date, "time": gen_time}

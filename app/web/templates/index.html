@@ -76,6 +76,7 @@
           {% for r in g.reports %}
           <tr>
             <td><strong>{{ r.date }}</strong>
+              {% if r.category == 'digest' %}<span class="badge" style="margin-left:6px;background:#2a2440;color:#b794f6;border:1px solid #4a3d6a">{{ r.kind }}</span>{% endif %}
               {% if loop.first %}<span class="badge badge-yellow" style="margin-left:6px">最新</span>{% endif %}
             </td>
             <td class="neu">{{ r.time }}</td>
