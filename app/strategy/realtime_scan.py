@@ -328,15 +328,27 @@ def _holding_events() -> list[tuple[str, str, str, str]]:
     return out
 
 
+def _auction_events() -> list[tuple[str, str, str, str]]:
+    """集合竞价时段(9:15-9:30)：只盯自选/持仓竞价异动(高开/低开/破止损)，不跑连续行情信号。"""
+    from app.strategy.realtime_fund import auction_alerts
+    rows = hub.snapshot().to_df().to_dict("records")
+    return auction_alerts(rows, hub.watch_meta())
+
+
 def scan_once(force: bool = False, push: bool = True) -> list[dict]:
-    """扫一次 → 推【过冷却 / 升级到新档】的事件。返回新推列表。"""
-    if not force and (not is_market_hours() or not hub.is_live()):
+    """扫一次 → 推【过冷却 / 升级到新档】的事件。返回新推列表。
+
+    时段感知：集合竞价(9:15-9:30)只推自选/持仓竞价异动；连续竞价跑全市场信号。
+    """
+    sess = "continuous" if force else hub.market_session()
+    if not force and (sess == "closed" or not hub.is_live()):
         return []
     _dedup_reset_if_new_day()
     from app.notify.notifier import push_bark
     now = time.time()
     new: list[dict] = []
-    for key, title, body, code in _collect_events():
+    events = _auction_events() if sess in ("auction", "pre_open") else _collect_events()
+    for key, title, body, code in events:
         if not _should_push(key, now):
             continue
         if (not push) or push_bark(title, body, group="实时盯盘",

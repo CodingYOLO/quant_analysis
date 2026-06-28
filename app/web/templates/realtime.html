@@ -66,7 +66,7 @@
     <tbody id="rtFlash"></tbody></table></div>
 </div>
 
-<div class="card"><h2>💼 我的持仓 · 实时体检<span class="rt-tag">附加 · 非盯盘重心</span></h2>
+<div class="card"><h2>👀 自选 / 持仓 · 实时盯盘<span class="rt-tag">自选优先 · 持仓带止损体检</span></h2>
   <table><thead><tr><th>股票</th><th>涨幅</th><th>量比</th><th>主动买卖</th><th>体检</th></tr></thead>
   <tbody id="rtHold"></tbody></table></div>
 
@@ -157,19 +157,24 @@ function renderSurge(rows){
   if(!rows||!rows.length){ $('rtSurge').innerHTML='<tr><td colspan="2" class="rt-empty">暂无急拉（或正在积累5分钟历史）</td></tr>'; return; }
   $('rtSurge').innerHTML=rows.map(r=>`<tr><td>${r.name||r.ts_code}</td><td class="pos">+${r.move}%</td></tr>`).join('');
 }
-function renderHold(rows){
-  if(!rows||!rows.length){ $('rtHold').innerHTML='<tr><td colspan="5" class="rt-empty">未持仓（在「我的持仓」加入后显示）</td></tr>'; return; }
+function renderWatch(rows){
+  if(!rows||!rows.length){ $('rtHold').innerHTML='<tr><td colspan="5" class="rt-empty">还没有自选（在「自选盯盘」加入后，盘中实时显示）</td></tr>'; return; }
   const bd={'健康':'badge-green','中性':'badge-blue','留意':'badge-yellow','风险':'badge-red'};
   $('rtHold').innerHTML=rows.map(r=>{const op=Math.round(r.outer_ratio*100);
-    return `<tr><td>${r.name}</td><td class="${cls(r.pct_chg)}">${sgn(r.pct_chg)}%</td>
+    const tag=r.is_holding?'<span class="badge badge-blue" style="font-size:10px;margin-left:4px">持仓</span>'
+                          :'<span class="badge" style="font-size:10px;margin-left:4px;background:#262a3e;color:#9ca3af">自选</span>';
+    return `<tr><td>${r.name}${tag}</td><td class="${cls(r.pct_chg)}">${sgn(r.pct_chg)}%</td>
       <td class="neu">${r.vol_ratio}</td><td>${op>=50?'<span class=pos>主动买</span>':'<span class=neg>主动卖</span>'} ${op}%</td>
       <td><span class="badge ${bd[r.label]||'badge-blue'}">${r.label}</span> <span class="neu" style="font-size:11px">${r.reason}</span></td></tr>`;}).join('');
 }
+const SESS={auction:'🔔 集合竞价',pre_open:'🔔 集合竞价·过渡',continuous:'全推实时',closed:'全推实时'};
 function renderStatus(d){
-  const src=(d.status||{}).source||''; let dot,txt;
-  if(d.live){ dot='rt-live'; txt=`全推实时 · ${d.count}只 · 更新 ${d.as_of}`; }
+  const src=(d.status||{}).source||'', sess=d.session||'closed'; let dot,txt;
+  if(d.live){ dot='rt-live'; txt=`${SESS[sess]||'全推实时'} · ${d.count}只 · 更新 ${d.as_of}`; }
   else if(src==='新浪兜底'){ dot='rt-off'; txt=`⚠️ 全推断流·新浪兜底中（仅涨跌幅·无内外盘资金）· ${d.count}只`; }
-  else { dot='rt-off'; txt=`未实时（${d.msg||'休市/未开盘·开盘自动接入'}）`; }
+  else { dot='rt-off';
+    const hint=(sess==='auction'||sess==='pre_open')?'集合竞价·全推接入中':(d.msg||'休市/未开盘·开盘自动接入');
+    txt=`未实时（${hint}）`; }
   $('rtStatus').innerHTML=`<span class="rt-dot ${dot}"></span>`+txt+`<span class="rt-note">幕数据沪深全推L1 · 每4秒刷新</span>`;
 }
 async function tick(){
@@ -178,7 +183,7 @@ async function tick(){
     if(!d.ok){ $('rtStatus').textContent='加载失败：'+(d.msg||''); return; }
     renderStatus(d); renderBrief(d.brief); renderBreadth(d.breadth); renderSenti(d.sentiment); renderSectors(d.sectors); renderThemes(d.themes);
     renderTail(d.tail); renderSecOut(d.sectors_out); renderFlash(d.flash);
-    renderFund(d.fund_ranking); renderSurge(d.surge); renderHold(d.holdings);
+    renderFund(d.fund_ranking); renderSurge(d.surge); renderWatch(d.watch);
   }catch(e){ $('rtStatus').textContent='网络错误：'+e; }
 }
 async function testPush(){

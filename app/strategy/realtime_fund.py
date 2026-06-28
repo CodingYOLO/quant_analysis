@@ -153,6 +153,42 @@ def tech_tag(t: dict | None) -> str:
     return "·".join(parts)
 
 
+def auction_alerts(rows: list[dict], watch: dict, *, gap_th: float = 7.0
+                   ) -> list[tuple[str, str, str, str]]:
+    """集合竞价异动（9:15-9:30）：只盯自选/持仓——竞价大幅高开/低开 或 竞价价跌破止损。
+
+    集合竞价无连续成交，不看内外盘/量比；仅用竞价价(price)与竞价涨跌(pct_chg)。纯函数·可测。
+
+    Args:
+        rows:  全推快照记录（含 ts_code/price/pct_chg/name）
+        watch: {ts_code: {name, is_holding, stop_loss}}
+        gap_th: 高开/低开绝对阈值（%）
+    Returns:
+        [(dedup_key, title, body, ts_code)]
+    """
+    by = {r.get("ts_code"): r for r in rows}
+    out: list[tuple[str, str, str, str]] = []
+    for code, meta in watch.items():
+        q = by.get(code)
+        if not q:
+            continue
+        pct = _ff(q.get("pct_chg"))
+        price = q.get("price")
+        name = meta.get("name") or q.get("name", "")
+        tag = "持仓" if meta.get("is_holding") else "自选"
+        stop = meta.get("stop_loss")
+        if stop and price and float(price) <= float(stop):
+            out.append((f"auc_stop_{code}", f"🛑 {tag}竞价破止损·{name}",
+                        f"{name} 竞价{price}·已跌破止损{stop}（开盘即承压·按纪律预案）", code))
+        elif pct >= gap_th:
+            out.append((f"auc_up_{code}", f"🔼 {tag}竞价高开·{name}",
+                        f"{name} 竞价高开 +{pct:.1f}%（留意是否兑现/冲高回落）", code))
+        elif pct <= -gap_th:
+            out.append((f"auc_down_{code}", f"🔽 {tag}竞价低开·{name}",
+                        f"{name} 竞价低开 {pct:.1f}%（低开幅度大·注意情绪/避雷）", code))
+    return out
+
+
 def _ff(x) -> float:
     """安全转 float（NaN/None → 0）。"""
     try:

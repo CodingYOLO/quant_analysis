@@ -183,6 +183,32 @@ def is_tail_session(now: float | None = None) -> bool:
     return "1430" <= hm <= "1500"
 
 
+def market_session(now: float | None = None) -> str:
+    """交易时段（含集合竞价）：
+    'auction'(9:15-9:25 开盘集合竞价) / 'pre_open'(9:25-9:30 过渡) /
+    'continuous'(连续竞价 9:30-11:30 / 13:00-15:00) / 'closed'(休市)。
+    """
+    import datetime
+    dt = datetime.datetime.fromtimestamp(now) if now else datetime.datetime.now()
+    if dt.weekday() >= 5:
+        return "closed"
+    hm = dt.strftime("%H%M")
+    if "0915" <= hm < "0925":
+        return "auction"
+    if "0925" <= hm < "0930":
+        return "pre_open"
+    if ("0930" <= hm <= "1130") or ("1300" <= hm <= "1500"):
+        return "continuous"
+    return "closed"
+
+
+def watch_meta() -> dict:
+    """自选/持仓元信息 {ts_code: {name, is_holding, stop_loss}}（集合竞价/盯盘异动用）。"""
+    from app.strategy import db
+    return {w["ts_code"]: {"name": w.get("name", ""), "is_holding": bool(w.get("is_holding")),
+                           "stop_loss": w.get("stop_loss")} for w in db.get_watchlist()}
+
+
 def record_tail_baseline(rows: list[dict]) -> None:
     """进入尾盘首次记录 14:30 基准（幂等·按交易日自动重置）。"""
     global _TAIL_BASE, _TAIL_DATE
@@ -216,7 +242,9 @@ def _industry_map() -> dict:
 def build_board() -> dict:
     """汇总实时看板数据（资金榜/板块/大盘温度/急拉/持仓体检）。"""
     df = _SNAP.to_df()
-    base = {"ok": True, "live": is_live(), "as_of": _as_of_str(), "count": int(len(df))}
+    base = {"ok": True, "live": is_live(), "session": market_session(),
+            "as_of": _as_of_str(), "count": int(len(df))}
+    base["watch"] = _watch_block()                        # 自选/持仓·休市也回(空快照时为[])
     if df.empty:
         base.update({"msg": "全推未连接（休市或未开盘），开盘自动接入"})
         return base
@@ -240,7 +268,6 @@ def build_board() -> dict:
     base["tail"] = _tail_block(records, imap)
     base["flash"] = _flash_block(records)
     base["surge"] = _velocity_block()
-    base["holdings"] = _holdings_block()
     from app.strategy.realtime_fund import market_brief
     secs = base.get("sectors") or []
     top_in = secs[0]["industry"] if secs and secs[0].get("net_yi", 0) > 0 else ""
@@ -306,21 +333,25 @@ def _velocity_block() -> list[dict]:
     return ev
 
 
-def _holdings_block() -> list[dict]:
-    """持仓实时体检（读自选库 is_holding=1）。"""
+def _watch_block() -> list[dict]:
+    """自选/持仓实时盯盘（读自选库全部·持仓在前·组内按涨幅排）。
+
+    之前只回 is_holding=1，用户的自选(is_holding=0)全被漏掉→看板"没同步自选"。现自选/持仓都回，
+    用 is_holding 区分；持仓带止损做体检，自选同样给实时量价+体检读数。
+    """
     from app.strategy import db
     from app.strategy.realtime_fund import holding_health, outer_ratio
     out = []
     for w in db.get_watchlist():
-        if not w.get("is_holding"):
-            continue
         q = _SNAP.get(w["ts_code"])
         if not q:
             continue
         label, reason = holding_health(q, w.get("stop_loss"))
         out.append({"ts_code": w["ts_code"], "name": q.get("name", ""),
+                    "is_holding": bool(w.get("is_holding")),
                     "pct_chg": round(float(q.get("pct_chg") or 0), 2),
                     "vol_ratio": round(float(q.get("vol_ratio") or 0), 2),
                     "outer_ratio": outer_ratio(q.get("inner") or 0, q.get("outer") or 0),
                     "label": label, "reason": reason})
+    out.sort(key=lambda x: (not x["is_holding"], -x["pct_chg"]))   # 持仓在前·组内涨幅降序
     return out

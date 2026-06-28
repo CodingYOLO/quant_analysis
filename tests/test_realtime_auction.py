@@ -1,0 +1,67 @@
+"""集合竞价：时段判定 + 自选/持仓竞价异动（纯函数·不连网）。"""
+
+from __future__ import annotations
+
+import datetime
+
+from app.strategy.realtime_fund import auction_alerts
+from app.strategy.realtime_hub import market_session
+
+
+def _ts(y: int, m: int, d: int, hh: int, mm: int) -> float:
+    return datetime.datetime(y, m, d, hh, mm).timestamp()
+
+
+def test_market_session_windows() -> None:
+    # 2026-06-29 周一
+    assert market_session(_ts(2026, 6, 29, 9, 18)) == "auction"        # 集合竞价
+    assert market_session(_ts(2026, 6, 29, 9, 26)) == "pre_open"       # 9:25-9:30 过渡
+    assert market_session(_ts(2026, 6, 29, 9, 35)) == "continuous"
+    assert market_session(_ts(2026, 6, 29, 13, 30)) == "continuous"
+    assert market_session(_ts(2026, 6, 29, 8, 50)) == "closed"         # 9:15 前
+    assert market_session(_ts(2026, 6, 29, 11, 45)) == "closed"        # 午间
+    assert market_session(_ts(2026, 6, 29, 15, 30)) == "closed"        # 收盘后
+    # 2026-06-28 周日 → 永远 closed
+    assert market_session(_ts(2026, 6, 28, 9, 18)) == "closed"
+
+
+def test_auction_gap_up_down() -> None:
+    rows = [{"ts_code": "600522.SH", "price": 7.7, "pct_chg": 8.5, "name": "中天科技"},
+            {"ts_code": "002179.SZ", "price": 40.0, "pct_chg": -9.0, "name": "中航光电"}]
+    watch = {"600522.SH": {"name": "中天科技", "is_holding": False, "stop_loss": None},
+             "002179.SZ": {"name": "中航光电", "is_holding": True, "stop_loss": None}}
+    out = auction_alerts(rows, watch)
+    keys = {k for k, *_ in out}
+    assert "auc_up_600522.SH" in keys and "auc_down_002179.SZ" in keys
+    titles = {k: t for k, t, _, _ in out}
+    assert "持仓" in titles["auc_down_002179.SZ"] and "自选" in titles["auc_up_600522.SH"]
+
+
+def test_auction_stop_break_takes_priority() -> None:
+    rows = [{"ts_code": "X", "price": 9.0, "pct_chg": -3.0, "name": "测试"}]
+    watch = {"X": {"name": "测试", "is_holding": True, "stop_loss": 9.5}}   # 现价跌破止损
+    out = auction_alerts(rows, watch)
+    assert len(out) == 1 and out[0][0] == "auc_stop_X"
+
+
+def test_auction_small_gap_no_alert() -> None:
+    rows = [{"ts_code": "X", "price": 10.0, "pct_chg": 3.0, "name": "测试"}]
+    watch = {"X": {"name": "测试", "is_holding": False, "stop_loss": None}}
+    assert auction_alerts(rows, watch) == []          # +3% 未达 7% 阈值
+
+
+def test_auction_missing_quote_skipped() -> None:
+    watch = {"X": {"name": "测试", "is_holding": False, "stop_loss": None}}
+    assert auction_alerts([], watch) == []            # 快照里没有该票 → 跳过
+
+
+def _run_all() -> None:
+    fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
+    for fn in fns:
+        fn()
+        print(f"  ✓ {fn.__name__}")
+    print(f"\n✅ test_realtime_auction 全部通过（{len(fns)} 项）")
+
+
+if __name__ == "__main__":
+    _run_all()
