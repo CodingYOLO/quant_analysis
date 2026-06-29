@@ -31,7 +31,7 @@
   .race-name { width:92px; font-size:12.5px; color:#cdd6f4; flex-shrink:0; white-space:nowrap;
     overflow:hidden; text-overflow:ellipsis; }
   .race-track { flex:1; height:18px; position:relative; background:#222538; border-radius:4px; }  /* 轨道调亮·衬出条 */
-  .race-bar { height:100%; border-radius:4px; min-width:4px;
+  .race-bar { display:block; height:100%; border-radius:4px; min-width:4px;   /* span需display:block否则忽略宽高→条不可见 */
     transition: width .65s cubic-bezier(.22,.61,.36,1); }       /* 条长平滑伸缩 */
   .race-up { background:#f6465d; }   /* 涨/流入=纯红·清晰(原深红渐变与暗轨道糊成一片·看不出长度) */
   .race-dn { background:#2ebd85; }   /* 跌/流出=纯绿 */
