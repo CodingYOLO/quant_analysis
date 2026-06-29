@@ -96,6 +96,22 @@ def test_volume_surge() -> None:
     assert len(out) == 1 and out[0]["name"] == "放量" and out[0]["vol_ratio"] == 6.0
 
 
+def test_watch_dip_signal() -> None:
+    from app.strategy.realtime_fund import watch_dip_signal
+    tech = {"ma20": 100.0, "low20": 96.0}
+    q = {"name": "雅克科技", "price": 101.0, "pct_chg": -3.0, "inner": 80, "outer": 120}   # 贴MA20+1%·当日跌3%·外盘60%
+    sig = watch_dip_signal(q, tech, prev_price_5m=100.5)                # 近5min +0.5%(企稳)
+    assert sig and sig["pos"] == "贴MA20" and sig["recent"] == 0.5 and sig["outer"] == 60
+    # 还在快速下跌 → 不算企稳
+    assert watch_dip_signal(q, tech, prev_price_5m=103.0) is None       # 5min内 -1.9%
+    # 已大涨 → 不是低吸
+    assert watch_dip_signal({**q, "pct_chg": 6.0}, tech, 100.5) is None
+    # 远离支撑(乖离+8%) → 不算回调到位
+    assert watch_dip_signal({**q, "price": 108.0}, tech, 107.6) is None
+    # 无5分钟历史 → 不判
+    assert watch_dip_signal(q, tech, None) is None
+
+
 def _run_all() -> None:
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     for fn in fns:

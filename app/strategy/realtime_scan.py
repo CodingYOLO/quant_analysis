@@ -32,6 +32,7 @@ _COOLDOWN = {
     "surge": 1200, "vel": 1200, "tailup": 1200, "brk": 1200,  # 个股机会/突破破位(20min)
     "secin": 1500, "secout": 1500, "theme": 1500,            # 板块/题材(25min·另有跨档立即)
     "shift": 900,                                            # 重大变化:板块资金异常加速/大盘转向(15min·防刷屏)
+    "dip": 1800,                                             # 自选低吸/企稳观察(30min·同一票别反复提)
     "senti": 3600,                                           # 情绪状态转折(1小时·防flapping)
     "tailsummary": 999999,                                   # 尾盘小结·当天一次
 }
@@ -104,7 +105,26 @@ def _collect_events() -> list[tuple[str, str, str, str]]:
         events.append((f"vel_{v['ts_code']}", f"⚡ 急拉·{nm}",
                        _stock_lines(nm, stock, _sec_line(ind, sec_avg.get(ind)), mkt), v["ts_code"]))
     events += _holding_events()
+    events += _watch_dip_events()                                            # 自选/持仓回调企稳→低吸观察
     return events
+
+
+def _watch_dip_events() -> list[tuple[str, str, str, str]]:
+    """自选/持仓回调到支撑(MA20/20日低)且下跌动能衰竭(近5分钟企稳)→低吸观察。连续交易时段。"""
+    from app.strategy.realtime_fund import watch_dip_signal
+    out: list[tuple[str, str, str, str]] = []
+    tech = hub.tech_map()
+    past = hub.past_prices(5.0)
+    for code, meta in hub.watch_meta().items():
+        sig = watch_dip_signal(hub.snapshot().get(code), tech.get(code), past.get(code),
+                               name=meta.get("name", ""))
+        if not sig:
+            continue
+        tag = "持仓" if meta.get("is_holding") else "自选"
+        body = (f"{sig['name']} 现{sig['price']}·{sig['pos']}(乖离{sig['bias20']:+}%)·"
+                f"跌势企稳(5分钟{sig['recent']:+}%)·外盘{sig['outer']}%承接 — 回调到位·自行判断")
+        out.append((f"dip_{code}", f"🟢 {tag}低吸观察·{sig['name']}", body, code))
+    return out
 
 
 def _market_shift_events(board: list, df, imap: dict) -> list[tuple[str, str, str, str]]:

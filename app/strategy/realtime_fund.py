@@ -377,6 +377,36 @@ def detect_market_shifts(sectors_delta: list[dict], b_trend: dict, *,
     return out
 
 
+def watch_dip_signal(quote: dict, tech: dict, prev_price_5m: float | None, *,
+                     name: str = "") -> dict | None:
+    """自选低吸/企稳观察：回调到支撑(MA20/20日低) + 下跌动能衰竭(近5分钟由跌转平/升) + 外盘承接。
+
+    纯函数·只标"位置+企稳迹象"，**不预测涨跌、不构成买卖建议**(铁律)。满足才返回 dict，否则 None。
+    """
+    if not quote or not tech:
+        return None
+    price, pct = _ff(quote.get("price")), _ff(quote.get("pct_chg"))
+    ma20, low20 = _ff(tech.get("ma20")), _ff(tech.get("low20"))
+    if price <= 0 or ma20 <= 0:
+        return None
+    bias20 = (price / ma20 - 1) * 100
+    near_ma20 = -1.5 <= bias20 <= 3.0                         # 现价贴MA20(支撑)
+    near_low = low20 > 0 and 0 <= (price / low20 - 1) * 100 <= 3.0   # 或近20日低
+    if not (near_ma20 or near_low):
+        return None
+    if not (-7.0 <= pct <= 1.5):                              # 当日回调/弱势(非大涨·非崩盘)
+        return None
+    if prev_price_5m is None or prev_price_5m <= 0:
+        return None
+    recent = (price / prev_price_5m - 1) * 100                # 近5分钟动能
+    if recent < -0.3:                                         # 还在快速下跌→不算企稳
+        return None
+    return {"name": name or str(quote.get("name", "")), "price": round(price, 2),
+            "bias20": round(bias20, 1), "recent": round(recent, 1),
+            "outer": round(outer_ratio(quote.get("inner") or 0, quote.get("outer") or 0) * 100),
+            "pos": "贴MA20" if near_ma20 else "近20日低"}
+
+
 def _ff(x) -> float:
     """安全转 float（NaN/None → 0）。"""
     try:
