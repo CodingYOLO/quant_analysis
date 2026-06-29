@@ -71,8 +71,11 @@
 
 <!-- 🏁 板块实时排名(动态竞速条·随数据伸缩+重排·集合竞价也用) -->
 <div class="card">
-  <h2>🏁 板块实时排名<span class="rt-tag" id="raceSub">按资金净流入·实时重排</span>
+  <h2>🏁 实时排名<span class="rt-tag" id="raceSub">题材 · 按资金净流入 · 实时重排</span>
     <span class="race-toggle">
+      <button id="raceGranC" class="race-btn active">题材</button>
+      <button id="raceGranI" class="race-btn">行业</button>
+      <span style="display:inline-block;width:12px"></span>
       <button id="raceBtnFund" class="race-btn active">资金</button>
       <button id="raceBtnGain" class="race-btn">涨幅</button>
     </span>
@@ -143,24 +146,25 @@ function renderBreadth(b, trend){
   if(trend&&trend.text) m.push(['趋势(较30min前)',`<span class="${trend.dir==='up'?'pos':(trend.dir==='down'?'neg':'neu')}">${trend.text}</span>`]);
   $('rtBreadth').innerHTML=m.map(x=>`<div class="rt-metric"><div class="lbl">${x[0]}</div><div class="val">${x[1]}</div></div>`).join('');
 }
-// 🏁 板块实时排名(动态竞速条)：按资金/涨幅排序·条长∝值·排名变化平滑滑动重排·集合竞价自动用竞价口径
-let _raceMode='fund', _lastBoard=null;   // 'fund' | 'gain'；_lastBoard 供切换即时重绘
+// 🏁 实时排名(动态竞速条)：题材/行业 × 资金/涨幅·条长∝值·排名变化平滑滑动重排
+let _raceMode='fund', _raceGran='concept', _lastBoard=null;   // gran: 'concept'(题材) | 'industry'(行业)
 const _raceEls={}; const RACE_N=12, RACE_H=30;
 function _raceData(d){
   const auc=(d.session==='auction'||d.session==='auction_lock'||d.session==='pre_open');
-  const src=auc ? ((d.auction||{}).sectors||[]) : (d.sectors||[]);
+  const src = _raceGran==='concept' ? (d.concepts||[])
+            : (auc ? ((d.auction||{}).sectors||[]) : (d.sectors||[]));
   return src.map(s=>{
-    const val = _raceMode==='fund' ? (auc?(s.amount_yi||0):(s.net_yi||0))
-                                   : (auc?(s.avg_gap||0):(s.avg_pct||0));
-    return {key:s.industry, name:s.industry, val:+val,
-            unit:_raceMode==='fund'?'亿':'%', lead:s.leader||''};
+    const name=s.concept||s.industry;
+    const val = _raceMode==='fund' ? (s.net_yi!=null?s.net_yi:(s.amount_yi||0))
+                                   : (s.avg_pct!=null?s.avg_pct:(s.avg_gap||0));
+    return {key:name, name, val:+val, unit:_raceMode==='fund'?'亿':'%', lead:s.leader||''};
   }).filter(x=>x.name).sort((a,b)=>b.val-a.val).slice(0,RACE_N);
 }
 function renderRace(d){
   const wrap=$('rtRace');
   const auc=(d.session==='auction'||d.session==='auction_lock'||d.session==='pre_open');
-  $('raceSub').textContent=(auc?'集合竞价·':'')+
-    (_raceMode==='fund'?(auc?'按竞价额':'按资金净流入'):(auc?'按均高开':'按涨幅'))+'·实时重排';
+  $('raceSub').textContent=(_raceGran==='concept'?'题材':'行业')+' · '+
+    (_raceMode==='fund'?(auc?'按竞价额':'按资金净流入'):(auc?'按均高开':'按涨幅'))+' · 实时重排';
   const rows=_raceData(d);
   if(!rows.length){ wrap.style.height='42px'; wrap.innerHTML='<div class="rt-empty">暂无数据（休市/未开盘）</div>';
     for(const k in _raceEls) delete _raceEls[k]; return; }
@@ -181,7 +185,7 @@ function renderRace(d){
     el.children[1].textContent=r.name; el.children[1].title=r.name;
     const bar=el.children[2].firstChild;
     bar.style.width=(Math.abs(r.val)/maxAbs*100)+'%';                    // 条长→平滑伸缩
-    bar.className='race-bar '+(r.val>=0?'race-up':'race-dn');
+    bar.style.background=(r.val>=0?'#f6465d':'#2ebd85');                 // 内联实心色·稳(红涨绿跌)
     el.children[3].innerHTML=`<span class="${cls(r.val)}">${sgn(r.val)}${r.unit}</span>`+
       (r.lead?`<span class="race-lead">${r.lead}</span>`:'');
   });
@@ -343,15 +347,24 @@ async function testPush(){
   }catch(e){ $('rtPushMsg').textContent='错误：'+e; }
   b.disabled=false;
 }
-// 竞速榜 资金/涨幅 切换(即时重绘·不等下次轮询)
+// 竞速榜 题材/行业 + 资金/涨幅 切换(即时重绘·不等下次轮询)
 function _setRace(mode){
   _raceMode=mode;
   $('raceBtnFund').classList.toggle('active', mode==='fund');
   $('raceBtnGain').classList.toggle('active', mode==='gain');
   if(_lastBoard) renderRace(_lastBoard);
 }
+function _setGran(g){
+  _raceGran=g;
+  $('raceGranC').classList.toggle('active', g==='concept');
+  $('raceGranI').classList.toggle('active', g==='industry');
+  for(const k in _raceEls){ _raceEls[k].remove(); delete _raceEls[k]; }   // 维度切换·清行重建
+  if(_lastBoard) renderRace(_lastBoard);
+}
 $('raceBtnFund').onclick=()=>_setRace('fund');
 $('raceBtnGain').onclick=()=>_setRace('gain');
+$('raceGranC').onclick=()=>_setGran('concept');
+$('raceGranI').onclick=()=>_setGran('industry');
 tick(); setInterval(tick, 2000);
 </script>
 {% endblock %}

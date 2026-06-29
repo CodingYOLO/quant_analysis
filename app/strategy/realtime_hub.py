@@ -360,6 +360,7 @@ def build_board() -> dict:
     base.update(_radar_block(df, imap))
     base["sentiment"] = _sentiment_block(records, tm)     # 情绪温度计(连板梯队/晋级率/炸板率)
     base["themes"] = _theme_block(records)
+    base["concepts"] = _concept_block(records)            # 概念/题材级资金榜(竞速榜细分维度)
     base["tail"] = _tail_block(records, imap)
     base["flash"] = _flash_block(records)
     base["surge"] = _velocity_block()
@@ -386,6 +387,7 @@ def _auction_board(base: dict, df, imap: dict) -> dict:
         "movers": auction_movers(records, imap, top=10),              # 高开/低开排行
         "sentiment": auction_sentiment(records),                      # 全市场竞价情绪
     }
+    base["concepts"] = _concept_block(records)                        # 概念级(竞价档·avg_pct=竞价涨幅)
     base.update(_radar_block(df, imap))                               # breadth(涨跌家数/竞价涨停·价格口径有效)
     return base
 
@@ -413,6 +415,16 @@ def _sentiment_block(records: list[dict], tm: dict) -> dict:
     from app.strategy.realtime_fund import sentiment_thermometer
     consec = {c: (t.get("consec_limit_now") or 0) for c, t in tm.items()}
     return sentiment_thermometer(records, consec)
+
+
+def _concept_block(records: list[dict]) -> list[dict]:
+    """概念/题材级资金榜（同花顺概念 × 全推·去重叠）。竞速榜"题材"细分维度用。"""
+    from app.strategy.realtime_fund import concept_flow_ranking
+    try:
+        return concept_flow_ranking(records, concept_map())
+    except Exception as e:
+        logger.warning("[实时枢纽] 概念资金榜失败：%s", e)
+        return []
 
 
 def _theme_block(records: list[dict]) -> list[dict]:

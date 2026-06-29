@@ -49,6 +49,45 @@ def fund_ranking(df: pd.DataFrame, top: int = 20) -> list[dict]:
     return out
 
 
+def concept_flow_ranking(rows: list[dict], concept_map: dict, *, min_n: int = 3,
+                         top: int = 15, overlap_th: float = 0.6) -> list[dict]:
+    """概念/题材级排名（细分维度：半导体/PCB/CPO/创新药/算力租赁…·同花顺概念）。
+
+    每概念 = 成分主动净买求和(亿) + 均涨 + 龙头(净买最大)。去重叠(同质子概念·留最强代表)。
+    比申万行业(通信设备/城商行)细，更贴炒股口径。竞速榜"题材"维度用。
+    """
+    import re
+    noise = re.compile(r"50|100|180|300|精选|高股息|同花顺|指数|成份|成分|ETF|富时|MSCI|核心资产|融资融券|股通")
+    by = {r["ts_code"]: r for r in rows}
+
+    def _net(x):
+        return (_ff(x.get("outer")) - _ff(x.get("inner"))) * _ff(x.get("price")) / 1e6
+    raw = []
+    for concept, members in (concept_map or {}).items():
+        if noise.search(concept):                     # 剔风格/指数化篮子(出海50/高股息精选…)·只留真题材
+            continue
+        present = [by[c] for c in members if c in by]
+        if len(present) < min_n:
+            continue
+        net = sum(_net(x) for x in present)
+        avg = sum(_ff(x.get("pct_chg")) for x in present) / len(present)
+        lead = max(present, key=_net)
+        raw.append({"concept": concept, "net_yi": round(net, 2), "avg_pct": round(avg, 2),
+                    "n": len(present), "leader": str(lead.get("name", "")),
+                    "_codes": {x["ts_code"] for x in present}})
+    raw.sort(key=lambda x: -x["net_yi"])
+    out, claimed = [], set()                          # 去重叠：与已选概念成分高度重合→跳过
+    for c in raw:
+        codes = c["_codes"]
+        if codes and len(codes & claimed) / len(codes) > overlap_th:
+            continue
+        claimed |= codes
+        out.append({k: v for k, v in c.items() if k != "_codes"})
+        if len(out) >= top:
+            break
+    return out
+
+
 def volume_surge(df: pd.DataFrame, *, top: int = 12, min_vr: float = 3.0,
                  min_amount: float = 1e8) -> list[dict]:
     """异常放量榜：量比飙升 + 有量 → 资金异常关注（资金进攻/出货早信号·与净买额榜互补）。

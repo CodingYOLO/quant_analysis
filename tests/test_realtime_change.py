@@ -112,6 +112,21 @@ def test_watch_dip_signal() -> None:
     assert watch_dip_signal(q, tech, None) is None
 
 
+def test_concept_flow_ranking() -> None:
+    from app.strategy.realtime_fund import concept_flow_ranking
+    rows = [{"ts_code": f"P{i}.SH", "name": f"芯{i}", "pct_chg": 5, "price": 10, "inner": 100, "outer": 300} for i in range(4)]
+    rows += [{"ts_code": f"C{i}.SH", "name": f"CPO{i}", "pct_chg": 3, "price": 20, "inner": 80, "outer": 120} for i in range(3)]
+    cmap = {"半导体": [f"P{i}.SH" for i in range(4)],
+            "半导体设备": [f"P{i}.SH" for i in range(4)],   # 与半导体高度重叠→去掉
+            "CPO": [f"C{i}.SH" for i in range(3)]}
+    out = concept_flow_ranking(rows, cmap, min_n=3, overlap_th=0.6)
+    names = [c["concept"] for c in out]
+    assert "半导体" in names and "CPO" in names            # 两个不同方向都在
+    assert "半导体设备" not in names                         # 同质子概念去掉
+    semi = next(c for c in out if c["concept"] == "半导体")
+    assert semi["net_yi"] > 0 and semi["n"] == 4 and semi["leader"].startswith("芯")
+
+
 def _run_all() -> None:
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     for fn in fns:
