@@ -363,7 +363,7 @@ def build_board() -> dict:
     base["concepts"] = _concept_block(records)            # 概念/题材级资金榜(竞速榜细分维度)
     base["tail"] = _tail_block(records, imap)
     base["flash"] = _flash_block(records)
-    base["surge"] = _velocity_block()
+    base["surge"] = _velocity_block(imap)                 # 急拉/涨速(个股涨速竞速也用·带板块)
     base["vol_surge"] = _vol_surge_block(df, imap)        # 异常放量榜(资金关注早信号)
     from app.strategy.realtime_fund import breadth_trend, market_brief, market_pulse_text
     base["breadth_trend"] = breadth_trend(base.get("breadth", {}), breadth_ago(30.0))   # 大盘走强/走弱
@@ -450,13 +450,14 @@ def _radar_block(df, imap: dict) -> dict:
         return {"breadth": {}, "hot_sectors": [], "weak_sectors": []}
 
 
-def _velocity_block() -> list[dict]:
-    """急拉榜：现价 vs 约5分钟前。名称从快照补。"""
+def _velocity_block(imap: dict | None = None) -> list[dict]:
+    """急拉榜：现价 vs 约5分钟前。名称+板块从快照/映射补（个股涨速竞速也用）。"""
     from app.strategy.realtime_fund import velocity_events
-    ev = velocity_events(_SNAP.prices(), past_prices(5.0), min_move=1.5)[:10]
+    ev = velocity_events(_SNAP.prices(), past_prices(5.0), min_move=1.5)[:15]
     for e in ev:
         q = _SNAP.get(e["ts_code"])
         e["name"] = (q or {}).get("name", e["ts_code"])
+        e["industry"] = (imap or {}).get(e["ts_code"], "")
     return ev
 
 

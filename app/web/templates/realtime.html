@@ -75,6 +75,7 @@
     <span class="race-toggle">
       <button id="raceGranC" class="race-btn active">题材</button>
       <button id="raceGranI" class="race-btn">行业</button>
+      <button id="raceGranS" class="race-btn">个股</button>
       <span style="display:inline-block;width:12px"></span>
       <button id="raceBtnFund" class="race-btn active">资金</button>
       <button id="raceBtnGain" class="race-btn">涨幅</button>
@@ -150,6 +151,14 @@ function renderBreadth(b, trend){
 let _raceMode='fund', _raceGran='concept', _lastBoard=null;   // gran: 'concept'(题材) | 'industry'(行业)
 const _raceEls={}; const RACE_N=12, RACE_H=30;
 function _raceData(d){
+  if(_raceGran==='stock'){                              // 个股：资金=主动净买竞速(带板块+涨幅) / 涨速=5分钟涨速
+    if(_raceMode==='fund')
+      return (d.fund_ranking||[]).map(s=>({key:s.ts_code, name:s.name, val:+(s.net_yi||0), unit:'亿',
+        lead:(s.industry||'')+(s.pct_chg!=null?' '+sgn(s.pct_chg)+'%':'')}))
+        .sort((a,b)=>b.val-a.val).slice(0,RACE_N);
+    return (d.surge||[]).map(s=>({key:s.ts_code, name:s.name||s.ts_code, val:+(s.move||0), unit:'%',
+      lead:s.industry||''})).sort((a,b)=>b.val-a.val).slice(0,RACE_N);
+  }
   const auc=(d.session==='auction'||d.session==='auction_lock'||d.session==='pre_open');
   const src = _raceGran==='concept' ? (d.concepts||[])
             : (auc ? ((d.auction||{}).sectors||[]) : (d.sectors||[]));
@@ -163,8 +172,10 @@ function _raceData(d){
 function renderRace(d){
   const wrap=$('rtRace');
   const auc=(d.session==='auction'||d.session==='auction_lock'||d.session==='pre_open');
-  $('raceSub').textContent=(_raceGran==='concept'?'题材':'行业')+' · '+
-    (_raceMode==='fund'?(auc?'按竞价额':'按资金净流入'):(auc?'按均高开':'按涨幅'))+' · 实时重排';
+  const gtxt=_raceGran==='concept'?'题材':(_raceGran==='industry'?'行业':'个股');
+  const mtxt=_raceGran==='stock' ? (_raceMode==='fund'?'按主动净买':'按5分钟涨速')
+            : (_raceMode==='fund'?(auc?'按竞价额':'按资金净流入'):(auc?'按均高开':'按涨幅'));
+  $('raceSub').textContent=gtxt+' · '+mtxt+' · 实时重排';
   const rows=_raceData(d);
   if(!rows.length){ wrap.style.height='42px'; wrap.innerHTML='<div class="rt-empty">暂无数据（休市/未开盘）</div>';
     for(const k in _raceEls) delete _raceEls[k]; return; }
@@ -358,6 +369,8 @@ function _setGran(g){
   _raceGran=g;
   $('raceGranC').classList.toggle('active', g==='concept');
   $('raceGranI').classList.toggle('active', g==='industry');
+  $('raceGranS').classList.toggle('active', g==='stock');
+  $('raceBtnGain').textContent = g==='stock' ? '涨速' : '涨幅';            // 个股第2口径=5分钟涨速
   for(const k in _raceEls){ _raceEls[k].remove(); delete _raceEls[k]; }   // 维度切换·清行重建
   if(_lastBoard) renderRace(_lastBoard);
 }
@@ -365,6 +378,7 @@ $('raceBtnFund').onclick=()=>_setRace('fund');
 $('raceBtnGain').onclick=()=>_setRace('gain');
 $('raceGranC').onclick=()=>_setGran('concept');
 $('raceGranI').onclick=()=>_setGran('industry');
+$('raceGranS').onclick=()=>_setGran('stock');
 tick(); setInterval(tick, 2000);
 </script>
 {% endblock %}
