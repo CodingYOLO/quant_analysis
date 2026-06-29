@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from app.strategy.realtime_fund import (_accel_tag, breadth_trend, detect_market_shifts,
-                                        market_pulse_text, sector_flow_delta)
+                                        detect_theme_fermentation, market_pulse_text,
+                                        sector_flow_delta)
 
 
 def test_accel_tag() -> None:
@@ -62,6 +63,37 @@ def test_detect_market_shifts() -> None:
     assert any(k == "shift_mkt_up" for k, *_ in up)
     # 小变化不触发
     assert detect_market_shifts([], {"dir": "flat", "d_up": 50}) == []
+
+
+def test_theme_dedup_overlap() -> None:
+    """题材去重叠：同一拨医药票的子概念只留最强一个，腾位给不同方向。"""
+    rows = [{"ts_code": f"P{i}.SH", "name": f"药{i}", "pct_chg": 9.0, "amount": 2e8} for i in range(5)]
+    rows += [{"ts_code": f"S{i}.SH", "name": f"芯{i}", "pct_chg": 8.0, "amount": 2e8} for i in range(4)]
+    cmap = {
+        "创新药": [f"P{i}.SH" for i in range(5)],            # 5只药
+        "仿制药": [f"P{i}.SH" for i in range(4)] + ["S0.SH"],  # 几乎同一拨药→应被去掉
+        "半导体": [f"S{i}.SH" for i in range(4)],            # 不同方向→保留
+    }
+    out = detect_theme_fermentation(rows, cmap, min_hot=3, min_pct=5, min_amount=1e8, overlap_th=0.6)
+    themes = [t["theme"] for t in out]
+    assert "创新药" in themes and "半导体" in themes           # 两个不同方向都在
+    assert "仿制药" not in themes                              # 与创新药高度重叠→去掉
+
+
+def test_volume_surge() -> None:
+    import pandas as pd
+
+    from app.strategy.realtime_fund import volume_surge
+    df = pd.DataFrame([
+        {"ts_code": "A.SH", "name": "放量", "price": 10, "pct_chg": 5, "inner": 100, "outer": 300,
+         "vol_ratio": 6.0, "amount": 3e8},
+        {"ts_code": "B.SH", "name": "缩量", "price": 10, "pct_chg": 1, "inner": 100, "outer": 100,
+         "vol_ratio": 0.8, "amount": 3e8},                                   # 量比不足→剔除
+        {"ts_code": "C.SH", "name": "无量", "price": 10, "pct_chg": 5, "inner": 100, "outer": 100,
+         "vol_ratio": 9.0, "amount": 1e6},                                   # 额不足→剔除
+    ])
+    out = volume_surge(df, min_vr=3.0, min_amount=1e8)
+    assert len(out) == 1 and out[0]["name"] == "放量" and out[0]["vol_ratio"] == 6.0
 
 
 def _run_all() -> None:

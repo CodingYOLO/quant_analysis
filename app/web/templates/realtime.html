@@ -73,9 +73,12 @@
   <div class="card"><h2>💰 全市场资金流向榜</h2>
     <table><thead><tr><th>股票</th><th>涨幅</th><th>主动净买</th><th>外盘</th></tr></thead>
     <tbody id="rtFund"></tbody></table></div>
-  <div class="card"><h2>⚡ 急拉榜 · 5分钟涨速</h2>
-    <table><thead><tr><th>股票</th><th>5分钟</th></tr></thead><tbody id="rtSurge"></tbody></table></div>
+  <div class="card"><h2>🔊 异常放量榜<span class="rt-tag">量比飙升=资金关注·常领先净买</span></h2>
+    <table><thead><tr><th>股票</th><th>涨幅</th><th>量比</th><th>主动买卖</th></tr></thead><tbody id="rtVolSurge"></tbody></table></div>
 </div>
+
+<div class="card s-noexport"><h2>⚡ 急拉榜 · 5分钟涨速</h2>
+  <table><thead><tr><th>股票</th><th>5分钟</th></tr></thead><tbody id="rtSurge"></tbody></table></div>
 
 <div class="rt-2col">
   <div class="card"><h2>📉 资金撤离板块 · 风险<span class="rt-tag">主力在撤</span></h2>
@@ -205,7 +208,8 @@ function renderSecOut(rows){
 function renderFund(rows){
   if(!rows||!rows.length){ $('rtFund').innerHTML='<tr><td colspan="4" class="rt-empty">暂无数据</td></tr>'; return; }
   $('rtFund').innerHTML=rows.map(r=>{const op=Math.round(r.outer_ratio*100);
-    return `<tr><td>${r.name}${r.tech?`<div class="neu" style="font-size:11px">${r.tech}</div>`:''}</td>
+    const ind=r.industry?` <span class="badge" style="font-size:9px;background:#232640;color:#9ca3af">${r.industry}</span>`:'';
+    return `<tr><td>${r.name}${ind}${r.tech?`<div class="neu" style="font-size:11px">${r.tech}</div>`:''}</td>
       <td class="${cls(r.pct_chg)}">${sgn(r.pct_chg)}%</td>
       <td class="${cls(r.net_yi)}">${sgn(r.net_yi)}亿</td>
       <td><span class="rt-bar"><i style="width:${op}%"></i></span> ${op}%</td></tr>`;}).join('');
@@ -213,6 +217,14 @@ function renderFund(rows){
 function renderSurge(rows){
   if(!rows||!rows.length){ $('rtSurge').innerHTML='<tr><td colspan="2" class="rt-empty">暂无急拉（或正在积累5分钟历史）</td></tr>'; return; }
   $('rtSurge').innerHTML=rows.map(r=>`<tr><td>${r.name||r.ts_code}</td><td class="pos">+${r.move}%</td></tr>`).join('');
+}
+function renderVolSurge(rows){
+  if(!rows||!rows.length){ $('rtVolSurge').innerHTML='<tr><td colspan="4" class="rt-empty">暂无异常放量</td></tr>'; return; }
+  $('rtVolSurge').innerHTML=rows.map(r=>{const op=Math.round((r.outer_ratio||0)*100);
+    const ind=r.industry?` <span class="badge" style="font-size:9px;background:#232640;color:#9ca3af">${r.industry}</span>`:'';
+    return `<tr><td>${r.name}${ind}</td><td class="${cls(r.pct_chg)}">${sgn(r.pct_chg)}%</td>
+      <td class="pos">${r.vol_ratio}</td>
+      <td>${op>=50?'<span class=pos>主动买</span>':'<span class=neg>主动卖</span>'} ${op}%</td></tr>`;}).join('');
 }
 function renderWatch(rows){
   if(!rows||!rows.length){ $('rtHold').innerHTML='<tr><td colspan="5" class="rt-empty">还没有自选（在「自选盯盘」加入后，盘中实时显示）</td></tr>'; return; }
@@ -246,7 +258,7 @@ async function tick(){
     if(!d.ok){ $('rtStatus').textContent='加载失败：'+(d.msg||''); return; }
     renderStatus(d); renderAuction(d); renderPulse(d.pulse); renderBrief(d.brief); renderBreadth(d.breadth, d.breadth_trend); renderSenti(d.sentiment); renderSectors(d.sectors); renderThemes(d.themes);
     renderTail(d.tail); renderSecOut(d.sectors_out); renderFlash(d.flash);
-    renderFund(d.fund_ranking); renderSurge(d.surge); renderWatch(d.watch);
+    renderFund(d.fund_ranking); renderVolSurge(d.vol_surge); renderSurge(d.surge); renderWatch(d.watch);
   }catch(e){ $('rtStatus').textContent='网络错误：'+e; }
 }
 async function testPush(){

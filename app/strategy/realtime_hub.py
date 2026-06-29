@@ -343,18 +343,19 @@ def build_board() -> dict:
     if base["session"] in _AUCTION_SESSIONS:              # 集合竞价：全市场价格+盘口信号(内外盘资金开盘后才有)
         return _auction_board(base, df, imap)
     from app.strategy.realtime_fund import (altitude_risk, fund_ranking, sector_board, tech_context)
-    fr = fund_ranking(df, top=15)
+    fr = fund_ranking(df, top=20)
     tm = tech_map()
     pcmap = dict(zip(df["ts_code"], df["prev_close"]))    # 昨收(尺度对齐校验用)
-    for r in fr:                                          # 资金榜补实时技术位 + 高位风险
+    for r in fr:                                          # 资金榜补板块 + 实时技术位 + 高位风险
         price, prev, t = r.get("price"), pcmap.get(r["ts_code"]), tm.get(r["ts_code"])
+        r["industry"] = imap.get(r["ts_code"], "")        # 标注所属板块(申万二级)
         r["tech"] = "·".join(x for x in (tech_context(price, prev, t),
                                          altitude_risk(price or 0, prev or 0, t)) if x)
     base["fund_ranking"] = fr
     from app.strategy.realtime_fund import sector_flow_delta
     full = sector_flow_delta(sector_board(df, imap), sector_net_ago(5.0))   # 板块榜 + 近5min资金变化Δ/加速
-    base["sectors"] = full[:12]                            # 资金涌入榜(机会)
-    base["sectors_out"] = [s for s in reversed(full) if s["net_yi"] < 0][:6]   # 资金撤离(风险)
+    base["sectors"] = full[:15]                            # 资金涌入榜(机会)
+    base["sectors_out"] = [s for s in reversed(full) if s["net_yi"] < 0][:12]   # 资金撤离(风险·放开数量)
     records = df.to_dict("records")                       # 转一次·多块复用
     base.update(_radar_block(df, imap))
     base["sentiment"] = _sentiment_block(records, tm)     # 情绪温度计(连板梯队/晋级率/炸板率)
@@ -362,6 +363,7 @@ def build_board() -> dict:
     base["tail"] = _tail_block(records, imap)
     base["flash"] = _flash_block(records)
     base["surge"] = _velocity_block()
+    base["vol_surge"] = _vol_surge_block(df, imap)        # 异常放量榜(资金关注早信号)
     from app.strategy.realtime_fund import breadth_trend, market_brief, market_pulse_text
     base["breadth_trend"] = breadth_trend(base.get("breadth", {}), breadth_ago(30.0))   # 大盘走强/走弱
     base["pulse"] = market_pulse_text(base.get("breadth", {}), base["breadth_trend"],   # 盘中市场快照一句话
@@ -417,7 +419,7 @@ def _theme_block(records: list[dict]) -> list[dict]:
     """题材发酵榜（Tushare概念成分 × 全推实时涨幅）。"""
     from app.strategy.realtime_fund import detect_theme_fermentation
     try:
-        return detect_theme_fermentation(records, concept_map())[:8]
+        return detect_theme_fermentation(records, concept_map())[:10]    # 去重叠后留更多不同方向
     except Exception as e:
         logger.warning("[实时枢纽] 题材发酵失败：%s", e)
         return []
@@ -444,6 +446,15 @@ def _velocity_block() -> list[dict]:
         q = _SNAP.get(e["ts_code"])
         e["name"] = (q or {}).get("name", e["ts_code"])
     return ev
+
+
+def _vol_surge_block(df, imap: dict) -> list[dict]:
+    """异常放量榜（量比飙升·补板块标注）。"""
+    from app.strategy.realtime_fund import volume_surge
+    vs = volume_surge(df)
+    for v in vs:
+        v["industry"] = imap.get(v["ts_code"], "")
+    return vs
 
 
 def _watch_block() -> list[dict]:

@@ -49,6 +49,27 @@ def fund_ranking(df: pd.DataFrame, top: int = 20) -> list[dict]:
     return out
 
 
+def volume_surge(df: pd.DataFrame, *, top: int = 12, min_vr: float = 3.0,
+                 min_amount: float = 1e8) -> list[dict]:
+    """异常放量榜：量比飙升 + 有量 → 资金异常关注（资金进攻/出货早信号·与净买额榜互补）。
+
+    净买额榜=方向(谁在被买)；放量榜=关注度突变(无论多空)，常领先资金信号。
+    """
+    if df is None or df.empty:
+        return []
+    d = _enrich(df)
+    d["amt"] = pd.to_numeric(d.get("amount"), errors="coerce").fillna(0.0)
+    d = d[(d["vol_ratio"] >= min_vr) & (d["amt"] >= min_amount)]
+    if d.empty:
+        return []
+    out = []
+    for r in d.nlargest(top, "vol_ratio").itertuples():
+        out.append({"ts_code": r.ts_code, "name": str(r.name),
+                    "pct_chg": round(float(r.pct_chg), 2), "vol_ratio": round(float(r.vol_ratio), 2),
+                    "outer_ratio": round(float(r.outer_ratio), 3)})
+    return out
+
+
 def sector_board(df: pd.DataFrame, industry_map: dict, top: int | None = None) -> list[dict]:
     """板块资金榜（按申万二级行业主动净买求和降序），每板块附【龙头=板块内主动净买最大者】。
 
@@ -607,13 +628,16 @@ def detect_limit_breaks(rows: list[dict], prev_sealed: dict, *,
 
 
 def detect_theme_fermentation(rows: list[dict], concept_map: dict, *, min_hot: int = 3,
-                              min_pct: float = 5.0, min_amount: float = 5e7) -> list[dict]:
+                              min_pct: float = 5.0, min_amount: float = 5e7,
+                              overlap_th: float = 0.6) -> list[dict]:
     """题材发酵：同一概念≥min_hot 只涨幅≥min_pct% 且有量 → 资金在做这个方向。
 
     concept_map={概念:[ts_code]}（Tushare 同花顺成分）。按异动家数+均涨排序。
+    **去重叠**：某题材热门股 >overlap_th 已被更强题材覆盖→跳过（如医药一爆发，创新药/仿制药/
+    肝炎/CRO 等子概念龙头全是同几只·8行全重复·视野狭窄）。只留各簇最强代表，拓宽视野。
     """
     by_code = {r["ts_code"]: r for r in rows}
-    out = []
+    raw = []
     for theme, members in concept_map.items():
         hot = [by_code[c] for c in members if c in by_code
                and float(by_code[c].get("pct_chg") or 0) >= min_pct
@@ -621,12 +645,19 @@ def detect_theme_fermentation(rows: list[dict], concept_map: dict, *, min_hot: i
         if len(hot) < min_hot:
             continue
         hot.sort(key=lambda x: -float(x.get("pct_chg") or 0))
-        out.append({"theme": theme, "n_hot": len(hot),
+        raw.append({"theme": theme, "n_hot": len(hot),
                     "avg_pct": round(sum(float(h.get("pct_chg") or 0) for h in hot) / len(hot), 2),
-                    "lead_code": hot[0]["ts_code"],
+                    "lead_code": hot[0]["ts_code"], "_codes": {h["ts_code"] for h in hot},
                     "leaders": [{"name": h.get("name", ""), "code": h["ts_code"],
                                  "pct": round(float(h.get("pct_chg") or 0), 2)} for h in hot[:3]]})
-    out.sort(key=lambda x: (-x["n_hot"], -x["avg_pct"]))
+    raw.sort(key=lambda x: (-x["n_hot"], -x["avg_pct"]))
+    out, claimed = [], set()                          # 去同质子概念：与已选题材热门股高度重叠→跳过
+    for t in raw:
+        codes = t["_codes"]
+        if codes and len(codes & claimed) / len(codes) > overlap_th:
+            continue
+        claimed |= codes
+        out.append({k: v for k, v in t.items() if k != "_codes"})
     return out
 
 
