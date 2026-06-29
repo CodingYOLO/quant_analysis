@@ -1,0 +1,158 @@
+{% extends "base.html" %}
+{% block title %}大盘体检 — A股Agent{% endblock %}
+
+{% block extra_style %}
+h1 { font-size:22px; text-align:center; margin-bottom:4px; }
+.sub { text-align:center; color:#9ca3af; font-size:12.5px; margin-bottom:14px; }
+.kpis { display:flex; flex-wrap:wrap; gap:10px; margin-bottom:14px; }
+.kpi { flex:1; min-width:150px; background:#1a1d2e; border:1px solid #2d3052; border-radius:10px; padding:10px 13px; }
+.kpi .l { font-size:11px; color:#9ca3af; margin-bottom:4px; }
+.kpi .v { font-size:20px; font-weight:700; color:#cdd6f4; }
+.kpi .r { font-size:11px; color:#6b7280; margin-top:3px; line-height:1.5; }
+.tabs { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px; }
+.tab { font-size:13px; padding:7px 16px; border-radius:8px; cursor:pointer; background:transparent;
+  color:#cdd6f4; border:1px solid #2d3052; }
+.tab:hover { background:#1e2138; }
+.tab.on { background:#2742a8; color:#fff; border-color:#2742a8; }
+.stage { background:#1a1d2e; border:1px solid #2d3052; border-radius:10px; padding:14px 12px; min-height:380px; }
+.ld { color:#9ca3af; font-size:13px; padding:40px 10px; text-align:center; }
+.cap { margin-top:8px; font-size:11.5px; color:#6b7280; line-height:1.6; }
+.legend { display:flex; gap:14px; flex-wrap:wrap; font-size:11.5px; color:#9ca3af; margin:2px 0 10px; align-items:center; }
+.legend i { width:11px; height:11px; border-radius:2px; display:inline-block; vertical-align:-1px; margin-right:4px; }
+{% endblock %}
+
+{% block content %}
+<h1>🩺 大盘体检</h1>
+<div class="sub">一张大局图，三个视角看规律：① 多维同轴判断该不该重仓 · ② 板块轮动看主线在哪 · ③ 信号复盘验证规律靠不靠谱。基于真实历史，仅供研究，不构成建议。</div>
+
+<div id="kpis" class="kpis"></div>
+
+<div class="tabs">
+  <button class="tab on" data-v="A">📊 多维同轴</button>
+  <button class="tab" data-v="B">🧩 板块轮动</button>
+  <button class="tab" data-v="C">🎯 信号复盘</button>
+</div>
+
+<div id="legend" class="legend"></div>
+<div id="stage" class="stage"><div class="ld">⏳ 正在体检全市场（首次回补历史约 1~2 分钟，之后秒开）…</div></div>
+<div id="cap" class="cap"></div>
+
+<script>
+const $=id=>document.getElementById(id);
+function esc(s){ return (s==null?'':String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+const RED='#f6465d', GREEN='#2ebd85', AMBER='#f0a020', BLUE='#3987e5', INK='#cdd6f4', SUB='#9ca3af', MUT='#6b7280', GRID='#2d3052';
+let DATA=null, view='A';
+const VB_W=920;
+
+const LEG={
+ A:'<span><i style="background:'+RED+'"></i>涨/强</span><span><i style="background:'+GREEN+'"></i>跌/弱</span><span><i style="background:'+AMBER+'"></i>震荡/地量</span><span><i style="background:'+BLUE+'"></i>广度</span><span style="color:#c98500">┊ 地量+广度冰点信号</span>',
+ B:'<span><i style="background:'+RED+'"></i>当日涨（越深越强）</span><span><i style="background:'+GREEN+'"></i>当日跌</span><span style="color:'+MUT+'">行/列=行业/日期·红块沿时间迁移=主线轮动</span>',
+ C:'<span style="color:'+RED+'">━ 信号后中位路径</span><span style="color:'+SUB+'">┄ 每次信号实际走势</span><span style="color:#c98500">┊ 信号触发日(T0)</span>'
+};
+
+function md(s){ return (s&&s.length===8)?s.slice(4,6)+'/'+s.slice(6):s; }
+function rng(a){ const v=a.filter(x=>x!=null); if(!v.length) return [0,1]; let lo=Math.min(...v),hi=Math.max(...v); if(lo===hi){lo-=1;hi+=1;} const p=(hi-lo)*0.12; return [lo-p,hi+p]; }
+function pathOf(arr,xf,yf){ let p='',st=false; arr.forEach((v,i)=>{ if(v==null) return; p+=(st?'L':'M')+xf(i).toFixed(1)+' '+yf(v).toFixed(1)+' '; st=true; }); return p; }
+function svg(h,inner,lab){ return '<svg viewBox="0 0 '+VB_W+' '+h+'" width="100%" role="img" aria-label="'+lab+'" style="display:block">'+inner+'</svg>'; }
+function xticks(dates,xf,y){ const n=dates.length,step=Math.max(1,Math.ceil(n/9)); let s=''; for(let i=0;i<n;i+=step) s+='<text x="'+xf(i).toFixed(1)+'" y="'+y+'" text-anchor="middle" font-size="10" fill="'+MUT+'">'+md(dates[i])+'</text>'; return s; }
+
+function renderMulti(d){
+ const n=d.dates.length; if(!n) return '<div class="ld">暂无数据</div>';
+ const L=58,R=VB_W-14,W=R-L; const xf=i=>n<=1?L:L+i/(n-1)*W;
+ const sigIdx=(d.signals||[]).map(s=>s.i);
+ let inner='';
+ const rb=28,rbh=9, cw=W/n;
+ (d.regime||[]).forEach((g,i)=>{ const c=g.color==='strong'?RED:(g.color==='weak'?GREEN:AMBER); inner+='<rect x="'+(xf(i)-cw/2).toFixed(1)+'" y="'+rb+'" width="'+(cw+0.6).toFixed(1)+'" height="'+rbh+'" fill="'+c+'" opacity="0.55"/>'; });
+ inner+='<text x="6" y="'+(rb+8)+'" font-size="11" fill="'+SUB+'">状态</text>';
+ const t1=48,h1=128,[i0,i1]=rng(d.index_cum); const yI=v=>t1+h1-(v-i0)/(i1-i0)*h1;
+ sigIdx.forEach(i=>{ const x0=xf(i),x1=xf(Math.min(n-1,i+12)); inner+='<rect x="'+x0.toFixed(1)+'" y="'+t1+'" width="'+(x1-x0).toFixed(1)+'" height="'+h1+'" fill="'+RED+'" opacity="0.08"/>'; });
+ let area=pathOf(d.index_cum,xf,yI); if(area){ area='M '+xf(0).toFixed(1)+' '+(t1+h1)+' '+area.replace(/^M/,'L')+'L '+xf(n-1).toFixed(1)+' '+(t1+h1)+' Z'; inner+='<path d="'+area+'" fill="#9aa0a6" opacity="0.07"/>'; }
+ inner+='<path d="'+pathOf(d.index_cum,xf,yI)+'" fill="none" stroke="'+INK+'" stroke-width="1.6"/>';
+ inner+='<text x="6" y="'+(t1-6)+'" font-size="12" fill="'+SUB+'">上证(累计%)</text>';
+ const t2=200,h2=74,amax=Math.max(...d.amount.filter(x=>x!=null),0.01);
+ d.amount.forEach((v,i)=>{ if(v==null) return; const bh=v/amax*h2,sig=sigIdx.includes(i); inner+='<rect x="'+(xf(i)-Math.max(2,cw*0.32)).toFixed(1)+'" y="'+(t2+h2-bh).toFixed(1)+'" width="'+(Math.max(4,cw*0.64)).toFixed(1)+'" height="'+bh.toFixed(1)+'" rx="1" fill="'+(sig?'#c98500':MUT)+'" opacity="'+(sig?0.9:0.42)+'"/>'; });
+ inner+='<text x="6" y="'+(t2-6)+'" font-size="12" fill="'+SUB+'">成交额(万亿)</text>';
+ const t3=302,h3=58; const yB=v=>t3+h3-v/100*h3;
+ inner+='<line x1="'+L+'" y1="'+yB(40).toFixed(1)+'" x2="'+R+'" y2="'+yB(40).toFixed(1)+'" stroke="'+MUT+'" stroke-width="1" stroke-dasharray="3 3" opacity="0.6"/><text x="'+R+'" y="'+(yB(40)-3).toFixed(1)+'" text-anchor="end" font-size="10" fill="'+MUT+'">冰点 40%</text>';
+ inner+='<path d="'+pathOf(d.breadth,xf,yB)+'" fill="none" stroke="'+BLUE+'" stroke-width="1.6"/>';
+ inner+='<text x="6" y="'+(t3-6)+'" font-size="12" fill="'+SUB+'">市场广度</text>';
+ const t4=386,h4=72,z=t4+h4/2,nmax=Math.max(...d.net_limit.map(v=>Math.abs(v||0)),1);
+ d.net_limit.forEach((v,i)=>{ if(v==null) return; const bh=v/nmax*(h4/2); inner+='<rect x="'+(xf(i)-Math.max(2,cw*0.32)).toFixed(1)+'" y="'+(v>=0?z-bh:z).toFixed(1)+'" width="'+(Math.max(4,cw*0.64)).toFixed(1)+'" height="'+Math.abs(bh).toFixed(1)+'" rx="1" fill="'+(v>=0?RED:GREEN)+'" opacity="0.82"/>'; });
+ inner+='<line x1="'+L+'" y1="'+z+'" x2="'+R+'" y2="'+z+'" stroke="'+GRID+'" stroke-width="1"/><text x="6" y="'+(t4-6)+'" font-size="12" fill="'+SUB+'">净涨停</text>';
+ sigIdx.forEach((i,k)=>{ const x=xf(i); inner+='<line x1="'+x.toFixed(1)+'" y1="'+t1+'" x2="'+x.toFixed(1)+'" y2="'+(t4+h4)+'" stroke="#c98500" stroke-width="1.1" stroke-dasharray="4 3"/><circle cx="'+x.toFixed(1)+'" cy="'+(t1-9)+'" r="8.5" fill="#c98500"/><text x="'+x.toFixed(1)+'" y="'+(t1-5)+'" text-anchor="middle" font-size="11" fill="#fff">'+(k+1)+'</text>'; });
+ if(sigIdx.length) inner+='<text x="'+xf(Math.min(n-1,sigIdx[0]+6)).toFixed(1)+'" y="'+(t1+12)+'" text-anchor="middle" font-size="10" fill="'+RED+'">↑ 信号后</text>';
+ inner+=xticks(d.dates,xf,t4+h4+16);
+ return svg(t4+h4+26,inner,'指数成交额市场广度净涨停四轨对齐加每日状态带与地量广度冰点信号');
+}
+
+function renderSector(d){
+ const s=d.sectors||{}; const names=s.names||[],dates=s.dates||[],mat=s.matrix||[];
+ if(!names.length) return '<div class="ld">暂无板块数据</div>';
+ const L=92,R=VB_W-16,top=26,rowH=26,W=R-L,M=dates.length,cw=W/M;
+ let inner='';
+ for(let r=0;r<names.length;r++){
+  for(let c=0;c<M;c++){ const v=mat[r][c]; if(v==null){ inner+='<rect x="'+(L+c*cw).toFixed(1)+'" y="'+(top+r*rowH)+'" width="'+(cw-1.5).toFixed(1)+'" height="'+(rowH-1.5)+'" rx="2" fill="'+GRID+'" opacity="0.25"/>'; continue; }
+   const up=v>=0,mag=Math.min(1,Math.abs(v)/6),col=up?RED:GREEN,op=(0.12+mag*0.8).toFixed(2);
+   inner+='<rect x="'+(L+c*cw).toFixed(1)+'" y="'+(top+r*rowH)+'" width="'+(cw-1.5).toFixed(1)+'" height="'+(rowH-1.5)+'" rx="2" fill="'+col+'" opacity="'+op+'"/>'; }
+  inner+='<text x="'+(L-6)+'" y="'+(top+r*rowH+rowH/2+4)+'" text-anchor="end" font-size="11" fill="'+SUB+'">'+esc(names[r])+'</text>';
+ }
+ const xf=i=>L+i*cw+cw/2; const step=Math.max(1,Math.ceil(M/9));
+ for(let c=0;c<M;c+=step) inner+='<text x="'+xf(c).toFixed(1)+'" y="'+(top+names.length*rowH+15)+'" text-anchor="middle" font-size="10" fill="'+MUT+'">'+md(dates[c])+'</text>';
+ return svg(top+names.length*rowH+28,inner,'申万二级行业按日涨幅热力图，红块沿时间迁移显示主线轮动');
+}
+
+function renderEvent(d){
+ const e=d.event||{}; const rel=e.rel_days||[],paths=e.paths||[],mean=e.mean||[];
+ const L=56,R=VB_W-18,top=70,h=180,W=R-L,m=rel.length;
+ if(!e.n){ return '<div class="ld">近 '+(d.dates?d.dates.length:0)+' 个交易日内未触发「地量+广度冰点」信号（样本 n=0）。<br>这本身也是信息：当前不在该类极端区。拉长历史窗口可统计更大样本。</div>'; }
+ const xf=i=>L+i/(m-1)*W;
+ const all=[].concat(...paths,mean); let lo=Math.min(...all),hi=Math.max(...all); const pad=(hi-lo)*0.15||1; lo-=pad; hi+=pad;
+ const yf=v=>top+h-(v-lo)/(hi-lo)*h;
+ let inner='';
+ const zeroY=yf(0); inner+='<line x1="'+L+'" y1="'+zeroY.toFixed(1)+'" x2="'+R+'" y2="'+zeroY.toFixed(1)+'" stroke="'+GRID+'" stroke-width="1"/><text x="'+R+'" y="'+(zeroY-4).toFixed(1)+'" text-anchor="end" font-size="10" fill="'+MUT+'">0%</text>';
+ const x0=xf(rel.indexOf(0)); inner+='<line x1="'+x0.toFixed(1)+'" y1="'+top+'" x2="'+x0.toFixed(1)+'" y2="'+(top+h)+'" stroke="#c98500" stroke-width="1.1" stroke-dasharray="4 3"/><text x="'+x0.toFixed(1)+'" y="'+(top-4)+'" text-anchor="middle" font-size="10" fill="#c98500">信号触发 T0</text>';
+ paths.forEach(p=>{ inner+='<path d="'+pathOf(p,xf,yf)+'" fill="none" stroke="'+SUB+'" stroke-width="1" stroke-dasharray="2 2" opacity="0.6"/>'; });
+ inner+='<path d="'+pathOf(mean,xf,yf)+'" fill="none" stroke="'+RED+'" stroke-width="2.2"/>';
+ rel.forEach((r,i)=>{ if(i%2===0||r===10) inner+='<text x="'+xf(i).toFixed(1)+'" y="'+(top+h+16)+'" text-anchor="middle" font-size="10" fill="'+MUT+'">'+(r===0?'T0':'T'+(r>0?'+'+r:r))+'</text>'; });
+ const wr=e.winrate_t5,mt=e.median_t5;
+ const chip=(x,l,v,c)=>'<text x="'+x+'" y="30" font-size="11" fill="'+SUB+'">'+l+'</text><text x="'+x+'" y="50" font-size="17" fill="'+c+'">'+v+'</text>';
+ inner+=chip(56,'触发样本','n = '+e.n,INK)+chip(220,'T+5 上涨概率',(wr==null?'—':wr+'%'),wr>=50?RED:GREEN)+chip(420,'T+5 中位涨幅',(mt==null?'—':(mt>0?'+':'')+mt+'%'),mt>0?RED:GREEN);
+ return svg(top+h+28,inner,'地量加广度冰点信号触发后指数相对涨幅路径与中位路径及T加5胜率');
+}
+
+const R={A:renderMulti,B:renderSector,C:renderEvent};
+const CAP={
+ A:'四路指标共用一根时间轴：当「成交额(地量·黄柱)」和「市场广度(蓝线跌破冰点)」在同一根竖线同时塌底（标①②），顺着竖线往上看上证——随后多半有反弹。状态带：红=强势/绿=弱势/黄=震荡，一眼看清环境。',
+ B:'纵轴=申万二级行业(取窗口内成交额最大的活跃行业)，横轴=时间，红越深当日涨越多。红色块沿时间向其他行迁移=主线在轮动；哪条线在发酵、哪条在退潮，扫一眼就有体感。',
+ C:'把历史上每一次「地量+广度冰点」对齐到第0天，看其后上证走势：灰虚线=每次信号的实际路径，红实线=中位路径，配 T+5 胜率与中位涨幅。诚实标注样本量 n——小样本只作参考，不吹胜率。'
+};
+
+function renderKpi(){
+ const a=DATA.amount,nl=DATA.net_limit,h=DATA.lianban_height,rg=DATA.regime_now||{};
+ const last=x=>{ for(let i=x.length-1;i>=0;i--) if(x[i]!=null) return x[i]; return null; };
+ const amt=last(a),net=last(nl),hgt=last(h);
+ const rc=rg.color==='red'?RED:(rg.color==='green'?GREEN:AMBER);
+ $('kpis').innerHTML=
+  '<div class="kpi"><div class="l">当前行情状态</div><div class="v" style="color:'+rc+'">'+esc(rg.label||'—')+'</div><div class="r">'+esc(rg.reason||'')+'</div></div>'+
+  '<div class="kpi"><div class="l">最新成交额</div><div class="v">'+(amt==null?'—':amt.toFixed(2)+' 万亿')+'</div><div class="r">缩量=地量风险 · 放量=情绪回暖</div></div>'+
+  '<div class="kpi"><div class="l">净涨停(涨停−跌停)</div><div class="v" style="color:'+(net>=0?RED:GREEN)+'">'+(net==null?'—':(net>0?'+':'')+net)+'</div><div class="r">情绪强弱最直观一条线</div></div>'+
+  '<div class="kpi"><div class="l">最高连板</div><div class="v">'+(hgt==null?'—':hgt+' 板')+'</div><div class="r">情绪天花板·梯队高度</div></div>';
+}
+
+function show(v){
+ view=v; document.querySelectorAll('.tab').forEach(b=>b.classList.toggle('on',b.dataset.v===v));
+ $('legend').innerHTML=LEG[v]; $('cap').textContent=CAP[v];
+ $('stage').innerHTML=DATA?R[v](DATA):'<div class="ld">⏳ 加载中…</div>';
+}
+document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{ if(DATA) show(b.dataset.v); });
+
+async function load(){
+ try{
+  const r=await (await fetch('/api/market/overview?days=60')).json();
+  if(!r.ok){ $('stage').innerHTML='<div class="ld">加载失败：'+esc(r.error||'')+'</div>'; return; }
+  DATA=r.data; renderKpi(); show(view);
+ }catch(e){ $('stage').innerHTML='<div class="ld">加载失败：'+esc(String(e))+'</div>'; }
+}
+load();
+</script>
+{% endblock %}

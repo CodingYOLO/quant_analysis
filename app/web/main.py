@@ -342,6 +342,27 @@ async def api_sentiment(days: int = 22, start: str = "", end: str = "",
         return {"ok": False, "error": str(e)}
 
 
+@app.get("/overview", response_class=HTMLResponse)
+async def overview_page(request: Request, _user: str = Depends(require_auth)):
+    """大盘体检：多维同轴 + 板块轮动 + 信号复盘，一张大局图。"""
+    return templates.TemplateResponse(request=request, name="overview.html", context={"page": "overview"})
+
+
+@app.get("/api/market/overview")
+async def api_market_overview(days: int = 60, _user: str = Depends(require_auth)):
+    """大盘体检数据：多维同轴序列 + 板块轮动矩阵 + 地量冰点信号事件研究。"""
+    try:
+        from fastapi.concurrency import run_in_threadpool
+
+        from app.strategy.market_overview import build_overview
+        end_date = _last_trade_date()
+        data = await run_in_threadpool(build_overview, end_date, days)
+        return {"ok": True, "data": data}
+    except Exception as e:
+        logger.exception("大盘体检数据失败")
+        return {"ok": False, "error": str(e)}
+
+
 @app.get("/industry", response_class=HTMLResponse)
 async def industry_page(request: Request, _user: str = Depends(require_auth)):
     """行业资金流仪表盘页面。"""
