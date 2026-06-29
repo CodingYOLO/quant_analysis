@@ -57,6 +57,14 @@ table.mini td { padding:6px 8px; border-bottom:1px solid #1e2138; }
 #cap-sub .rpt-name { color:#cdd6f4; font-size:15px; font-weight:700; }
 #cap-sub .rpt-sec { display:inline-block; background:#2a2440; color:#b794f6; border:1px solid #4a3d6a; border-radius:6px; padding:1px 8px; font-size:12px; font-weight:600; }
 @media print { #cap-sub .rpt-name { color:#000 !important; } #cap-sub .rpt-sec { color:#6b46c1 !important; border-color:#6b46c1 !important; background:#f3effa !important; } }
+/* —— 导出长图模式（仅截图瞬间生效）：窄幅竖版，整图字体相对更大、更适合手机分享；标题(股票名/板块)显著放大 —— */
+#result.export-mode { width:600px !important; max-width:600px !important; margin:0; }
+#result.export-mode #cap-head { padding-bottom:12px; margin-bottom:16px; }
+#result.export-mode #cap-head > div:first-child { font-size:27px !important; }   /* 报告大标题 */
+#result.export-mode #cap-sub { font-size:16px !important; margin-top:6px; }
+#result.export-mode #cap-sub .rpt-name { font-size:26px; }                        /* 股票名 */
+#result.export-mode #cap-sub .rpt-sec { font-size:17px; padding:3px 12px; }       /* 所属板块 */
+#result.export-mode .sec h2 { font-size:18px; }
 {% endblock %}
 
 {% block content %}
@@ -468,14 +476,18 @@ function restoreCharts(restore){ document.querySelectorAll('._capimg').forEach(i
 $('btn-img').addEventListener('click', async ()=>{
   if(typeof html2canvas==='undefined'){ alert('图片库未加载，请刷新重试'); return; }
   const btn=$('btn-img'), old=btn.textContent; btn.disabled=true; btn.textContent='⏳ 生成中…';
+  const node=$('result');
+  node.classList.add('export-mode');                 // 窄幅竖版+大标题(手机分享更清晰)
+  if(_kc) _kc.resize();                              // K线随窄幅重排(等比·不拉伸)
   const hidden=[]; document.querySelectorAll('#result .s-noexport').forEach(el=>{ hidden.push([el,el.style.display]); el.style.display='none'; });
   const restore=chartsToImg();
   try{
-    const node=$('result');
-    const canvas=await html2canvas(node,{scale:2,backgroundColor:'#0f1117',useCORS:true,windowWidth:node.scrollWidth});
+    const canvas=await html2canvas(node,{scale:2,backgroundColor:'#0f1117',useCORS:true,windowWidth:1100});
     const a=document.createElement('a'); a.download=exportName('png'); a.href=canvas.toDataURL('image/png'); a.click();
   }catch(e){ alert('长图生成失败：'+e); }
-  finally{ restoreCharts(restore); hidden.forEach(([el,d])=>el.style.display=d); btn.disabled=false; btn.textContent=old; }
+  finally{ restoreCharts(restore); hidden.forEach(([el,d])=>el.style.display=d);
+    node.classList.remove('export-mode'); if(_kc) _kc.resize();   // 还原页面宽度与图表
+    btn.disabled=false; btn.textContent=old; }
 });
 $('btn-pdf').addEventListener('click', ()=>{
   const old=document.title; document.title=exportName('').replace(/\.$/,'');
