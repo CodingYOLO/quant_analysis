@@ -30,6 +30,16 @@ def test_quote_tool_carries_realtime_provenance() -> None:
     assert "新浪实时" in out["来源"] and "现价" in out["来源"]
 
 
+def test_tool_leak_regex_catches_markup_not_normal() -> None:
+    """工具token泄漏检测：命中 DSML/tool_calls/invoke 标记，不误伤正常中文答案。"""
+    for s in ('<|｜DSML｜invoke name="stock_research">', '</｜DSML｜tool_calls>',
+              'invoke name="stock_quote"', 'tool_calls', '<｜tool▁call'):
+        assert CA._TOOL_LEAK_RE.search(s), s
+    for s in ('半导体材料龙头有沪硅产业、安集科技。', '康强电子现价18.5元，涨3%，量比1.2。',
+              '这只票工具性强、估值合理。'):
+        assert not CA._TOOL_LEAK_RE.search(s), s
+
+
 def test_system_prompt_enforces_freshness_rules() -> None:
     """system prompt 必须保留：现价只用 stock_quote、禁记忆旧价、禁编目标价、禁脑补派生指标。"""
     s = CA._SYSTEM

@@ -186,13 +186,19 @@ class LLMClient:
         return resp.choices[0].message
 
     def stream_answer(self, messages: list[dict], task_type: TaskType = "pro",
-                      max_tokens: int = 4000):
-        """流式生成最终答案。逐块产出 (kind, text)：kind ∈ {'reasoning'(思考), 'content'(正文)}。"""
+                      max_tokens: int = 4000, tools: list[dict] | None = None):
+        """流式生成最终答案。逐块产出 (kind, text)：kind ∈ {'reasoning'(思考), 'content'(正文)}。
+
+        传 tools 时强制 tool_choice="none"：最终答案阶段禁止再调工具，避免推理模型把工具调用
+        token(<｜tool_calls｜>/DSML 标记)当文本吐出泄漏给用户。
+        """
         client, model = self._get_client(task_type)
-        stream = client.chat.completions.create(
-            model=model, messages=messages, temperature=0.3,
-            max_tokens=max_tokens, stream=True,
-        )
+        kwargs: dict = dict(model=model, messages=messages, temperature=0.3,
+                            max_tokens=max_tokens, stream=True)
+        if tools:
+            kwargs["tools"] = tools
+            kwargs["tool_choice"] = "none"
+        stream = client.chat.completions.create(**kwargs)
         for chunk in stream:
             if not chunk.choices:
                 continue

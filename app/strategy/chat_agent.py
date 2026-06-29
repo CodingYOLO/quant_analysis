@@ -14,14 +14,17 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 
 from app.data.composite_provider import CompositeProvider
 from app.llm.client import LLMClient
 
 logger = logging.getLogger(__name__)
 
-_MAX_TOOL_ROUNDS = 5
+_MAX_TOOL_ROUNDS = 8    # 多股研究易超 5 轮被打断→末轮流式吐工具token；放宽让模型查完再答
 _AGENT_TASK = "pro"     # 工具选择+综合用强模型
+# 安全网：推理模型偶尔把工具调用 token 当文本吐出(<｜tool_calls｜>/DSML/invoke name=...)，检测到即截断不展示
+_TOOL_LEAK_RE = re.compile(r"DSML|tool[▁_]?calls?|<\s*[|｜]\s*tool|invoke\s+name\s*=", re.I)
 
 _SYSTEM = (
     "你是**资深 A股投研分析师**，已接入真实金融数据工具。目标是给出有洞察、有观点、**敢下判断**的分析，"
@@ -123,26 +126,52 @@ def _exec_tool(name: str, args: dict, provider: CompositeProvider) -> dict:
         return {"error": f"{name} 执行失败：{str(e)[:80]}"}
 
 
+def _fill_quote_fullpush(ts: str, out: dict) -> bool:
+    """盘中用进程内全推L1快照填实时报价(现价/涨跌/量比/内外盘)。非实时/无该票返回 False。"""
+    try:
+        from app.strategy import realtime_hub as hub
+        if not hub.is_live():
+            return False
+        q = hub.snapshot().get(ts)
+        if not q or float(q.get("price") or 0) <= 0:
+            return False
+        out["现价"] = round(float(q.get("price") or 0), 2)
+        out["涨跌幅%"] = round(float(q.get("pct_chg") or 0), 2)
+        if q.get("prev_close"):
+            out["昨收"] = round(float(q["prev_close"]), 2)
+        if q.get("vol_ratio"):
+            out["量比"] = round(float(q["vol_ratio"]), 2)
+        inn, outr = float(q.get("inner") or 0), float(q.get("outer") or 0)
+        if inn + outr > 0:
+            out["外盘占比%"] = round(outr / (inn + outr) * 100, 1)   # 主动买占比·>50偏主动买
+        out["数据时间"] = hub._as_of_str()
+        out["来源"] = "幕数据沪深全推L1·盘中秒级实时(现价/涨跌/量比/内外盘)；谈现价一律用它，绝不用记忆里的旧价"
+        return True
+    except Exception:
+        return False
+
+
 def _t_quote(args, provider) -> dict:
     import datetime
     ts, name = _resolve(args.get("stock", ""), provider)
     if not ts:
         return {"error": f"未找到股票「{args.get('stock')}」"}
     out = {"代码": ts, "名称": name}
-    try:
-        q = provider.get_realtime_quote([ts])
-        if q is not None and not q.empty:
-            r = q.iloc[0]
-            out["现价"] = round(float(r["price"]), 2)
-            out["涨跌幅%"] = round(float(r["pct_chg"]), 2)
-            try:
-                out["昨收"] = round(float(r.get("prev_close")), 2)
-            except (TypeError, ValueError):
-                pass
-            out["数据时间"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
-            out["来源"] = "新浪实时行情·唯一权威当前价；谈现价/涨幅/估值空间一律用它，绝不用你记忆里的旧价"
-    except Exception:
-        pass
+    if not _fill_quote_fullpush(ts, out):        # ① 优先全推L1(盘中秒级·含量比/内外盘)
+        try:                                     # ② 全推休市/断流/无该票 → 新浪兜底
+            q = provider.get_realtime_quote([ts])
+            if q is not None and not q.empty:
+                r = q.iloc[0]
+                out["现价"] = round(float(r["price"]), 2)
+                out["涨跌幅%"] = round(float(r["pct_chg"]), 2)
+                try:
+                    out["昨收"] = round(float(r.get("prev_close")), 2)
+                except (TypeError, ValueError):
+                    pass
+                out["数据时间"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+                out["来源"] = "新浪实时行情·权威当前价；谈现价/涨幅/估值空间一律用它，绝不用记忆里的旧价"
+        except Exception:
+            pass
     try:
         sb = provider.get_stock_basic()
         h = sb[sb["ts_code"] == ts]
@@ -332,16 +361,28 @@ def run_chat(history: list[dict], provider: CompositeProvider | None = None, cli
                 result = _exec_tool(tc.function.name, args, provider)
                 messages.append({"role": "tool", "tool_call_id": tc.id,
                                  "content": json.dumps(result, ensure_ascii=False)})
-        # 最终答案：流式（无工具→只答）
-        parts, thinking_sent = [], False
-        for kind, text in client.stream_answer(messages, task_type=_AGENT_TASK):
+        # 最终答案：流式。传 tools + tool_choice="none"(API层禁止再调工具) + 泄漏检测(双保险)
+        parts, thinking_sent, stopped = [], False, False
+        for kind, text in client.stream_answer(messages, task_type=_AGENT_TASK,
+                                                tools=_tool_schemas()):
             if kind == "reasoning":
                 if not thinking_sent:
                     yield {"type": "thinking", "text": "💭 思考中…"}
                     thinking_sent = True
-            else:
-                parts.append(text)
-                yield {"type": "delta", "text": text}
+                continue
+            if stopped:
+                continue
+            combined = "".join(parts) + text
+            m = _TOOL_LEAK_RE.search(combined)
+            if m:                                            # 模型仍吐工具token→只保留标记前正文·停止
+                delta = combined[len("".join(parts)):m.start()]
+                if delta:
+                    parts.append(delta)
+                    yield {"type": "delta", "text": delta}
+                stopped = True
+                continue
+            parts.append(text)
+            yield {"type": "delta", "text": text}
         yield {"type": "done", "content": "".join(parts)}
     except Exception as e:
         logger.exception("[chat] Agent 运行失败")
