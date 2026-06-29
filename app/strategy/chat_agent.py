@@ -340,6 +340,36 @@ _TOOLS = {
 # Agent 主循环（生成器·逐步 yield 事件）
 # ──────────────────────────────────────────────────────────────────────────
 
+def _now_context() -> str:
+    """当前时间 + 交易状态 + 最近交易日（每次对话注入系统提示·让 AI 立足"现在"，不用训练里的旧日期）。"""
+    import datetime
+
+    from app.strategy.realtime_hub import market_session
+    from app.strategy.trade_calendar import is_trading_day, last_trading_day
+    now = datetime.datetime.now()
+    wd = "一二三四五六日"[now.weekday()]
+    today, hm = now.strftime("%Y%m%d"), now.strftime("%H%M")
+    sess = market_session()
+    if not is_trading_day():
+        state = "今日非交易日(周末/节假日·A股休市)"
+    elif sess in ("auction", "auction_lock", "pre_open"):
+        state = "今日交易日·集合竞价/盘前(9:15-9:30)"
+    elif sess == "continuous":
+        state = "今日交易日·A股连续交易中"
+    elif hm < "0915":
+        state = "今日交易日·盘前未开盘"
+    elif "1130" <= hm < "1300":
+        state = "今日交易日·午间休市"
+    else:
+        state = "今日交易日·已收盘(15:00后)"
+    last_td = last_trading_day(today) or today
+    last_fmt = f"{last_td[:4]}-{last_td[4:6]}-{last_td[6:]}" if len(last_td) == 8 else last_td
+    return (f"【当前时间】{now.strftime('%Y-%m-%d %H:%M')} 周{wd}（{state}）。"
+            f"最近交易日 {last_fmt}（行情/资金类数据若工具未返回更新，即截至该日）。"
+            f"凡涉及'现在/今天/最近/最新/目前/这周'，**一律以上述时间为准，绝不使用你训练知识里的旧日期**；"
+            f"不确定具体日期就用工具查或明说不确定。")
+
+
 def run_chat(history: list[dict], provider: CompositeProvider | None = None, client=None):
     """
     history: [{role:'user'/'assistant', content}]（含最新用户消息）。
@@ -347,7 +377,7 @@ def run_chat(history: list[dict], provider: CompositeProvider | None = None, cli
     """
     provider = provider or CompositeProvider()
     client = client or LLMClient()
-    messages = [{"role": "system", "content": _SYSTEM}, *history]
+    messages = [{"role": "system", "content": _SYSTEM + "\n\n" + _now_context()}, *history]
     try:
         for _ in range(_MAX_TOOL_ROUNDS):
             msg = client.complete_with_tools(messages, _tool_schemas(), task_type=_AGENT_TASK)
