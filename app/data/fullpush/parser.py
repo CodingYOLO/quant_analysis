@@ -55,7 +55,12 @@ def parse_record(line: str) -> dict | None:
     if len(f) < _FIELD_COUNT:
         return None
     prev, last = _f(f[_I_PREV_CLOSE]), _f(f[_I_LAST])
-    pct = round((last / prev - 1) * 100, 2) if prev > 0 else 0.0
+    # 集合竞价早段(9:15-9:20)未撮合 → 最新价字段=0，直接算涨跌会得 -100%(全场假跌停)。
+    # 此时集合竞价虚拟匹配价 = 五档买一价≈卖一价；一字涨停只有买一、一字跌停只有卖一 → 取其一。
+    if last <= 0:
+        bid1, ask1 = _f(f[_I_BID_PX]), _f(f[_I_ASK_PX])
+        last = bid1 or ask1 or 0.0
+    pct = round((last / prev - 1) * 100, 2) if (prev > 0 and last > 0) else 0.0
     return {
         "ts_code": to_ts_code(f[_I_CODE]),
         "name": f[_I_NAME],

@@ -1152,6 +1152,24 @@ async def api_realtime_board(_user: str = Depends(require_auth)):
         return {"ok": False, "msg": str(e)}
 
 
+@app.get("/api/realtime/raw")
+async def api_realtime_raw(codes: str = "", _user: str = Depends(require_auth)):
+    """调试：返回指定代码的原始全推快照字段（last/open/high/low/bid_px/ask_px/vol/amount…）。
+
+    用于核验生产端各时段(尤其集合竞价)到底填了哪些字段。codes=逗号分隔的6位代码。
+    """
+    from app.strategy.realtime_hub import snapshot
+    snap = snapshot()
+    out = {}
+    for c in (codes or "").split(","):
+        c = c.strip()
+        if not c:
+            continue
+        ts = _resolve_ts_code(c) or c
+        out[ts] = snap.get(ts)
+    return {"ok": True, "data": out}
+
+
 @app.post("/api/realtime/scan")
 async def api_realtime_scan(force: bool = False, _user: str = Depends(require_auth)):
     """手动触发一次盯盘扫描推送（force=true 可休市用测试端点演示）。"""

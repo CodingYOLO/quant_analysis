@@ -66,6 +66,33 @@ def test_parse_zero_prev_close_safe() -> None:
     assert q is not None and q["pct_chg"] == 0.0
 
 
+def test_auction_price_from_orderbook() -> None:
+    """集合竞价早段最新价=0 → 用买一价(竞价虚拟匹配价)算涨跌，不再得 -100% 全场假跌停。"""
+    f = _SAMPLE.split("$")
+    f[6] = "0"                                          # _I_LAST=6：未撮合·最新价空
+    q = parse_record("$".join(f))
+    assert q["price"] == 10.23                          # _I_BID_PX=19 买一价(=竞价虚拟匹配价)
+    assert q["pct_chg"] == round((10.23 / 10.13 - 1) * 100, 2)
+    assert q["pct_chg"] != -100.0
+
+
+def test_auction_limit_down_uses_ask() -> None:
+    """一字跌停：无买盘(买一=0) → 退用卖一价。"""
+    f = _SAMPLE.split("$")
+    f[6] = "0"
+    f[19] = "0"                                         # 买一价=0(无买盘)
+    q = parse_record("$".join(f))
+    assert q["price"] == 10.24                          # _I_ASK_PX=9 卖一价
+
+
+def test_auction_no_orders_zero_not_minus100() -> None:
+    """完全无委托(买一卖一都0) → 价 0、pct 0，绝不 -100%。"""
+    f = _SAMPLE.split("$")
+    f[6] = f[19] = f[9] = "0"
+    q = parse_record("$".join(f))
+    assert q["price"] == 0.0 and q["pct_chg"] == 0.0
+
+
 def test_parse_message_multi_and_empty() -> None:
     payload = _SAMPLE + "#" + _SAMPLE.replace("SH600000", "SZ000001") + "#"
     quotes = parse_message(payload)                  # 两只 + 尾部空段
