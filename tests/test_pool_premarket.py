@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from app.strategy.pool_premarket import _classify_events
+from app.strategy.pool_premarket import _classify_events, _reg_for
 
 
 def test_empty_is_neutral() -> None:
@@ -53,6 +53,23 @@ def test_mixed_signals() -> None:
         {"holder_trade": {"de_count": 2, "in_count": 0},
          "repurchase": {"is_real": True, "proc": "完成"}}, None)
     assert r["verdict"] == "混合" and r["downs"] and r["ups"]
+
+
+def test_reg_for_suspend_priority() -> None:
+    # 停牌(事实)优先于一切：即便连板也先报停牌
+    r = _reg_for("000001.SZ", "平安银行", {"000001.SZ": {"consec_limit_now": 6}}, {"000001.SZ"})
+    assert r is not None and r["kind"] == "suspend" and r["text"] == "停牌中"
+
+
+def test_reg_for_anomaly_from_consec() -> None:
+    # 未停牌·达连板阈值 → 异动核查
+    r = _reg_for("300750.SZ", "宁德时代", {"300750.SZ": {"consec_limit_now": 5}}, set())
+    assert r is not None and r["kind"] == "anomaly" and r["level"] == "high"
+
+
+def test_reg_for_graceful_when_no_tech() -> None:
+    # 盘前 hub 未加载(tech 为空)且未停牌 → 无标记(优雅降级·不报错)
+    assert _reg_for("600000.SH", "浦发银行", {}, set()) is None
 
 
 def _run_all() -> None:

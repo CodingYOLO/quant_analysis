@@ -149,7 +149,8 @@ function renderTable(){
     h+='<tr class="datarow" onclick="toggle('+i+')">'
       +'<td style="font-size:15px" title="'+(r.flags||[]).map(f=>esc(f.text)).join('；')+'">'+health+'</td>'
       +'<td style="color:#7c9ef8">'+r.ts_code.slice(0,6)+'</td>'
-      +'<td>'+esc(r.name)+(r.is_holding?'<span class="hold">持仓</span>':'<span class="watch">自选</span>')+'</td>'
+      +'<td>'+esc(r.name)+(r.is_holding?'<span class="hold">持仓</span>':'<span class="watch">自选</span>')
+        +(r.reg?'<span class="badge" title="'+esc(r.reg.text)+'" style="font-size:9px;margin-left:4px;background:#3a1a1a;color:#f87171">'+(r.reg.kind==='suspend'?'🔒停牌':'⚠️异动核查')+'</span>':'')+'</td>'
       +'<td>'+track+'</td>'
       +'<td>'+price+'</td>'
       +'<td>'+chg+'</td>'

@@ -108,6 +108,33 @@ def _latest_pool_date() -> str | None:
     return dates[0] if dates else None
 
 
+def _reg_context(provider: CompositeProvider) -> tuple[dict, set]:
+    """盘前监管上下文：连板字典(实时hub·盘前多为空·优雅降级) + 当前停牌集(Tushare·盘前即有)。"""
+    tech: dict = {}
+    try:
+        from app.strategy.realtime_hub import tech_map
+        tech = tech_map() or {}
+    except Exception as e:
+        logger.debug("[盘前体检] tech_map 不可用(盘前正常): %s", e)
+    halted: set = set()
+    try:
+        from app.strategy.reg_risk import suspended_codes
+        halted = suspended_codes(provider)
+    except Exception as e:
+        logger.debug("[盘前体检] 停牌集获取失败: %s", e)
+    return tech, halted
+
+
+def _reg_for(ts: str, name: str, tech: dict, halted: set) -> dict | None:
+    """单只监管标记：停牌(事实·优先) > 连板异动核查(派生)。供盘前避雷·无风险返回 None。"""
+    if ts in halted:
+        return {"kind": "suspend", "level": "high", "text": "停牌中"}
+    consec = (tech.get(ts) or {}).get("consec_limit_now")
+    from app.strategy.reg_risk import anomaly_risk
+    a = anomaly_risk(consec, is_st="ST" in str(name).upper())
+    return {"kind": "anomaly", "level": a["level"], "text": a["text"]} if a else None
+
+
 def check_pool(td: str | None = None, provider: CompositeProvider | None = None,
                *, with_alert: bool = True) -> dict:
     """对选股池逐只做消息面体检。返回结构化结果（不落盘/不推送·便于测试与复用）。"""
@@ -118,6 +145,7 @@ def check_pool(td: str | None = None, provider: CompositeProvider | None = None,
 
     from app.strategy.fundamentals import get_financials, get_recent_alert
 
+    tech, halted = _reg_context(provider)            # 盘前停牌集 + 连板字典（取数一次·全池复用）
     pool = db.get_pool_with_perf(td)
     rows: list[dict] = []
     for i, r in enumerate(pool):
@@ -141,15 +169,17 @@ def check_pool(td: str | None = None, provider: CompositeProvider | None = None,
         rows.append({
             "ts_code": ts, "code6": ts.split(".")[0], "name": name,
             "theme": r.get("theme", ""), "is_focus": bool(r.get("is_focus")),
-            "confidence": r.get("confidence"), "alert": alert, "sources": sources, **cls,
+            "confidence": r.get("confidence"), "alert": alert, "sources": sources,
+            "reg": _reg_for(ts, name, tech, halted), **cls,
         })
 
     # 混合票同时进利空/利好两张表（各只显本方向信号）；中性单独计数
     downs = [x for x in rows if x["verdict"] in ("利空", "混合")]
     ups = [x for x in rows if x["verdict"] in ("利好", "混合")]
     neutral_n = sum(1 for x in rows if x["verdict"] == "中性")
+    regs = [x for x in rows if x.get("reg")]        # 停牌/连板异动核查（避雷·最优先呈现）
     return {"ok": True, "td": td, "n": len(rows), "rows": rows,
-            "downs": downs, "ups": ups, "neutral_n": neutral_n}
+            "downs": downs, "ups": ups, "neutral_n": neutral_n, "regs": regs}
 
 
 def _fmt_d(d: str) -> str:
@@ -177,6 +207,17 @@ def render_md(result: dict, now_str: str) -> str:
         return "\n".join(lines) + "\n\n"
 
     body = head
+    regs = result.get("regs", [])
+    if regs:
+        body += (f"## 🔒 停牌 / 监管核查（{len(regs)}只·避雷优先）\n\n"
+                 "<small>停牌=交易所事实 ｜ 连板异动=核查风险派生(非确定停牌)</small>\n\n"
+                 "| 股票 | 板块 | 风险 |\n|---|---|---|\n")
+        for x in regs:
+            icon = "🔒停牌" if x["reg"]["kind"] == "suspend" else "⚠️异动核查"
+            mark = "⭐" if x["is_focus"] else ""
+            body += f"| {x['name']}({x['code6']}){mark} | {x['theme']} | {icon}·{x['reg']['text']} |\n"
+        body += "\n"
+
     downs, ups = result.get("downs", []), result.get("ups", [])
     if downs:
         body += (f"## ⚠️ 利空 / 需留意（{len(downs)}只）\n\n"
@@ -207,9 +248,14 @@ def _push_summary(result: dict) -> None:
     """盘前 Bark 提醒：利空优先（避雷·穿透），利好其次。"""
     from app.notify.notifier import push_bark
     downs, ups = result.get("downs", []), result.get("ups", [])
-    if not downs and not ups:
+    regs = result.get("regs", [])
+    if not downs and not ups and not regs:
         return                                       # 无异动不打扰
     blocks = [f"选股池 {result['n']}只·{_fmt_d(result['td'])}"]
+    if regs:
+        names = "、".join(f"{x['name']}({'停牌' if x['reg']['kind'] == 'suspend' else '异动核查'})"
+                         for x in regs[:4])
+        blocks.append(f"🔒停牌/核查{len(regs)}: {names}")
     if downs:
         names = "、".join(f"{x['name']}({x['downs'][0]['text'] if x['downs'] else '混合'})" for x in downs[:4])
         blocks.append(f"⚠️利空{len(downs)}: {names}")
@@ -218,7 +264,7 @@ def _push_summary(result: dict) -> None:
         blocks.append(f"✅利好{len(ups)}: {names}")
     blocks.append(f"余{result.get('neutral_n', 0)}只无异动")
     push_bark(title=f"📋 选股池盘前体检·{result['n']}只", body=" ▸ ".join(blocks),
-              group="选股池", level="timeSensitive" if downs else "active")
+              group="选股池", level="timeSensitive" if (downs or regs) else "active")
 
 
 def run_pool_check(*, push: bool = True, provider: CompositeProvider | None = None) -> tuple[str, str, str] | None:

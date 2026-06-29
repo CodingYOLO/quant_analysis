@@ -90,6 +90,7 @@ table.mini td { padding:6px 8px; border-bottom:1px solid #1e2138; }
   <div class="sec"><h2>💰 资金（主力估算 + 龙虎榜机构真钱 + 大盘北向）</h2><div id="v-fund" class="loading">⏳ 加载资金…</div></div>
   <div class="sec"><h2>🏛️ 龙虎榜复盘（近6月·历史规律）</h2><div id="v-lhb" class="loading">⏳ 复盘龙虎榜…</div></div>
   <div class="sec"><h2>🔥 板块情况</h2><div id="v-sector" class="loading">⏳ 加载板块…</div></div>
+  <div class="sec"><h2>⚠️ 监管 / 停牌 <span class="neu2" style="font-size:11px">（停牌=事实·连板异动=核查风险派生·监管函=博查带来源）</span></h2><div id="v-reg" class="loading">⏳ 查停牌/异动/监管函…</div></div>
   <div class="sec"><h2>📊 财务 + 风险事件</h2><div id="v-fin" class="loading">⏳ 加载财务…</div></div>
   <div class="sec"><h2>📑 券商研报（东财 + 同花顺·免费）</h2><div id="v-research" class="loading">⏳ 加载研报…</div></div>
   <div class="sec"><h2>🎯 最适配策略（历史回测·非预测）</h2><div id="v-scout" class="loading">⏳ 扫描最适配打法（约数秒）…</div></div>
@@ -133,7 +134,7 @@ function go(){
   const code=$('code').value.trim(); if(!code||busy) return;
   busy=true; $('go').disabled=true; _lastCode=code; _lastName=code; _lastSector='';
   $('hint').style.display='none'; $('result').style.display='block'; setReportTitle();
-  ['v-prof','v-fund','v-lhb','v-sector','v-fin','v-research','v-scout','v-news'].forEach(id=>{ $(id).className='loading'; $(id).textContent='⏳ 加载中…'; });
+  ['v-prof','v-fund','v-lhb','v-sector','v-reg','v-fin','v-research','v-scout','v-news'].forEach(id=>{ $(id).className='loading'; $(id).textContent='⏳ 加载中…'; });
   $('v-kline').innerHTML=''; _kc=null; $('export-bar').style.display='none';
   $('vd-body').className='loading'; $('vd-body').textContent='⏳ 正在汇总各区数据并生成综合判断…';
   $('v-company').className='loading'; $('v-company').textContent='⏳ 加载公司画像…';
@@ -142,7 +143,7 @@ function go(){
   const jobs=[
     loadProfile(code,facts,store), loadFundThenSector(code,facts,store), loadFin(code,facts,store),
     loadResearch(code,facts,store), loadScout(code,facts,store), loadNews(code,facts,store),
-    loadLhb(code,facts,store),
+    loadLhb(code,facts,store), loadReg(code,facts,store),
   ];
   // 各区一加载完就放出导出按钮（不必等最慢的 AI 判断·判断随后补上）
   Promise.allSettled(jobs).then(()=>{ $('export-bar').style.display='flex';
@@ -242,6 +243,25 @@ function renderSector(d,facts){
   facts['板块']='行业'+d.name+' 热度'+d.heat+'('+(d.rising?'升温':'降温')+' Δ'+d.delta+') 3日资金'+(mf!=null?mf+'亿':'—')+' 阶段'+(d.phase||'—');
 }
 
+async function loadReg(code,facts,store){
+  try{ const d=await (await fetch('/api/stock/regulatory?code='+encodeURIComponent(code))).json(); store.reg=d; renderReg(d,facts); }
+  catch(e){ $('v-reg').textContent='加载失败'; }
+}
+function renderReg(d,facts){
+  if(!d||!d.ok){ $('v-reg').textContent=(d&&d.msg)||'—'; return; }
+  $('v-reg').className=''; let h='', risk=false;
+  if(d.suspended){ risk=true; h+='<div style="color:#f87171"><b>🔒 当前停牌中</b>（交易所公告·suspend_d）</div>'; }
+  if(d.anomaly){ risk=true; const c=d.anomaly.level==='high'?'#f87171':'#f0a020';
+    h+='<div style="color:'+c+'"><b>⚠️ 异动核查风险</b>：'+esc(d.anomaly.text)+'<span class="neu2" style="font-size:11px">（交易所异常波动规则派生·非确定停牌）</span></div>'; }
+  if(!risk) h+='<div class="neu2">✅ 未停牌 · 未达连板异动阈值</div>';
+  const news=d.news||[];
+  if(news.length) h+='<div style="margin-top:8px;font-size:12px"><b style="color:#e5c07b">📰 监管函/问询函（博查·带来源·需自行核对）</b>'
+    +news.map(n=>'<div style="margin-top:3px">• '+esc(n.title)+' <a href="'+esc(n.url)+'" target="_blank" style="color:#7c9ef8">['+esc(n.site||'来源')+' '+esc(n.date)+']</a></div>').join('')+'</div>';
+  else h+='<div class="neu2" style="margin-top:6px;font-size:12px">📰 近一月未搜到监管函/问询函/停牌核查相关新闻</div>';
+  $('v-reg').innerHTML=h;
+  if(d.suspended) facts['监管']='当前停牌中';
+  else if(d.anomaly) facts['监管']=d.anomaly.text;
+}
 async function loadFin(code,facts,store){
   try{ const d=await (await fetch('/api/stock/financials?code='+encodeURIComponent(code))).json(); store.fin=d; renderFin(d,facts); }
   catch(e){ $('v-fin').textContent='加载失败'; }

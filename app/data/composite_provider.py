@@ -121,6 +121,9 @@ class CompositeProvider(DataProvider):
     def get_money_flow(self, trade_date: str) -> pd.DataFrame:
         return self._ts.get_money_flow(trade_date)
 
+    def get_suspend(self, start_date: str, end_date: str) -> pd.DataFrame:
+        return self._ts.get_suspend(start_date, end_date)
+
     def get_lhb_detail(self, trade_date: str) -> pd.DataFrame:
         return self._ts.get_lhb_detail(trade_date)
 

@@ -1602,6 +1602,32 @@ async def api_stock_financials(code: str = "", _user: str = Depends(require_auth
         return {"ok": False, "msg": str(e)}
 
 
+@app.get("/api/stock/regulatory")
+async def api_stock_regulatory(code: str = "", _user: str = Depends(require_auth)):
+    """监管/停牌风险：停牌状态(事实) + 连板异动核查风险(派生) + 监管函/问询函新闻(博查·带来源)。"""
+    try:
+        from fastapi.concurrency import run_in_threadpool
+        ts_code = _resolve_ts_code(code)
+        if not ts_code:
+            return {"ok": False, "msg": "无法识别股票"}
+        return await run_in_threadpool(_build_regulatory, ts_code, _stock_name(ts_code) or "")
+    except Exception as e:
+        logger.exception("监管风险查询失败")
+        return {"ok": False, "msg": str(e)}
+
+
+def _build_regulatory(ts_code: str, name: str) -> dict:
+    from app.data.composite_provider import CompositeProvider
+    from app.strategy.realtime_hub import tech_map
+    from app.strategy.reg_risk import anomaly_risk, reg_news, suspended_codes
+    provider = CompositeProvider()
+    consec = (tech_map().get(ts_code) or {}).get("consec_limit_now")
+    return {"ok": True, "name": name,
+            "suspended": ts_code in suspended_codes(provider),
+            "anomaly": anomaly_risk(consec, is_st="ST" in name.upper()),
+            "news": reg_news(ts_code, name)}
+
+
 @app.get("/api/stock/analyst")
 async def api_stock_analyst(code: str = "", _user: str = Depends(require_auth)):
     """券商盈利预测/目标价（report_rc）。按需调用：5100档限频1次/小时，日缓存兜底。"""

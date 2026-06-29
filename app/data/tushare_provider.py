@@ -609,6 +609,21 @@ class TushareProvider(DataProvider):
             trade_date=trade_date,
         )
 
+    def get_suspend(self, start_date: str, end_date: str) -> pd.DataFrame:
+        """停复牌信息（suspend_d·5100积分可用·suspend_type S=停牌/R=复牌）。按 end_date 缓存。"""
+        return cached_daily(
+            name="tushare_suspend",
+            date_key=end_date,
+            fetch_fn=lambda: self._fetch_suspend(start_date, end_date),
+        )
+
+    @_RETRY
+    def _fetch_suspend(self, start_date: str, end_date: str) -> pd.DataFrame:
+        return rate_limited_call(
+            "tushare_suspend", self._api.suspend_d,
+            start_date=start_date, end_date=end_date,
+        )
+
     def get_lhb_detail(self, trade_date: str) -> pd.DataFrame:
         """龙虎榜明细（需2000积分，5100积分账号可用）。"""
         return cached_daily(

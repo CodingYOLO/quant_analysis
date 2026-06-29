@@ -33,6 +33,7 @@ _COOLDOWN = {
     "secin": 1500, "secout": 1500, "theme": 1500,            # 板块/题材(25min·另有跨档立即)
     "shift": 900,                                            # 重大变化:板块资金异常加速/大盘转向(15min·防刷屏)
     "dip": 1800,                                             # 自选低吸/企稳观察(30min·同一票别反复提)
+    "reg": 7200,                                             # 停牌/异动核查(2h·变化慢·别刷屏)
     "senti": 3600,                                           # 情绪状态转折(1小时·防flapping)
     "tailsummary": 999999,                                   # 尾盘小结·当天一次
 }
@@ -106,7 +107,30 @@ def _collect_events() -> list[tuple[str, str, str, str]]:
                        _stock_lines(nm, stock, _sec_line(ind, sec_avg.get(ind)), mkt), v["ts_code"]))
     events += _holding_events()
     events += _watch_dip_events()                                            # 自选/持仓回调企稳→低吸观察
+    events += _reg_events()                                                  # 自选/持仓 停牌/连板异动核查风险
     return events
+
+
+def _reg_events() -> list[tuple[str, str, str, str]]:
+    """自选/持仓 停牌(事实) 或 高位连板异动核查风险(派生·含今日封板) → 即时提醒。"""
+    from app.data.composite_provider import CompositeProvider
+    from app.strategy.reg_risk import reg_flag
+    out: list[tuple[str, str, str, str]] = []
+    tech = hub.tech_map()
+    provider = CompositeProvider()
+    for code, meta in hub.watch_meta().items():
+        consec = int((tech.get(code) or {}).get("consec_limit_now") or 0)
+        q = hub.snapshot().get(code)
+        if q and float(q.get("pct_chg") or 0) >= 9.8:       # 今日又封板→实时连板+1
+            consec += 1
+        rf = reg_flag(code, meta.get("name", ""), consec, provider)
+        if not rf:
+            continue
+        tag = "持仓" if meta.get("is_holding") else "自选"
+        icon = "🔒" if rf["kind"] == "suspend" else "⚠️"
+        out.append((f"reg_{rf['kind']}_{code}", f"{icon} {tag}监管·{meta.get('name', '')}",
+                    f"{meta.get('name', '')} {rf['text']}", code))
+    return out
 
 
 def _watch_dip_events() -> list[tuple[str, str, str, str]]:
@@ -438,7 +462,7 @@ def _bark_level(key: str, title: str) -> str:
     if "持仓" in title:                                     # 你的持仓·最该打断
         return "timeSensitive"
     p = key.split("_", 1)[0]
-    if p in ("crash", "limitbreak", "senti"):              # 闪崩/炸板/情绪转折=高优风险
+    if p in ("crash", "limitbreak", "senti", "reg"):       # 闪崩/炸板/情绪转折/停牌异动=高优风险
         return "timeSensitive"
     if p == "theme" or key.startswith("brk_up"):           # 题材/个股突破=低优·静默
         return "passive"

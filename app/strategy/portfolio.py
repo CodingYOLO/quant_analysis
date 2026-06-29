@@ -55,6 +55,7 @@ def build_portfolio(provider: CompositeProvider | None = None) -> dict:
     for w in watch:
         rows.append(_build_row(w, quotes, tech, flows, industries, sectors, provider))
 
+    _attach_reg_risk(rows, provider)          # 停牌(事实) + 连板异动核查风险(派生) → row.reg + 预警
     alerts = _collect_alerts(rows)
     n_hold = sum(1 for r in rows if r["is_holding"])
     return {"ok": True, "date": date, "rows": rows, "alerts": alerts,
@@ -147,6 +148,25 @@ def _health(r: dict) -> tuple[str, list[dict]]:
     if danger or (broke and bad_fundamental):
         return "red", flags
     return "yellow", flags
+
+
+def _attach_reg_risk(rows: list[dict], provider) -> None:
+    """给每行附监管/停牌标记（停牌中=事实·高位连板=异动核查风险派生）。连板取自因子表(昨收口径)。"""
+    try:
+        from app.strategy.realtime_hub import tech_map
+        from app.strategy.reg_risk import reg_flag
+        tm = tech_map()
+    except Exception:
+        for r in rows:
+            r["reg"] = None
+        return
+    for r in rows:
+        consec = (tm.get(r["ts_code"]) or {}).get("consec_limit_now")
+        rf = reg_flag(r["ts_code"], r.get("name", ""), consec, provider)
+        r["reg"] = rf
+        if rf:                                # 进 flags → 自动进预警banner + 体检
+            r.setdefault("flags", []).append(
+                {"text": rf["text"], "level": "danger" if rf["level"] == "high" else "warn"})
 
 
 def _collect_alerts(rows: list[dict]) -> list[dict]:
