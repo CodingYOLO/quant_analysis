@@ -19,6 +19,24 @@
   .rt-btn:disabled { opacity:.5; }
   .rt-empty { color:#5b6478; padding:14px; text-align:center; }
   .card h2 .rt-tag { font-size:11px; font-weight:400; color:#5b6478; margin-left:8px; }
+  /* 🏁 板块实时排名(动态竞速条)：排名变→行平滑滑动重排；数据变→条长平滑伸缩 */
+  .race-toggle { float:right; font-weight:400; }
+  .race-btn { background:#1a1d2e; color:#9ca3af; border:1px solid #2d3052; border-radius:6px;
+    padding:3px 12px; font-size:12px; cursor:pointer; margin-left:6px; }
+  .race-btn.active { background:#2742a8; color:#fff; border-color:#3358e0; }
+  .race-wrap { position:relative; margin-top:8px; transition:height .4s ease; }
+  .race-row { position:absolute; left:0; right:0; height:30px; display:flex; align-items:center; gap:2px;
+    transition: transform .65s cubic-bezier(.22,.61,.36,1); }   /* 名次变→滑到新行 */
+  .race-rank { width:22px; text-align:center; font-size:12px; color:#6b7280; flex-shrink:0; }
+  .race-name { width:92px; font-size:12.5px; color:#cdd6f4; flex-shrink:0; white-space:nowrap;
+    overflow:hidden; text-overflow:ellipsis; }
+  .race-track { flex:1; height:18px; position:relative; background:#12141c; border-radius:4px; }
+  .race-bar { height:100%; border-radius:4px; min-width:3px;
+    transition: width .65s cubic-bezier(.22,.61,.36,1); }       /* 条长平滑伸缩 */
+  .race-up { background:linear-gradient(90deg,#5e1f2a,#f6465d); }   /* 涨/流入=红 */
+  .race-dn { background:linear-gradient(90deg,#143726,#2ebd85); }   /* 跌/流出=绿 */
+  .race-val { font-size:11.5px; margin-left:7px; white-space:nowrap; flex-shrink:0; }
+  .race-lead { font-size:10.5px; color:#7c8295; margin-left:6px; }
 {% endblock %}
 
 {% block content %}
@@ -50,6 +68,17 @@
 </div>
 
 <div class="card"><h2>🌡️ 大盘温度</h2><div class="rt-metrics" id="rtBreadth"></div></div>
+
+<!-- 🏁 板块实时排名(动态竞速条·随数据伸缩+重排·集合竞价也用) -->
+<div class="card">
+  <h2>🏁 板块实时排名<span class="rt-tag" id="raceSub">按资金净流入·实时重排</span>
+    <span class="race-toggle">
+      <button id="raceBtnFund" class="race-btn active">资金</button>
+      <button id="raceBtnGain" class="race-btn">涨幅</button>
+    </span>
+  </h2>
+  <div id="rtRace" class="race-wrap"></div>
+</div>
 
 <div class="card"><h2>🔥 情绪温度计 · 短线周期<span class="rt-tag">连板梯队/赚钱效应/炸板率·决定能否打板追高</span></h2>
   <div id="rtSenti"></div></div>
@@ -113,6 +142,50 @@ function renderBreadth(b, trend){
     ['总数',b.total]];
   if(trend&&trend.text) m.push(['趋势(较30min前)',`<span class="${trend.dir==='up'?'pos':(trend.dir==='down'?'neg':'neu')}">${trend.text}</span>`]);
   $('rtBreadth').innerHTML=m.map(x=>`<div class="rt-metric"><div class="lbl">${x[0]}</div><div class="val">${x[1]}</div></div>`).join('');
+}
+// 🏁 板块实时排名(动态竞速条)：按资金/涨幅排序·条长∝值·排名变化平滑滑动重排·集合竞价自动用竞价口径
+let _raceMode='fund', _lastBoard=null;   // 'fund' | 'gain'；_lastBoard 供切换即时重绘
+const _raceEls={}; const RACE_N=12, RACE_H=30;
+function _raceData(d){
+  const auc=(d.session==='auction'||d.session==='auction_lock'||d.session==='pre_open');
+  const src=auc ? ((d.auction||{}).sectors||[]) : (d.sectors||[]);
+  return src.map(s=>{
+    const val = _raceMode==='fund' ? (auc?(s.amount_yi||0):(s.net_yi||0))
+                                   : (auc?(s.avg_gap||0):(s.avg_pct||0));
+    return {key:s.industry, name:s.industry, val:+val,
+            unit:_raceMode==='fund'?'亿':'%', lead:s.leader||''};
+  }).filter(x=>x.name).sort((a,b)=>b.val-a.val).slice(0,RACE_N);
+}
+function renderRace(d){
+  const wrap=$('rtRace');
+  const auc=(d.session==='auction'||d.session==='auction_lock'||d.session==='pre_open');
+  $('raceSub').textContent=(auc?'集合竞价·':'')+
+    (_raceMode==='fund'?(auc?'按竞价额':'按资金净流入'):(auc?'按均高开':'按涨幅'))+'·实时重排';
+  const rows=_raceData(d);
+  if(!rows.length){ wrap.style.height='42px'; wrap.innerHTML='<div class="rt-empty">暂无数据（休市/未开盘）</div>';
+    for(const k in _raceEls) delete _raceEls[k]; return; }
+  if(wrap.querySelector('.rt-empty')) wrap.innerHTML='';
+  wrap.style.height=(rows.length*RACE_H)+'px';
+  const maxAbs=Math.max(...rows.map(r=>Math.abs(r.val)),0.01), seen={};
+  rows.forEach((r,i)=>{
+    seen[r.key]=1;
+    let el=_raceEls[r.key];
+    if(!el){
+      el=document.createElement('div'); el.className='race-row';
+      el.innerHTML='<span class="race-rank"></span><span class="race-name"></span>'+
+        '<span class="race-track"><span class="race-bar"></span></span><span class="race-val"></span>';
+      wrap.appendChild(el); _raceEls[r.key]=el;
+    }
+    el.style.transform=`translateY(${i*RACE_H}px)`;                       // 名次→平滑滑动
+    el.children[0].textContent=i+1;
+    el.children[1].textContent=r.name; el.children[1].title=r.name;
+    const bar=el.children[2].firstChild;
+    bar.style.width=(Math.abs(r.val)/maxAbs*100)+'%';                    // 条长→平滑伸缩
+    bar.className='race-bar '+(r.val>=0?'race-up':'race-dn');
+    el.children[3].innerHTML=`<span class="${cls(r.val)}">${sgn(r.val)}${r.unit}</span>`+
+      (r.lead?`<span class="race-lead">${r.lead}</span>`:'');
+  });
+  for(const k in _raceEls){ if(!seen[k]){ _raceEls[k].remove(); delete _raceEls[k]; } }  // 掉出榜的移除
 }
 // 板块资金"5分钟变化"：Δ + 加速/减速标签(琥珀)
 function dchg(r){
@@ -256,7 +329,8 @@ async function tick(){
   try{
     const d=await (await fetch('/api/realtime/board')).json();
     if(!d.ok){ $('rtStatus').textContent='加载失败：'+(d.msg||''); return; }
-    renderStatus(d); renderAuction(d); renderPulse(d.pulse); renderBrief(d.brief); renderBreadth(d.breadth, d.breadth_trend); renderSenti(d.sentiment); renderSectors(d.sectors); renderThemes(d.themes);
+    _lastBoard=d;
+    renderStatus(d); renderAuction(d); renderPulse(d.pulse); renderRace(d); renderBrief(d.brief); renderBreadth(d.breadth, d.breadth_trend); renderSenti(d.sentiment); renderSectors(d.sectors); renderThemes(d.themes);
     renderTail(d.tail); renderSecOut(d.sectors_out); renderFlash(d.flash);
     renderFund(d.fund_ranking); renderVolSurge(d.vol_surge); renderSurge(d.surge); renderWatch(d.watch);
   }catch(e){ $('rtStatus').textContent='网络错误：'+e; }
@@ -269,6 +343,15 @@ async function testPush(){
   }catch(e){ $('rtPushMsg').textContent='错误：'+e; }
   b.disabled=false;
 }
+// 竞速榜 资金/涨幅 切换(即时重绘·不等下次轮询)
+function _setRace(mode){
+  _raceMode=mode;
+  $('raceBtnFund').classList.toggle('active', mode==='fund');
+  $('raceBtnGain').classList.toggle('active', mode==='gain');
+  if(_lastBoard) renderRace(_lastBoard);
+}
+$('raceBtnFund').onclick=()=>_setRace('fund');
+$('raceBtnGain').onclick=()=>_setRace('gain');
 tick(); setInterval(tick, 2000);
 </script>
 {% endblock %}
