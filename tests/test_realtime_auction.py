@@ -6,7 +6,7 @@ import datetime
 
 from app.strategy.realtime_fund import (auction_alerts, auction_movers, auction_sector_strength,
                                         auction_sentiment, entrust_ratio)
-from app.strategy.realtime_hub import market_session
+from app.strategy.realtime_hub import _is_a_stock, market_session
 
 
 def _ts(y: int, m: int, d: int, hh: int, mm: int) -> float:
@@ -126,6 +126,23 @@ def test_auction_sector_aggregates_amount_and_entrust() -> None:
     s = auction_sector_strength(rows, {"A.SZ": "半导体", "B.SZ": "半导体", "C.SZ": "半导体"}, min_n=3)[0]
     assert s["amount_yi"] == 3.0                                         # 三只各1亿
     assert s["entrust"] == 33.3                                          # 委买200/委卖100 → (200-100)/300=+33.3%
+
+
+def test_is_a_stock_keeps_stocks_drops_index_bond_etf() -> None:
+    # 个股保留
+    for s in ("600519.SH", "688041.SH", "000001.SZ", "002179.SZ", "300458.SZ", "830799.BJ", "920819.BJ"):
+        assert _is_a_stock(s), s
+    # 指数/转债/ETF/基金剔除
+    for x in ("000001.SH",   # 上证指数(注意≠000001.SZ平安银行)
+              "000852.SH",   # 中证1000指数
+              "000905.SH",   # 中证500指数
+              "399001.SZ",   # 深证成指
+              "399006.SZ",   # 创业板指
+              "113xxx".replace("xxx", "537") + ".SH",   # 转债
+              "123100.SZ",   # 转债
+              "510300.SH",   # 沪市ETF
+              "159915.SZ"):  # 深市ETF
+        assert not _is_a_stock(x), x
 
 
 def _run_all() -> None:

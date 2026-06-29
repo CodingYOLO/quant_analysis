@@ -72,7 +72,7 @@ def _collect_events() -> list[tuple[str, str, str, str]]:
                                             sector_flow_events, velocity_events)
     from app.strategy.realtime_fund import (altitude_risk, detect_breakouts, rel_strength_tag,
                                             sentiment_thermometer, tech_context)
-    df = hub.snapshot().to_df()
+    df = hub.stock_df()                                  # 只 A股个股(剔指数/转债/ETF)
     imap = hub.industry_map()
     tech = hub.tech_map()                                                   # 技术姿态+关键位数值+昨收连板(因子表v16)
     rows = df.to_dict("records")
@@ -338,7 +338,7 @@ def _auction_events() -> list[tuple[str, str, str, str]]:
     """
     from app.strategy.realtime_fund import (auction_alerts, auction_sector_strength,
                                             auction_sentiment)
-    rows = hub.snapshot().to_df().to_dict("records")
+    rows = hub.stock_df().to_dict("records")             # 只 A股个股(剔指数/转债/ETF)
     imap = hub.industry_map()
     events = list(auction_alerts(rows, hub.watch_meta()))                 # ① 自选/持仓优先(含委比承接)
     for s in auction_sector_strength(rows, imap, top=5):                  # ② 板块方向(均高开+热度额+委比)

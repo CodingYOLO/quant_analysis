@@ -246,6 +246,30 @@ def _industry_map() -> dict:
     return _IND_MAP
 
 
+def _is_a_stock(ts_code: str) -> bool:
+    """是否 A股可交易个股（剔除指数/转债/ETF/基金——全推会一起推，混进排行榜会爆表）。
+
+    个股代码段：沪 600/601/603/605/688/689；深 000/001/002/003/300/301；北 4x/8x/920。
+    被剔除：上证指数 000xxx.SH、深证指数 399xxx.SZ、转债(11x/12x)、ETF(5x/15x)、基金等。
+    """
+    code, _, ex = str(ts_code).partition(".")
+    if ex == "SH":
+        return code[:3] in ("600", "601", "603", "605", "688", "689")
+    if ex == "SZ":
+        return code[:3] in ("000", "001", "002", "003", "300", "301")
+    if ex == "BJ":
+        return code[:1] in ("4", "8") or code[:3] == "920"
+    return False
+
+
+def stock_df():
+    """A股个股快照 DataFrame（剔除指数/转债/ETF）。看板/扫描所有全市场排行的统一口径。"""
+    df = _SNAP.to_df()
+    if df.empty:
+        return df
+    return df[df["ts_code"].map(_is_a_stock)].reset_index(drop=True)
+
+
 _BOARD_CACHE: dict = {"data": None, "ts": 0.0}
 _BOARD_TTL = 1.5                          # 看板缓存(秒)：多标签页/高频轮询也最多每~1.5s重算一次全市场
 _BOARD_CLOCK = threading.Lock()
@@ -270,7 +294,7 @@ def build_board_cached() -> dict:
 
 def build_board() -> dict:
     """汇总实时看板数据（资金榜/板块/大盘温度/急拉/持仓体检）。"""
-    df = _SNAP.to_df()
+    df = stock_df()                                       # 只用 A股个股(剔指数/转债/ETF·防排行榜爆表)
     base = {"ok": True, "live": is_live(), "session": market_session(),
             "as_of": _as_of_str(), "count": int(len(df))}
     base["watch"] = _watch_block()                        # 自选/持仓·休市也回(空快照时为[])
