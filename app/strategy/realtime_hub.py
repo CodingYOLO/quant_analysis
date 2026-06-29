@@ -32,6 +32,8 @@ _TAIL_BASE: dict = {}                      # 尾盘14:30基准 {code:{price,net}
 _TAIL_DATE: str = ""
 _HISTORY: deque = deque(maxlen=16)        # [(epoch, {code: price})]·约采样6-8分钟
 _NET_HISTORY: deque = deque(maxlen=20)     # [(epoch, {code: 主动净买亿})]·资金持续/脉冲判定
+_SECTOR_HISTORY: deque = deque(maxlen=64)   # [(epoch, {行业: 主动净买亿})]·板块资金变化/轮动(~32min)
+_BREADTH_HISTORY: deque = deque(maxlen=64)  # [(epoch, {up,down,limit_up,limit_down})]·大盘趋势
 _STALE_SEC = 15                           # 超过此秒数未更新 → 视为非实时
 
 
@@ -118,6 +120,42 @@ def record_net_history() -> None:
 def net_series(code: str) -> list:
     """某股最近若干采样的主动净买序列（升序·最早→最新）。"""
     return [nets[code] for _, nets in _NET_HISTORY if code in nets]
+
+
+def record_market_history() -> None:
+    """采样板块资金 + 大盘广度时序（盘中变化/轮动/趋势判定用·扫描线程~30s一次）。"""
+    import pandas as pd
+
+    from app.strategy.realtime_fund import sector_board
+    df = stock_df()
+    if df.empty:
+        return
+    sec_net = {s["industry"]: s["net_yi"] for s in sector_board(df, _industry_map())}
+    pct = pd.to_numeric(df["pct_chg"], errors="coerce")
+    breadth = {"up": int((pct > 0).sum()), "down": int((pct < 0).sum()),
+               "limit_up": int((pct >= 9.5).sum()), "limit_down": int((pct <= -9.5).sum())}
+    now = time.time()
+    _SECTOR_HISTORY.append((now, sec_net))
+    _BREADTH_HISTORY.append((now, breadth))
+
+
+def _hist_at(history: deque, minutes: float):
+    """取 ~minutes 分钟前的采样值（不足则取最早一条）。"""
+    if not history:
+        return None
+    cutoff = time.time() - minutes * 60
+    older = [v for t, v in history if t <= cutoff]
+    return older[-1] if older else history[0][1]
+
+
+def sector_net_ago(minutes: float = 5.0) -> dict:
+    """约 minutes 分钟前各板块主动净买（板块资金变化Δ用）。"""
+    return _hist_at(_SECTOR_HISTORY, minutes) or {}
+
+
+def breadth_ago(minutes: float = 30.0) -> dict:
+    """约 minutes 分钟前大盘广度（走强/走弱趋势用）。"""
+    return _hist_at(_BREADTH_HISTORY, minutes) or {}
 
 
 def past_prices(minutes: float = 5.0) -> dict:
@@ -313,7 +351,8 @@ def build_board() -> dict:
         r["tech"] = "·".join(x for x in (tech_context(price, prev, t),
                                          altitude_risk(price or 0, prev or 0, t)) if x)
     base["fund_ranking"] = fr
-    full = sector_board(df, imap)                          # 全部板块·含龙头
+    from app.strategy.realtime_fund import sector_flow_delta
+    full = sector_flow_delta(sector_board(df, imap), sector_net_ago(5.0))   # 板块榜 + 近5min资金变化Δ/加速
     base["sectors"] = full[:12]                            # 资金涌入榜(机会)
     base["sectors_out"] = [s for s in reversed(full) if s["net_yi"] < 0][:6]   # 资金撤离(风险)
     records = df.to_dict("records")                       # 转一次·多块复用
@@ -323,7 +362,10 @@ def build_board() -> dict:
     base["tail"] = _tail_block(records, imap)
     base["flash"] = _flash_block(records)
     base["surge"] = _velocity_block()
-    from app.strategy.realtime_fund import market_brief
+    from app.strategy.realtime_fund import breadth_trend, market_brief, market_pulse_text
+    base["breadth_trend"] = breadth_trend(base.get("breadth", {}), breadth_ago(30.0))   # 大盘走强/走弱
+    base["pulse"] = market_pulse_text(base.get("breadth", {}), base["breadth_trend"],   # 盘中市场快照一句话
+                                      full, base.get("sentiment", {}).get("state", ""))
     secs = base.get("sectors") or []
     top_in = secs[0]["industry"] if secs and secs[0].get("net_yi", 0) > 0 else ""
     base["brief"] = market_brief(base.get("sentiment", {}), base.get("breadth", {}), top_in)

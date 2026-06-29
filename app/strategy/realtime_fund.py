@@ -278,6 +278,84 @@ def auction_movers(rows: list[dict], imap: dict, *, top: int = 10) -> dict:
             "low": [_fmt(r) for r in reversed(rated[-top:])] if len(rated) >= top else []}
 
 
+# ─────────────────────────────────────────────────────────────────
+# 盘中"变化"追踪：板块资金加速/轮动 + 大盘趋势 + 定时市场快照 + 重大变化（纯函数·可测）
+# 阈值为经验值，待真盘校准（诚实铁律）。
+# ─────────────────────────────────────────────────────────────────
+def _accel_tag(net_now: float, delta: float, *, th: float = 2.0) -> str:
+    """板块资金加速/减速标签（delta=近窗口净买变化·亿）。"""
+    if net_now >= 0:
+        return "加速流入" if delta >= th else ("流入放缓" if delta <= -th else "")
+    return "加速流出" if delta <= -th else ("流出放缓" if delta >= th else "")
+
+
+def sector_flow_delta(sectors_now: list[dict], sec_net_ago: dict, *, th: float = 2.0) -> list[dict]:
+    """给板块榜补 近窗口资金变化Δ + 加速/减速标签（轮动/变化的核心）。"""
+    out = []
+    for s in sectors_now:
+        ago = sec_net_ago.get(s["industry"]) if sec_net_ago else None
+        if ago is None:
+            out.append(dict(s, net_delta=None, accel=""))
+        else:
+            delta = round(s["net_yi"] - ago, 2)
+            out.append(dict(s, net_delta=delta, accel=_accel_tag(s["net_yi"], delta, th=th)))
+    return out
+
+
+def breadth_trend(breadth_now: dict, breadth_ago: dict, *, up_th: int = 200, lu_th: int = 3) -> dict:
+    """大盘走强/走弱趋势（较 N 分钟前 上涨家数/涨停 的变化）。"""
+    if not breadth_now or not breadth_ago:
+        return {"text": "", "dir": "flat", "d_up": 0, "d_limit_up": 0}
+    d_up = int(breadth_now.get("up", 0)) - int(breadth_ago.get("up", 0))
+    d_lu = int(breadth_now.get("limit_up", 0)) - int(breadth_ago.get("limit_up", 0))
+    if d_up >= up_th or d_lu >= lu_th:
+        return {"text": f"走强(上涨+{d_up}·涨停{d_lu:+})", "dir": "up", "d_up": d_up, "d_limit_up": d_lu}
+    if d_up <= -up_th or d_lu <= -lu_th:
+        return {"text": f"走弱(上涨{d_up}·涨停{d_lu:+})", "dir": "down", "d_up": d_up, "d_limit_up": d_lu}
+    return {"text": "", "dir": "flat", "d_up": d_up, "d_limit_up": d_lu}
+
+
+def market_pulse_text(breadth: dict, b_trend: dict, sectors_delta: list[dict],
+                      sentiment_state: str = "") -> str:
+    """盘中市场快照一条（大盘趋势 + 板块资金加速/退潮 + 龙头）。Bark/看板用·▸ 分块。"""
+    up, down = int(breadth.get("up", 0)), int(breadth.get("down", 0))
+    lu, ld = int(breadth.get("limit_up", 0)), int(breadth.get("limit_down", 0))
+    head = f"📊大盘 涨{up}/跌{down}·涨停{lu}/跌停{ld}"
+    if sentiment_state:
+        head += f"·{sentiment_state}"
+    if b_trend.get("text"):
+        head += f"·{b_trend['text']}"
+    blocks = [head]
+    # 加速流入优先；不足则取净流入 top
+    accel_in = [s for s in sectors_delta if "加速流入" in (s.get("accel") or "") and s["net_yi"] > 0]
+    pick = (accel_in or [s for s in sectors_delta if s["net_yi"] > 0])[:3]
+    if pick:
+        txt = "、".join(f"{s['industry']}(+{s['net_yi']}亿{('·'+s['accel']) if s.get('accel') else ''}·{s['leader']})"
+                       for s in pick)
+        blocks.append(f"🔆涌入 {txt}")
+    outflow = sorted([s for s in sectors_delta if s["net_yi"] < 0], key=lambda x: x["net_yi"])[:2]
+    if outflow:
+        blocks.append("📉撤离 " + "、".join(f"{s['industry']}({s['net_yi']}亿)" for s in outflow))
+    return " ▸ ".join(blocks)
+
+
+def detect_market_shifts(sectors_delta: list[dict], b_trend: dict, *,
+                         accel_th: float = 8.0, mkt_th: int = 300) -> list[tuple[str, str, str, str]]:
+    """重大盘中变化即时事件：板块资金异常加速 / 大盘转向。返回 [(key,title,body,code)]。"""
+    out: list[tuple[str, str, str, str]] = []
+    for s in sectors_delta[:8]:
+        d = s.get("net_delta")
+        if d is not None and d >= accel_th and s["net_yi"] > 0:
+            out.append((f"shift_accel_{s['industry']}", f"🚀 资金异常涌入·{s['industry']}",
+                        f"{s['industry']} 近窗口净买+{d}亿(加速)·累计{s['net_yi']}亿·龙头{s['leader']} {s['leader_pct']:+}%",
+                        s.get("leader_code", "")))
+    if b_trend.get("dir") == "up" and b_trend.get("d_up", 0) >= mkt_th:
+        out.append(("shift_mkt_up", "📈 大盘转强", f"{b_trend['text']}·资金回补·情绪回暖", ""))
+    elif b_trend.get("dir") == "down" and b_trend.get("d_up", 0) <= -mkt_th:
+        out.append(("shift_mkt_down", "📉 大盘转弱", f"{b_trend['text']}·注意控仓", ""))
+    return out
+
+
 def _ff(x) -> float:
     """安全转 float（NaN/None → 0）。"""
     try:

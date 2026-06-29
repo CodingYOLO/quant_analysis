@@ -29,6 +29,12 @@
   <div id="rtBrief" style="font-size:16px;font-weight:500;line-height:1.6;"></div>
 </div>
 
+<!-- 盘中市场快照：大盘趋势 + 板块资金加速/退潮 + 龙头(变化/轮动·每~20min也推Bark) -->
+<div class="card" id="rtPulseCard" style="display:none;border-left:3px solid #f0a020;border-radius:0;">
+  <div style="font-size:12px;color:#9ca3af;margin-bottom:4px;">📊 盘中市场快照 · 变化/轮动（大盘趋势·板块资金加速/退潮·龙头）</div>
+  <div id="rtPulse" style="font-size:14.5px;line-height:1.7;"></div>
+</div>
+
 <!-- 集合竞价(9:15-9:30) 全市场·价格+盘口口径·仅竞价时段显示 -->
 <div class="card" id="rtAucCard" style="display:none;border:1px solid #3358e0">
   <h2>🔔 集合竞价 · 全市场<span class="rt-tag" id="rtAucPhase">竞价方向第一手·委比=资金承接/抛压</span></h2>
@@ -50,7 +56,7 @@
 
 <div class="card">
   <h2>🏆 板块龙头榜 · 资金涌入<span class="rt-tag">钱往哪走 · 龙头=板块内主动净买最大</span></h2>
-  <table><thead><tr><th>板块</th><th>主动净买</th><th>均涨</th><th>龙头</th><th>龙头涨幅</th><th>龙头外盘</th></tr></thead>
+  <table><thead><tr><th>板块</th><th>主动净买</th><th>5分钟变化</th><th>均涨</th><th>龙头</th><th>龙头涨幅</th><th>龙头外盘</th></tr></thead>
   <tbody id="rtSectors"></tbody></table>
 </div>
 
@@ -97,18 +103,25 @@ const cls=v=> v>0?'pos':(v<0?'neg':'neu');
 const sgn=v=> (v>0?'+':'')+v;
 const lead=r=>`<span class="rt-lead"><b>${r.leader||'-'}</b></span>`;
 
-function renderBreadth(b){
+function renderBreadth(b, trend){
   if(!b||!b.total){ $('rtBreadth').innerHTML='<div class="rt-empty">暂无数据</div>'; return; }
   const m=[['上涨/下跌',`<span class="pos">${b.up}</span> / <span class="neg">${b.down}</span>`],
     ['涨停',`<span class="pos">${b.limit_up||0}</span>`],['跌停',`<span class="neg">${b.limit_down||0}</span>`],
     ['总数',b.total]];
+  if(trend&&trend.text) m.push(['趋势(较30min前)',`<span class="${trend.dir==='up'?'pos':(trend.dir==='down'?'neg':'neu')}">${trend.text}</span>`]);
   $('rtBreadth').innerHTML=m.map(x=>`<div class="rt-metric"><div class="lbl">${x[0]}</div><div class="val">${x[1]}</div></div>`).join('');
 }
+// 板块资金"5分钟变化"：Δ + 加速/减速标签(琥珀)
+function dchg(r){
+  if(r.net_delta==null) return '<span class="neu">—</span>';
+  const tag=r.accel?` <span class="badge" style="font-size:9px;background:#2a2440;color:#f0a020">${r.accel}</span>`:'';
+  return `<span class="${cls(r.net_delta)}">${sgn(r.net_delta)}亿</span>${tag}`;
+}
 function renderSectors(rows){
-  if(!rows||!rows.length){ $('rtSectors').innerHTML='<tr><td colspan="6" class="rt-empty">暂无数据</td></tr>'; return; }
+  if(!rows||!rows.length){ $('rtSectors').innerHTML='<tr><td colspan="7" class="rt-empty">暂无数据</td></tr>'; return; }
   $('rtSectors').innerHTML=rows.map(r=>{const op=Math.round((r.leader_outer||0)*100);
     return `<tr><td><b>${r.industry}</b><span class="neu" style="font-size:11px"> ${r.n}只</span></td>
-      <td class="${cls(r.net_yi)}">${sgn(r.net_yi)}亿</td><td class="${cls(r.avg_pct)}">${sgn(r.avg_pct)}%</td>
+      <td class="${cls(r.net_yi)}">${sgn(r.net_yi)}亿</td><td>${dchg(r)}</td><td class="${cls(r.avg_pct)}">${sgn(r.avg_pct)}%</td>
       <td>${lead(r)}</td><td class="${cls(r.leader_pct)}">${sgn(r.leader_pct)}%</td>
       <td><span class="rt-bar"><i style="width:${op}%"></i></span> ${op}%</td></tr>`;}).join('');
 }
@@ -118,6 +131,11 @@ function renderFlash(rows){
     const tag=r.tier==='crash'?'<span class="badge badge-red">闪崩</span>':'<span class="badge badge-yellow">急跌</span>';
     return `<tr><td>${r.name}</td><td class="neg">${r.drop}%</td>
       <td class="neg">内盘${inn}%</td><td>${tag}</td></tr>`;}).join('');
+}
+function renderPulse(t){
+  const c=$('rtPulseCard');
+  if(!t){ c.style.display='none'; return; }
+  c.style.display=''; $('rtPulse').textContent=t;
 }
 function renderBrief(t){
   const c=$('rtBriefCard');
@@ -226,7 +244,7 @@ async function tick(){
   try{
     const d=await (await fetch('/api/realtime/board')).json();
     if(!d.ok){ $('rtStatus').textContent='加载失败：'+(d.msg||''); return; }
-    renderStatus(d); renderAuction(d); renderBrief(d.brief); renderBreadth(d.breadth); renderSenti(d.sentiment); renderSectors(d.sectors); renderThemes(d.themes);
+    renderStatus(d); renderAuction(d); renderPulse(d.pulse); renderBrief(d.brief); renderBreadth(d.breadth, d.breadth_trend); renderSenti(d.sentiment); renderSectors(d.sectors); renderThemes(d.themes);
     renderTail(d.tail); renderSecOut(d.sectors_out); renderFlash(d.flash);
     renderFund(d.fund_ranking); renderSurge(d.surge); renderWatch(d.watch);
   }catch(e){ $('rtStatus').textContent='网络错误：'+e; }

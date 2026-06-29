@@ -31,6 +31,7 @@ _COOLDOWN = {
     "warn": 900, "taildown": 900, "hold": 900, "limitweak": 900,
     "surge": 1200, "vel": 1200, "tailup": 1200, "brk": 1200,  # 个股机会/突破破位(20min)
     "secin": 1500, "secout": 1500, "theme": 1500,            # 板块/题材(25min·另有跨档立即)
+    "shift": 900,                                            # 重大变化:板块资金异常加速/大盘转向(15min·防刷屏)
     "senti": 3600,                                           # 情绪状态转折(1小时·防flapping)
     "tailsummary": 999999,                                   # 尾盘小结·当天一次
 }
@@ -89,7 +90,9 @@ def _collect_events() -> list[tuple[str, str, str, str]]:
     events += _flash_events(rows, tech, imap, sec_avg)                       # 个股急跌/闪崩(现价+板块)
     events += _theme_events(detect_theme_fermentation(rows, hub.concept_map()))   # 题材发酵
     events += _tail_events(rows, imap)                                       # 尾盘异动(14:30后)
-    events += _sector_events(sector_flow_events(sector_board(df, imap)))     # 板块资金涌入/撤离
+    board = sector_board(df, imap)
+    events += _sector_events(sector_flow_events(board))                      # 板块资金涌入/撤离
+    events += _market_shift_events(board, df, imap)                          # 重大变化:板块资金异常加速/大盘转向
     events += _surge_events(fund_surge_events(df), imap, tech, sec_avg, mkt)  # 个股资金抢筹(大盘+板块+技术+高位/相对强度)
     for v in velocity_events(hub.snapshot().prices(), hub.past_prices(5.0), min_move=_VEL_PUSH_MOVE):
         q = hub.snapshot().get(v["ts_code"]) or {}
@@ -102,6 +105,39 @@ def _collect_events() -> list[tuple[str, str, str, str]]:
                        _stock_lines(nm, stock, _sec_line(ind, sec_avg.get(ind)), mkt), v["ts_code"]))
     events += _holding_events()
     return events
+
+
+def _market_shift_events(board: list, df, imap: dict) -> list[tuple[str, str, str, str]]:
+    """重大变化即时事件：板块资金异常加速 / 大盘转向（较近窗口/30min前）。"""
+    import pandas as pd
+
+    from app.strategy.realtime_fund import breadth_trend, detect_market_shifts, sector_flow_delta
+    secs_delta = sector_flow_delta(board, hub.sector_net_ago(5.0))
+    pct = pd.to_numeric(df["pct_chg"], errors="coerce")
+    b_now = {"up": int((pct > 0).sum()), "limit_up": int((pct >= 9.5).sum())}
+    b_trend = breadth_trend(b_now, hub.breadth_ago(30.0))
+    return detect_market_shifts(secs_delta, b_trend)
+
+
+_PULSE_INTERVAL = 20 * 60        # 盘中市场快照·每~20分钟一条
+_pulse_last = [0.0]              # 上次定时快照推送 epoch
+
+
+def _maybe_push_pulse() -> None:
+    """盘中定时市场快照：连续交易时段每~20分钟 Bark 一条（大盘趋势+板块资金加速/退潮+龙头）。"""
+    if hub.market_session() != "continuous" or not hub.is_live():
+        return
+    now = time.time()
+    if now - _pulse_last[0] < _PULSE_INTERVAL:
+        return
+    pulse = (hub.build_board_cached() or {}).get("pulse")     # 复用看板已算好的快照句
+    if not pulse:
+        return
+    from app.notify.notifier import push_bark
+    base = get_settings().web_base_url.rstrip("/")
+    if push_bark("📊 盘中市场快照", pulse, group="盘中摘要", level="active",
+                 url=(f"{base}/realtime" if base else "")):
+        _pulse_last[0] = now
 
 
 def _mkt_warn(state: str) -> str:
@@ -435,7 +471,9 @@ def _loop() -> None:
             _health_check()                                 # 心跳:断流告警+新浪兜底
             hub.record_history()
             hub.record_net_history()                        # 资金持续/脉冲采样
+            hub.record_market_history()                      # 板块资金/大盘广度趋势采样(变化/轮动用)
             scan_once()
+            _maybe_push_pulse()                              # 定时市场快照(每~20min)
         except Exception as e:
             logger.warning("[实时扫描] 异常：%s", e)
         _stop.wait(_SCAN_INTERVAL)
