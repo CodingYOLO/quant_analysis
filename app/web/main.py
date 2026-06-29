@@ -345,7 +345,9 @@ async def api_sentiment(days: int = 22, start: str = "", end: str = "",
 @app.get("/overview", response_class=HTMLResponse)
 async def overview_page(request: Request, _user: str = Depends(require_auth)):
     """大盘体检：多维同轴 + 板块轮动 + 信号复盘，一张大局图。"""
-    return templates.TemplateResponse(request=request, name="overview.html", context={"page": "overview"})
+    resp = templates.TemplateResponse(request=request, name="overview.html", context={"page": "overview"})
+    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"   # 迭代页·避免浏览器缓存旧版
+    return resp
 
 
 @app.get("/api/market/overview")
