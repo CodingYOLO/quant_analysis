@@ -104,9 +104,9 @@
     .badge-red   { background: #3b1a1a; color: #f87171; }
     .badge-yellow{ background: #3b3218; color: #fbbf24; }
     .badge-blue  { background: #1a2b4a; color: #7c9ef8; }
-    /* ---- 正负数颜色 ---- */
-    .pos { color: #4ade80; }
-    .neg { color: #f87171; }
+    /* ---- 正负数颜色（A股口径：涨红跌绿，与 portfolio .up/.down 统一）---- */
+    .pos { color: #f6465d; }   /* 涨=红 */
+    .neg { color: #2ebd85; }   /* 跌=绿 */
     .neu { color: #9ca3af; }
     {% block extra_style %}{% endblock %}
   </style>
