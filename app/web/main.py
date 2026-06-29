@@ -1133,8 +1133,10 @@ async def api_watch_quotes(_user: str = Depends(require_auth)):
 @app.get("/realtime", response_class=HTMLResponse)
 async def realtime_page(request: Request, _user: str = Depends(require_auth)):
     """实时盯盘看板（全推L1·秒级刷新·资金流向/板块/急拉/持仓体检）。"""
-    return templates.TemplateResponse(request=request, name="realtime.html",
+    resp = templates.TemplateResponse(request=request, name="realtime.html",
                                       context={"page": "realtime"})
+    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"   # 实时看板不缓存(改版即生效·免硬刷)
+    return resp
 
 
 @app.get("/api/realtime/board")
