@@ -220,7 +220,8 @@ def init_db() -> None:
                 UNIQUE(run_date, source, tier)
             );
             CREATE TABLE IF NOT EXISTS watchlist (
-                ts_code     TEXT PRIMARY KEY,   -- 完整代码 600519.SH（唯一）
+                owner       TEXT NOT NULL DEFAULT 'me',  -- 归属：me=用户1(我) / dad=用户2(爸爸)，多人各自一份
+                ts_code     TEXT NOT NULL,      -- 完整代码 600519.SH
                 name        TEXT,
                 is_holding  INTEGER DEFAULT 0,  -- 0=仅自选盯盘 / 1=持仓
                 cost        REAL,               -- 持仓成本价（可空）
@@ -229,7 +230,8 @@ def init_db() -> None:
                 target_price REAL,              -- 目标买入价（可空·用于逼近买入区提醒）
                 note        TEXT,               -- 备注（如买入逻辑）
                 added_at    TEXT DEFAULT (datetime('now','localtime')),
-                updated_at  TEXT DEFAULT (datetime('now','localtime'))
+                updated_at  TEXT DEFAULT (datetime('now','localtime')),
+                PRIMARY KEY (owner, ts_code)    -- 同一只票可同时在不同人的列表里
             );
             CREATE TABLE IF NOT EXISTS trade_plan (
                 id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -267,7 +269,35 @@ def init_db() -> None:
         wl_cols = {row[1] for row in con.execute("PRAGMA table_info(watchlist)")}
         if "target_price" not in wl_cols:
             con.execute("ALTER TABLE watchlist ADD COLUMN target_price REAL")
+        if "owner" not in wl_cols:
+            _migrate_watchlist_add_owner(con)       # 单列PK(ts_code) → 复合PK(owner,ts_code)·老数据归 'me'
     logger.debug("strategy.db 初始化完成: %s", _get_db_path())
+
+
+def _migrate_watchlist_add_owner(con) -> None:
+    """旧库升级：watchlist 加 owner 列并改复合主键 (owner, ts_code)。原有自选/持仓全部归 'me'(用户1)。
+
+    SQLite 不支持直接改主键，须整表重建。重建在同一事务内完成，失败回滚不丢数据。
+    """
+    con.executescript(
+        """
+        ALTER TABLE watchlist RENAME TO _watchlist_old;
+        CREATE TABLE watchlist (
+            owner TEXT NOT NULL DEFAULT 'me', ts_code TEXT NOT NULL, name TEXT,
+            is_holding INTEGER DEFAULT 0, cost REAL, shares REAL, stop_loss REAL,
+            target_price REAL, note TEXT,
+            added_at TEXT DEFAULT (datetime('now','localtime')),
+            updated_at TEXT DEFAULT (datetime('now','localtime')),
+            PRIMARY KEY (owner, ts_code)
+        );
+        INSERT INTO watchlist (owner, ts_code, name, is_holding, cost, shares,
+                               stop_loss, target_price, note, added_at, updated_at)
+            SELECT 'me', ts_code, name, is_holding, cost, shares,
+                   stop_loss, target_price, note, added_at, updated_at FROM _watchlist_old;
+        DROP TABLE _watchlist_old;
+        """
+    )
+    logger.info("[db] watchlist 已升级为多归属(owner,ts_code)·原数据归 'me'")
 
 
 # ──────────────────────────────────────────────
@@ -692,27 +722,30 @@ def get_summary_stats(is_backtest: int | None = None) -> dict:
 _WATCH_FIELDS = ("name", "is_holding", "cost", "shares", "stop_loss", "target_price", "note")
 
 
+WATCH_OWNERS = ("me", "dad")            # 用户1=我 / 用户2=爸爸（都由我在网站操作·只是分区归属）
+
+
 def add_watch(ts_code: str, name: str = "", *, is_holding: bool = False,
               cost: float | None = None, shares: float | None = None,
               stop_loss: float | None = None, target_price: float | None = None,
-              note: str = "") -> None:
-    """加入自选/持仓（按 ts_code upsert：已存在则更新非空字段，保留 added_at）。"""
+              note: str = "", owner: str = "me") -> None:
+    """加入某人的自选/持仓（按 (owner, ts_code) upsert：已存在则更新非空字段，保留 added_at）。"""
     init_db()
     with _conn() as con:
         con.execute(
-            """INSERT INTO watchlist (ts_code, name, is_holding, cost, shares, stop_loss, target_price, note)
-               VALUES (?,?,?,?,?,?,?,?)
-               ON CONFLICT(ts_code) DO UPDATE SET
+            """INSERT INTO watchlist (owner, ts_code, name, is_holding, cost, shares, stop_loss, target_price, note)
+               VALUES (?,?,?,?,?,?,?,?,?)
+               ON CONFLICT(owner, ts_code) DO UPDATE SET
                  name=excluded.name, is_holding=excluded.is_holding, cost=excluded.cost,
                  shares=excluded.shares, stop_loss=excluded.stop_loss,
                  target_price=excluded.target_price, note=excluded.note,
                  updated_at=datetime('now','localtime')""",
-            (ts_code, name, int(is_holding), cost, shares, stop_loss, target_price, note),
+            (owner, ts_code, name, int(is_holding), cost, shares, stop_loss, target_price, note),
         )
 
 
-def update_watch(ts_code: str, **fields) -> bool:
-    """更新单条自选/持仓的部分字段（只允许 _WATCH_FIELDS）。返回是否命中。"""
+def update_watch(ts_code: str, *, owner: str = "me", **fields) -> bool:
+    """更新某人某条自选/持仓的部分字段（只允许 _WATCH_FIELDS）。返回是否命中。"""
     cols = {k: v for k, v in fields.items() if k in _WATCH_FIELDS}
     if not cols:
         return False
@@ -721,24 +754,26 @@ def update_watch(ts_code: str, **fields) -> bool:
     sets = ", ".join(f"{k}=?" for k in cols) + ", updated_at=datetime('now','localtime')"
     init_db()
     with _conn() as con:
-        cur = con.execute(f"UPDATE watchlist SET {sets} WHERE ts_code=?",
-                          (*cols.values(), ts_code))
+        cur = con.execute(f"UPDATE watchlist SET {sets} WHERE owner=? AND ts_code=?",
+                          (*cols.values(), owner, ts_code))
         return cur.rowcount > 0
 
 
-def remove_watch(ts_code: str) -> bool:
-    """移除自选/持仓。返回是否命中。"""
+def remove_watch(ts_code: str, *, owner: str = "me") -> bool:
+    """移除某人的自选/持仓。返回是否命中。"""
     init_db()
     with _conn() as con:
-        return con.execute("DELETE FROM watchlist WHERE ts_code=?", (ts_code,)).rowcount > 0
+        return con.execute("DELETE FROM watchlist WHERE owner=? AND ts_code=?",
+                           (owner, ts_code)).rowcount > 0
 
 
-def get_watchlist() -> list[dict]:
-    """读取全部自选/持仓（持仓在前，再按加入时间倒序）。"""
+def get_watchlist(owner: str | None = None) -> list[dict]:
+    """读取自选/持仓（持仓在前，再按加入时间倒序）。owner=None 读全部(各行带 owner)，否则只读该人。"""
     init_db()
+    where, params = ("WHERE owner=?", (owner,)) if owner else ("", ())
     with _conn() as con:
         rows = con.execute(
-            "SELECT * FROM watchlist ORDER BY is_holding DESC, added_at DESC"
+            f"SELECT * FROM watchlist {where} ORDER BY is_holding DESC, added_at DESC", params
         ).fetchall()
     return [dict(r) for r in rows]
 
