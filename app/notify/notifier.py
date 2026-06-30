@@ -173,6 +173,24 @@ class ServerChanNotifier(Notifier):
             return False
 
 
+def all_device_keys() -> str:
+    """全设备 key（用户1+用户2，逗号拼接）——全市场信号(大盘/板块/急拉/快照)全量同步两台都收。"""
+    from app.config import get_settings
+    s = get_settings()
+    return ",".join(x for x in (s.bark_key, s.bark_key_user2) if x and x.strip())
+
+
+def owner_device_keys(owners) -> str:
+    """给定归属人集合 → 对应设备 key（逗号拼接）。自选/持仓个性化信号按人路由用。
+
+    owners 取值见 db.WATCH_OWNERS：me=用户1(我) / dad=用户2(爸爸)。某人未配设备则其份额为空。
+    """
+    from app.config import get_settings
+    s = get_settings()
+    m = {"me": s.bark_key, "dad": s.bark_key_user2}
+    return ",".join(m[o] for o in owners if m.get(o) and m[o].strip())
+
+
 def _bark_keys(raw: str) -> list[str]:
     """逗号分隔的多设备 key → 去空去重列表（全量同步到每台手机用·保序）。"""
     seen: set[str] = set()

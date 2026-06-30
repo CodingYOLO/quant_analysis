@@ -203,10 +203,10 @@ def _maybe_push_pulse() -> None:
     pulse = (hub.build_board_cached() or {}).get("pulse")     # 复用看板已算好的快照句
     if not pulse:
         return
-    from app.notify.notifier import push_bark
+    from app.notify.notifier import all_device_keys, push_bark
     base = get_settings().web_base_url.rstrip("/")
     if push_bark("📊 盘中市场快照", pulse, group="盘中摘要", level="active",
-                 url=(f"{base}/realtime" if base else "")):
+                 key=all_device_keys(), url=(f"{base}/realtime" if base else "")):   # 全市场→两台都收
         _pulse_last[0] = now
 
 
@@ -476,11 +476,29 @@ def scan_once(force: bool = False, push: bool = True) -> list[dict]:
     for key, title, body, code in events:
         if not _should_push(key, now):
             continue
-        if (not push) or push_bark(title, body, group="实时盯盘",
+        bark_key = _route_keys(key, code)
+        if bark_key is None:                         # 个性化信号·归属人没配设备 → 跳过(守"各推各的")
+            continue
+        if (not push) or push_bark(title, body, group="实时盯盘", key=bark_key,
                                    url=_stock_url(code), level=_bark_level(key, title)):
             _pushed[key] = now
             new.append({"key": key, "title": title, "body": body})
     return new
+
+
+# 个性化信号前缀(关于某只自选/持仓票)：按归属人路由·只推关注它的人；其余=全市场信号·全设备全量
+_PERSONAL_PREFIXES = ("reg", "dip", "hold", "auc")
+
+
+def _route_keys(key: str, code: str) -> str | None:
+    """信号 → 目标 Bark key。全市场信号返回 ''(=push_bark 默认全设备)；个性化信号返回该票归属人的设备 key；
+    个性化但归属人没配设备 → 返回 None(调用方跳过·不回落全量·守"各推各的")。"""
+    from app.notify.notifier import all_device_keys, owner_device_keys
+    if key.split("_", 1)[0] not in _PERSONAL_PREFIXES:
+        return all_device_keys() or ""               # 全市场 → 两台都收
+    owners = (hub.watch_meta().get(code) or {}).get("owners") or ()
+    keys = owner_device_keys(owners)
+    return keys or None                              # 归属人无设备 → None(跳过)
 
 
 def _bark_level(key: str, title: str) -> str:

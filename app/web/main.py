@@ -1044,20 +1044,29 @@ async def api_plan_qmt_script(_user: str = Depends(require_auth)):
                     headers={"Content-Disposition": "attachment; filename=qmt_executor.py"})
 
 
+def _watch_owner(raw) -> str:
+    """归属人入参校验：仅允许 me(用户1)/dad(用户2)，非法/缺省回落 'me'。"""
+    return raw if raw in ("me", "dad") else "me"
+
+
 @app.get("/api/portfolio/list")
-async def api_portfolio_list(_user: str = Depends(require_auth)):
-    """秒级返回自选名单（纯 DB 读·不算现价/技术/资金）。供页面先渲染骨架，体检数据再异步填。"""
+async def api_portfolio_list(owner: str = "", _user: str = Depends(require_auth)):
+    """秒级返回自选名单（纯 DB 读·不算现价/技术/资金）。供页面先渲染骨架，体检数据再异步填。
+
+    owner 传 me/dad 只返回该人；留空返回全部(各行带 owner·供页面分「我的/爸爸的」两区)。
+    """
     try:
         from app.strategy import db
         rows = [{
             "ts_code": w["ts_code"],
             "name": w.get("name") or w["ts_code"][:6],
+            "owner": w.get("owner", "me"),
             "is_holding": bool(w.get("is_holding")),
             "cost": w.get("cost"),
             "stop_loss": w.get("stop_loss"),
             "target_price": w.get("target_price"),
             "note": w.get("note") or "",
-        } for w in db.get_watchlist()]
+        } for w in db.get_watchlist(owner=owner or None)]
         return {"ok": True, "rows": rows, "n": len(rows),
                 "n_holding": sum(1 for r in rows if r["is_holding"])}
     except Exception as e:
@@ -1234,7 +1243,8 @@ async def api_portfolio_add(request: Request, _user: str = Depends(require_auth)
         f = lambda k: (float(body[k]) if body.get(k) not in (None, "") else None)
         db.add_watch(ts_code, _stock_name(ts_code), is_holding=bool(body.get("is_holding")),
                      cost=f("cost"), shares=f("shares"), stop_loss=f("stop_loss"),
-                     target_price=f("target_price"), note=str(body.get("note") or "")[:120])
+                     target_price=f("target_price"), note=str(body.get("note") or "")[:120],
+                     owner=_watch_owner(body.get("owner")))
         return {"ok": True, "ts_code": ts_code, "name": _stock_name(ts_code)}
     except Exception as e:
         logger.exception("加入自选失败")
@@ -1254,7 +1264,7 @@ async def api_portfolio_update(request: Request, _user: str = Depends(require_au
         for k in ("cost", "shares", "stop_loss", "target_price"):
             if k in fields:
                 fields[k] = float(fields[k]) if fields[k] not in (None, "") else None
-        return {"ok": db.update_watch(ts_code, **fields)}
+        return {"ok": db.update_watch(ts_code, owner=_watch_owner(body.get("owner")), **fields)}
     except Exception as e:
         logger.exception("更新自选失败")
         return {"ok": False, "msg": str(e)}
@@ -1267,7 +1277,7 @@ async def api_portfolio_remove(request: Request, _user: str = Depends(require_au
         from app.strategy import db
         body = await request.json()
         ts_code = _resolve_ts_code(body.get("code", ""))
-        return {"ok": db.remove_watch(ts_code) if ts_code else False}
+        return {"ok": db.remove_watch(ts_code, owner=_watch_owner(body.get("owner"))) if ts_code else False}
     except Exception as e:
         logger.exception("移除自选失败")
         return {"ok": False, "msg": str(e)}
