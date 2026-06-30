@@ -13,11 +13,14 @@
 from __future__ import annotations
 
 import datetime
+import logging
 import random
 
 import pandas as pd
 
 from app.data.kline_loader import load_kline
+
+logger = logging.getLogger(__name__)
 
 # 主预测周期（交易日）。买入持有 N 日，看赚亏 + 幅度档
 DEFAULT_FWD = 5
@@ -162,8 +165,25 @@ def _chart(df: pd.DataFrame) -> dict:
 # ── 抽样编排（连网·取数） ─────────────────────────────────────────────
 _SH, _CYB = "000001.SH", "399006.SZ"
 _REVEAL_MAX = 10                     # 揭晓最多展示 T+10
-_MIN_LOOKBACK = DEFAULT_HIST + 60    # T0 前至少要这么多 bar（保 MA60/距60日高低）
+_MIN_LOOKBACK = DEFAULT_HIST         # T0 前至少 120 根展示（MA60 起始处自然留空·不补 pre-924）
+_START_924 = "20240924"              # 只用 924 政策转向之后的数据（A股风格前后迥异，不混）
+_PRIMARY_W = 0.75                    # 主：AI/科技 抽中权重；其余给次（金融/军工/航空）
+
+# 主（AI/科技·硬件/软件/材料/设备·沾边即可）→ 命中这些关键词的同花顺概念，其成分股入主池
+_PRIMARY_KW = (
+    "AI", "AIGC", "算力", "智算", "大模型", "多模态", "CPO", "光模", "光通信", "光器件",
+    "PCB", "铜连接", "液冷", "半导体", "芯片", "存储", "MCU", "GPU", "封装", "晶圆", "光刻", "EDA",
+    "消费电子", "面板", "MiniLED", "OLED", "摄像", "声学", "连接器", "被动元件", "MLCC", "载板",
+    "服务器", "数据中心", "交换机", "机器人", "人形", "减速器",
+    "软件", "信创", "鸿蒙", "操作系统", "数据要素", "云计算", "网络安全", "工业软件", "算法",
+    "智能驾驶", "自动驾驶", "智能座舱", "氟", "含氟", "电子化学", "光刻胶", "湿电子", "靶材", "6G",
+)
+# 次（金融/证券/军工/航空·为辅）：概念名 + 申万行业 双兜底
+_SECONDARY_KW = ("证券", "券商", "保险", "银行", "军工", "航空", "航天", "国防", "兵装", "大飞机", "低空")
+_SECONDARY_IND = ("证券", "保险", "银行", "金融", "军工", "航空", "航天", "国防", "兵装", "船舶")
+
 _UNIVERSE: list[tuple[str, str, str]] = []   # 缓存 [(ts_code, name, industry)]
+_POOLS: dict = {}                            # 缓存 {primary:[...], secondary:[...]}（按概念加权抽样）
 
 
 def _universe(provider) -> list[tuple[str, str, str]]:
@@ -186,6 +206,43 @@ def _universe(provider) -> list[tuple[str, str, str]]:
     return out
 
 
+def _weighted_pools(provider) -> dict:
+    """按同花顺概念名把股票池分主(AI/科技)/次(金融军工航空)；冷门不入池。缓存。"""
+    if _POOLS:
+        return _POOLS
+    uni = _universe(provider)
+    by_code = {c: (c, n, i) for c, n, i in uni}
+    prim, sec = set(), set()
+    try:
+        from app.strategy.realtime_hub import concept_map
+        for cname, members in (concept_map() or {}).items():
+            if any(k in cname for k in _PRIMARY_KW):
+                prim.update(members)
+            elif any(k in cname for k in _SECONDARY_KW):
+                sec.update(members)
+    except Exception as e:
+        logger.warning("[盘感] 概念分池失败，退化为申万行业兜底: %s", e)
+    for c, _n, ind in uni:                       # 申万行业兜底金融/军工/航空
+        if any(k in (ind or "") for k in _SECONDARY_IND):
+            sec.add(c)
+    primary = [by_code[c] for c in prim if c in by_code]
+    secondary = [by_code[c] for c in sec if c in by_code and c not in prim]   # 主优先·不重叠
+    _POOLS.update(primary=primary, secondary=secondary)
+    logger.info("[盘感] 分池：主(AI/科技)%d 只 · 次(金融/军工/航空)%d 只", len(primary), len(secondary))
+    return _POOLS
+
+
+def _pick_weighted(provider) -> tuple[str, str, str]:
+    """加权抽一只：主池 ~70% / 次池 ~30%；池空则兜底全市场。"""
+    p = _weighted_pools(provider)
+    prim, sec = p.get("primary") or [], p.get("secondary") or []
+    if prim and (random.random() < _PRIMARY_W or not sec):
+        return random.choice(prim)
+    if sec:
+        return random.choice(sec)
+    return random.choice(_universe(provider))
+
+
 def build_quiz(provider=None, *, code: str | None = None,
                hist_days: int = DEFAULT_HIST, fwd: int = DEFAULT_FWD) -> dict:
     """抽一局：选股+随机 T0 → 题面(截至T0·零泄漏) + 答案(T+1..T+N·隐藏)。
@@ -195,9 +252,8 @@ def build_quiz(provider=None, *, code: str | None = None,
     if provider is None:
         from app.data.composite_provider import CompositeProvider
         provider = CompositeProvider()
-    today = datetime.date.today()
-    start = (today - datetime.timedelta(days=1500)).strftime("%Y%m%d")    # ~4年窗口供抽样
-    end = today.strftime("%Y%m%d")
+    end = datetime.date.today().strftime("%Y%m%d")
+    start = _START_924                              # 只用 924 之后（风格一致）
 
     pool = _universe(provider)
     for _try in range(8):                          # 选股+取数可能落空，重试几次
@@ -206,11 +262,11 @@ def build_quiz(provider=None, *, code: str | None = None,
             name = next((n for c, n, _i in pool if c == code), code[:6])
             industry = next((i for c, _n, i in pool if c == code), "")
         else:
-            ts, name, industry = random.choice(pool)
+            ts, name, industry = _pick_weighted(provider)   # AI/科技为主·金融军工航空为辅·冷门剔除
         kl = load_kline(ts, start, end, provider, adj="qfq")
-        if kl is None or len(kl) < _MIN_LOOKBACK + fwd + 2:
+        if kl is None or len(kl) < _MIN_LOOKBACK + _REVEAL_MAX + 2:
             if code:
-                return {"ok": False, "msg": "该股历史数据不足以出题"}
+                return {"ok": False, "msg": "该股 924 后数据不足以出题"}
             continue
         i = random.randint(_MIN_LOOKBACK, len(kl) - _REVEAL_MAX - 1)
         hist, future = split_at(kl, i)
