@@ -75,6 +75,11 @@ function pctv(v){ if(v==null) return '<span class="neu2">—</span>'; const c=v>
 const RED='#f6465d', GREEN='#2ebd85', GOLD='#c98500', SUB='#9ca3af', GRID='#1e2138';
 let _q=null, _qid=null, _busy=false, mainC=null, shC=null, cybC=null;
 
+// 均线线条：itemStyle.color 与 lineStyle.color 同色 → 图例圆点/方块和线条颜色一致
+function maLine(name, data, c){
+  return {name:name, type:'line', data:data, showSymbol:false, smooth:true,
+          lineStyle:{color:c, width:1}, itemStyle:{color:c}};
+}
 // —— 个股蜡烛图(可选 reveal=未来段) ——
 function stockOption(q, future){
   const s=q.stock;
@@ -96,8 +101,9 @@ function stockOption(q, future){
     backgroundColor:'transparent', textStyle:{color:SUB},
     tooltip:{trigger:'axis',axisPointer:{type:'cross'},backgroundColor:'#11131c',borderColor:'#2d3052',textStyle:{color:'#cdd6f4',fontSize:11}},
     axisPointer:{link:[{xAxisIndex:'all'}]},
-    legend:{top:0,right:8,itemWidth:16,itemHeight:8,textStyle:{color:SUB,fontSize:10},data:['MA5','MA10','MA20','MA60']},
-    grid:[{left:46,right:14,top:24,height:'62%'},{left:46,right:14,top:'80%',height:'14%'}],
+    legend:{top:2,left:'center',icon:'rect',itemWidth:18,itemHeight:3,itemGap:20,
+      textStyle:{color:SUB,fontSize:10},data:['MA5','MA10','MA20','MA60']},
+    grid:[{left:46,right:14,top:34,height:'56%'},{left:46,right:14,top:'80%',height:'14%'}],
     xAxis:[{type:'category',data:dates,boundaryGap:true,axisLabel:{show:false},axisLine:{lineStyle:{color:'#2d3052'}},axisPointer:{label:{show:false}}},
            {type:'category',gridIndex:1,data:dates,boundaryGap:true,axisLabel:{color:SUB,fontSize:9},axisLine:{lineStyle:{color:'#2d3052'}}}],
     yAxis:[{scale:true,axisLabel:{color:SUB,fontSize:10},splitLine:{lineStyle:{color:'#181b29'}}},
@@ -105,10 +111,8 @@ function stockOption(q, future){
     series:[
       {type:'candlestick',data:candle,itemStyle:{color:RED,color0:GREEN,borderColor:RED,borderColor0:GREEN},
        markArea:markArea, markLine:markLine},
-      {name:'MA5',type:'line',data:ma5,showSymbol:false,smooth:true,lineStyle:{color:'#dfe3ea',width:1}},
-      {name:'MA10',type:'line',data:ma10,showSymbol:false,smooth:true,lineStyle:{color:'#f0c040',width:1}},
-      {name:'MA20',type:'line',data:ma20,showSymbol:false,smooth:true,lineStyle:{color:'#d76ad7',width:1}},
-      {name:'MA60',type:'line',data:ma60,showSymbol:false,smooth:true,lineStyle:{color:'#7c9ef8',width:1}},
+      maLine('MA5',ma5,'#e8e8e8'), maLine('MA10',ma10,'#f0c040'),
+      maLine('MA20',ma20,'#e060c0'), maLine('MA60',ma60,'#5cc8ff'),
       {type:'bar',xAxisIndex:1,yAxisIndex:1,data:vols.map((v,i)=>({value:v,itemStyle:{color:volColor[i]}}))}
     ]
   };
@@ -144,8 +148,8 @@ function renderCtx(q){
   const chips=[
     '<span class="chip"><span class="k">大盘</span> <b class="st-'+st+'">'+esc(st)+'</b></span>',
     '<span class="chip"><span class="k">板块</span> '+esc(q.industry||'—')+'</span>',
-    '<span class="chip"><span class="k">距MA20</span> '+pctv(p.bias20)+'</span>',
-    '<span class="chip"><span class="k">距60日高</span> '+pctv(p.dist_high60)+'</span>',
+    '<span class="chip" title="现价相对MA20均线"><span class="k">距MA20</span> '+pctv(p.bias20)+'</span>',
+    '<span class="chip" title="现价相对 近60日最高收盘价（不是MA60均线·衡量距阶段顶多远）"><span class="k">距60日高点</span> '+pctv(p.dist_high60)+'</span>',
     '<span class="chip"><span class="k">近20日相对大盘</span> '+pctv(p.rel_strength20)+'</span>',
     '<span class="chip"><span class="k">近5日量比</span> '+(p.vol_ratio5!=null?p.vol_ratio5:'—')+'</span>',
   ];
