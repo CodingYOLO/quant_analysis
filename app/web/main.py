@@ -378,7 +378,7 @@ async def api_train_new(code: str = "", _user: str = Depends(require_auth)):
         qid = uuid.uuid4().hex
         if len(_QUIZ_STASH) > 200:                  # 防内存膨胀·简单上限
             _QUIZ_STASH.clear()
-        _QUIZ_STASH[qid] = q["answer"]
+        _QUIZ_STASH[qid] = q                        # 整道(含题面)·供揭晓时生成 AI 盲读
         return {"ok": True, "quiz_id": qid, "question": q["question"]}
     except Exception as e:
         logger.exception("盘感出题失败")
@@ -389,12 +389,15 @@ async def api_train_new(code: str = "", _user: str = Depends(require_auth)):
 async def api_train_answer(request: Request, _user: str = Depends(require_auth)):
     """提交预测：评分 + 落库 + 揭晓答案(含未来K线/股名/日期) + 最新统计。Body {quiz_id, bucket}。"""
     try:
+        from fastapi.concurrency import run_in_threadpool
+
         from app.strategy import db
-        from app.strategy.perception_trainer import DEFAULT_FWD, score
+        from app.strategy.perception_trainer import DEFAULT_FWD, ai_blind_read, score
         body = await request.json()
-        ans = _QUIZ_STASH.pop(body.get("quiz_id", ""), None)
-        if not ans:
+        quiz = _QUIZ_STASH.pop(body.get("quiz_id", ""), None)
+        if not quiz:
             return {"ok": False, "msg": "题目已过期，请重新出题"}
+        ans = quiz["answer"]
         pred = str(body.get("bucket", ""))
         sc = score(pred, ans["bucket"])
         db.log_perception(ts_code=ans["ts_code"], name=ans["name"], t0=ans["t0"],
@@ -402,7 +405,8 @@ async def api_train_answer(request: Request, _user: str = Depends(require_auth))
                           pred=pred, actual=ans["bucket"],
                           ret_fwd=ans["rets"].get(DEFAULT_FWD, ans["rets"].get(5, 0.0)),
                           points=sc["points"], direction_right=sc["direction_right"])
-        return {"ok": True, "score": sc, "answer": ans, "stats": db.perception_stats()}
+        ai = await run_in_threadpool(ai_blind_read, quiz["question"])   # 只喂T0·盲读·不阻断
+        return {"ok": True, "score": sc, "answer": ans, "ai_read": ai, "stats": db.perception_stats()}
     except Exception as e:
         logger.exception("盘感评分失败")
         return {"ok": False, "msg": str(e)}

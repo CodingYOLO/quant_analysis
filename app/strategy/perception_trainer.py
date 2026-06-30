@@ -337,3 +337,46 @@ def _ma_aligned(close: pd.Series, take: int) -> dict:
         s = close.rolling(n).mean().round(2).tolist()[-take:]
         out[n] = [None if pd.isna(v) else v for v in s]
     return out
+
+
+# ── AI 盲读（出题时只看 T0·看不到未来·诚实第二意见） ──────────────────────
+def t0_brief(question: dict) -> str:
+    """把题面(截至T0·零未来)压成一段纯技术/盘口文字，喂给 AI 盲读。绝不含未来/股名/日期。"""
+    close = question.get("stock", {}).get("close") or []
+    c0 = close[-1] if close else None
+
+    def chg(n):
+        return round((c0 / close[-1 - n] - 1) * 100, 2) if (c0 and len(close) > n) else None
+
+    p = question.get("position", {})
+    return "\n".join([
+        f"匿名A股 · 所属板块「{question.get('industry') or '—'}」· 截至某决策日(日期隐藏)的日线。",
+        f"大盘环境：{question.get('market_state')} ｜ 形态归类：{question.get('setup_label')}",
+        f"位置：距MA20 {p.get('bias20')}% ｜ 距60日高 {p.get('dist_high60')}% ｜ 距60日低 {p.get('dist_low60')}%",
+        f"动量：近5日 {chg(5)}% ｜ 近10日 {chg(10)}% ｜ 近20日 {chg(20)}%（近20日相对上证 {p.get('rel_strength20')}%）",
+        f"量能：近5日量比 {p.get('vol_ratio5')}",
+    ])
+
+
+_BLIND_SYS = (
+    "你是严谨的A股技术分析助手，正在帮使用者训练盘感。下面是一只【匿名】个股截至某决策日(T0)的"
+    "纯技术/盘口信息——你看不到股票名、看不到T0之后的任何走势。只基于这张图做结构化多空研判：\n"
+    "①看多理由(1-3条) ②看空理由(1-3条) ③关键位/要观察的信号 ④倾向(偏多/偏空/中性)。\n"
+    "铁律：只做技术/量价/位置层面分析；**严禁编造任何基本面/消息/公司名/业绩**(你根本不知道是哪只票)；"
+    "**不得说必涨必跌或给目标价**；倾向只是概率倾向、明确说明不是预测。每条简短，总共≤180字。"
+)
+
+
+def ai_blind_read(question: dict, llm=None) -> str:
+    """AI 只读 T0 图 → 结构化多空读法（诚实·不马后炮·失败回空串不阻断揭晓）。"""
+    try:
+        from app.llm.client import LLMClient
+        client = llm or LLMClient()
+        return client.chat(
+            [{"role": "system", "content": _BLIND_SYS},
+             {"role": "user", "content": t0_brief(question)}],
+            task_type="flash", temperature=0.4, max_tokens=900,   # 中文~2tok/字·留足4段结构不被截
+        ).strip()
+    except Exception as e:
+        logger.warning("[盘感] AI盲读失败(不阻断揭晓): %s", e)
+        return ""
