@@ -169,11 +169,23 @@ def build_overview(end_date: str = "", panel_days: int = 60,
     sigs = detect_dryup_signals(amount, breadth)
     sector = _sector_matrix(provider, dates[-sector_days:]) if dates else {"names": [], "dates": [], "matrix": []}
 
+    # 上证实际点位（比累计%直观·不随区间重置；前端可改用它画走势）
+    index_level: list = []
+    try:
+        idf = provider.get_index_daily_range("000001.SH", start_date, end_date)
+        if idf is not None and not idf.empty:
+            lv = dict(zip(idf["trade_date"].astype(str), idf["close"]))
+            index_level = [round(float(lv[d]), 1) if d in lv else None for d in dates]
+    except Exception as e:
+        logger.debug("[体检] 上证点位取数失败: %s", e)
+
     return {
         "end_date": dates[-1] if dates else end_date,
         "dates": dates,
         "index_cum": index_cum,
+        "index_level": index_level,
         "amount": amount,
+        "amount_pct": _amount_percentile(amount),       # 最新成交额在窗口的水位(分位%)
         "breadth": breadth,
         "net_limit": net_limit_series(lu, ld),
         "lianban_height": height,
@@ -181,7 +193,29 @@ def build_overview(end_date: str = "", panel_days: int = 60,
         "regime_now": dash.get("regime", {}),
         "kpi": dash.get("kpi", {}),
         "signals": [{"i": i, "date": dates[i]} for i in sigs],
+        "dryup_now": _ice_now(amount, breadth),          # 当前是否处于地量+广度冰点
         "event": event_study(index_cum, sigs),
         "sectors": sector,
         "hot_themes": dash.get("hot_themes", []),
     }
+
+
+def _amount_percentile(amount: list) -> int | None:
+    """最新成交额在窗口内的分位%（0=地量、100=天量）。"""
+    vals = sorted(a for a in amount if a is not None)
+    cur = next((a for a in reversed(amount) if a is not None), None)
+    if not vals or cur is None:
+        return None
+    return round(sum(1 for x in vals if x <= cur) / len(vals) * 100)
+
+
+def _ice_now(amount: list, breadth: list,
+             *, amt_pct: float = _DRYUP_AMT_PCT, breadth_th: float = _ICE_BREADTH) -> bool:
+    """最新一日是否处于"地量 + 广度冰点"（成交额窗口低分位 且 广度≤冰点）。"""
+    vals = sorted(a for a in amount if a is not None)
+    if not vals:
+        return False
+    th = vals[max(0, int(len(vals) * amt_pct) - 1)]
+    a = amount[-1] if amount else None
+    b = breadth[-1] if breadth else None
+    return a is not None and b is not None and a <= th and b <= breadth_th

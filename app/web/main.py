@@ -494,7 +494,7 @@ async def api_tplus_settle(request: Request, _user: str = Depends(require_auth))
 
 
 @app.get("/api/market/overview")
-async def api_market_overview(days: int = 60, _user: str = Depends(require_auth)):
+async def api_market_overview(days: int = 120, _user: str = Depends(require_auth)):
     """大盘体检数据：多维同轴序列 + 板块轮动矩阵 + 地量冰点信号事件研究。"""
     try:
         from fastapi.concurrency import run_in_threadpool
@@ -1538,12 +1538,6 @@ async def api_concept_detail(date: str = "", code: str = "", _user: str = Depend
 async def insight_page(request: Request, _user: str = Depends(require_auth)):
     """产业认知教练：数据接地的认知卡片 + 练习反馈 + 自由探讨。"""
     return templates.TemplateResponse(request=request, name="industry_insight.html", context={"page": "insight"})
-
-
-@app.get("/monitor", response_class=HTMLResponse)
-async def monitor_page(request: Request, _user: str = Depends(require_auth)):
-    """盯盘看板：交易时段自动刷新，自选/持仓命中条件(风险/低吸位/板块)才提醒，不下指令。"""
-    return templates.TemplateResponse(request=request, name="monitor.html", context={"page": "monitor"})
 
 
 @app.get("/screener", response_class=HTMLResponse)

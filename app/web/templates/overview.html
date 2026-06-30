@@ -4,187 +4,212 @@
 {% block extra_style %}
 h1 { font-size:22px; text-align:center; margin-bottom:4px; }
 .sub { text-align:center; color:#9ca3af; font-size:12.5px; margin-bottom:14px; }
-.kpis { display:flex; flex-wrap:wrap; gap:10px; margin-bottom:14px; }
-.kpi { flex:1; min-width:150px; background:#1a1d2e; border:1px solid #2d3052; border-radius:10px; padding:10px 13px; }
-.kpi .l { font-size:11px; color:#9ca3af; margin-bottom:4px; }
-.kpi .v { font-size:20px; font-weight:700; color:#cdd6f4; }
-.kpi .r { font-size:11px; color:#6b7280; margin-top:3px; line-height:1.5; }
-.tabs { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px; }
-.tab { font-size:13px; padding:7px 16px; border-radius:8px; cursor:pointer; background:transparent;
-  color:#cdd6f4; border:1px solid #2d3052; }
-.tab:hover { background:#1e2138; }
-.tab.on { background:#2742a8; color:#fff; border-color:#2742a8; }
-.hint { font-size:11.5px; color:#6b7280; margin:0 0 8px; }
-.stage { background:#1a1d2e; border:1px solid #2d3052; border-radius:10px; padding:8px; }
-#chart { width:100%; height:560px; }
-#msg { color:#9ca3af; font-size:13px; padding:60px 16px; text-align:center; line-height:1.7; }
-.cap { margin-top:8px; font-size:11.5px; color:#6b7280; line-height:1.6; }
+/* 结论卡 */
+.vcard { background:linear-gradient(135deg,#161b2e,#181a2c); border:1px solid #2742a8; border-radius:12px; padding:14px 18px; margin-bottom:12px; }
+.vhead { display:flex; align-items:center; gap:14px; flex-wrap:wrap; margin-bottom:8px; }
+.vstate { font-size:24px; font-weight:800; padding:4px 18px; border-radius:10px; }
+.s-red { background:#3a1414; color:#f6465d; border:1px solid #6b2a2a; }
+.s-amber { background:#3a2c0a; color:#f0a020; border:1px solid #6b4a14; }
+.s-green { background:#0e2a1a; color:#2ebd85; border:1px solid #1f5a3a; }
+.vdate { font-size:13px; color:#9ca3af; }
+.vdate b { color:#cdd6f4; font-size:15px; }
+.vreason { font-size:13px; color:#cdd6f4; line-height:1.7; }
+.kpis { display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; }
+.kpi { background:#0f1117; border:1px solid #242842; border-radius:9px; padding:7px 12px; min-width:96px; }
+.kpi .l { font-size:10.5px; color:#9ca3af; }
+.kpi .v { font-size:16px; font-weight:700; color:#cdd6f4; }
+.kpi .d { font-size:10.5px; }
+.up { color:#f6465d; } .down { color:#2ebd85; } .neu2 { color:#9ca3af; }
+/* 区间 */
+.ranges { display:flex; gap:8px; align-items:center; justify-content:center; margin-bottom:12px; }
+.rlab { font-size:12px; color:#9ca3af; }
+.rbtn { font-size:12.5px; padding:6px 15px; border-radius:8px; cursor:pointer; background:transparent; color:#cdd6f4; border:1px solid #2d3052; }
+.rbtn:hover { background:#1e2138; } .rbtn.on { background:#2742a8; color:#fff; border-color:#2742a8; }
+/* 区块 */
+.sec { background:#1a1d2e; border:1px solid #2d3052; border-radius:10px; padding:12px 14px; margin-bottom:12px; }
+.sech { font-size:14px; color:#cdd6f4; font-weight:600; margin-bottom:8px; }
+.sech .hint { font-weight:400; font-size:11px; color:#6b7280; margin-left:6px; }
+#trend, #heat { width:100%; }
+.movers { display:flex; gap:14px; flex-wrap:wrap; margin-bottom:8px; }
+.mcol { flex:1; min-width:240px; }
+.mcol h4 { font-size:12px; margin:0 0 5px; color:#9ca3af; }
+.mrow { display:flex; justify-content:space-between; font-size:12.5px; padding:3px 8px; border-radius:6px; background:#0f1117; margin-bottom:3px; }
+.ref { font-size:13px; line-height:2; color:#cdd6f4; }
+.ref .tag { display:inline-block; background:#0f1117; border:1px solid #242842; border-radius:6px; padding:2px 9px; margin:0 4px; }
 {% endblock %}
 
 {% block content %}
 <h1>🩺 大盘体检</h1>
-<div class="sub">一张大局图，三个视角看规律。鼠标移到任意一天，四块指标同步读数；可缩放、拖动时间轴。基于真实历史，仅供研究，不构成建议。</div>
+<div class="sub">结论先行：先看「现在什么状态、能不能干」，再往下看证据。最新交易日实时刷新，可选区间。仅研究，不构成建议。</div>
 
-<div id="kpis" class="kpis"></div>
+<div id="verdict" class="vcard"><span class="neu2">⏳ 正在体检全市场（首次约 1~2 分钟，之后秒开）…</span></div>
 
-<div class="tabs">
-  <button class="tab on" data-v="A">📊 多维同轴</button>
-  <button class="tab" data-v="B">🧩 板块轮动</button>
-  <button class="tab" data-v="C">🎯 信号复盘</button>
+<div class="ranges">
+  <span class="rlab">区间</span>
+  <button class="rbtn" data-d="20">近20日</button>
+  <button class="rbtn on" data-d="60">近60日</button>
+  <button class="rbtn" data-d="120">近120日</button>
 </div>
-<div id="hint" class="hint"></div>
 
-<div class="stage">
-  <div id="chart"></div>
-  <div id="msg" style="display:none"></div>
+<div class="sec">
+  <div class="sech">📈 大盘走势 · 情绪 · 量能<span class="hint">移动鼠标读当日全部数据；背景色=当日状态（红强/黄震/绿弱）；黄虚线=地量+广度冰点</span></div>
+  <div id="trend" style="height:440px"></div>
 </div>
-<div id="cap" class="cap"></div>
 
+<div class="sec">
+  <div class="sech">🔥 板块轮动<span class="hint">先看「近5日领涨/领跌」知道主线在哪；下方热力图看主线怎么迁移</span></div>
+  <div id="movers" class="movers"></div>
+  <div id="heat"></div>
+</div>
+
+<div class="sec">
+  <div class="sech">🌡️ 市场水位 + 历史参照<span class="hint">当前成交/广度/情绪在什么位置；历史地量冰点之后怎么走（诚实标样本量·不预测）</span></div>
+  <div id="ref" class="ref"><span class="neu2">…</span></div>
+</div>
+{% endblock %}
+
+{% block extra_script %}
 <script src="/static/echarts.min.js"></script>
 <script>
 const $=id=>document.getElementById(id);
 function esc(s){ return (s==null?'':String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
-function fmt(v){ return v==null?'—':(Math.round(v*100)/100); }
+function f1(v){ return v==null?'—':(Math.round(v*10)/10); }
 function md(s){ return (s&&s.length===8)?s.slice(4,6)+'/'+s.slice(6):s; }
-const RED='#f6465d', GREEN='#2ebd85', AMBER='#f0a020', GOLD='#c98500', BLUE='#3987e5', INK='#cdd6f4', SUB='#9ca3af', MUT='#6b7280', GRID='#2d3052';
-let DATA=null, view='A', chart=null;
+function ymd(s){ return (s&&s.length===8)?s.slice(0,4)+'-'+s.slice(4,6)+'-'+s.slice(6):s; }
+const RED='#f6465d', GREEN='#2ebd85', AMBER='#f0a020', GOLD='#c98500', BLUE='#3987e5', INK='#cdd6f4', SUB='#9ca3af';
+let DATA=null, WIN=60, trendC=null, heatC=null;
 
-const HINT={
- A:'移动鼠标 → 指数/成交额/广度/净涨停 四块同时出十字光标读数；底部滑块缩放、拖动看更细。背景色=当日状态(红强/黄震/绿弱)，黄虚线=地量+广度冰点信号。',
- B:'移动鼠标看某行业某天涨幅；拖动下方色条调灵敏度。红块沿时间向其他行迁移=主线在轮动。',
- C:'灰虚线=每次「地量+广度冰点」后的实际走势，红粗线=中位路径；hover 读数。诚实标样本量。'
-};
-const CAP={
- A:'四块指标共用一根时间轴。当成交额塌成地量(黄柱)、广度跌破冰点(蓝线低于40%)在同一根竖线同时发生(黄虚线)，顺着往上看上证——随后多半反弹。状态带让你一眼看清此刻是强/震/弱。',
- B:'纵轴=申万二级活跃行业(窗口内成交额最大)，横轴=时间，红越深当日涨越多。看红色区块怎么从一行迁到另一行，就知道主线在轮谁、谁在退潮。',
- C:'把历史上每次「地量+广度冰点」对齐到第0天看其后上证。样本量 n 如实标注——小样本只作参考，不吹胜率。多维同轴肉眼已能看出规律，这里是统计验证层。'
-};
+function sliceN(arr){ return (arr||[]).slice(-WIN); }
 
-function catX(dates,gi,showLabel){
- return {type:'category',data:dates,gridIndex:gi,boundaryGap:gi!==0,
-  axisLabel:{show:showLabel,color:MUT,fontSize:10},
-  axisLine:{lineStyle:{color:GRID}}, axisTick:{show:false},
-  axisPointer:{label:{formatter:p=>p.value}}};
-}
-function valY(name,gi,min,max){
- return {scale:min==null,name:name,nameTextStyle:{color:SUB,fontSize:10,align:'left'},
-  gridIndex:gi,min:min,max:max,
-  axisLabel:{color:SUB,fontSize:10}, axisLine:{show:false}, axisTick:{show:false},
-  splitLine:{lineStyle:{color:'#181b29'}}};
-}
-
-function optMulti(d){
- const dates=d.dates.map(md), n=dates.length;
- const sigSet=new Set((d.signals||[]).map(s=>s.i));
- const segs=[]; let st=0;
- for(let i=1;i<=d.regime.length;i++){ if(i===d.regime.length||d.regime[i].color!==d.regime[st].color){ segs.push([st,i-1,d.regime[st].color]); st=i; } }
- const rc={strong:'rgba(246,70,93,0.13)',mid:'rgba(240,160,32,0.09)',weak:'rgba(46,189,133,0.13)'};
- const area=segs.map(s=>[{xAxis:dates[s[0]],itemStyle:{color:rc[s[2]]}},{xAxis:dates[s[1]]}]);
- const sigLines=(d.signals||[]).map((s,k)=>({xAxis:md(d.dates[s.i]),label:{show:true,formatter:'信号'+(k+1),color:GOLD,fontSize:10,position:'start'}}));
- return {
-  backgroundColor:'transparent', textStyle:{color:SUB},
-  axisPointer:{link:[{xAxisIndex:'all'}],lineStyle:{color:'#5a6178'},label:{backgroundColor:'#2742a8'}},
-  tooltip:{trigger:'axis',axisPointer:{type:'cross'},backgroundColor:'#11131c',borderColor:GRID,textStyle:{color:INK,fontSize:12},
-   formatter:ps=>{ const i=ps[0].dataIndex,g=d.regime[i]; const nl=d.net_limit[i];
-    return '<b>'+md(d.dates[i])+'</b>　状态 <b style="color:'+(g.color==='strong'?RED:g.color==='weak'?GREEN:AMBER)+'">'+g.label+'</b><br>'
-     +'上证累计 <b>'+fmt(d.index_cum[i])+'%</b>　成交额 <b>'+fmt(d.amount[i])+'</b> 万亿<br>'
-     +'市场广度 <b>'+fmt(d.breadth[i])+'%</b>　净涨停 <b style="color:'+(nl>=0?RED:GREEN)+'">'+(nl>=0?'+':'')+nl+'</b>'
-     +(sigSet.has(i)?'<br><span style="color:'+GOLD+'">⚑ 地量+广度冰点信号</span>':''); }},
-  grid:[{left:54,right:18,top:22,height:'33%'},{left:54,right:18,top:'45%',height:'13%'},{left:54,right:18,top:'62%',height:'13%'},{left:54,right:18,top:'79%',height:'13%'}],
-  xAxis:[catX(dates,0,false),catX(dates,1,false),catX(dates,2,false),catX(dates,3,true)],
-  yAxis:[valY('上证累计%',0,null,null),valY('成交额(万亿)',1,0,null),valY('广度%',2,0,100),valY('净涨停',3,null,null)],
-  dataZoom:[{type:'inside',xAxisIndex:[0,1,2,3],start:0,end:100},{type:'slider',xAxisIndex:[0,1,2,3],height:16,bottom:4,start:0,end:100,borderColor:GRID,fillerColor:'rgba(39,66,168,0.25)',handleStyle:{color:'#2742a8'},textStyle:{color:MUT,fontSize:9}}],
-  series:[
-   {name:'上证',type:'line',xAxisIndex:0,yAxisIndex:0,data:d.index_cum,showSymbol:false,lineStyle:{color:INK,width:1.6},areaStyle:{color:'rgba(154,160,166,0.05)'},
-    markArea:{silent:true,data:area},
-    markLine:{symbol:'none',silent:true,lineStyle:{color:GOLD,type:'dashed',width:1.1},data:sigLines}},
-   {name:'成交额',type:'bar',xAxisIndex:1,yAxisIndex:1,data:d.amount.map((v,i)=>({value:v,itemStyle:{color:sigSet.has(i)?GOLD:'#3a3f5c'}}))},
-   {name:'广度',type:'line',xAxisIndex:2,yAxisIndex:2,data:d.breadth,showSymbol:false,lineStyle:{color:BLUE,width:1.6},
-    markLine:{symbol:'none',silent:true,lineStyle:{color:MUT,type:'dashed'},label:{formatter:'冰点40%',color:MUT,fontSize:10},data:[{yAxis:40}]}},
-   {name:'净涨停',type:'bar',xAxisIndex:3,yAxisIndex:3,data:d.net_limit.map(v=>({value:v,itemStyle:{color:v>=0?RED:GREEN}}))}
-  ]
- };
+// ① 结论卡
+function renderVerdict(){
+  const r=DATA.regime_now||{}, k=DATA.kpi||{}, ic=DATA.index_cum||[];
+  const sc=r.color==='red'?'s-red':(r.color==='green'?'s-green':'s-amber');
+  const dayPct=(ic.length>=2&&ic[ic.length-1]!=null&&ic[ic.length-2]!=null)?(ic[ic.length-1]-ic[ic.length-2]):null;
+  const lv=(DATA.index_level||[]).filter(x=>x!=null); const shLevel=lv.length?lv[lv.length-1]:null;
+  const amtChg=k.amount_chg_yi;
+  const chip=(l,v,d)=>'<div class="kpi"><div class="l">'+l+'</div><div class="v">'+v+'</div>'+(d?'<div class="d">'+d+'</div>':'')+'</div>';
+  const sign=v=>v==null?'':((v>0?'+':'')+v);
+  $('verdict').innerHTML=
+    '<div class="vhead">'
+    +'<span class="vstate '+sc+'">'+esc(r.label||'—')+'</span>'
+    +'<span class="vdate">最新交易日 <b>'+ymd(DATA.end_date)+'</b></span>'
+    +'</div>'
+    +'<div class="vreason">'+esc(r.reason||'')+'</div>'
+    +'<div class="kpis">'
+    +chip('上证'+(shLevel?'('+shLevel+')':''), '<span class="'+(dayPct>=0?'up':'down')+'">'+(dayPct==null?'—':sign(f1(dayPct))+'%')+'</span>','今日')
+    +chip('涨停 / 跌停', '<span class="up">'+(k.limit_up??'—')+'</span> / <span class="down">'+(k.limit_down??'—')+'</span>', '连板高度 '+(k.lianban_height??'—')+'板')
+    +chip('涨 / 跌 家数', '<span class="up">'+(k.up_count??'—')+'</span>/<span class="down">'+(k.down_count??'—')+'</span>','')
+    +chip('成交额', f1(k.amount_wy)+' 万亿', (amtChg!=null?('较前日 <span class="'+(amtChg>=0?'up':'down')+'">'+sign(Math.round(amtChg))+'亿</span>'):''))
+    +chip('情绪温度', (k.temp??'—')+'', '0冰点~100过热')
+    +'</div>';
 }
 
-function optSector(d){
- const s=d.sectors||{}, names=s.names||[], dates=(s.dates||[]).map(md);
- const data=[]; let mx=1;
- (s.matrix||[]).forEach((row,r)=>row.forEach((v,c)=>{ if(v!=null){ data.push([c,r,Math.round(v*100)/100]); mx=Math.max(mx,Math.abs(v)); } }));
- mx=Math.min(8,Math.ceil(mx));
- return {
-  backgroundColor:'transparent', textStyle:{color:SUB},
-  tooltip:{position:'top',backgroundColor:'#11131c',borderColor:GRID,textStyle:{color:INK,fontSize:12},
-   formatter:p=>esc(names[p.value[1]])+'　'+dates[p.value[0]]+'<br><b style="color:'+(p.value[2]>=0?RED:GREEN)+'">'+(p.value[2]>=0?'+':'')+p.value[2]+'%</b>'},
-  grid:{left:92,right:24,top:14,bottom:54},
-  xAxis:{type:'category',data:dates,splitArea:{show:true},axisLabel:{color:MUT,fontSize:10},axisLine:{lineStyle:{color:GRID}}},
-  yAxis:{type:'category',data:names,splitArea:{show:true},axisLabel:{color:SUB,fontSize:11},axisLine:{lineStyle:{color:GRID}}},
-  visualMap:{min:-mx,max:mx,calculable:true,orient:'horizontal',left:'center',bottom:8,itemWidth:14,itemHeight:120,
-   inRange:{color:[GREEN,'#15392c','#1a1d2e','#3c1820',RED]},textStyle:{color:SUB,fontSize:10},text:['涨','跌']},
-  series:[{type:'heatmap',data:data,itemStyle:{borderColor:'#11131c',borderWidth:1},
-   emphasis:{itemStyle:{borderColor:'#fff',borderWidth:1.5}}}]
- };
+// ③ 走势主图：上证点位 + 状态带 + 成交额 + 净涨停
+function trendOption(){
+  const dates=sliceN(DATA.dates).map(md);
+  const lvl=sliceN(DATA.index_level); const cum=sliceN(DATA.index_cum);
+  const useLevel=lvl.some(x=>x!=null);
+  const price=useLevel?lvl:cum;
+  const amt=sliceN(DATA.amount); const net=sliceN(DATA.net_limit);
+  const reg=sliceN(DATA.regime);
+  const sigSet=new Set((DATA.signals||[]).map(s=>s.i - (DATA.dates.length-WIN)).filter(i=>i>=0&&i<WIN));
+  // 状态带：合并相邻同色
+  const segs=[]; let st=0;
+  for(let i=1;i<=reg.length;i++){ if(i===reg.length||(reg[i]||{}).color!==(reg[st]||{}).color){ segs.push([st,i-1,(reg[st]||{}).color]); st=i; } }
+  const rc={strong:'rgba(246,70,93,0.13)',mid:'rgba(240,160,32,0.09)',weak:'rgba(46,189,133,0.13)'};
+  const area=segs.map(s=>[{xAxis:dates[s[0]],itemStyle:{color:rc[s[2]]||'transparent'}},{xAxis:dates[s[1]]}]);
+  const sigLines=[...sigSet].map(i=>({xAxis:dates[i]}));
+  return {
+    backgroundColor:'transparent', textStyle:{color:SUB},
+    axisPointer:{link:[{xAxisIndex:'all'}]},
+    tooltip:{trigger:'axis',axisPointer:{type:'cross'},backgroundColor:'#11131c',borderColor:'#2d3052',textStyle:{color:INK,fontSize:12},
+      formatter:ps=>{ const i=ps[0].dataIndex; const g=reg[i]||{};
+        const dp=(i>0&&price[i]!=null&&price[i-1]!=null)?( useLevel?((price[i]/price[i-1]-1)*100):(price[i]-price[i-1]) ):null;
+        return '<b>'+dates[i]+'</b>　状态 <b style="color:'+(g.color==='strong'?RED:g.color==='weak'?GREEN:AMBER)+'">'+(g.label||'—')+'</b><br>'
+         +'上证 <b>'+(price[i]!=null?(useLevel?price[i]:price[i]+'%'):'—')+'</b>'+(dp!=null?'　当日 <b style="color:'+(dp>=0?RED:GREEN)+'">'+(dp>=0?'+':'')+f1(dp)+'%</b>':'')+'<br>'
+         +'成交额 <b>'+f1(amt[i])+'</b> 万亿　净涨停 <b style="color:'+(net[i]>=0?RED:GREEN)+'">'+(net[i]>=0?'+':'')+net[i]+'</b>'
+         +(sigSet.has(i)?'<br><span style="color:'+GOLD+'">⚑ 地量+广度冰点</span>':''); }},
+    grid:[{left:54,right:16,top:14,height:'48%'},{left:54,right:16,top:'66%',height:'13%'},{left:54,right:16,top:'83%',height:'13%'}],
+    xAxis:[{type:'category',data:dates,axisLabel:{show:false},axisLine:{lineStyle:{color:'#2d3052'}},axisTick:{show:false}},
+           {type:'category',data:dates,gridIndex:1,axisLabel:{show:false},axisLine:{lineStyle:{color:'#2d3052'}},axisTick:{show:false}},
+           {type:'category',data:dates,gridIndex:2,axisLabel:{color:SUB,fontSize:9},axisLine:{lineStyle:{color:'#2d3052'}},axisTick:{show:false}}],
+    yAxis:[{scale:true,name:useLevel?'上证点位':'上证累计%',nameTextStyle:{color:SUB,fontSize:10,align:'left'},axisLabel:{color:SUB,fontSize:10},splitLine:{lineStyle:{color:'#181b29'}}},
+           {gridIndex:1,name:'成交额',nameTextStyle:{color:SUB,fontSize:10},min:0,axisLabel:{color:SUB,fontSize:9},splitLine:{show:false}},
+           {gridIndex:2,name:'净涨停',nameTextStyle:{color:SUB,fontSize:10},axisLabel:{color:SUB,fontSize:9},splitLine:{show:false}}],
+    series:[
+      {type:'line',data:price,showSymbol:false,lineStyle:{color:INK,width:1.6},areaStyle:{color:'rgba(154,160,166,0.05)'},
+       markArea:{silent:true,data:area},
+       markLine:{symbol:'none',silent:true,lineStyle:{color:GOLD,type:'dashed',width:1},data:sigLines}},
+      {type:'bar',xAxisIndex:1,yAxisIndex:1,data:amt.map((v,i)=>({value:v,itemStyle:{color:sigSet.has(i)?GOLD:'#3a3f5c'}}))},
+      {type:'bar',xAxisIndex:2,yAxisIndex:2,data:net.map(v=>({value:v,itemStyle:{color:v>=0?RED:GREEN}}))}
+    ]
+  };
 }
 
-function optEvent(d){
- const e=d.event||{};
- const rel=(e.rel_days||[]).map(r=>r===0?'T0':'T'+(r>0?'+'+r:r));
- const series=(e.paths||[]).map((p,i)=>({name:'信号'+(i+1),type:'line',data:p,showSymbol:false,lineStyle:{color:SUB,width:1,type:'dashed',opacity:0.7}}));
- series.push({name:'中位路径',type:'line',data:e.mean,showSymbol:false,symbol:'circle',symbolSize:5,lineStyle:{color:RED,width:2.6},itemStyle:{color:RED},
-  markLine:{symbol:'none',silent:true,data:[{xAxis:'T0',lineStyle:{color:GOLD,type:'dashed'},label:{formatter:'T0',color:GOLD}},{yAxis:0,lineStyle:{color:MUT},label:{show:false}}]}});
- return {
-  backgroundColor:'transparent', textStyle:{color:SUB},
-  tooltip:{trigger:'axis',backgroundColor:'#11131c',borderColor:GRID,textStyle:{color:INK,fontSize:12},valueFormatter:v=>fmt(v)+'%'},
-  legend:{top:2,textStyle:{color:SUB,fontSize:11},data:series.map(s=>s.name)},
-  grid:{left:48,right:24,top:36,bottom:30},
-  xAxis:{type:'category',data:rel,boundaryGap:false,axisLabel:{color:SUB},axisLine:{lineStyle:{color:GRID}}},
-  yAxis:{type:'value',axisLabel:{color:SUB,formatter:'{value}%'},splitLine:{lineStyle:{color:'#181b29'}}},
-  series:series
- };
+// ④ 板块：近5日领涨/领跌 + 热力图
+function renderSectors(){
+  const s=DATA.sectors||{}; const names=s.names||[]; const allDates=s.dates||[];
+  if(!names.length){ $('movers').innerHTML='<span class="neu2">板块数据暂缺</span>'; if(heatC) heatC.clear(); return; }
+  const last5=Math.min(5, allDates.length);
+  // 近5日累计涨幅排名
+  const sums=names.map((nm,r)=>{ let v=0,c=0; for(let j=allDates.length-last5;j<allDates.length;j++){ const x=(s.matrix[r]||[])[j]; if(x!=null){v+=x;c++;} } return {nm, v:c?+v.toFixed(1):null}; })
+    .filter(x=>x.v!=null).sort((a,b)=>b.v-a.v);
+  const up=sums.slice(0,6), dn=sums.slice(-6).reverse();
+  const rowH=x=>'<div class="mrow"><span>'+esc(x.nm)+'</span><span class="'+(x.v>=0?'up':'down')+'">'+(x.v>=0?'+':'')+x.v+'%</span></div>';
+  $('movers').innerHTML=
+    '<div class="mcol"><h4>📈 近'+last5+'日领涨</h4>'+up.map(rowH).join('')+'</div>'
+    +'<div class="mcol"><h4>📉 近'+last5+'日领跌</h4>'+dn.map(rowH).join('')+'</div>';
+  // 热力图：按近5日强度排序(强在上)
+  const order=names.map((nm,r)=>r).sort((a,b)=>{ const fa=sums.find(x=>x.nm===names[a]), fb=sums.find(x=>x.nm===names[b]); return (fb?fb.v:-99)-(fa?fa.v:-99); });
+  const sortedNames=order.map(r=>names[r]);
+  const data=[]; let mx=1;
+  order.forEach((r,yi)=>{ (s.matrix[r]||[]).forEach((v,xi)=>{ if(v!=null){ data.push([xi,yi,v]); mx=Math.max(mx,Math.abs(v)); } }); });
+  mx=Math.min(8,Math.ceil(mx));
+  $('heat').style.height=Math.max(280, 26*sortedNames.length+90)+'px';
+  if(!heatC) heatC=echarts.init($('heat'));
+  heatC.setOption({ backgroundColor:'transparent', textStyle:{color:SUB},
+    tooltip:{position:'top',backgroundColor:'#11131c',borderColor:'#2d3052',textStyle:{color:INK,fontSize:12},
+      formatter:p=>esc(sortedNames[p.value[1]])+'　'+md(allDates[p.value[0]])+'<br><b style="color:'+(p.value[2]>=0?RED:GREEN)+'">'+(p.value[2]>=0?'+':'')+p.value[2]+'%</b>'},
+    grid:{left:96,right:24,top:10,bottom:42},
+    xAxis:{type:'category',data:allDates.map(md),splitArea:{show:true},axisLabel:{color:SUB,fontSize:9},axisLine:{lineStyle:{color:'#2d3052'}}},
+    yAxis:{type:'category',data:sortedNames,splitArea:{show:true},axisLabel:{color:INK,fontSize:11},axisLine:{lineStyle:{color:'#2d3052'}}},
+    visualMap:{min:-mx,max:mx,calculable:true,orient:'horizontal',left:'center',bottom:6,itemWidth:13,itemHeight:120,
+      inRange:{color:[GREEN,'#15392c','#1a1d2e','#3c1820',RED]},textStyle:{color:SUB,fontSize:10},text:['涨','跌']},
+    series:[{type:'heatmap',data:data,itemStyle:{borderColor:'#11131c',borderWidth:1},emphasis:{itemStyle:{borderColor:'#fff',borderWidth:1.5}}}]
+  }, true);
 }
 
-function renderKpi(){
- const last=x=>{ for(let i=x.length-1;i>=0;i--) if(x[i]!=null) return x[i]; return null; };
- const amt=last(DATA.amount),net=last(DATA.net_limit),hgt=last(DATA.lianban_height),rg=DATA.regime_now||{};
- const rc=rg.color==='red'?RED:(rg.color==='green'?GREEN:AMBER);
- $('kpis').innerHTML=
-  '<div class="kpi"><div class="l">当前行情状态</div><div class="v" style="color:'+rc+'">'+esc(rg.label||'—')+'</div><div class="r">'+esc(rg.reason||'')+'</div></div>'+
-  '<div class="kpi"><div class="l">最新成交额</div><div class="v">'+(amt==null?'—':fmt(amt)+' 万亿')+'</div><div class="r">缩量=地量风险 · 放量=情绪回暖</div></div>'+
-  '<div class="kpi"><div class="l">净涨停(涨停−跌停)</div><div class="v" style="color:'+(net>=0?RED:GREEN)+'">'+(net==null?'—':(net>0?'+':'')+net)+'</div><div class="r">情绪强弱最直观一条线</div></div>'+
-  '<div class="kpi"><div class="l">最高连板</div><div class="v">'+(hgt==null?'—':hgt+' 板')+'</div><div class="r">情绪天花板·梯队高度</div></div>';
+// ⑤ 市场水位 + 历史参照
+function renderRef(){
+  const k=DATA.kpi||{}, e=DATA.event||{}, br=DATA.breadth||[];
+  const ap=DATA.amount_pct, b=br.length?br[br.length-1]:null;
+  const apLab=ap==null?'—':(ap<=25?'地量区':ap>=75?'放量/天量':'正常')+'（'+ap+'分位）';
+  const ice=DATA.dryup_now;
+  let hist;
+  if(e.n){ const thin=e.n<5?' <span class="neu2">（样本仅'+e.n+'·参考）</span>':'';
+    hist='历史窗口内出现过 <b>'+e.n+'</b> 次「地量+广度冰点」，其后 <b>T+5 中位 '+(e.median_t5==null?'—':(e.median_t5>=0?'+':'')+e.median_t5+'%')+'</b>·胜率 <b>'+(e.winrate_t5==null?'—':e.winrate_t5+'%')+'</b>'+thin+'。'; }
+  else hist='当前窗口内暂无足够「地量+广度冰点」样本可统计。';
+  $('ref').innerHTML=
+    '📊 <b>当前水位</b>：成交额 <span class="tag">'+apLab+'</span> 市场广度 <span class="tag">'+f1(b)+'%</span> 情绪温度 <span class="tag">'+(k.temp??'—')+'/100</span><br>'
+    +'🧊 <b>地量冰点参照</b>：'+hist+'<br>'
+    +'<b>当前是否处于地量+广度冰点：</b>'+(ice?'<span class="up">是 —— 历史此处常是阶段低点附近，但非保证，留意右侧放量企稳</span>':'<span class="neu2">否</span>')
+    +'<div class="neu2" style="font-size:11px;margin-top:5px">阈值为经验派生·样本小不下结论·不预测涨跌、不构成建议。</div>';
 }
 
-function setHeight(h){ const el=$('chart'); el.style.height=h+'px'; }
+function renderAll(){ renderVerdict(); if(!trendC) trendC=echarts.init($('trend')); trendC.setOption(trendOption(), true); renderSectors(); renderRef(); }
+function setRange(d){ WIN=d; document.querySelectorAll('.rbtn').forEach(b=>b.classList.toggle('on',+b.dataset.d===d));
+  if(DATA){ if(!trendC) trendC=echarts.init($('trend')); trendC.setOption(trendOption(), true); renderSectors(); } }
 
-function show(v){
- view=v; document.querySelectorAll('.tab').forEach(b=>b.classList.toggle('on',b.dataset.v===v));
- $('hint').textContent=HINT[v]; $('cap').textContent=CAP[v];
- if(!DATA){ return; }
- if(v==='C' && !(DATA.event&&DATA.event.n)){
-  $('chart').style.display='none';
-  $('msg').style.display='block';
-  $('msg').innerHTML='近 '+(DATA.dates?DATA.dates.length:0)+' 个交易日内「地量+广度冰点」可统计样本 n=0（信号太靠窗口边缘、未来数据不足以复盘）。<br>这本身也是信息：当前不处于该类极端区。拉长历史窗口可统计更大样本。';
-  return;
- }
- $('msg').style.display='none'; $('chart').style.display='block';
- if(!chart){ chart=echarts.init($('chart'),null,{renderer:'canvas'}); }
- if(v==='A') setHeight(560);
- else if(v==='B') setHeight(Math.max(360, 30*((DATA.sectors&&DATA.sectors.names||[]).length)+120));
- else setHeight(380);
- chart.resize();
- chart.setOption(v==='A'?optMulti(DATA):v==='B'?optSector(DATA):optEvent(DATA), true);
-}
-
-document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{ if(DATA) show(b.dataset.v); });
-window.addEventListener('resize',()=>{ if(chart) chart.resize(); });
+document.querySelectorAll('.rbtn').forEach(b=>b.onclick=()=>setRange(+b.dataset.d));
+window.addEventListener('resize',()=>{ trendC&&trendC.resize(); heatC&&heatC.resize(); });
 
 async function load(){
- $('msg').style.display='block'; $('chart').style.display='none';
- $('msg').textContent='⏳ 正在体检全市场（首次回补历史约 1~2 分钟，之后秒开）…';
- try{
-  const r=await (await fetch('/api/market/overview?days=60')).json();
-  if(!r.ok){ $('msg').textContent='加载失败：'+esc(r.error||''); return; }
-  DATA=r.data; renderKpi(); show(view);
- }catch(e){ $('msg').textContent='加载失败：'+esc(String(e)); }
+  try{
+    const r=await (await fetch('/api/market/overview?days=120')).json();
+    if(!r.ok){ $('verdict').innerHTML='加载失败：'+esc(r.error||r.msg||''); return; }
+    DATA=r.data; WIN=Math.min(60, (DATA.dates||[]).length); renderAll();
+  }catch(e){ $('verdict').innerHTML='加载失败：'+esc(String(e)); }
 }
 load();
 </script>
