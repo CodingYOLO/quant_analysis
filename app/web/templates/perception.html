@@ -32,6 +32,8 @@ h1 { font-size:22px; text-align:center; margin-bottom:4px; }
 .actions { display:flex; gap:10px; justify-content:center; align-items:center; margin-bottom:30px; }
 .actions input { background:#0f1117; color:#e8e8e8; border:1px solid #2d3052; border-radius:7px; padding:9px 12px; font-size:13px; width:200px; }
 .nextbtn { background:linear-gradient(135deg,#3358e0,#5d7cff); color:#fff; border:none; border-radius:8px; padding:10px 24px; font-size:14px; font-weight:600; cursor:pointer; }
+.aibtn { background:#161929; color:#7c9ef8; border:1px solid #2a3358; border-radius:7px; padding:6px 14px; font-size:12.5px; cursor:pointer; }
+.aibtn:hover { background:#1e2138; }
 .airead { margin-top:8px; padding:9px 12px; background:#10131f; border:1px solid #2a3358; border-radius:8px; font-size:12.5px; line-height:1.75; color:#cdd6f4; }
 .airead b { color:#7c9ef8; }
 .grp { margin-top:8px; font-size:12px; color:#9ca3af; }
@@ -203,9 +205,20 @@ function reveal(j){
     +'<div class="rets">'+retsHtml+'</div>'
     +'<div>📖 <b>复盘</b>：当时形态<b>'+esc(a.setup_label)+'</b>、大盘<b class="st-'+esc(a.market_state)+'">'+esc(a.market_state)+'</b> → 此后5日实际 '+pctv(r[5]!=null?r[5]:r[Object.keys(r)[0]])+'。'
     +'结合"位置+大盘+板块"再回看上面那张图，体会信号与结果的对应。</div>'
-    +(j.ai_read?'<div class="airead">🤖 <b>AI 盲读</b> <span class="neu2" style="font-size:10px">（出题时 AI 只看了截至 T0 的图·没看未来·纯技术结构·非预测，当"第二意见"对照你的判断）</span><br>'+esc(j.ai_read).replace(/\n/g,'<br>')+'</div>':'')
+    +'<div id="ai-slot" style="margin-top:8px"><button class="aibtn" onclick="loadAi()">🤖 让 AI 盲读这张图</button> <span class="neu2" style="font-size:10.5px">需要时再点 · AI 只看截至 T0 的图 · 非预测 · 约 2-4 秒</span></div>'
     +'<div class="grp">🔍 揭晓：<b>'+esc(a.name)+'（'+esc(a.ts_code)+'）</b> · 决策日 '+esc(a.t0)+'</div>';
   $('reveal').scrollIntoView({behavior:'smooth', block:'nearest'});
+}
+
+async function loadAi(){
+  const slot=$('ai-slot'); if(!slot||!_qid) return;
+  slot.innerHTML='<span class="neu2">🤖 AI 盲读生成中…（约 2-4 秒）</span>';
+  try{
+    const j=await (await fetch('/api/train/ai?quiz_id='+encodeURIComponent(_qid))).json();
+    if(!j.ok){ slot.innerHTML='<span class="neu2">AI 盲读失败：'+esc(j.msg||'')+' <button class="aibtn" onclick="loadAi()">重试</button></span>'; return; }
+    slot.innerHTML='<div class="airead">🤖 <b>AI 盲读</b> <span class="neu2" style="font-size:10px">（只看了截至 T0 的图·没看未来·纯技术结构·非预测·当"第二意见"对照你的判断）</span><br>'
+      +esc(j.ai_read).replace(/\n/g,'<br>')+'</div>';
+  }catch(e){ slot.innerHTML='<span class="neu2">AI 盲读失败：'+esc(String(e))+' <button class="aibtn" onclick="loadAi()">重试</button></span>'; }
 }
 
 function renderStats(s){

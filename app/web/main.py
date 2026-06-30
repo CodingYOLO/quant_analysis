@@ -389,12 +389,10 @@ async def api_train_new(code: str = "", _user: str = Depends(require_auth)):
 async def api_train_answer(request: Request, _user: str = Depends(require_auth)):
     """提交预测：评分 + 落库 + 揭晓答案(含未来K线/股名/日期) + 最新统计。Body {quiz_id, bucket}。"""
     try:
-        from fastapi.concurrency import run_in_threadpool
-
         from app.strategy import db
-        from app.strategy.perception_trainer import DEFAULT_FWD, ai_blind_read, score
+        from app.strategy.perception_trainer import DEFAULT_FWD, score
         body = await request.json()
-        quiz = _QUIZ_STASH.pop(body.get("quiz_id", ""), None)
+        quiz = _QUIZ_STASH.get(body.get("quiz_id", ""))    # 不弹出·留给可选 AI 盲读
         if not quiz:
             return {"ok": False, "msg": "题目已过期，请重新出题"}
         ans = quiz["answer"]
@@ -405,10 +403,26 @@ async def api_train_answer(request: Request, _user: str = Depends(require_auth))
                           pred=pred, actual=ans["bucket"],
                           ret_fwd=ans["rets"].get(DEFAULT_FWD, ans["rets"].get(5, 0.0)),
                           points=sc["points"], direction_right=sc["direction_right"])
-        ai = await run_in_threadpool(ai_blind_read, quiz["question"])   # 只喂T0·盲读·不阻断
-        return {"ok": True, "score": sc, "answer": ans, "ai_read": ai, "stats": db.perception_stats()}
+        return {"ok": True, "score": sc, "answer": ans, "stats": db.perception_stats()}
     except Exception as e:
         logger.exception("盘感评分失败")
+        return {"ok": False, "msg": str(e)}
+
+
+@app.get("/api/train/ai")
+async def api_train_ai(quiz_id: str = "", _user: str = Depends(require_auth)):
+    """按需 AI 盲读：只喂截至 T0 的题面(零未来)→ 结构化多空研判。用户点按钮才调·不拖慢练习。"""
+    try:
+        from fastapi.concurrency import run_in_threadpool
+
+        from app.strategy.perception_trainer import ai_blind_read
+        quiz = _QUIZ_STASH.get(quiz_id)
+        if not quiz:
+            return {"ok": False, "msg": "题目已过期，重新出题后再试"}
+        ai = await run_in_threadpool(ai_blind_read, quiz["question"])
+        return {"ok": True, "ai_read": ai}
+    except Exception as e:
+        logger.exception("AI盲读失败")
         return {"ok": False, "msg": str(e)}
 
 
