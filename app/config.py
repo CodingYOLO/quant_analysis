@@ -36,7 +36,8 @@ class Settings(BaseSettings):
     # ---------- 推送渠道 ----------
     notify_channel: str = Field("serverchan", description="推送渠道: serverchan | email | none")
     serverchan_send_key: str = Field("", description="Server酱 SendKey")
-    bark_key: str = Field("", description="Bark(iOS推送) key；盯盘实时提醒用，服务端扫描命中即推手机")
+    bark_key: str = Field("", description="Bark(iOS推送) key；盯盘实时提醒用，服务端扫描命中即推手机。"
+                          "多设备全量同步：逗号分隔多个 key（如 myKey,dadKey），同一条消息推每台")
     # 幕数据沪深全推 L1 实时行情（TCP长连接·仅交易时间·token仅.env勿入库）
     fullpush_host: str = Field("", description="全推TCP host，生产 qt2.chagubang.com")
     fullpush_port: int = Field(0, description="全推TCP端口，生产 8379")

@@ -173,16 +173,46 @@ class ServerChanNotifier(Notifier):
             return False
 
 
+def _bark_keys(raw: str) -> list[str]:
+    """逗号分隔的多设备 key → 去空去重列表（全量同步到每台手机用·保序）。"""
+    seen: set[str] = set()
+    out: list[str] = []
+    for k in (raw or "").split(","):
+        k = k.strip()
+        if k and k not in seen:
+            seen.add(k)
+            out.append(k)
+    return out
+
+
+def _bark_post_one(key: str, payload: dict) -> bool:
+    """向单台设备 POST。失败只记日志(key 尾4位脱敏标识)不抛——一台失败不影响其余设备。"""
+    try:
+        resp = httpx.post(f"https://api.day.app/{key}", json=payload, timeout=12.0)
+        resp.raise_for_status()
+        ok = resp.json().get("code") == 200
+        if not ok:
+            logger.warning("Bark推送失败(设备…%s): %s", key[-4:], resp.text[:120])
+        return ok
+    except Exception as e:
+        logger.error("Bark推送异常(设备…%s): %s", key[-4:], e)
+        return False
+
+
 def push_bark(title: str, body: str, *, key: str = "", group: str = "盯盘",
               url: str = "", sound: str = "", level: str = "") -> bool:
-    """Bark(iOS) 实时推送（盯盘提醒用）。key 留空则读 settings.bark_key。失败返回 False。
+    """Bark(iOS) 实时推送（盯盘提醒用）。失败返回 False。
+
+    **多设备全量同步**：key / `settings.bark_key` 支持**逗号分隔多个 key**，同一条消息逐台 POST，
+    每台独立成败、互不影响；**至少一台成功即返回 True**（避免某台 key 失效拖累冷却/主设备语义）。
+    单 key 写法完全向后兼容；key 留空则读 settings.bark_key。
 
     Bark POST API：POST https://api.day.app/{key}，JSON {title, body, group, isArchive, url, level}。
     level: timeSensitive(穿透勿扰) / active(正常) / passive(静默) — 信号重要度分级用。
     """
     from app.config import get_settings
-    key = key or get_settings().bark_key
-    if not key:
+    keys = _bark_keys(key or get_settings().bark_key)
+    if not keys:
         return False
     payload = {"title": title[:40], "body": body, "group": group, "isArchive": 1}
     if url:
@@ -191,16 +221,11 @@ def push_bark(title: str, body: str, *, key: str = "", group: str = "盯盘",
         payload["sound"] = sound
     if level:
         payload["level"] = level
-    try:
-        resp = httpx.post(f"https://api.day.app/{key}", json=payload, timeout=12.0)
-        resp.raise_for_status()
-        ok = resp.json().get("code") == 200
-        if not ok:
-            logger.warning("Bark推送失败: %s", resp.text[:120])
-        return ok
-    except Exception as e:
-        logger.error("Bark推送异常: %s", e)
-        return False
+    ok_any = False
+    for k in keys:
+        if _bark_post_one(k, payload):
+            ok_any = True
+    return ok_any
 
 
 class EmailNotifier(Notifier):
