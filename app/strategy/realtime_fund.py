@@ -665,18 +665,19 @@ def market_brief(sentiment: dict, breadth: dict, top_in: str = "") -> str:
     return f"{op}　（{core}）"
 
 
-def is_sealed_limit(row: dict) -> tuple[bool, float]:
-    """是否封涨停 + 封单量(手)。现价=涨停价即视为封板，封单取买一量。
+def is_sealed_limit(row: dict) -> tuple[bool, float | None]:
+    """是否封涨停 + 封单量(手·五档买一)。现价=涨停价即视为封板。
 
-    注意：`bid_vol` 来自全推 parser 时是五档列表，但经 `df.to_dict("records")` 后，
-    缺五档的个股会被 pandas 填成 NaN(float·且为真值)——必须判类型，否则 `NaN[0]` 崩。
+    封单 None = **数据未知**（缺五档：parser 给列表，但经 `df.to_dict("records")` 后缺档被
+    pandas 填成 NaN）。必须区别于真 0，否则把"数据缺失"误判成"封单撤光→开板预警"(2026-06-30 踩坑)。
     """
     lu = float(row.get("limit_up") or 0)
     price = float(row.get("price") or 0)
     sealed = lu > 0 and price >= lu - 0.01
-    bv = _levels(row.get("bid_vol"))
-    bid1 = bv[0] if bv else 0.0
-    return sealed, (float(bid1) if sealed else 0.0)
+    if not sealed:
+        return False, 0.0
+    bv = _levels(row.get("bid_vol"))                  # NaN/标量/None → []
+    return True, (float(bv[0]) if bv else None)        # 缺五档 → None(未知·非0)
 
 
 def detect_limit_breaks(rows: list[dict], prev_sealed: dict, *,
@@ -694,9 +695,13 @@ def detect_limit_breaks(rows: list[dict], prev_sealed: dict, *,
         sealed, seal_vol = is_sealed_limit(r)
         if not sealed:
             continue
-        peak = max(seal_vol, prev_sealed.get(code, {}).get("peak", 0.0))
+        prev_peak = prev_sealed.get(code, {}).get("peak", 0.0)
+        if seal_vol is None:                                     # 封单未知(缺五档)→沿用旧峰值·本轮不判开板
+            new_sealed[code] = {"peak": prev_peak, "name": r.get("name", "")}
+            continue
+        peak = max(seal_vol, prev_peak)
         new_sealed[code] = {"peak": peak, "name": r.get("name", "")}
-        if peak > 0 and seal_vol < peak * weak_ratio:
+        if peak > 0 and seal_vol < peak * weak_ratio:           # 有真实封单读数·确实萎缩至<40%峰值
             events.append((f"limitweak_{code}", f"⚠️ 开板预警·{r.get('name', '')}",
                            f"封单萎缩至峰值 {seal_vol / peak * 100:.0f}%·随时炸板", code))
     for code, info in prev_sealed.items():

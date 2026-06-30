@@ -110,22 +110,26 @@ def test_limit_break_filters_small_amount() -> None:
 
 
 def test_sealed_limit_robust_to_nan_bid_vol() -> None:
-    """回归(2026-06-30 盘中崩):df.to_dict 后缺五档的封板股 bid_vol=NaN(float·真值)→
-    旧码 `(NaN or [0.0])[0]` = `NaN[0]` 崩→整轮扫描静默无推送。现必须容错不崩。"""
-    import math
-
+    """回归(2026-06-30 盘中两连坑):
+    ①df.to_dict 后缺五档封板股 bid_vol=NaN(float·真值)→旧码 `(NaN or [0.0])[0]`=`NaN[0]` 崩→全盘静默；
+    ②修崩时图省事把缺数据当封单0→封单萎缩逻辑误报一堆"开板预警"。
+    现：缺五档=封单未知None(不崩·不误报)，真萎缩才报。"""
     from app.strategy.realtime_fund import entrust_ratio, is_sealed_limit
     nan = float("nan")
-    for bv in (nan, 1234.0, None, [], [500.0, 1, 2, 3, 4]):       # NaN/标量/空/None/正常五档
-        sealed, vol = is_sealed_limit({"limit_up": 11.0, "price": 11.0, "bid_vol": bv})
-        assert sealed is True and not math.isnan(vol)
-    assert is_sealed_limit({"limit_up": 11.0, "price": 11.0, "bid_vol": [500.0, 1, 2, 3, 4]})[1] == 500.0
+    for bv in (nan, 1234.0, None, []):                            # 缺五档(NaN/标量/None/空)→封单未知 None
+        assert is_sealed_limit({"limit_up": 11.0, "price": 11.0, "bid_vol": bv}) == (True, None)
+    assert is_sealed_limit({"limit_up": 11.0, "price": 11.0, "bid_vol": [500.0, 1, 2, 3, 4]}) == (True, 500.0)
+    assert is_sealed_limit({"limit_up": 0, "price": 5.0}) == (False, 0.0)
     assert entrust_ratio(nan, nan) == 0.0                          # 委比同类容错(不 `for v in NaN`)
-    # 关键:整条 detect_limit_breaks 流水线遇 NaN 封板股不抛异常
-    row = {"ts_code": "C.SH", "name": "测试", "price": 11.0, "limit_up": 11.0,
-           "pct_chg": 10.0, "amount": 2e8, "bid_vol": nan}
-    ev, sealed = detect_limit_breaks([row], {})
-    assert "C.SH" in sealed
+
+    real = {"ts_code": "C.SH", "name": "测试", "price": 11.0, "limit_up": 11.0,
+            "pct_chg": 10.0, "amount": 2e8, "bid_vol": [50000.0, 0, 0, 0, 0]}
+    ev1, sealed = detect_limit_breaks([real], {})                 # 首封·建峰值5万
+    assert ev1 == [] and sealed["C.SH"]["peak"] == 50000.0
+    ev2, sealed = detect_limit_breaks([dict(real, bid_vol=nan)], sealed)   # 转缺数据
+    assert not any("limitweak" in k for k, *_ in ev2) and sealed["C.SH"]["peak"] == 50000.0  # 不误报·峰值留存
+    ev3, _ = detect_limit_breaks([dict(real, bid_vol=[10000.0, 0, 0, 0, 0])], sealed)  # 真萎缩到20%
+    assert any(k == "limitweak_C.SH" for k, *_ in ev3)            # 有真实读数·确实萎缩→照报
 
 
 def test_theme_fermentation() -> None:
