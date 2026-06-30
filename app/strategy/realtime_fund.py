@@ -253,14 +253,20 @@ def auction_alerts(rows: list[dict], watch: dict, *, gap_th: float = 7.0
     return out
 
 
+def _levels(v) -> list:
+    """五档量/价安全取列表：全推 parser 给的是列表，但经 `df.to_dict("records")` 后，
+    缺五档的个股会被 pandas 填成 NaN(float)——统一归一到 []，杜绝 `NaN[0]`/`for v in NaN` 崩。"""
+    return v if isinstance(v, (list, tuple)) else []
+
+
 def entrust_ratio(bid_vol, ask_vol) -> float:
     """委比 = (委买总量 - 委卖总量) / (委买+委卖) × 100。
 
     集合竞价无内外盘，五档委买委卖比是"资金流方向"的真身：
     +承接强(买盘排队·想进) / -抛压强(卖盘排队·想出)。9:20-9:25 不可撤单时最可信。
     """
-    b = sum(_ff(v) for v in (bid_vol or []))
-    a = sum(_ff(v) for v in (ask_vol or []))
+    b = sum(_ff(v) for v in _levels(bid_vol))
+    a = sum(_ff(v) for v in _levels(ask_vol))
     return round((b - a) / (b + a) * 100, 1) if (b + a) else 0.0
 
 
@@ -282,8 +288,8 @@ def auction_sector_strength(rows: list[dict], imap: dict, *, top: int = 10,
             continue
         avg = sum(_ff(x.get("pct_chg")) for x in items) / len(items)
         amt = sum(_ff(x.get("amount")) for x in items)
-        bid = sum(_ff(v) for x in items for v in (x.get("bid_vol") or []))
-        ask = sum(_ff(v) for x in items for v in (x.get("ask_vol") or []))
+        bid = sum(_ff(v) for x in items for v in _levels(x.get("bid_vol")))
+        ask = sum(_ff(v) for x in items for v in _levels(x.get("ask_vol")))
         ent = round((bid - ask) / (bid + ask) * 100, 1) if (bid + ask) else 0.0
         lead = max(items, key=lambda x: _ff(x.get("pct_chg")))
         out.append({"industry": ind, "avg_gap": round(avg, 2), "n": len(items),
@@ -660,11 +666,16 @@ def market_brief(sentiment: dict, breadth: dict, top_in: str = "") -> str:
 
 
 def is_sealed_limit(row: dict) -> tuple[bool, float]:
-    """是否封涨停 + 封单量(手)。现价=涨停价即视为封板，封单取买一量。"""
+    """是否封涨停 + 封单量(手)。现价=涨停价即视为封板，封单取买一量。
+
+    注意：`bid_vol` 来自全推 parser 时是五档列表，但经 `df.to_dict("records")` 后，
+    缺五档的个股会被 pandas 填成 NaN(float·且为真值)——必须判类型，否则 `NaN[0]` 崩。
+    """
     lu = float(row.get("limit_up") or 0)
     price = float(row.get("price") or 0)
     sealed = lu > 0 and price >= lu - 0.01
-    bid1 = (row.get("bid_vol") or [0.0])[0]
+    bv = _levels(row.get("bid_vol"))
+    bid1 = bv[0] if bv else 0.0
     return sealed, (float(bid1) if sealed else 0.0)
 
 

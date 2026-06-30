@@ -109,6 +109,25 @@ def test_limit_break_filters_small_amount() -> None:
     assert ev == [] and sealed == {}                              # 成交额<1亿 不跟踪
 
 
+def test_sealed_limit_robust_to_nan_bid_vol() -> None:
+    """回归(2026-06-30 盘中崩):df.to_dict 后缺五档的封板股 bid_vol=NaN(float·真值)→
+    旧码 `(NaN or [0.0])[0]` = `NaN[0]` 崩→整轮扫描静默无推送。现必须容错不崩。"""
+    import math
+
+    from app.strategy.realtime_fund import entrust_ratio, is_sealed_limit
+    nan = float("nan")
+    for bv in (nan, 1234.0, None, [], [500.0, 1, 2, 3, 4]):       # NaN/标量/空/None/正常五档
+        sealed, vol = is_sealed_limit({"limit_up": 11.0, "price": 11.0, "bid_vol": bv})
+        assert sealed is True and not math.isnan(vol)
+    assert is_sealed_limit({"limit_up": 11.0, "price": 11.0, "bid_vol": [500.0, 1, 2, 3, 4]})[1] == 500.0
+    assert entrust_ratio(nan, nan) == 0.0                          # 委比同类容错(不 `for v in NaN`)
+    # 关键:整条 detect_limit_breaks 流水线遇 NaN 封板股不抛异常
+    row = {"ts_code": "C.SH", "name": "测试", "price": 11.0, "limit_up": 11.0,
+           "pct_chg": 10.0, "amount": 2e8, "bid_vol": nan}
+    ev, sealed = detect_limit_breaks([row], {})
+    assert "C.SH" in sealed
+
+
 def test_theme_fermentation() -> None:
     cmap = {"AI算力": ["1.SH", "2.SH", "3.SH", "4.SH"], "银行": ["5.SH", "6.SH"]}
     rows = [{"ts_code": f"{i}.SH", "name": f"票{i}", "pct_chg": p, "amount": 1e8}
