@@ -1,0 +1,192 @@
+{% extends "base.html" %}
+{% block title %}做T训练 — A股Agent{% endblock %}
+
+{% block extra_style %}
+h1 { font-size:22px; text-align:center; margin-bottom:4px; }
+.sub { text-align:center; color:#9ca3af; font-size:12.5px; margin-bottom:12px; }
+.topbar { display:flex; gap:10px; align-items:center; flex-wrap:wrap; justify-content:center; margin-bottom:10px; }
+.topbar input, .topbar select { background:#0f1117; color:#e8e8e8; border:1px solid #2d3052; border-radius:7px; padding:8px 11px; font-size:13px; }
+.topbar input { width:160px; }
+.newbtn { background:linear-gradient(135deg,#3358e0,#5d7cff); color:#fff; border:none; border-radius:8px; padding:9px 20px; font-size:13px; font-weight:600; cursor:pointer; }
+.meta { font-size:12.5px; color:#cdd6f4; }
+.board { background:#1a1d2e; border:1px solid #2d3052; border-radius:10px; padding:10px 12px; margin-bottom:10px; }
+#chart { width:100%; height:380px; }
+.ctrls { display:flex; gap:8px; align-items:center; flex-wrap:wrap; justify-content:center; margin:8px 0; }
+.cbtn { background:#161929; color:#cdd6f4; border:1px solid #2d3052; border-radius:7px; padding:7px 14px; font-size:13px; cursor:pointer; }
+.cbtn:hover { background:#1e2138; } .cbtn:disabled { opacity:.4; cursor:default; }
+.cbtn.play { background:#2742a8; color:#fff; border-color:#2742a8; }
+.panel { display:flex; gap:10px; flex-wrap:wrap; align-items:center; justify-content:center; }
+.stat { background:#0f1117; border:1px solid #242842; border-radius:8px; padding:7px 13px; font-size:12.5px; color:#cdd6f4; }
+.stat b { font-size:15px; }
+.up { color:#f6465d; } .down { color:#2ebd85; } .neu2 { color:#9ca3af; }
+.trade { display:flex; gap:8px; align-items:center; flex-wrap:wrap; justify-content:center; margin-top:8px; }
+.qsel { display:flex; gap:4px; }
+.qsel label { font-size:12px; color:#9ca3af; }
+.sellbtn { background:#3a1a1a; color:#f87171; border:1px solid #6b2a2a; border-radius:8px; padding:10px 22px; font-size:14px; font-weight:600; cursor:pointer; }
+.buybtn { background:#0e2a1a; color:#4ade80; border:1px solid #1f5a3a; border-radius:8px; padding:10px 22px; font-size:14px; font-weight:600; cursor:pointer; }
+.sellbtn:disabled,.buybtn:disabled { opacity:.4; cursor:default; }
+.settle { background:#141729; border:1px solid #2742a8; border-radius:10px; padding:13px 16px; margin:10px 0 30px; line-height:1.9; font-size:13px; display:none; }
+.verdict { font-size:17px; font-weight:700; margin-bottom:6px; }
+.v-good { color:#4ade80; } .v-bad { color:#f87171; } .v-flat { color:#9ca3af; }
+{% endblock %}
+
+{% block content %}
+<h1>⚡ 做T训练</h1>
+<div class="sub">手里有<b>底仓</b>，盘中真实分时<b>逐根播放</b>（看不到未来）——<b>高抛低吸</b>、收盘结算"做T相对不动多赚/摊低成本多少"。数据=真实历史分钟线(近~5个交易日)。练时机与反应，仅研究、不构成建议。</div>
+
+<div class="topbar">
+  <input id="code" placeholder="指定代码(留空=随机AI/科技)">
+  <select id="day"><option value="">随机近期日</option></select>
+  <button class="newbtn" id="newbtn">开新局 ▶</button>
+  <span class="meta" id="meta"></span>
+</div>
+
+<div class="board">
+  <div id="chart"></div>
+  <div class="ctrls">
+    <button class="cbtn play" id="playbtn">▶ 播放</button>
+    <button class="cbtn" id="stepbtn">⏭ 步进</button>
+    <span class="neu2" style="font-size:12px">速度</span>
+    <select id="speed" class="cbtn" style="padding:6px 8px"><option value="280">1x</option><option value="130" selected>2x</option><option value="60">4x</option></select>
+    <button class="cbtn" id="endbtn">⏹ 跳到收盘并结算</button>
+    <span class="neu2" id="clock" style="font-size:12px;margin-left:6px"></span>
+  </div>
+  <div class="panel" id="panel"></div>
+  <div class="trade">
+    <span class="qsel"><label><input type="radio" name="q" value="0.5" checked> 半仓</label> <label><input type="radio" name="q" value="1"> 全仓</label></span>
+    <button class="sellbtn" id="sellbtn">📉 卖出</button>
+    <button class="buybtn" id="buybtn">📈 买回</button>
+    <span class="neu2" style="font-size:11px">底仓默认1000股·卖减买加·不超底仓不卖空</span>
+  </div>
+</div>
+
+<div id="settle" class="settle"></div>
+{% endblock %}
+
+{% block extra_script %}
+<script src="/static/echarts.min.js"></script>
+<script>
+const $=id=>document.getElementById(id);
+function esc(s){ return (s==null?'':String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+const RED='#f6465d', GREEN='#2ebd85', GOLD='#f0c040', SUB='#9ca3af';
+const BASE=1000;
+let sid=null, bars=[], prevClose=0, name='', day='';
+let cursor=0, holding=BASE, trades=[], timer=null, chart=null;
+
+function fmt(v,suf){ if(v==null) return '—'; return (v>0?'+':'')+(+v).toFixed(2)+(suf||''); }
+function pxColor(v){ return v>=prevClose?RED:GREEN; }
+
+function chartOption(){
+  const times=bars.map(b=>b.t);
+  const price=bars.map((b,i)=> i<=cursor? b.c : null);
+  const avg=bars.map((b,i)=> i<=cursor? b.avg : null);
+  const vols=bars.map((b,i)=> i<=cursor? b.v : 0);
+  const mk=trades.map(t=>({coord:[bars[t.i].t, bars[t.i].c], value:(t.side==='sell'?'卖':'买'),
+    itemStyle:{color:(t.side==='sell'?RED:GREEN)}, symbol:'pin', symbolSize:26,
+    label:{color:'#fff',fontSize:10,formatter:(t.side==='sell'?'卖':'买')}}));
+  return {
+    backgroundColor:'transparent', textStyle:{color:SUB},
+    tooltip:{trigger:'axis',axisPointer:{type:'cross'},backgroundColor:'#11131c',borderColor:'#2d3052',textStyle:{color:'#cdd6f4',fontSize:11}},
+    axisPointer:{link:[{xAxisIndex:'all'}]},
+    grid:[{left:54,right:14,top:14,height:'64%'},{left:54,right:14,top:'82%',height:'13%'}],
+    xAxis:[{type:'category',data:times,boundaryGap:false,axisLabel:{color:SUB,fontSize:9,interval:Math.floor(bars.length/6)},axisLine:{lineStyle:{color:'#2d3052'}}},
+           {type:'category',gridIndex:1,data:times,boundaryGap:false,axisLabel:{show:false},axisLine:{lineStyle:{color:'#2d3052'}}}],
+    yAxis:[{scale:true,axisLabel:{color:SUB,fontSize:10},splitLine:{lineStyle:{color:'#181b29'}}},
+           {gridIndex:1,axisLabel:{show:false},splitLine:{show:false}}],
+    series:[
+      {name:'分时',type:'line',data:price,showSymbol:false,lineStyle:{color:'#dfe3ea',width:1.4},
+       markLine:{symbol:'none',silent:true,data:[{yAxis:prevClose,lineStyle:{color:'#6b7280',type:'dashed'},label:{formatter:'昨收 '+prevClose,color:SUB,fontSize:10,position:'insideEndTop'}}]},
+       markPoint:{data:mk}},
+      {name:'均价',type:'line',data:avg,showSymbol:false,lineStyle:{color:GOLD,width:1}},
+      {type:'bar',xAxisIndex:1,yAxisIndex:1,data:vols.map((v,i)=>({value:v,itemStyle:{color: bars[i].c>=(i>0?bars[i-1].c:prevClose)?RED:GREEN}}))}
+    ]
+  };
+}
+function render(){ if(chart) chart.setOption(chartOption(), true); }
+
+function panel(){
+  const b=bars[cursor]||{}, p=b.c, chg=prevClose?((p/prevClose-1)*100):0;
+  const cash=trades.reduce((s,t)=>s+(t.side==='sell'?1:-1)*t.qty*bars[t.i].c,0);
+  const excess=cash+(holding-BASE)*p;     // 若此刻收盘的做T超额
+  $('panel').innerHTML=
+    '<div class="stat">时间 <b>'+esc(b.t||'')+'</b></div>'
+    +'<div class="stat">现价 <b style="color:'+pxColor(p)+'">'+(p!=null?p.toFixed(2):'—')+'</b> <span class="'+(chg>=0?'up':'down')+'">'+fmt(chg,'%')+'</span></div>'
+    +'<div class="stat">均价 <b style="color:'+GOLD+'">'+(b.avg!=null?b.avg.toFixed(2):'—')+'</b></div>'
+    +'<div class="stat">持仓 <b>'+holding+'</b>/'+BASE+'股</div>'
+    +'<div class="stat">已实现现金 <b class="'+(cash>=0?'up':'down')+'">'+(cash>=0?'+':'')+cash.toFixed(0)+'</b></div>'
+    +'<div class="stat">若此刻收盘·做T超额 <b class="'+(excess>=0?'up':'down')+'">'+(excess>=0?'+':'')+excess.toFixed(0)+'</b></div>';
+  const atEnd=cursor>=bars.length-1;
+  $('sellbtn').disabled=atEnd||holding<=0;
+  $('buybtn').disabled=atEnd||holding>=BASE;
+  $('clock').textContent=(cursor+1)+'/'+bars.length+(atEnd?' · 已收盘':'');
+}
+
+function qty(side){
+  const f=parseFloat(document.querySelector('input[name=q]:checked').value);
+  if(side==='sell') return Math.min(holding, f===1?holding:Math.round(BASE*0.5/100)*100||holding);
+  return Math.min(BASE-holding, f===1?BASE-holding:Math.round(BASE*0.5/100)*100||(BASE-holding));
+}
+function trade(side){
+  if(cursor>=bars.length-1) return;
+  const q=qty(side); if(q<=0) return;
+  if(side==='sell'){ holding-=q; } else { holding+=q; }
+  trades.push({i:cursor, side, qty:q});
+  render(); panel();
+}
+
+function step(){ if(cursor<bars.length-1){ cursor++; render(); panel(); if(cursor>=bars.length-1) pause(); } }
+function play(){ if(cursor>=bars.length-1) return; $('playbtn').textContent='⏸ 暂停'; $('playbtn').classList.remove('play');
+  timer=setInterval(()=>{ if(cursor>=bars.length-1){ pause(); return; } cursor++; render(); panel(); }, +$('speed').value); }
+function pause(){ if(timer){ clearInterval(timer); timer=null; } $('playbtn').textContent='▶ 播放'; $('playbtn').classList.add('play'); }
+function toggle(){ timer?pause():play(); }
+function toEnd(){ pause(); cursor=bars.length-1; render(); panel(); settle(); }
+
+async function settle(){
+  pause();
+  try{
+    const j=await (await fetch('/api/tplus/settle',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({session_id:sid, base:BASE, trades})})).json();
+    if(!j.ok){ $('settle').style.display='block'; $('settle').innerHTML='结算失败：'+esc(j.msg||''); return; }
+    const r=j.settle, vc=r.excess>0?'v-good':(r.excess<0?'v-bad':'v-flat');
+    $('settle').style.display='block';
+    $('settle').innerHTML=
+      '<div class="verdict '+vc+'">'+esc(r.verdict)+'</div>'
+      +'<div>📊 卖出 '+r.sell_qty+'股 @均价 '+(r.sell_vwap??'—')+' ｜ 买回 '+r.buy_qty+'股 @均价 '+(r.buy_vwap??'—')
+      +' ｜ 共 '+(r.n_sell+r.n_buy)+' 笔 ｜ 期末持仓 '+r.end_holding+'股'+(r.restored?'(已还原底仓✓)':'(未还原)')+'</div>'
+      +'<div>💰 做T实现现金 <b class="'+(r.cash>=0?'up':'down')+'">'+(r.cash>=0?'+':'')+r.cash+'</b>'
+      +' ｜ 相对"全程不动"超额 <b class="'+(r.excess>=0?'up':'down')+'">'+(r.excess>=0?'+':'')+r.excess+' 元</b>'
+      +'（摊低成本 '+r.per_share+' 元/股）｜ 当日"不动"盈亏 '+(r.hold_pnl>=0?'+':'')+r.hold_pnl+'</div>'
+      +'<div class="neu2" style="font-size:11px;margin-top:4px">「超额」= 做T比一直拿着不动多赚多少（含期末未还原仓位按收盘计）。做反了（追涨杀跌）会是负数。</div>';
+    $('settle').scrollIntoView({behavior:'smooth',block:'nearest'});
+  }catch(e){ $('settle').style.display='block'; $('settle').innerHTML='结算失败：'+esc(String(e)); }
+}
+
+async function newGame(){
+  pause(); $('newbtn').disabled=true; $('newbtn').textContent='⏳ 开局中…'; $('settle').style.display='none';
+  try{
+    const code=$('code').value.trim(), d=$('day').value;
+    const j=await (await fetch('/api/tplus/new'+'?code='+encodeURIComponent(code)+'&day='+encodeURIComponent(d))).json();
+    if(!j.ok){ alert('开局失败：'+(j.msg||'')); return; }
+    sid=j.session_id; bars=j.bars; prevClose=j.prev_close||bars[0].o; name=j.name; day=j.day;
+    cursor=0; holding=BASE; trades=[];
+    $('meta').innerHTML='<b>'+esc(name)+'（'+esc(j.ts_code)+'）</b> · '+esc(day)+' · 昨收 '+prevClose;
+    const sel=$('day'); const cur=sel.value;
+    sel.innerHTML='<option value="">随机近期日</option>'+(j.avail_days||[]).map(x=>'<option value="'+x+'"'+(x===day?' selected':'')+'>'+x+'</option>').join('');
+    if(!chart) chart=echarts.init($('chart'));
+    render(); panel();
+  }catch(e){ alert('开局失败：'+e); }
+  finally{ $('newbtn').disabled=false; $('newbtn').textContent='开新局 ▶'; }
+}
+
+$('newbtn').onclick=newGame;
+$('playbtn').onclick=toggle;
+$('stepbtn').onclick=()=>{ pause(); step(); };
+$('endbtn').onclick=toEnd;
+$('sellbtn').onclick=()=>trade('sell');
+$('buybtn').onclick=()=>trade('buy');
+$('speed').onchange=()=>{ if(timer){ pause(); play(); } };
+$('code').addEventListener('keydown',e=>{ if(e.key==='Enter') newGame(); });
+window.addEventListener('resize',()=>{ chart&&chart.resize(); });
+newGame();
+</script>
+{% endblock %}

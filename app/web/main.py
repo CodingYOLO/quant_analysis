@@ -437,6 +437,62 @@ async def api_train_stats(_user: str = Depends(require_auth)):
         return {"ok": False, "msg": str(e)}
 
 
+# ── 做T训练（盘中 T+0 波段·分时回放） ──────────────────────────────────
+@app.get("/tplus", response_class=HTMLResponse)
+async def tplus_page(request: Request, _user: str = Depends(require_auth)):
+    """做T训练：选股+近期某交易日，分时逐步播放，高抛低吸，收盘结算。"""
+    resp = templates.TemplateResponse(request=request, name="tplus.html", context={"page": "tplus"})
+    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+    return resp
+
+
+_TPLUS_STASH: dict[str, dict] = {}     # session_id → 当日分时(结算按下标取价·防客户端伪造)
+
+
+@app.get("/api/tplus/new")
+async def api_tplus_new(code: str = "", day: str = "", _user: str = Depends(require_auth)):
+    """开一局做T：返回某交易日真实分时(逐根·含均价) + 昨收 + 可选日期；分时暂存服务端供结算。"""
+    try:
+        import uuid
+
+        from fastapi.concurrency import run_in_threadpool
+
+        from app.strategy.tplus_trainer import build_session
+        ts = _resolve_ts_code(code) if code else None
+        s = await run_in_threadpool(lambda: build_session(code=ts, day=(day or None)))
+        if not s.get("ok"):
+            return {"ok": False, "msg": s.get("msg", "开局失败")}
+        sid = uuid.uuid4().hex
+        if len(_TPLUS_STASH) > 100:
+            _TPLUS_STASH.clear()
+        _TPLUS_STASH[sid] = s
+        return {"ok": True, "session_id": sid, "name": s["name"], "ts_code": s["ts_code"],
+                "day": s["day"], "prev_close": s["prev_close"], "bars": s["bars"],
+                "avail_days": s["avail_days"]}
+    except Exception as e:
+        logger.exception("做T开局失败")
+        return {"ok": False, "msg": str(e)}
+
+
+@app.post("/api/tplus/settle")
+async def api_tplus_settle(request: Request, _user: str = Depends(require_auth)):
+    """做T结算：Body {session_id, base, trades:[{i,side,qty}]}。结算按服务端暂存的分时取价。"""
+    try:
+        from app.strategy.tplus_trainer import settle
+        body = await request.json()
+        s = _TPLUS_STASH.get(body.get("session_id", ""))
+        if not s:
+            return {"ok": False, "msg": "本局已过期，请重新开局"}
+        prices = [b["c"] for b in s["bars"]]
+        base = int(body.get("base") or 1000)
+        r = settle(prices, body.get("trades") or [], base=base, close=prices[-1],
+                   prev_close=(s.get("prev_close") or s["bars"][0]["o"]))
+        return {"ok": True, "settle": r}
+    except Exception as e:
+        logger.exception("做T结算失败")
+        return {"ok": False, "msg": str(e)}
+
+
 @app.get("/api/market/overview")
 async def api_market_overview(days: int = 60, _user: str = Depends(require_auth)):
     """大盘体检数据：多维同轴序列 + 板块轮动矩阵 + 地量冰点信号事件研究。"""
