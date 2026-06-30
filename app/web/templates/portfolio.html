@@ -11,6 +11,12 @@ h1 { font-size:22px; text-align:center; margin-bottom:4px; }
 .addbar .lab { color:#9ca3af; font-size:12px; }
 .addbtn { background:linear-gradient(135deg,#3358e0,#5d7cff); color:#fff; border:none; border-radius:7px; padding:8px 18px; font-size:13px; font-weight:600; cursor:pointer; }
 .chk { accent-color:#3358e0; }
+.osel { background:#0f1117; color:#e8e8e8; border:1px solid #2d3052; border-radius:6px; padding:7px 9px; font-size:13px; }
+.zone-head { margin:16px 0 6px; font-size:14px; font-weight:600; color:#cdd6f4; border-left:3px solid #3358e0; padding-left:9px; }
+.zone-head.u2 { border-left-color:#b794f6; }
+.zone-empty { color:#6b7280; font-size:12px; padding:8px 11px; background:#141729; border:1px dashed #2d3052; border-radius:8px; }
+.utag { font-size:9px; padding:1px 6px; border-radius:6px; margin-left:5px; background:#1a2b4a; color:#7c9ef8; }
+.utag.u2 { background:#2a2440; color:#b794f6; }
 .alerts { margin-bottom:12px; }
 .alert { display:inline-block; border-radius:8px; padding:5px 11px; margin:3px 6px 3px 0; font-size:12.5px; }
 .a-danger { background:#3a1a1a; color:#f87171; border:1px solid #7a3a3a; }
@@ -44,6 +50,11 @@ tr.datarow:hover td { background:#1e2138; cursor:pointer; }
 </div>
 
 <div class="addbar">
+  <span class="lab">归属</span>
+  <select id="a_owner" class="osel" title="加到哪个用户的列表（用户1=我 / 用户2）">
+    <option value="me">用户1</option>
+    <option value="dad">用户2</option>
+  </select>
   <input type="text" id="a_code" placeholder="代码/名称 如 中际旭创">
   <label class="lab"><input type="checkbox" id="a_hold" class="chk"> 持仓</label>
   <span class="lab">成本</span><input type="text" class="num" id="a_cost" placeholder="成本价">
@@ -65,7 +76,7 @@ tr.datarow:hover td { background:#1e2138; cursor:pointer; }
 <div id="summary" class="summary"></div>
 <div id="loading" class="neu2" style="padding:14px">⏳ 读取自选名单…</div>
 <div id="empty" class="neu2" style="display:none;padding:12px"></div>
-<div id="dash" style="display:none;overflow-x:auto"><table id="tbl"></table></div>
+<div id="dash" style="display:none;overflow-x:auto"></div>
 {% endblock %}
 
 {% block extra_script %}
@@ -134,35 +145,49 @@ function renderSummary(s,date){
     +'<div class="neu2" style="font-size:10.5px;align-self:center">'+tail+'</div>';
 }
 const WAIT='<span class="miss">·</span>';   // 体检未到的占位
+function headRow(){
+  return '<tr><th>体检</th><th>代码</th><th>名称</th><th>赛道</th><th>现价</th><th>涨跌</th><th>盈亏</th><th>成本/止损</th><th>位置</th><th>主力3日</th><th>操作</th></tr>';
+}
+// 单只行(含展开详情占位行)。i=全局 _rows 下标（toggle/edit/del 都按此下标·跨区唯一）
+function rowHtml(r,i){
+  const cid='p'+i, P=r._pending;   // 名单已到、体检(现价/技术/资金)未到 → 占位，不显误导值
+  const health = P ? '<span title="体检中…">⏳</span>' : (LIGHT[r.health]||'');
+  const price  = P ? WAIT : (r.price!=null?r.price:'<span class="miss">—</span>');
+  const chg    = P ? WAIT : pct(r.pct_chg);
+  const pnl    = P ? WAIT : (r.pnl!=null?'<b>'+pct(r.pnl)+'</b>':'<span class="miss">—</span>');
+  const pos    = P ? WAIT : (r.above_ma20===false?'<span class="down">破位MA20</span>':'<span class="up">站上MA20</span>')+' 乖离'+pct(r.bias20)+' 距高'+pct(r.dist_high);
+  const flow   = P ? WAIT : (r.main_flow_3d!=null?pct(r.main_flow_3d,0)+'亿':'<span class="miss">—</span>');
+  const track  = '<span class="neu2">'+esc(r.industry||'')+'</span>'+bd(r.ts_code)+(P?'':sectorTag(r.sector_phase));
+  const cs=(r.cost!=null?('成本'+r.cost):'<span class="miss">—</span>')+(r.stop_loss!=null?' / 止损<span class="down">'+r.stop_loss+'</span>':'')+(r.target_price!=null?' / 买入<span style="color:#7c9ef8">'+r.target_price+'</span>':'');
+  return '<tr class="datarow" onclick="toggle('+i+')">'
+    +'<td style="font-size:15px" title="'+(r.flags||[]).map(f=>esc(f.text)).join('；')+'">'+health+'</td>'
+    +'<td style="color:#7c9ef8">'+r.ts_code.slice(0,6)+'</td>'
+    +'<td>'+esc(r.name)+(r.is_holding?'<span class="hold">持仓</span>':'<span class="watch">自选</span>')
+      +(r.reg?'<span class="badge" title="'+esc(r.reg.text)+'" style="font-size:9px;margin-left:4px;background:#3a1a1a;color:#f87171">'+(r.reg.kind==='suspend'?'🔒停牌':'⚠️异动核查')+'</span>':'')+'</td>'
+    +'<td>'+track+'</td>'
+    +'<td>'+price+'</td>'
+    +'<td>'+chg+'</td>'
+    +'<td>'+pnl+'</td>'
+    +'<td style="font-size:11px">'+cs+'</td>'
+    +'<td style="font-size:11px">'+pos+'</td>'
+    +'<td>'+flow+'</td>'
+    +'<td><span class="op" onclick="event.stopPropagation();editRow('+i+')">✏️编辑</span>'
+      +'<span class="op del" onclick="event.stopPropagation();delRow('+i+')">🗑删</span></td></tr>'
+    +'<tr id="row_'+cid+'" style="display:none"><td colspan="11" style="padding:0"><div class="detail" id="d_'+cid+'"></div></td></tr>';
+}
+// 两区渲染：用户1 / 用户2，各一张表；空区给提示。行下标用全局 _rows 下标(跨区唯一)
 function renderTable(){
-  let h='<tr><th>体检</th><th>代码</th><th>名称</th><th>赛道</th><th>现价</th><th>涨跌</th><th>盈亏</th><th>成本/止损</th><th>位置</th><th>主力3日</th><th>操作</th></tr>';
-  _rows.forEach((r,i)=>{
-    const cid='p'+i, P=r._pending;   // 名单已到、体检(现价/技术/资金)未到 → 占位，不显误导值
-    const health = P ? '<span title="体检中…">⏳</span>' : (LIGHT[r.health]||'');
-    const price  = P ? WAIT : (r.price!=null?r.price:'<span class="miss">—</span>');
-    const chg    = P ? WAIT : pct(r.pct_chg);
-    const pnl    = P ? WAIT : (r.pnl!=null?'<b>'+pct(r.pnl)+'</b>':'<span class="miss">—</span>');
-    const pos    = P ? WAIT : (r.above_ma20===false?'<span class="down">破位MA20</span>':'<span class="up">站上MA20</span>')+' 乖离'+pct(r.bias20)+' 距高'+pct(r.dist_high);
-    const flow   = P ? WAIT : (r.main_flow_3d!=null?pct(r.main_flow_3d,0)+'亿':'<span class="miss">—</span>');
-    const track  = '<span class="neu2">'+esc(r.industry||'')+'</span>'+bd(r.ts_code)+(P?'':sectorTag(r.sector_phase));
-    const cs=(r.cost!=null?('成本'+r.cost):'<span class="miss">—</span>')+(r.stop_loss!=null?' / 止损<span class="down">'+r.stop_loss+'</span>':'')+(r.target_price!=null?' / 买入<span style="color:#7c9ef8">'+r.target_price+'</span>':'');
-    h+='<tr class="datarow" onclick="toggle('+i+')">'
-      +'<td style="font-size:15px" title="'+(r.flags||[]).map(f=>esc(f.text)).join('；')+'">'+health+'</td>'
-      +'<td style="color:#7c9ef8">'+r.ts_code.slice(0,6)+'</td>'
-      +'<td>'+esc(r.name)+(r.is_holding?'<span class="hold">持仓</span>':'<span class="watch">自选</span>')
-        +(r.reg?'<span class="badge" title="'+esc(r.reg.text)+'" style="font-size:9px;margin-left:4px;background:#3a1a1a;color:#f87171">'+(r.reg.kind==='suspend'?'🔒停牌':'⚠️异动核查')+'</span>':'')+'</td>'
-      +'<td>'+track+'</td>'
-      +'<td>'+price+'</td>'
-      +'<td>'+chg+'</td>'
-      +'<td>'+pnl+'</td>'
-      +'<td style="font-size:11px">'+cs+'</td>'
-      +'<td style="font-size:11px">'+pos+'</td>'
-      +'<td>'+flow+'</td>'
-      +'<td><span class="op" onclick="event.stopPropagation();editRow('+i+')">✏️编辑</span>'
-        +'<span class="op del" onclick="event.stopPropagation();delRow(\''+r.ts_code+'\')">🗑删</span></td></tr>';
-    h+='<tr id="row_'+cid+'" style="display:none"><td colspan="11" style="padding:0"><div class="detail" id="d_'+cid+'"></div></td></tr>';
+  const zones=[['me','用户1',''],['dad','用户2','u2']];
+  let html='';
+  zones.forEach(([ow,label,cls])=>{
+    const idxs=[]; _rows.forEach((r,i)=>{ if((r.owner||'me')===ow) idxs.push(i); });
+    const nHold=idxs.filter(i=>_rows[i].is_holding).length;
+    html+='<div class="zone-head '+cls+'">'+label
+      +' <span class="neu2" style="font-weight:400;font-size:12px">（'+idxs.length+'只'+(nHold?' · 持仓'+nHold:'')+'）</span></div>';
+    if(!idxs.length){ html+='<div class="zone-empty">暂无 —— 上方「归属」选「'+label+'」即可往这区加票</div>'; return; }
+    html+='<table>'+headRow()+idxs.map(i=>rowHtml(_rows[i],i)).join('')+'</table>';
   });
-  $('tbl').innerHTML=h; $('dash').style.display='block';
+  $('dash').innerHTML=html; $('dash').style.display='block';
 }
 function toggle(i){
   const r=_rows[i], cid='p'+i, row=$('row_'+cid), open=row.style.display!=='none';
@@ -178,8 +203,8 @@ function toggle(i){
   loadFin(c6, cid); loadKline(c6, cid);
 }
 
-// 研报按钮（复用 research_widget）
-$('tbl').addEventListener('click', async ev=>{
+// 研报按钮（复用 research_widget·监听 #dash 容器·两区共用）
+$('dash').addEventListener('click', async ev=>{
   const b=ev.target.closest('.rcbtn'); if(!b||b.disabled) return; ev.stopPropagation();
   const out=$('rc_'+b.dataset.key); b.disabled=true; b.textContent='⏳ 查研报中…';
   try{ const d=await (await fetch('/api/stock/research?code='+b.dataset.code)).json();
@@ -224,21 +249,26 @@ async function loadKline(code, cid){
 async function addStock(){
   const code=$('a_code').value.trim(); if(!code){ $('addmsg').textContent='请输入代码/名称'; return; }
   $('addmsg').textContent='⏳ 加入中…';
-  const body={code, is_holding:$('a_hold').checked, cost:$('a_cost').value, stop_loss:$('a_stop').value, target_price:$('a_target').value, note:$('a_note').value};
+  const owner=$('a_owner').value, ulabel=(owner==='dad')?'用户2':'用户1';
+  const body={code, owner, is_holding:$('a_hold').checked, cost:$('a_cost').value, stop_loss:$('a_stop').value, target_price:$('a_target').value, note:$('a_note').value};
   try{
     const d=await (await fetch('/api/portfolio/add',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})).json();
-    if(d.ok){ $('addmsg').textContent='✅ 已加入 '+(d.name||''); ['a_code','a_cost','a_stop','a_note'].forEach(x=>$(x).value=''); $('a_hold').checked=false; reload(); loadSignals(); }
+    if(d.ok){ $('addmsg').textContent='✅ 已加入「'+ulabel+'」 '+(d.name||''); ['a_code','a_cost','a_stop','a_note'].forEach(x=>$(x).value=''); $('a_hold').checked=false; reload(); loadSignals(); }
     else $('addmsg').textContent='❌ '+(d.msg||'失败');
   }catch(e){ $('addmsg').textContent='❌ '+e; }
 }
 function editRow(i){ const r=_rows[i];
+  $('a_owner').value=r.owner||'me';                 // 归属带出·改完保存回原区(若改了归属=复制到另一区·原区仍在·需手动删)
   $('a_code').value=r.ts_code.slice(0,6); $('a_hold').checked=r.is_holding;
   $('a_cost').value=r.cost??''; $('a_stop').value=r.stop_loss??''; $('a_target').value=r.target_price??''; $('a_note').value=r.note||'';
   $('addmsg').textContent='↑ 改完点「＋加入」保存'; $('a_code').scrollIntoView({behavior:'smooth'});
 }
-async function delRow(code){
-  if(!confirm('从自选移除 '+code+'？')) return;
-  try{ await fetch('/api/portfolio/remove',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code})}); reload(); }catch(e){}
+async function delRow(i){
+  const r=_rows[i]; if(!r) return;
+  const label=(r.owner==='dad')?'用户2':'用户1';
+  if(!confirm('从「'+label+'」移除 '+(r.name||r.ts_code)+'？')) return;
+  try{ await fetch('/api/portfolio/remove',{method:'POST',headers:{'Content-Type':'application/json'},
+       body:JSON.stringify({code:r.ts_code, owner:r.owner||'me'})}); reload(); }catch(e){}
 }
 // 🔔 今日信号（异步·体检后填充·按日缓存）
 async function loadSignals(refresh){

@@ -78,7 +78,8 @@ def _build_row(w: dict, quotes: dict, tech: dict, flows: dict,
     sec = sectors.get(ind) or {}
 
     row = {
-        "ts_code": ts, "name": w.get("name") or "", "is_holding": bool(w["is_holding"]),
+        "ts_code": ts, "name": w.get("name") or "", "owner": w.get("owner", "me"),
+        "is_holding": bool(w["is_holding"]),
         "cost": cost, "shares": w.get("shares"), "stop_loss": w.get("stop_loss"),
         "target_price": w.get("target_price"),
         "note": w.get("note") or "",
