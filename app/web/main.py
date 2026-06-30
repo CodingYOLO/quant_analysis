@@ -350,6 +350,75 @@ async def overview_page(request: Request, _user: str = Depends(require_auth)):
     return resp
 
 
+@app.get("/perception", response_class=HTMLResponse)
+async def perception_page(request: Request, _user: str = Depends(require_auth)):
+    """盘感训练：盲测复盘，看截至 T0 的图判断未来 N 日走势，揭晓评分。"""
+    resp = templates.TemplateResponse(request=request, name="perception.html", context={"page": "perception"})
+    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+    return resp
+
+
+# 出题暂存（quiz_id → answer）：答案不下发前端，提交时服务端核对，避免 devtools 偷看
+_QUIZ_STASH: dict[str, dict] = {}
+
+
+@app.get("/api/train/new")
+async def api_train_new(code: str = "", _user: str = Depends(require_auth)):
+    """出一道盘感题：返回题面(截至T0·零泄漏) + quiz_id；答案暂存服务端。"""
+    try:
+        import uuid
+
+        from fastapi.concurrency import run_in_threadpool
+
+        from app.strategy.perception_trainer import build_quiz
+        ts = _resolve_ts_code(code) if code else None
+        q = await run_in_threadpool(lambda: build_quiz(code=ts))
+        if not q.get("ok"):
+            return {"ok": False, "msg": q.get("msg", "出题失败")}
+        qid = uuid.uuid4().hex
+        if len(_QUIZ_STASH) > 200:                  # 防内存膨胀·简单上限
+            _QUIZ_STASH.clear()
+        _QUIZ_STASH[qid] = q["answer"]
+        return {"ok": True, "quiz_id": qid, "question": q["question"]}
+    except Exception as e:
+        logger.exception("盘感出题失败")
+        return {"ok": False, "msg": str(e)}
+
+
+@app.post("/api/train/answer")
+async def api_train_answer(request: Request, _user: str = Depends(require_auth)):
+    """提交预测：评分 + 落库 + 揭晓答案(含未来K线/股名/日期) + 最新统计。Body {quiz_id, bucket}。"""
+    try:
+        from app.strategy import db
+        from app.strategy.perception_trainer import DEFAULT_FWD, score
+        body = await request.json()
+        ans = _QUIZ_STASH.pop(body.get("quiz_id", ""), None)
+        if not ans:
+            return {"ok": False, "msg": "题目已过期，请重新出题"}
+        pred = str(body.get("bucket", ""))
+        sc = score(pred, ans["bucket"])
+        db.log_perception(ts_code=ans["ts_code"], name=ans["name"], t0=ans["t0"],
+                          setup_tag=ans["setup_tag"], market_state=ans["market_state"],
+                          pred=pred, actual=ans["bucket"],
+                          ret_fwd=ans["rets"].get(DEFAULT_FWD, ans["rets"].get(5, 0.0)),
+                          points=sc["points"], direction_right=sc["direction_right"])
+        return {"ok": True, "score": sc, "answer": ans, "stats": db.perception_stats()}
+    except Exception as e:
+        logger.exception("盘感评分失败")
+        return {"ok": False, "msg": str(e)}
+
+
+@app.get("/api/train/stats")
+async def api_train_stats(_user: str = Depends(require_auth)):
+    """盘感训练累计统计（胜率/方向/分状态/分形态·对比随机基准）。"""
+    try:
+        from app.strategy import db
+        return {"ok": True, "stats": db.perception_stats()}
+    except Exception as e:
+        logger.exception("盘感统计失败")
+        return {"ok": False, "msg": str(e)}
+
+
 @app.get("/api/market/overview")
 async def api_market_overview(days: int = 60, _user: str = Depends(require_auth)):
     """大盘体检数据：多维同轴序列 + 板块轮动矩阵 + 地量冰点信号事件研究。"""

@@ -260,6 +260,15 @@ def init_db() -> None:
                 created_at  TEXT DEFAULT (datetime('now','localtime'))
             );
             CREATE INDEX IF NOT EXISTS idx_chatmsg_sid ON chat_messages(session_id);
+            CREATE TABLE IF NOT EXISTS perception_log (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                ts_code       TEXT, name TEXT, t0 TEXT,    -- 题目(揭晓后才记)
+                setup_tag     TEXT, market_state TEXT,     -- 形态/大盘状态(分组统计用)
+                pred          TEXT, actual TEXT,           -- 预测档 / 实际档
+                ret_fwd       REAL,                        -- 实际持有N日收益%
+                points        REAL, direction_right INTEGER,
+                created_at    TEXT DEFAULT (datetime('now','localtime'))
+            );
         """)
         # 旧库幂等补列（CREATE TABLE IF NOT EXISTS 不会给已存在的表加列）
         existing = {row[1] for row in con.execute("PRAGMA table_info(stock_pool)")}
@@ -776,6 +785,60 @@ def get_watchlist(owner: str | None = None) -> list[dict]:
             f"SELECT * FROM watchlist {where} ORDER BY is_holding DESC, added_at DESC", params
         ).fetchall()
     return [dict(r) for r in rows]
+
+
+# ──────────────────────────────────────────────
+# 盘感训练记分（perception_log）
+# ──────────────────────────────────────────────
+
+def log_perception(*, ts_code: str, name: str, t0: str, setup_tag: str, market_state: str,
+                   pred: str, actual: str, ret_fwd: float, points: float,
+                   direction_right: bool) -> None:
+    """记一局盘感训练结果（揭晓后调用）。"""
+    init_db()
+    with _conn() as con:
+        con.execute(
+            """INSERT INTO perception_log
+               (ts_code, name, t0, setup_tag, market_state, pred, actual, ret_fwd, points, direction_right)
+               VALUES (?,?,?,?,?,?,?,?,?,?)""",
+            (ts_code, name, t0, setup_tag, market_state, pred, actual,
+             ret_fwd, points, int(direction_right)),
+        )
+
+
+def perception_stats() -> dict:
+    """训练统计：局数/平均分/命中率/方向准确率 + 按大盘状态、按形态分组。"""
+    init_db()
+    with _conn() as con:
+        rows = [dict(r) for r in con.execute("SELECT * FROM perception_log").fetchall()]
+    return _agg_perception(rows)
+
+
+def _agg_perception(rows: list[dict]) -> dict:
+    """聚合统计（纯函数·可测）。命中率=完全命中档占比；方向准确率=涨/平/跌判对占比。"""
+    n = len(rows)
+    if not n:
+        return {"n": 0}
+    exact = sum(1 for r in rows if r["points"] == 1.0)
+    avg = round(sum(r["points"] for r in rows) / n, 3)
+    dir_ok = sum(1 for r in rows if r["direction_right"])
+
+    def _grp(key: str) -> list[dict]:
+        g: dict[str, list[dict]] = {}
+        for r in rows:
+            g.setdefault(r.get(key) or "?", []).append(r)
+        out = [{"key": k, "n": len(v),
+                "exact_rate": round(sum(1 for x in v if x["points"] == 1.0) / len(v) * 100, 1),
+                "dir_rate": round(sum(1 for x in v if x["direction_right"]) / len(v) * 100, 1)}
+               for k, v in g.items()]
+        return sorted(out, key=lambda x: -x["n"])
+
+    return {"n": n, "avg_points": avg,
+            "exact_rate": round(exact / n * 100, 1),
+            "dir_rate": round(dir_ok / n * 100, 1),
+            "base_exact": 20.0,            # 5档随机瞎猜 exact≈20%（诚实基准对比）
+            "base_dir": 33.0,             # 涨/平/跌随机≈33%
+            "by_state": _grp("market_state"), "by_setup": _grp("setup_tag")}
 
 
 # ──────────────────────────────────────────────

@@ -60,6 +60,21 @@ def test_score_exact_near_opposite() -> None:
     assert score("up", "down")["direction_right"] is False
 
 
+def test_agg_perception_stats() -> None:
+    from app.strategy.db import _agg_perception
+    assert _agg_perception([]) == {"n": 0}
+    rows = [
+        {"points": 1.0, "direction_right": 1, "market_state": "强", "setup_tag": "breakout"},
+        {"points": 0.5, "direction_right": 1, "market_state": "强", "setup_tag": "breakout"},
+        {"points": 0.0, "direction_right": 0, "market_state": "弱", "setup_tag": "weak"},
+    ]
+    s = _agg_perception(rows)
+    assert s["n"] == 3 and s["exact_rate"] == round(1 / 3 * 100, 1)
+    assert s["dir_rate"] == round(2 / 3 * 100, 1) and s["avg_points"] == 0.5
+    strong = next(g for g in s["by_state"] if g["key"] == "强")
+    assert strong["n"] == 2 and strong["dir_rate"] == 100.0      # 强市2局方向全对
+
+
 def test_classify_setup_basic() -> None:
     assert classify_setup(_kline([10] * 19 + [11.0]))[0] == "limit_up"        # 末根+10%
     assert classify_setup(_kline([10 - i * 0.3 for i in range(30)]))[0] in ("weak", "oversold")
