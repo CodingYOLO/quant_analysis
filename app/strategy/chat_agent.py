@@ -75,6 +75,7 @@ def _tool_schemas() -> list[dict]:
         _fn("my_portfolio", "查用户自己的自选/持仓：盈亏+持仓体检(健康灯)+事件预警", {"type": "object", "properties": {}}),
         _fn("search_news", "联网搜索任意财经主题的真实新闻(博查)，如政策/行业/事件", {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}),
         _fn("inst_lhb_board", "查最近交易日龙虎榜机构席位真实净买/净卖榜（真金白银·A股仅存的个股级真机构钱）", {"type": "object", "properties": {"tech_only": {"type": "boolean", "description": "是否只看科技赛道(电子/通信/计算机/半导体等)，默认否"}}}),
+        _fn("market_overview", "查大盘体检：当前状态(强/震/弱)+上证点位+成交量水位+市场广度+涨停跌停+连板高度+情绪温度+近5日领涨/领跌板块（做『大盘格局/后市/择时/仓位』判断必调）", {"type": "object", "properties": {}}),
     ]
 
 
@@ -86,6 +87,7 @@ _LABELS = {
     "stock_quote": "查行情", "stock_financials": "查财报/事件", "stock_research": "查研报",
     "stock_news": "查新闻", "stock_best_signal": "查最佳信号", "sector_heat": "查板块热度",
     "my_portfolio": "查我的持仓", "search_news": "联网搜索", "inst_lhb_board": "查机构动向",
+    "market_overview": "查大盘体检",
 }
 
 
@@ -329,10 +331,45 @@ def _t_inst_board(args, provider) -> dict:
             "说明": "龙虎榜机构专用席位=真金白银·仅当日异动股·净买≠必涨·需结合基本面"}
 
 
+def _t_market_overview(args, provider) -> dict:
+    """大盘体检：当前状态/上证点位/成交量水位/广度/涨停跌停/情绪/近5日领涨跌板块。给"大盘格局/后市"判断打底。"""
+    from datetime import datetime
+
+    from app.strategy.market_overview import build_overview
+    d = build_overview(datetime.now().strftime("%Y%m%d"), 20)
+    k = d.get("kpi", {})
+    r = d.get("regime_now", {})
+    lv = [x for x in (d.get("index_level") or []) if x is not None]
+    ic = d.get("index_cum") or []
+    day_pct = (round(ic[-1] - ic[-2], 2)
+               if len(ic) >= 2 and ic[-1] is not None and ic[-2] is not None else None)
+    s = d.get("sectors", {})
+    names, mat, dts = s.get("names", []), s.get("matrix", []), s.get("dates", [])
+    sums = []
+    for i, nm in enumerate(names):
+        vals = [mat[i][j] for j in range(max(0, len(dts) - 5), len(dts)) if mat[i][j] is not None]
+        if vals:
+            sums.append((nm, round(sum(vals), 1)))
+    sums.sort(key=lambda x: -x[1])
+    return {
+        "交易日": d.get("end_date"), "状态": r.get("label"), "诊断": r.get("reason"),
+        "上证点位": lv[-1] if lv else None, "上证今日%": day_pct,
+        "成交额(万亿)": k.get("amount_wy"), "成交额较前日(亿)": k.get("amount_chg_yi"),
+        "成交额水位(分位·0地量100天量)": d.get("amount_pct"),
+        "涨停": k.get("limit_up"), "跌停": k.get("limit_down"), "最高连板": k.get("lianban_height"),
+        "情绪温度(0冰100热)": k.get("temp"), "涨家数": k.get("up_count"), "跌家数": k.get("down_count"),
+        "当前地量+广度冰点": d.get("dryup_now"),
+        "近5日领涨板块": [f"{n} {'+' if v >= 0 else ''}{v}%" for n, v in sums[:6]],
+        "近5日领跌板块": [f"{n} {'+' if v >= 0 else ''}{v}%" for n, v in sums[-6:][::-1]],
+        "说明": "状态/阈值经验派生·非保证；不预测点位、不构成建议",
+    }
+
+
 _TOOLS = {
     "stock_quote": _t_quote, "stock_financials": _t_financials, "stock_research": _t_research,
     "stock_news": _t_news, "stock_best_signal": _t_best_signal, "sector_heat": _t_sector,
     "my_portfolio": _t_portfolio, "search_news": _t_search, "inst_lhb_board": _t_inst_board,
+    "market_overview": _t_market_overview,
 }
 
 
