@@ -407,17 +407,20 @@ def _now_context() -> str:
             f"不确定具体日期就用工具查或明说不确定。")
 
 
-def run_chat(history: list[dict], provider: CompositeProvider | None = None, client=None):
+def run_chat(history: list[dict], provider: CompositeProvider | None = None, client=None,
+             task: str = _AGENT_TASK):
     """
     history: [{role:'user'/'assistant', content}]（含最新用户消息）。
+    task: 模型档位——'pro'(强·复杂推演) / 'flash'(快省·简单查询)。默认 pro。
     yield 事件 dict：{type:'status'|'thinking'|'delta'|'done'|'error', ...}。
     """
+    task = task if task in ("pro", "flash") else _AGENT_TASK
     provider = provider or CompositeProvider()
     client = client or LLMClient()
     messages = [{"role": "system", "content": _SYSTEM + "\n\n" + _now_context()}, *history]
     try:
         for _ in range(_MAX_TOOL_ROUNDS):
-            msg = client.complete_with_tools(messages, _tool_schemas(), task_type=_AGENT_TASK)
+            msg = client.complete_with_tools(messages, _tool_schemas(), task_type=task)
             if not getattr(msg, "tool_calls", None):
                 break
             messages.append({"role": "assistant", "content": msg.content or "",
@@ -430,7 +433,7 @@ def run_chat(history: list[dict], provider: CompositeProvider | None = None, cli
                                  "content": json.dumps(result, ensure_ascii=False)})
         # 最终答案：流式。传 tools + tool_choice="none"(API层禁止再调工具) + 泄漏检测(双保险)
         parts, thinking_sent, stopped = [], False, False
-        for kind, text in client.stream_answer(messages, task_type=_AGENT_TASK,
+        for kind, text in client.stream_answer(messages, task_type=task,
                                                 tools=_tool_schemas()):
             if kind == "reasoning":
                 if not thinking_sent:

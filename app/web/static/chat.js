@@ -51,6 +51,7 @@ window.AChat = (function () {
     const TIP = cfg.tip || DEFAULT_TIP;
     const sticky = cfg.sticky !== false;
     let busy = false;
+    let nextTask = null;          // 下一条消息的模型档位(pro/flash)·快捷键设·发完即清·默认走后端 pro
     let sid = sticky ? parseInt(localStorage.getItem(SID_KEY)) || null : null;
 
     function setSid(v) {
@@ -156,10 +157,11 @@ window.AChat = (function () {
       addMsg("user", esc(text));
       const bubble = addMsg("ai", '<span class="aic-status">⏳ 正在思考…</span>');
       try {
+        const task = nextTask; nextTask = null;        // 取本条档位并清空，后续手输消息回落默认
         const resp = await fetch("/api/chat/stream", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ session_id: sid, message: text }),
+          body: JSON.stringify({ session_id: sid, message: text, task: task || undefined }),
         });
         await pump(resp, bubble);
         loadSessions();
@@ -241,6 +243,7 @@ window.AChat = (function () {
 
     return {
       loadSessions, newSession, openSession, delSession, send, showMsgs, resume,
+      setTask(t) { nextTask = (t === "pro" || t === "flash") ? t : null; },   // 下一条消息的模型档位
       get sid() { return sid; },
     };
   }

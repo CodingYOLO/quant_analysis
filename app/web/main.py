@@ -904,6 +904,7 @@ async def api_chat_stream(request: Request, _user: str = Depends(require_auth)):
     body = await request.json()
     sid = int(body.get("session_id") or 0)
     message = str(body.get("message") or "").strip()
+    task = body.get("task") if body.get("task") in ("pro", "flash") else "pro"   # 模型档位·默认强模型
     if not sid or not message:
         return {"ok": False, "msg": "缺少 session_id 或 message"}
 
@@ -915,7 +916,7 @@ async def api_chat_stream(request: Request, _user: str = Depends(require_auth)):
         if sum(1 for m in msgs if m["role"] == "user") == 1:      # 首条→用它做标题
             db.rename_chat_session(sid, message[:24])
         hist = [{"role": m["role"], "content": m["content"]} for m in msgs][-12:]
-        job = reg.start(sid, hist)                                # 已在途则复用，避免重复生成/扣费
+        job = reg.start(sid, hist, task)                          # 已在途则复用，避免重复生成/扣费
 
     return StreamingResponse(_sse_tail(job), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})

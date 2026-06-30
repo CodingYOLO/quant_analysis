@@ -62,24 +62,24 @@ class InflightRegistry:
         return bool(job and not job.done)
 
     # ── 启动 ────────────────────────────────────────────────────────────
-    def start(self, sid: int, hist: list[dict]) -> InflightJob:
-        """启动后台生成；若该会话已有在途任务则直接复用，避免重复跑、重复扣费。"""
+    def start(self, sid: int, hist: list[dict], task: str = "pro") -> InflightJob:
+        """启动后台生成；若该会话已有在途任务则直接复用，避免重复跑、重复扣费。task=模型档位。"""
         with self._lock:
             existing = self._jobs.get(sid)
             if existing is not None and not existing.done:
                 return existing
             job = InflightJob()
             self._jobs[sid] = job
-        threading.Thread(target=self._work, args=(sid, hist, job),
+        threading.Thread(target=self._work, args=(sid, hist, job, task),
                          name=f"chat-gen-{sid}", daemon=True).start()
         return job
 
     # ── 后台线程主体 ────────────────────────────────────────────────────
-    def _work(self, sid: int, hist: list[dict], job: InflightJob) -> None:
+    def _work(self, sid: int, hist: list[dict], job: InflightJob, task: str = "pro") -> None:
         """跑完整轮生成：累计正文 → 落库 → 标记完成。任何异常都要收尾，绝不悬挂。"""
         parts: list[str] = []
         try:
-            for ev in self._runner(hist):
+            for ev in self._runner(hist, task=task):
                 if ev.get("type") == "delta":
                     parts.append(ev.get("text", ""))
                 job.events.append(ev)

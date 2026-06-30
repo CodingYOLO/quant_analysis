@@ -65,8 +65,9 @@
 <!-- chat.js 由 base.html 在 body 末尾加载，故 init 须等 DOMContentLoaded 后再用 AChat -->
 <script>
 // 预写的"专家级 prompt"——每个都强制：先调真实数据工具 → 套专业框架 → 诚实(带来源/标推演/不编造)
+// t: 模型档位——pro(复杂推演/多步判断·强模型) / flash(单工具查询+整理·快省)
 const QUICK = [
-  { k: '📈 后市走势推演', p:
+  { k: '📈 后市走势推演', t: 'pro', p:
 '请做一份【A股后市走势推演】，要专业、敢下判断，但严守诚实。按这个框架：\n' +
 '① 当前格局：先调 market_overview 拿真实大盘数据（状态/上证点位/成交量水位/广度/涨停跌停/连板高度/情绪温度/近5日领涨领跌板块），用它定调。\n' +
 '② 近期催化剂：调 search_news 查近期真实催化（政策/产业/业绩窗口/重要会议），只写查得到来源+日期的，查不到来源的标"待核实·勿当事实"，绝不编造日期或数字。\n' +
@@ -74,20 +75,20 @@ const QUICK = [
 '④ 情景推演：给 2-3 条路径（如偏强/震荡/偏弱），每条标【主观概率%】+触发条件+对应指数与主线板块怎么走——明确这是推演不是保证、不报具体点位。\n' +
 '⑤ 对我的应对：调 my_portfolio，说我的票在各情景下该注意什么。\n' +
 '要求：每个数字带来源+日期；没来源的明说；机会与风险两面都讲；不打包票、不说必涨必跌。' },
-  { k: '🔥 主线/板块轮动', p:
+  { k: '🔥 主线/板块轮动', t: 'pro', p:
 '请分析【当前A股主线在哪、轮动到哪一步】：\n' +
 '① 先调 market_overview 看近5日领涨/领跌板块定方向；\n' +
 '② 对你认为的主线板块调 sector_heat 看热度+主力资金+所处阶段(启动/发酵/分歧/退潮)；\n' +
 '③ 调 search_news 查这条线的真实催化与持续性依据(带来源+日期)；\n' +
 '④ 给判断：主线是谁、还在不在风口、龙头方向有哪些(可点名并说依据)、有没有退潮迹象。\n' +
 '诚实标来源、不编造、不预测、不荐买卖。' },
-  { k: '🧊 现在能不能加仓', p:
+  { k: '🧊 现在能不能加仓', t: 'pro', p:
 '请基于真实数据判断【现在A股该重仓还是轻仓】：调 market_overview 拿当前状态/成交量水位/广度/涨停跌停/情绪温度/连板高度，按吴川择时口径(强势可仓位高/弱势不开仓/震荡半仓)给出明确的仓位倾向 + 理由 + 该观察到什么信号才加仓/减仓。明确这是基于现有数据的分析、非保证，不预测点位、不打包票。' },
-  { k: '🎯 我的持仓诊断', p:
+  { k: '🎯 我的持仓诊断', t: 'pro', p:
 '请诊断【我的自选/持仓】：调 my_portfolio 拿我的票+体检+预警，逐只给判断——健康度、最该处理的(止损/警惕/低吸)、哪只逻辑还在、哪只该减。再调 market_overview 看大盘环境，说当前环境下整体该进攻还是防守。结合真实数据、标来源，给应对参考(最终我决策)，不打包票。' },
-  { k: '📅 近期催化与风险', p:
+  { k: '📅 近期催化与风险', t: 'flash', p:
 '请帮我梳理【近期A股的催化与风险日历】：调 search_news 查未来1-2周真实的重要事件(业绩预告窗口/解禁/重要会议/经济数据/产业事件)，每条必须带来源+日期，查不到来源的不要写、或明确标"待核实"。分"利好催化"和"风险压顶"两栏列出，并说对哪些板块/主线影响大。绝不编造日期或事件。' },
-  { k: '🏛️ 机构在买什么', p:
+  { k: '🏛️ 机构在买什么', t: 'flash', p:
 '请看【最近机构在买什么、卖什么】：调 inst_lhb_board（想只看科技就 tech_only）拿龙虎榜机构席位真实净买/净卖榜，点出机构净买居前的票和所属板块，结合它们说机构资金的方向偏好。强调这是当日异动股的真机构钱、净买≠必涨、需结合基本面，不预测、不荐买卖。' },
 ];
 
@@ -95,11 +96,12 @@ window.addEventListener('DOMContentLoaded', function () {
   const chat = AChat.create({ msgs: 'cpg-msgs', text: 'cpg-text', sendBtn: 'cpg-send', sesList: 'cpg-ses' });
   document.getElementById('cpg-new').onclick = () => chat.newSession(true);
   const qbar = document.getElementById('cpg-quick');
-  qbar.innerHTML = '<div class="qhint">💡 快捷提问（点一下用预写的专家级 prompt 提问·会先查真实数据再分析）</div>';
+  qbar.innerHTML = '<div class="qhint">💡 快捷提问（点一下用预写的专家级 prompt·先查真实数据再分析）·<span style="color:#7c9ef8">pro</span>=强模型深推演 / <span style="color:#9ca3af">flash</span>=快省查询</div>';
   QUICK.forEach(function (q) {
     const b = document.createElement('button');
-    b.className = 'qchip'; b.textContent = q.k;
-    b.onclick = function () { document.getElementById('cpg-text').value = q.p; chat.send(); };
+    b.className = 'qchip'; b.title = (q.t === 'flash' ? 'flash·快省' : 'pro·强模型深推演');
+    b.innerHTML = q.k + ' <span style="font-size:9px;color:' + (q.t === 'flash' ? '#6b7280' : '#7c9ef8') + '">' + q.t + '</span>';
+    b.onclick = function () { chat.setTask(q.t); document.getElementById('cpg-text').value = q.p; chat.send(); };
     qbar.appendChild(b);
   });
   chat.resume();           // 载入会话列表 + 续上次对话（与悬浮窗共享同一份历史）

@@ -13,7 +13,7 @@ from app.strategy.chat_inflight import InflightRegistry
 
 def _fake_runner(deltas):
     """构造一个产出给定 delta 文本（夹带 status）的假生成器。"""
-    def run(_hist):
+    def run(_hist, **_kw):
         yield {"type": "status", "text": "查数据中…"}
         for d in deltas:
             yield {"type": "delta", "text": d}
@@ -41,7 +41,7 @@ def test_completes_and_saves_without_consumer() -> None:
 
 def test_is_active_transitions() -> None:
     """生成期间 is_active=True，完成后 False。"""
-    def slow_runner(_hist):
+    def slow_runner(_hist, **_kw):
         yield {"type": "delta", "text": "a"}
         time.sleep(0.15)
         yield {"type": "delta", "text": "b"}
@@ -56,7 +56,7 @@ def test_reuses_active_job() -> None:
     """同一会话在途时再次 start 复用同一任务，不重复生成。"""
     calls = {"n": 0}
 
-    def counting_runner(_hist):
+    def counting_runner(_hist, **_kw):
         calls["n"] += 1
         time.sleep(0.1)
         yield {"type": "delta", "text": "x"}
@@ -71,7 +71,7 @@ def test_reuses_active_job() -> None:
 
 def test_runner_exception_is_captured() -> None:
     """生成抛异常也要收尾：done=True、有 error 事件、不悬挂。"""
-    def boom(_hist):
+    def boom(_hist, **_kw):
         yield {"type": "delta", "text": "半句"}
         raise RuntimeError("模型超时")
     saved: list[tuple] = []
