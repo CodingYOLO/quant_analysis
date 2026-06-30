@@ -37,10 +37,22 @@ def test_sell_clamped_to_holding() -> None:
     assert r["sell_qty"] == 1000 and r["end_holding"] == 0       # 卖超持仓被截断到底仓
 
 
-def test_buy_clamped_to_base() -> None:
-    # 起手就买（持仓已=底仓）→ 买不进（做T非加仓）
+def test_buy_first_allowed_zhengT() -> None:
+    # 正T：起手买入(老底仓不动)→允许·持仓升到1500·今买锁定到明天
     r = settle([10, 10], [{"i": 0, "side": "buy", "qty": 500}], base=1000, close=10, prev_close=10)
-    assert r["buy_qty"] == 0 and r["end_holding"] == 1000
+    assert r["buy_qty"] == 500 and r["end_holding"] == 1500
+
+
+def test_t1_cannot_resell_todays_buy() -> None:
+    """T+1 铁律：卖500(可卖剩500)→买回500(今买·锁定)→再想卖1000，只能再卖剩下的老股500，
+    一天累计卖出绝不超过原底仓1000。旧的错误模型会卖到1500(把今买的也卖了)。"""
+    r = settle([10, 10, 10, 10],
+               [{"i": 0, "side": "sell", "qty": 500},
+                {"i": 1, "side": "buy", "qty": 500},
+                {"i": 2, "side": "sell", "qty": 1000}],
+               base=1000, close=10, prev_close=10)
+    assert r["sell_qty"] == 1000          # 累计只卖了原底仓1000(不是1500)
+    assert r["end_holding"] == 500        # 1000 - 1000(卖) + 500(买)
 
 
 def test_partial_not_restored_marks_at_close() -> None:

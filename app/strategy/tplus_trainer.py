@@ -65,10 +65,14 @@ def settle(prices: list[float], trades: list[dict], *, base: int, close: float,
         trades: [{i: bar下标, side: 'sell'/'buy', qty: 股数}]，按发生顺序。
         base: 底仓股数。close: 当日收盘价。prev_close: 昨收（算"不动"基准）。
 
-    规则：持仓从 base 起，卖减买加，**钳制在 [0, base]**（不裸卖空、不超底仓）；越界的那笔按可成交量截断。
+    **T+1 铁律（A股）**：今天买入的当天不能卖。所以一天内**最多只能卖出原有底仓 base 那么多**——
+    卖出量受 `base − 已卖` 约束（卖的永远是老股）；今天买回/买入的那部分**锁定到次日**、不计入可卖。
+    买入量约束到 `base − 已买`（买回或正T加仓·最多到底仓规模）。越界的那笔按可成交量截断。
+    支持反T(先卖后买)与正T(先买后卖)，两者在 T+1 下都成立。
+
     Returns: 现金/期末持仓/做T超额(相对不动)/摊低成本/卖买均价/笔数/做对做反 评语。
     """
-    holding = base
+    sold = bought = 0.0          # 当日累计卖/买（T+1：卖受 base-sold 限，今买 bought 锁定不可卖）
     sell_amt = buy_amt = sell_qty = buy_qty = 0.0
     n_sell = n_buy = 0
     for t in trades:
@@ -81,22 +85,23 @@ def settle(prices: list[float], trades: list[dict], *, base: int, close: float,
         if q <= 0:
             continue
         if side == "sell":
-            q = min(q, holding)                      # 不能卖超持仓
+            q = min(q, base - sold)                  # T+1：只能卖原底仓·已卖的不再卖·今买的锁定
             if q <= 0:
                 continue
-            holding -= q
+            sold += q
             sell_amt += q * p
             sell_qty += q
             n_sell += 1
         elif side == "buy":
-            q = min(q, base - holding)               # 不能买超底仓（做T·非加仓）
+            q = min(q, base - bought)                # 买回/正T加仓·最多到底仓规模
             if q <= 0:
                 continue
-            holding += q
+            bought += q
             buy_amt += q * p
             buy_qty += q
             n_buy += 1
 
+    holding = base - sold + bought                  # 期末持仓 = 底仓 − 卖 + 买
     cash = round(sell_amt - buy_amt, 2)              # 做T实现现金（卖收-买付）
     # 总财富对比"全程不动"：做T = 现金 + 期末持仓市值；不动 = 一直持 base
     excess = round(cash + (holding - base) * close, 2)

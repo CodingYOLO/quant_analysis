@@ -56,7 +56,7 @@ h1 { font-size:22px; text-align:center; margin-bottom:4px; }
     <span class="qsel"><label><input type="radio" name="q" value="0.5" checked> 半仓</label> <label><input type="radio" name="q" value="1"> 全仓</label></span>
     <button class="sellbtn" id="sellbtn">📉 卖出</button>
     <button class="buybtn" id="buybtn">📈 买回</button>
-    <span class="neu2" style="font-size:11px">底仓默认1000股·卖减买加·不超底仓不卖空</span>
+    <span class="neu2" style="font-size:11px">底仓1000股 · <b style="color:#f0a020">T+1：只能卖原有底仓，今天买回的当天锁定不可再卖</b></span>
   </div>
 </div>
 
@@ -71,7 +71,12 @@ function esc(s){ return (s==null?'':String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;
 const RED='#f6465d', GREEN='#2ebd85', GOLD='#f0c040', SUB='#9ca3af';
 const BASE=1000;
 let sid=null, bars=[], prevClose=0, name='', day='';
-let cursor=0, holding=BASE, trades=[], timer=null, chart=null;
+let cursor=0, soldToday=0, boughtToday=0, trades=[], timer=null, chart=null;
+const HALF=Math.round(BASE*0.5/100)*100;
+// T+1：一天最多卖出原底仓 BASE（卖的是老股）；今天买回/买入的锁定到明天、不可卖
+function holdingNow(){ return BASE - soldToday + boughtToday; }
+function sellableNow(){ return BASE - soldToday; }
+function buyRoomNow(){ return BASE - boughtToday; }
 
 function fmt(v,suf){ if(v==null) return '—'; return (v>0?'+':'')+(+v).toFixed(2)+(suf||''); }
 function pxColor(v){ return v>=prevClose?RED:GREEN; }
@@ -88,7 +93,7 @@ function chartOption(){
     backgroundColor:'transparent', textStyle:{color:SUB},
     tooltip:{trigger:'axis',axisPointer:{type:'cross'},backgroundColor:'#11131c',borderColor:'#2d3052',textStyle:{color:'#cdd6f4',fontSize:11}},
     axisPointer:{link:[{xAxisIndex:'all'}]},
-    grid:[{left:54,right:14,top:14,height:'64%'},{left:54,right:14,top:'82%',height:'13%'}],
+    grid:[{left:54,right:14,top:12,height:'60%'},{left:54,right:14,top:'77%',height:'18%'}],
     xAxis:[{type:'category',data:times,boundaryGap:false,axisLabel:{color:SUB,fontSize:9,interval:Math.floor(bars.length/6)},axisLine:{lineStyle:{color:'#2d3052'}}},
            {type:'category',gridIndex:1,data:times,boundaryGap:false,axisLabel:{show:false},axisLine:{lineStyle:{color:'#2d3052'}}}],
     yAxis:[{scale:true,axisLabel:{color:SUB,fontSize:10},splitLine:{lineStyle:{color:'#181b29'}}},
@@ -107,29 +112,30 @@ function render(){ if(chart) chart.setOption(chartOption(), true); }
 function panel(){
   const b=bars[cursor]||{}, p=b.c, chg=prevClose?((p/prevClose-1)*100):0;
   const cash=trades.reduce((s,t)=>s+(t.side==='sell'?1:-1)*t.qty*bars[t.i].c,0);
+  const holding=holdingNow(), sellable=sellableNow();
   const excess=cash+(holding-BASE)*p;     // 若此刻收盘的做T超额
   $('panel').innerHTML=
     '<div class="stat">时间 <b>'+esc(b.t||'')+'</b></div>'
     +'<div class="stat">现价 <b style="color:'+pxColor(p)+'">'+(p!=null?p.toFixed(2):'—')+'</b> <span class="'+(chg>=0?'up':'down')+'">'+fmt(chg,'%')+'</span></div>'
     +'<div class="stat">均价 <b style="color:'+GOLD+'">'+(b.avg!=null?b.avg.toFixed(2):'—')+'</b></div>'
-    +'<div class="stat">持仓 <b>'+holding+'</b>/'+BASE+'股</div>'
+    +'<div class="stat">持仓 <b>'+holding+'</b>股 ｜ <span class="neu2">可卖(T+1)</span> <b style="color:#f0a020">'+sellable+'</b>'+(boughtToday>0?' ｜ <span class="neu2">今买锁定</span> '+boughtToday:'')+'</div>'
     +'<div class="stat">已实现现金 <b class="'+(cash>=0?'up':'down')+'">'+(cash>=0?'+':'')+cash.toFixed(0)+'</b></div>'
     +'<div class="stat">若此刻收盘·做T超额 <b class="'+(excess>=0?'up':'down')+'">'+(excess>=0?'+':'')+excess.toFixed(0)+'</b></div>';
   const atEnd=cursor>=bars.length-1;
-  $('sellbtn').disabled=atEnd||holding<=0;
-  $('buybtn').disabled=atEnd||holding>=BASE;
+  $('sellbtn').disabled=atEnd||sellable<=0;
+  $('buybtn').disabled=atEnd||buyRoomNow()<=0;
   $('clock').textContent=(cursor+1)+'/'+bars.length+(atEnd?' · 已收盘':'');
 }
 
 function qty(side){
   const f=parseFloat(document.querySelector('input[name=q]:checked').value);
-  if(side==='sell') return Math.min(holding, f===1?holding:Math.round(BASE*0.5/100)*100||holding);
-  return Math.min(BASE-holding, f===1?BASE-holding:Math.round(BASE*0.5/100)*100||(BASE-holding));
+  if(side==='sell'){ const s=sellableNow(); return Math.min(s, f===1?s:HALF); }
+  const r=buyRoomNow(); return Math.min(r, f===1?r:HALF);
 }
 function trade(side){
   if(cursor>=bars.length-1) return;
   const q=qty(side); if(q<=0) return;
-  if(side==='sell'){ holding-=q; } else { holding+=q; }
+  if(side==='sell'){ soldToday+=q; } else { boughtToday+=q; }
   trades.push({i:cursor, side, qty:q});
   render(); panel();
 }
@@ -168,7 +174,7 @@ async function newGame(){
     const j=await (await fetch('/api/tplus/new'+'?code='+encodeURIComponent(code)+'&day='+encodeURIComponent(d))).json();
     if(!j.ok){ alert('开局失败：'+(j.msg||'')); return; }
     sid=j.session_id; bars=j.bars; prevClose=j.prev_close||bars[0].o; name=j.name; day=j.day;
-    cursor=0; holding=BASE; trades=[];
+    cursor=0; soldToday=0; boughtToday=0; trades=[];
     $('meta').innerHTML='<b>'+esc(name)+'（'+esc(j.ts_code)+'）</b> · '+esc(day)+' · 昨收 '+prevClose;
     const sel=$('day'); const cur=sel.value;
     sel.innerHTML='<option value="">随机近期日</option>'+(j.avail_days||[]).map(x=>'<option value="'+x+'"'+(x===day?' selected':'')+'>'+x+'</option>').join('');
