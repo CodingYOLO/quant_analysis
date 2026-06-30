@@ -216,8 +216,12 @@ def build_quiz(provider=None, *, code: str | None = None,
         hist, future = split_at(kl, i)
         t0 = str(hist["trade_date"].iloc[-1])
         show = hist.tail(hist_days).reset_index(drop=True)
-        idx_sh = _index_range(provider, _SH, str(show["trade_date"].iloc[0]), t0)
-        idx_cyb = _index_range(provider, _CYB, str(show["trade_date"].iloc[0]), t0)
+        show_start = str(show["trade_date"].iloc[0])
+        fut_show = future.head(_REVEAL_MAX).reset_index(drop=True)
+        reveal_end = str(fut_show["trade_date"].iloc[-1])
+        # 指数取 [展示起点, 揭晓终点] 整段再按 T0 切：hist 进题面(背景)，future 进答案(揭晓后续·与K线同期)
+        idx_sh, idx_sh_fut = _split_idx(_index_range(provider, _SH, show_start, reveal_end), t0)
+        idx_cyb, idx_cyb_fut = _split_idx(_index_range(provider, _CYB, show_start, reveal_end), t0)
 
         c0 = float(hist["close"].iloc[-1])
         fwd_close = future["close"].astype(float).tolist()
@@ -243,7 +247,9 @@ def build_quiz(provider=None, *, code: str | None = None,
             "ts_code": ts, "name": name, "t0": t0,
             "rets": rets, "bucket": actual_bucket,
             "setup_tag": setup_tag, "setup_label": setup_label, "market_state": state,
-            "future": _chart(future.head(_REVEAL_MAX).reset_index(drop=True)),
+            "future": _chart(fut_show),
+            "index_sh_future": _chart(idx_sh_fut) if idx_sh_fut is not None and not idx_sh_fut.empty else None,
+            "index_cyb_future": _chart(idx_cyb_fut) if idx_cyb_fut is not None and not idx_cyb_fut.empty else None,
         }
         return {"ok": True, "question": question, "answer": answer}
     return {"ok": False, "msg": "多次抽样取数失败，请重试"}
@@ -256,6 +262,16 @@ def _index_range(provider, idx_code: str, start: str, end: str):
         return df.sort_values("trade_date").reset_index(drop=True) if df is not None and not df.empty else None
     except Exception:
         return None
+
+
+def _split_idx(df, t0: str):
+    """指数整段按 T0 切 → (hist ≤T0·题面背景, future >T0·揭晓后续)。None 安全。"""
+    if df is None or df.empty:
+        return None, None
+    d = df["trade_date"].astype(str)
+    hist = df[d <= t0].reset_index(drop=True)
+    fut = df[d > t0].reset_index(drop=True)
+    return (hist if not hist.empty else None), (fut if not fut.empty else None)
 
 
 def _ma_aligned(close: pd.Series, take: int) -> dict:

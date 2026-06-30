@@ -14,7 +14,7 @@ h1 { font-size:22px; text-align:center; margin-bottom:4px; }
 .st-强{ color:#f6465d; } .st-弱{ color:#2ebd85; } .st-震荡{ color:#f0a020; }
 #mainchart { width:100%; height:360px; }
 .idxwrap { display:flex; gap:12px; margin-top:6px; }
-.idxc { flex:1; height:120px; background:#141729; border:1px solid #1e2138; border-radius:8px; }
+.idxc { flex:1; height:155px; background:#141729; border:1px solid #1e2138; border-radius:8px; }
 .idxlab { font-size:11px; color:#9ca3af; padding:4px 0 0 8px; }
 .predict { text-align:center; margin-bottom:12px; }
 .q { font-size:14px; color:#e8e8e8; margin-bottom:9px; }
@@ -77,12 +77,13 @@ let _q=null, _qid=null, _busy=false, mainC=null, shC=null, cybC=null;
 function stockOption(q, future){
   const s=q.stock;
   let dates=s.dates.slice(), candle=s.candle.slice(), vols=s.vol.slice();
-  let ma20=(q.ma['20']||[]).slice(), ma60=(q.ma['60']||[]).slice();
+  let ma5=(q.ma['5']||[]).slice(), ma10=(q.ma['10']||[]).slice(), ma20=(q.ma['20']||[]).slice(), ma60=(q.ma['60']||[]).slice();
   const t0=dates[dates.length-1];
   let markArea, markLine;
   if(future){
     dates=dates.concat(future.dates); candle=candle.concat(future.candle); vols=vols.concat(future.vol);
-    const pad=future.dates.map(()=>null); ma20=ma20.concat(pad); ma60=ma60.concat(pad);
+    const pad=future.dates.map(()=>null);
+    ma5=ma5.concat(pad); ma10=ma10.concat(pad); ma20=ma20.concat(pad); ma60=ma60.concat(pad);
     markArea={silent:true,itemStyle:{color:'rgba(124,158,248,0.12)'},
       data:[[{xAxis:future.dates[0]},{xAxis:future.dates[future.dates.length-1]}]]};
     markLine={symbol:'none',silent:true,lineStyle:{color:GOLD,type:'dashed',width:1.2},
@@ -93,7 +94,8 @@ function stockOption(q, future){
     backgroundColor:'transparent', textStyle:{color:SUB},
     tooltip:{trigger:'axis',axisPointer:{type:'cross'},backgroundColor:'#11131c',borderColor:'#2d3052',textStyle:{color:'#cdd6f4',fontSize:11}},
     axisPointer:{link:[{xAxisIndex:'all'}]},
-    grid:[{left:46,right:14,top:10,height:'66%'},{left:46,right:14,top:'80%',height:'14%'}],
+    legend:{top:0,right:8,itemWidth:16,itemHeight:8,textStyle:{color:SUB,fontSize:10},data:['MA5','MA10','MA20','MA60']},
+    grid:[{left:46,right:14,top:24,height:'62%'},{left:46,right:14,top:'80%',height:'14%'}],
     xAxis:[{type:'category',data:dates,boundaryGap:true,axisLabel:{show:false},axisLine:{lineStyle:{color:'#2d3052'}},axisPointer:{label:{show:false}}},
            {type:'category',gridIndex:1,data:dates,boundaryGap:true,axisLabel:{color:SUB,fontSize:9},axisLine:{lineStyle:{color:'#2d3052'}}}],
     yAxis:[{scale:true,axisLabel:{color:SUB,fontSize:10},splitLine:{lineStyle:{color:'#181b29'}}},
@@ -101,20 +103,38 @@ function stockOption(q, future){
     series:[
       {type:'candlestick',data:candle,itemStyle:{color:RED,color0:GREEN,borderColor:RED,borderColor0:GREEN},
        markArea:markArea, markLine:markLine},
-      {type:'line',data:ma20,showSymbol:false,smooth:true,lineStyle:{color:'#e5c07b',width:1},name:'MA20'},
-      {type:'line',data:ma60,showSymbol:false,smooth:true,lineStyle:{color:'#7c9ef8',width:1},name:'MA60'},
+      {name:'MA5',type:'line',data:ma5,showSymbol:false,smooth:true,lineStyle:{color:'#dfe3ea',width:1}},
+      {name:'MA10',type:'line',data:ma10,showSymbol:false,smooth:true,lineStyle:{color:'#f0c040',width:1}},
+      {name:'MA20',type:'line',data:ma20,showSymbol:false,smooth:true,lineStyle:{color:'#d76ad7',width:1}},
+      {name:'MA60',type:'line',data:ma60,showSymbol:false,smooth:true,lineStyle:{color:'#7c9ef8',width:1}},
       {type:'bar',xAxisIndex:1,yAxisIndex:1,data:vols.map((v,i)=>({value:v,itemStyle:{color:volColor[i]}}))}
     ]
   };
 }
-function idxOption(idx){
+// 大盘指数小图：收盘线 + 成交量；reveal=未来段(与K线同期·揭晓后续)
+function idxOption(idx, future){
   if(!idx) return {backgroundColor:'transparent'};
+  let dates=idx.dates.slice(), close=idx.close.slice(), vol=(idx.vol||[]).slice();
+  const t0=dates[dates.length-1];
+  let markArea, markLine;
+  if(future && future.dates && future.dates.length){
+    dates=dates.concat(future.dates); close=close.concat(future.close); vol=vol.concat(future.vol||[]);
+    markArea={silent:true,itemStyle:{color:'rgba(124,158,248,0.12)'},
+      data:[[{xAxis:future.dates[0]},{xAxis:future.dates[future.dates.length-1]}]]};
+    markLine={symbol:'none',silent:true,lineStyle:{color:GOLD,type:'dashed',width:1},data:[{xAxis:t0}]};
+  }
+  const vc=close.map((c,i)=> i>0 ? (c>=close[i-1]?RED:GREEN) : '#555');
   return {backgroundColor:'transparent',textStyle:{color:SUB},
-    tooltip:{trigger:'axis',backgroundColor:'#11131c',borderColor:'#2d3052',textStyle:{color:'#cdd6f4',fontSize:11}},
-    grid:{left:50,right:10,top:8,bottom:18},
-    xAxis:{type:'category',data:idx.dates,axisLabel:{show:false},axisLine:{lineStyle:{color:'#2d3052'}}},
-    yAxis:{scale:true,axisLabel:{color:SUB,fontSize:9},splitLine:{lineStyle:{color:'#181b29'}}},
-    series:[{type:'line',data:idx.close,showSymbol:false,lineStyle:{color:'#9ca3af',width:1.3},areaStyle:{color:'rgba(124,158,248,0.06)'}}]};
+    tooltip:{trigger:'axis',axisPointer:{type:'cross'},backgroundColor:'#11131c',borderColor:'#2d3052',textStyle:{color:'#cdd6f4',fontSize:11}},
+    axisPointer:{link:[{xAxisIndex:'all'}]},
+    grid:[{left:50,right:10,top:6,height:'60%'},{left:50,right:10,top:'74%',height:'20%'}],
+    xAxis:[{type:'category',data:dates,axisLabel:{show:false},axisLine:{lineStyle:{color:'#2d3052'}}},
+           {type:'category',gridIndex:1,data:dates,axisLabel:{show:false},axisLine:{lineStyle:{color:'#2d3052'}}}],
+    yAxis:[{scale:true,axisLabel:{color:SUB,fontSize:9},splitLine:{lineStyle:{color:'#181b29'}}},
+           {gridIndex:1,axisLabel:{show:false},splitLine:{show:false}}],
+    series:[{type:'line',data:close,showSymbol:false,lineStyle:{color:'#9ca3af',width:1.3},
+             areaStyle:{color:'rgba(124,158,248,0.06)'},markArea:markArea,markLine:markLine},
+            {type:'bar',xAxisIndex:1,yAxisIndex:1,data:vol.map((v,i)=>({value:v,itemStyle:{color:vc[i]}}))}]};
 }
 
 function renderCtx(q){
@@ -165,7 +185,9 @@ async function submit(bucket){
 
 function reveal(j){
   const a=j.answer, s=j.score, r=a.rets;
-  mainC.setOption(stockOption(_q, a.future), true);   // 揭晓:接上未来段
+  mainC.setOption(stockOption(_q, a.future), true);   // 揭晓:个股接上未来段
+  shC.setOption(idxOption(_q.index_sh, a.index_sh_future), true);     // 大盘同期揭晓后续
+  cybC.setOption(idxOption(_q.index_cyb, a.index_cyb_future), true);
   const vc=s.exact?'v-ok':(s.near?'v-near':'v-no');
   const head=s.exact?'✅ 完全命中':(s.near?'🟡 相邻档(半对)':(s.direction_right?'🔸 方向对·幅度差':'❌ 判错'));
   const retsHtml=[1,3,5,10].filter(h=>r[h]!=null).map(h=>'<span class="ret">T+'+h+' '+pctv(r[h])+'</span>').join('');
