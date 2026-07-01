@@ -14,6 +14,7 @@ from app.data.composite_provider import CompositeProvider
 from app.data.kline_loader import load_kline
 from app.factors import core as F
 from app.nodes.quick_report import _board_limit_pct
+from app.strategy.key_levels import build_key_levels
 
 
 def build_stock_profile(ts_code: str, name: str = "",
@@ -33,13 +34,15 @@ def build_stock_profile(ts_code: str, name: str = "",
 
     k = k.tail(lookback_days).reset_index(drop=True)
     metrics = _metrics(k, ts_code, name)
+    chips = _chips(ts_code, provider, k)
     return {
         "ok": True, "ts_code": ts_code, "name": name, "bars": len(k),
         "metrics": metrics,
         "tags": _tags(metrics),
         "hints": _form_hints(k),
         "kline": _kline_payload(k.tail(120)),
-        "chips": _chips(ts_code, provider, k),
+        "chips": chips,
+        "levels": build_key_levels(k, chips),
     }
 
 

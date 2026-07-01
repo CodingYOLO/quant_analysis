@@ -14,6 +14,29 @@ h1 { font-size:22px; text-align:center; margin-bottom:4px; }
 .sec .loading { color:#9ca3af; font-size:13px; }
 .tag { display:inline-block; font-size:12px; padding:3px 9px; border-radius:7px; margin:3px 5px 3px 0; background:#161929; border:1px solid #242842; color:#cdd6f4; }
 .tag.warn { border-color:#5a4018; color:#f0a020; } .tag.calm { border-color:#1a4a30; color:#2ebd85; }
+/* —— 🎯 关键位 · 入局区间 阶梯（压力在上·现价·支撑在下）—— */
+.lv-pos { font-size:14px; font-weight:700; padding:9px 13px; border-radius:9px; margin-bottom:12px; line-height:1.55; }
+.lv-pos.in { background:#0e2a1a; color:#3ddc97; border:1px solid #1a5a38; }
+.lv-pos.watch { background:#3a2c08; color:#f6c343; border:1px solid #6b5410; }
+.lv-pos.far, .lv-pos.below { background:#2a1414; color:#f08a8a; border:1px solid #5a2a2a; }
+.lv-pos.na { background:#161929; color:#9ca3af; border:1px solid #242842; }
+.lv-zoneline { font-size:12.5px; color:#cdd6f4; margin-bottom:10px; }
+.lv-zoneline b { color:#f6c343; font-size:14px; }
+.lv-ladder { display:flex; flex-direction:column; gap:0; }
+.lv-row { display:flex; align-items:center; gap:9px; padding:7px 10px; border-radius:8px; margin:2px 0; font-size:12.5px; }
+.lv-res { background:linear-gradient(90deg,rgba(246,70,93,.10),transparent); border-left:3px solid #f6465d; }
+.lv-sup { background:linear-gradient(90deg,rgba(46,189,133,.10),transparent); border-left:3px solid #2ebd85; }
+.lv-row.zone { outline:1.5px dashed #6b5410; background:linear-gradient(90deg,rgba(246,195,67,.14),rgba(46,189,133,.06)); }
+.lv-price { font-weight:700; font-size:13.5px; min-width:118px; color:#e8e8e8; }
+.lv-dist { min-width:58px; text-align:right; font-weight:600; }
+.lv-dist.up { color:#f6465d; } .lv-dist.down { color:#2ebd85; }
+.lv-srcs { flex:1; color:#9ca3af; }
+.lv-src { display:inline-block; background:#161929; border:1px solid #242842; border-radius:6px; padding:1px 7px; margin:1px 3px 1px 0; font-size:11px; color:#b7c0e0; }
+.lv-str { color:#f6c343; letter-spacing:1px; font-size:10px; }
+.lv-now { display:flex; align-items:center; gap:10px; padding:9px 12px; margin:5px 0; border-radius:8px;
+  background:#151a2e; border:1px dashed #3358e0; font-weight:800; }
+.lv-now .p { font-size:16px; color:#7c9ef8; }
+#result.export-mode .lv-price { min-width:130px; font-size:15px; } #result.export-mode .lv-row { font-size:14px; }
 /* —— 导出条 —— */
 .exportbtn { display:inline-flex; align-items:center; gap:5px; padding:8px 18px; font-size:13.5px; cursor:pointer;
   background:transparent; color:#cdd6f4; border:1px solid #3358e0; border-radius:8px; }
@@ -95,6 +118,7 @@ table.mini td { padding:6px 8px; border-bottom:1px solid #1e2138; }
   <!-- 七大分区 -->
   <div class="sec"><h2>🏢 公司是干什么的 <span class="neu2" style="font-size:11px">（主营·主要产品·行业地位·护城河）</span></h2><div id="v-company" class="loading">⏳ 加载公司画像…</div></div>
   <div class="sec"><h2>📈 K线 + 股性</h2><div id="v-kline" style="height:300px"></div><div id="v-prof" class="loading">⏳ 加载股性…</div></div>
+  <div class="sec"><h2>🎯 关键位 · 入局区间 <span class="neu2" style="font-size:11px">（支撑/压力自算·每档带依据·仅标位置不构成买卖建议）</span></h2><div id="v-levels" class="loading">⏳ 计算关键位…</div></div>
   <div class="sec"><h2>💰 资金（主力估算 + 龙虎榜机构真钱 + 大盘北向）</h2><div id="v-fund" class="loading">⏳ 加载资金…</div></div>
   <div class="sec"><h2>🏛️ 龙虎榜复盘（近6月·历史规律）</h2><div id="v-lhb" class="loading">⏳ 复盘龙虎榜…</div></div>
   <div class="sec"><h2>🔥 板块情况</h2><div id="v-sector" class="loading">⏳ 加载板块…</div></div>
@@ -176,6 +200,40 @@ function renderProfile(d,facts){
   const tagHtml=tags.map(t=>'<span class="tag '+(t.level||'')+'">'+esc(t.text)+'</span>').join('') || '<span class="neu2">暂无股性标签</span>';
   $('v-prof').className=''; $('v-prof').innerHTML=dt('K线截至 <b>'+fmtD(kd)+'</b> · 日线/筹码盘后更新(非实时)')+tagHtml;
   facts['股性']=tags.map(t=>t.text).join('；');
+  renderLevels(d.levels, facts);
+}
+
+// —— 🎯 关键位：压力(上)→现价→支撑(下) 价格阶梯，入局区间高亮 ——
+function renderLevels(lv, facts){
+  const el=$('v-levels'); el.className='';
+  if(!lv || !lv.price){ el.innerHTML='<span class="neu2">数据不足，无法计算关键位</span>'; return; }
+  const dots=n=>'●'.repeat(Math.max(1,n||1));
+  const srcTags=arr=>(arr||[]).map(s=>'<span class="lv-src">'+esc(s)+'</span>').join('');
+  const distSpan=p=>'<span class="lv-dist '+(p>=0?'up':'down')+'">'+(p>=0?'+':'')+p.toFixed(1)+'%</span>';
+  const zone=lv.entry_zone, zLow=zone&&zone.low, zHigh=zone&&zone.high;
+  const inZone=b=>zone && b.low<=zHigh && b.high>=zLow;              // 该支撑带是否即入局区间
+  const row=(b,cls)=>'<div class="lv-row '+cls+(cls==='lv-sup'&&inZone(b)?' zone':'')+'">'+
+      '<span class="lv-price">'+(b.low===b.high?b.low:b.low+'~'+b.high)+'</span>'+
+      distSpan(b.dist_pct)+
+      '<span class="lv-srcs">'+srcTags(b.srcs)+' <span class="lv-str">'+dots(b.strength)+'</span></span></div>';
+
+  const pos=lv.position||{};
+  let h='<div class="lv-pos '+(pos.state||'na')+'">'+esc(pos.label||'—')+'</div>';
+  if(zone) h+='<div class="lv-zoneline">🎯 入局区间 <b>'+zLow+' ~ '+zHigh+'</b> '+
+      '<span class="neu2">（依据：'+esc(zone.basis||'')+'）</span></div>';
+  h+='<div class="lv-ladder">';
+  (lv.resistance||[]).slice().reverse().forEach(b=>{ h+=row(b,'lv-res'); });   // 远压力在上、近压力靠近现价
+  h+='<div class="lv-now"><span class="p">现价 '+lv.price+'</span>'+
+     '<span class="neu2" style="font-size:11.5px">截至 '+fmtD(lv.as_of)+'（日线/筹码·非实时）</span></div>';
+  (lv.support||[]).forEach(b=>{ h+=row(b,'lv-sup'); });                        // 近支撑靠近现价、远支撑在下
+  h+='</div><div class="disc">位置说明：●数=多方法共振强度（越多越强）。红=上方压力、绿=下方支撑。仅标位置与依据，不预测涨跌、不构成买卖建议。</div>';
+  el.innerHTML=h;
+
+  // 供顶部 AI 综合判断引用（带来源）
+  const sup=(lv.support||[]).map(b=>b.mid+'('+b.srcs.join('/')+')').join('、');
+  const res=(lv.resistance||[]).map(b=>b.mid+'('+b.srcs.join('/')+')').join('、');
+  if(facts) facts['关键位']='现价'+lv.price+'；入局区间'+(zone?zLow+'~'+zHigh+'('+zone.basis+')':'—')+
+     '；'+(pos.label||'')+'；上方压力'+(res||'无')+'；下方支撑'+(sup||'无');
 }
 
 // —— 🏢 公司画像：主营/构成(硬数据) + 地位/排名/护城河(LLM归纳·带来源) ——
