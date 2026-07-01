@@ -473,6 +473,7 @@ def scan_once(force: bool = False, push: bool = True) -> list[dict]:
     now = time.time()
     new: list[dict] = []
     events = _auction_events() if sess in hub._AUCTION_SESSIONS else _collect_events()
+    _diag_log(len(events), sess)                     # 周期诊断(~5min)·排查"推送很少"
     for key, title, body, code in events:
         if not _should_push(key, now):
             continue
@@ -484,6 +485,22 @@ def scan_once(force: bool = False, push: bool = True) -> list[dict]:
             _pushed[key] = now
             new.append({"key": key, "title": title, "body": body})
     return new
+
+
+_scan_diag = [0.0]
+
+
+def _diag_log(n_events: int, sess: str) -> None:
+    """每~5分钟记一条盯盘诊断：时段/是否live/快照A股数/本轮事件数——排查"推送很少"卡在取数还是产事件。"""
+    now = time.time()
+    if now - _scan_diag[0] < 300:
+        return
+    _scan_diag[0] = now
+    try:
+        n_snap = len(hub.stock_df())
+    except Exception:
+        n_snap = -1
+    logger.info("[盯盘诊断] 时段=%s live=%s 快照A股=%d只 本轮事件=%d", sess, hub.is_live(), n_snap, n_events)
 
 
 # 个性化信号前缀(关于某只自选/持仓票)：按归属人路由·只推关注它的人；其余=全市场信号·全设备全量

@@ -204,17 +204,21 @@ def _bark_keys(raw: str) -> list[str]:
 
 
 def _bark_post_one(key: str, payload: dict) -> bool:
-    """向单台设备 POST。失败只记日志(key 尾4位脱敏标识)不抛——一台失败不影响其余设备。"""
-    try:
-        resp = httpx.post(f"https://api.day.app/{key}", json=payload, timeout=12.0)
-        resp.raise_for_status()
-        ok = resp.json().get("code") == 200
-        if not ok:
-            logger.warning("Bark推送失败(设备…%s): %s", key[-4:], resp.text[:120])
-        return ok
-    except Exception as e:
-        logger.error("Bark推送异常(设备…%s): %s", key[-4:], e)
-        return False
+    """向单台设备 POST。api.day.app 在境内偶发 SSL/握手超时→**重试2次**(短超时·别把扫描线程堵久)。
+    失败只记日志(key 尾4位脱敏)不抛——一台失败不影响其余设备。"""
+    last = ""
+    for attempt in range(3):                          # 最多3次·应对 api.day.app 境内间歇性超时
+        try:
+            resp = httpx.post(f"https://api.day.app/{key}", json=payload, timeout=6.0)
+            resp.raise_for_status()
+            ok = resp.json().get("code") == 200
+            if not ok:
+                logger.warning("Bark推送失败(设备…%s): %s", key[-4:], resp.text[:120])
+            return ok
+        except Exception as e:
+            last = str(e)
+    logger.error("Bark推送异常(设备…%s·重试3次仍失败): %s", key[-4:], last)
+    return False
 
 
 def push_bark(title: str, body: str, *, key: str = "", group: str = "盯盘",
