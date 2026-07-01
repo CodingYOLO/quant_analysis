@@ -58,6 +58,13 @@ _SYSTEM = (
     "用清晰中文、有条理、直接切要点，像个能给真知灼见的分析师，**不要当免责声明机器**。"
 )
 
+# 进入最终作答前注入·强制模型收口直接答，别再想调工具（复杂多股问题超轮次后吐工具token被截断的根因）
+_FINAL_SYNTH = (
+    "【最终作答·强制】工具查询到此结束。现在**必须直接基于以上已获取的数据给出完整、有条理的最终回答**——"
+    "禁止再调用任何工具、禁止再说『让我查/我再补/接下来查』之类的话。数据够就下判断；数据不足就用现有数据下判断并"
+    "说明局限，**绝不半途而止、绝不只写一半**。保持诚实：数字带来源、没来源标未核实、不臆造、不打包票。"
+)
+
 
 # ──────────────────────────────────────────────────────────────────────────
 # 工具定义（OpenAI function schema）
@@ -431,10 +438,11 @@ def run_chat(history: list[dict], provider: CompositeProvider | None = None, cli
                 result = _exec_tool(tc.function.name, args, provider)
                 messages.append({"role": "tool", "tool_call_id": tc.id,
                                  "content": json.dumps(result, ensure_ascii=False)})
-        # 最终答案：流式。传 tools + tool_choice="none"(API层禁止再调工具) + 泄漏检测(双保险)
+        # 最终答案：流式。① 注入强制"直接作答·禁再调工具"指令 ② 不再传 tools(无工具schema→模型无从吐工具token)
+        # ③ 泄漏检测兜底(三保险)——根治复杂多股问题答一半被 <｜tool…｜> 截断
+        messages.append({"role": "system", "content": _FINAL_SYNTH})
         parts, thinking_sent, stopped = [], False, False
-        for kind, text in client.stream_answer(messages, task_type=task,
-                                                tools=_tool_schemas()):
+        for kind, text in client.stream_answer(messages, task_type=task):
             if kind == "reasoning":
                 if not thinking_sent:
                     yield {"type": "thinking", "text": "💭 思考中…"}
@@ -453,7 +461,12 @@ def run_chat(history: list[dict], provider: CompositeProvider | None = None, cli
                 continue
             parts.append(text)
             yield {"type": "delta", "text": text}
-        yield {"type": "done", "content": "".join(parts)}
+        final = "".join(parts).strip()
+        if len(final) < 12:                              # 泄漏/异常致正文近空 → 兜底不留白半句
+            final = ("（这次没能生成完整回答，请重试；若问的是『选几只票』这类要查很多股的，"
+                     "换成一两只、或先问板块/大盘，会更稳更快。）")
+            yield {"type": "delta", "text": final}
+        yield {"type": "done", "content": final}
     except Exception as e:
         logger.exception("[chat] Agent 运行失败")
         yield {"type": "error", "text": f"出错了：{str(e)[:120]}"}
