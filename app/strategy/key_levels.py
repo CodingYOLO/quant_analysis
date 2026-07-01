@@ -37,9 +37,11 @@ def build_key_levels(k: pd.DataFrame, chips: dict | None = None,
     if px <= 0:
         return None
 
-    cands = _candidates(k, chips)                       # 全部候选位（含依据）
-    supports = _cluster([c for c in cands if c["price"] <= px * 1.002], px, side="support")
-    resists = _cluster([c for c in cands if c["price"] >= px * 0.998], px, side="resistance")
+    cands = _candidates(k, chips)                       # 全部候选位（含依据·含方位约束 side）
+    sup_c = [c for c in cands if c["side"] == "sup" or (c["side"] == "any" and c["price"] <= px * 1.002)]
+    res_c = [c for c in cands if c["side"] == "res" or (c["side"] == "any" and c["price"] >= px * 0.998)]
+    supports = _cluster(sup_c, px, side="support")
+    resists = _cluster(res_c, px, side="resistance")
     zone = _entry_zone(supports, px)
     return {
         "price": round(px, 2),
@@ -53,7 +55,7 @@ def build_key_levels(k: pd.DataFrame, chips: dict | None = None,
 
 # ── 候选位收集（均线 / 前低前高 / 筹码密集区）──────────────────────────────
 def _candidates(k: pd.DataFrame, chips: dict | None) -> list[dict]:
-    """收集所有可溯源候选位。每项 {price, src}，src 即该数字的依据。"""
+    """收集所有可溯源候选位。每项 {price, src, side}；side=sup/res/any 约束方位。"""
     out: list[dict] = []
     out += _ma_levels(k)
     out += _swing_levels(k)
@@ -62,32 +64,32 @@ def _candidates(k: pd.DataFrame, chips: dict | None) -> list[dict]:
 
 
 def _ma_levels(k: pd.DataFrame) -> list[dict]:
-    """均线支撑/压力：MA10/MA20/MA60（现价在其上=支撑，其下=压力，交由聚类按价分侧）。"""
+    """均线：MA10/MA20/MA60。现价在其上=支撑、其下=压力 → side=any 交由按价分侧。"""
     close = k["close"].astype(float)
     out = []
     for n in (10, 20, 60):
         if len(close) >= n:
-            out.append({"price": round(float(close.tail(n).mean()), 2), "src": f"MA{n}"})
+            out.append({"price": round(float(close.tail(n).mean()), 2), "src": f"MA{n}", "side": "any"})
     return out
 
 
 def _swing_levels(k: pd.DataFrame) -> list[dict]:
-    """前低/前高：20日、60日 高低点（市场公认支撑/压力）。"""
-    close, high, low = k["close"].astype(float), k["high"].astype(float), k["low"].astype(float)
+    """前低/前高：20/60日 高低点。前低恒≤现价→只作支撑；前高恒≥现价→只作压力(方位固定)。"""
+    high, low = k["high"].astype(float), k["low"].astype(float)
     out = []
     for n, tag in ((20, "20日"), (60, "60日")):
         if len(k) >= n:
-            out.append({"price": round(float(low.tail(n).min()), 2), "src": f"{tag}低"})
-            out.append({"price": round(float(high.tail(n).max()), 2), "src": f"{tag}高"})
+            out.append({"price": round(float(low.tail(n).min()), 2), "src": f"{tag}低", "side": "sup"})
+            out.append({"price": round(float(high.tail(n).max()), 2), "src": f"{tag}高", "side": "res"})
     return out
 
 
 def _chip_levels(chips: dict | None) -> list[dict]:
-    """筹码密集区：成本下沿(cost_5%)/主力平均成本(cost_50%)/套牢峰上沿(cost_95%)。"""
+    """筹码密集区：成本下沿/主力平均成本/套牢峰 → side=any 按价分侧。"""
     if not chips:
         return []
-    m = {"cost_5pct": "筹码成本下沿", "cost_50pct": "主力平均成本", "cost_95pct": "筹码套牢峰"}
-    return [{"price": chips[k], "src": v} for k, v in m.items() if chips.get(k)]
+    m = {"cost_5pct": "筹码下沿", "cost_50pct": "主力平均成本", "cost_95pct": "筹码上沿"}
+    return [{"price": chips[k], "src": v, "side": "any"} for k, v in m.items() if chips.get(k)]
 
 
 # ── 聚类：相近价位合并成「带」，共振越多越强 ────────────────────────────────

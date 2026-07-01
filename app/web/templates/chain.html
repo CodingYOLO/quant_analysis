@@ -38,6 +38,24 @@ h1 { font-size:22px; text-align:center; margin-bottom:4px; }
 .stag { display:inline-block; font-size:10.5px; padding:1px 7px; border-radius:6px; margin:0 5px 4px 0; background:#161929; border:1px solid #242842; color:#cdd6f4; }
 .stag.warn { border-color:#5a4018; color:#f0a020; } .stag.calm { border-color:#1a4a30; color:#2ebd85; }
 .loading { color:#9ca3af; font-size:13px; padding:14px; }
+/* —— 🎯 触发汇总（关键位·入局区间扫描·对标稳智AI触发汇总）—— */
+#trigger { border-radius:10px; padding:11px 15px; margin-bottom:14px; font-size:13px; line-height:1.75;
+  background:#141b12; border:1px solid #2a4020; display:none; }
+#trigger .th { font-size:13px; font-weight:700; color:#cdd6f4; margin-bottom:6px; }
+#trigger .grp { margin:3px 0; }
+#trigger .k-in { color:#3ddc97; font-weight:700; } #trigger .k-watch { color:#f6c343; font-weight:700; }
+#trigger .chip { display:inline-block; margin:2px 6px 2px 0; padding:1px 8px; border-radius:7px; cursor:pointer;
+  background:#0f1117; border:1px solid #242842; color:#cdd6f4; font-size:12px; }
+#trigger .chip:hover { border-color:#3358e0; }
+#trigger .chip .z { color:#9ca3af; font-size:11px; }
+#trigger .none { color:#9ca3af; }
+/* —— 龙头榜·入局区间列 —— */
+.zpill { display:inline-block; padding:1px 7px; border-radius:6px; font-size:11px; font-weight:600; }
+.zpill.in { background:#0e2a1a; color:#3ddc97; border:1px solid #1a5a38; }
+.zpill.watch { background:#3a2c08; color:#f6c343; border:1px solid #6b5410; }
+.zpill.far, .zpill.below { background:#2a1414; color:#f08a8a; border:1px solid #5a2a2a; }
+.zpill.na { background:#161929; color:#6b7280; border:1px solid #242842; }
+.zsub { color:#9ca3af; font-size:11px; }
 {% endblock %}
 
 {% block content %}
@@ -49,6 +67,7 @@ h1 { font-size:22px; text-align:center; margin-bottom:4px; }
 </div>
 
 <div id="banner" class="banner b-balanced" style="display:none"></div>
+<div id="trigger"></div>
 <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px">
   <span id="meta" class="neu2" style="font-size:12px"></span>
   <button id="refresh" class="tab" style="padding:4px 12px">🔄 刷新</button>
@@ -64,16 +83,18 @@ h1 { font-size:22px; text-align:center; margin-bottom:4px; }
 const $=id=>document.getElementById(id);
 function esc(s){ return (s==null?'':String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 function pct(v){ if(v==null||v==='') return '<span class="neu2">停牌/—</span>'; const n=+v; const c=n>0?'up':(n<0?'down':'neu2'); return '<span class="'+c+'">'+(n>0?'+':'')+n+'%</span>'; }
-let _data=null, _curChain='';
+let _data=null, _curChain='', _levels={}, _nameByCode={};
 
 async function loadChain(name, force){
-  _curChain=name;
+  _curChain=name; _levels={};
   $('map').innerHTML='<div class="loading">⏳ 加载产业链…（取龙头实时报价·约数秒）</div>';
-  $('detail').style.display='none'; $('banner').style.display='none';
+  $('detail').style.display='none'; $('banner').style.display='none'; $('trigger').style.display='none';
   try{
     const j=await (await fetch('/api/chain?name='+encodeURIComponent(name)+(force?'&refresh=1':''))).json();
     if(!j.ok){ $('map').innerHTML='<div class="neu2">❌ '+(j.msg||'失败')+'</div>'; return; }
-    _data=j;
+    if(name!==_curChain) return;                       // 已切链·丢弃过期结果
+    _data=j; _nameByCode={};
+    j.layers.forEach(L=>L.nodes.forEach(n=>(n.leaders||[]).forEach(x=>{ _nameByCode[x.code]=x.name; })));
     $('meta').innerHTML='🕐 数据时间 <b>'+esc(j.as_of||'—')+'</b> · '+esc(j.source||'')+' · <span title="本页不自动轮询·打开或点刷新时才拉最新">打开/刷新时拉取</span>';
     // 今日风格横幅
     const s=j.style; $('banner').className='banner b-'+(s.lean||'balanced'); $('banner').style.display='block';
@@ -81,8 +102,43 @@ async function loadChain(name, force){
     // 三层地图
     $('map').innerHTML=j.layers.map((L,li)=>'<div class="layer"><div class="layer-h">'+esc(L.layer)+'</div>'
       + L.nodes.map((n,ni)=>nodeCard(n,li,ni)).join('') + '</div>').join('');
+    loadLevels(name);                                  // 关键位异步叠加·不阻塞地图
   }catch(e){ $('map').innerHTML='<div class="neu2">❌ '+esc(e)+'</div>'; }
 }
+
+// —— 🎯 关键位·入局区间：地图渲染后异步单拉 → 触发汇总 + 供龙头榜取用 ——
+async function loadLevels(name){
+  $('trigger').style.display='block';
+  $('trigger').innerHTML='<div class="th">🎯 关键位·入局区间扫描中…（本链龙头日线/筹码·首次约10-30秒·之后当日秒开）</div>';
+  try{
+    const j=await (await fetch('/api/chain/levels?name='+encodeURIComponent(name))).json();
+    if(name!==_curChain) return;                       // 已切链·丢弃
+    if(!j.ok){ $('trigger').style.display='none'; return; }
+    _levels=j.codes||{};
+    renderTrigger(j.summary);
+    refreshOpenZones();                                // 若详情已打开·就地补上入局区间列
+  }catch(e){ $('trigger').style.display='none'; }
+}
+function refreshOpenZones(){                            // 就地更新已打开龙头榜的入局区间列(不折叠已展开K线)
+  document.querySelectorAll('#detail .lrow').forEach(row=>{
+    const cell=row.children[3]; if(cell) cell.innerHTML=zoneCell(row.dataset.code);
+  });
+}
+function renderTrigger(sm){
+  const inL=[], watchL=[]; let asOf='';
+  for(const code in _levels){ const ov=_levels[code]; if(!ov||ov.state==='na') continue; asOf=ov.as_of||asOf;
+    const chip='<span class="chip" data-code="'+code+'"><b>'+esc(_nameByCode[code]||code)+'</b> '
+      +'<span class="z">'+ov.zlow+'~'+ov.zhigh+'</span></span>';
+    if(ov.state==='in') inL.push(chip); else if(ov.state==='watch') watchL.push(chip);
+  }
+  const n=(sm&&sm.n_total)||Object.keys(_levels).length;
+  let h='<div class="th">🎯 关键位·入局区间扫描 <span class="neu2" style="font-weight:400">（覆盖本链 '+n+' 只龙头 · 截至 '+esc(asOf||'—')+' 日线 · 每档可溯源 · 仅标位置不荐买卖）</span></div>';
+  h+='<div class="grp"><span class="k-in">🟢 已回调进入局区间（'+inL.length+'）：</span>'+(inL.join('')||'<span class="none">暂无</span>')+'</div>';
+  h+='<div class="grp"><span class="k-watch">🟡 警戒带·随时回踩可蹲守（'+watchL.length+'）：</span>'+(watchL.join('')||'<span class="none">暂无</span>')+'</div>';
+  $('trigger').innerHTML=h;
+}
+// 触发汇总点股票 → 打开个股360
+$('trigger').addEventListener('click',e=>{ const c=e.target.closest('.chip'); if(c) location.href='/stock?code='+c.dataset.code; });
 function nodeCard(n,li,ni){
   const lead=n.lead;
   const avg=(n.avg_pct==null)?'<span class="neu2">—</span>':pct(n.avg_pct);
@@ -93,15 +149,23 @@ function nodeCard(n,li,ni){
 }
 $('map').addEventListener('click',e=>{ const c=e.target.closest('.node'); if(!c||!_data) return;
   const n=_data.layers[+c.dataset.li].nodes[+c.dataset.ni]; renderDetail(n); });
+function zoneCell(code){
+  const ov=_levels[code];
+  if(!ov||ov.state==='na') return '<span class="zpill na">—</span>';
+  const st={in:'✅ 入局区间内',watch:'🟡 警戒带',far:'已远离',below:'⚠️ 破位'}[ov.state]||ov.state;
+  return '<span class="zpill '+ov.state+'">'+st+'</span>'
+    +'<div class="zsub">入局 '+ov.zlow+'~'+ov.zhigh+' <span title="依据：'+esc(ov.basis||'')+'">('+esc(ov.basis||'')+')</span></div>';
+}
 function renderDetail(n){
   let h='<h3>'+esc(n.name)+' · 龙头中军榜（按今日涨幅排序·🏆=结构龙头·点行看K线）</h3>';
-  h+='<table class="ltab"><thead><tr><th>个股</th><th>今日涨跌</th><th>现价</th><th></th></tr></thead><tbody>';
+  h+='<table class="ltab"><thead><tr><th>个股</th><th>今日涨跌</th><th>现价</th><th>入局区间/位置</th><th></th></tr></thead><tbody>';
   (n.leaders||[]).forEach(x=>{ const c=esc(x.code);
     h+='<tr class="lrow" data-code="'+c+'"><td>'+(x.is_anchor?'🏆 ':'')+'<b>'+esc(x.name)+'</b> <span class="neu2" style="font-size:11px">'+c+'</span> <span class="exp">▾K线</span></td>'
       +'<td>'+pct(x.pct)+'</td><td>'+(x.price??'—')+'</td>'
+      +'<td>'+zoneCell(c)+'</td>'
       +'<td><a class="ln360" href="/stock?code='+c+'" style="color:#7c9ef8;font-size:11px">个股360↗</a></td></tr>'
-      +'<tr class="ldetail" id="ld-'+c+'" style="display:none"><td colspan="4" class="kcell"></td></tr>'; });
-  h+='</tbody></table><div class="neu2" style="font-size:11px;margin-top:7px">点行展开K线/股性 · 「个股360↗」看完整分析(资金/研报/策略/AI判断) · 龙头手工梳理·非投资建议</div>';
+      +'<tr class="ldetail" id="ld-'+c+'" style="display:none"><td colspan="5" class="kcell"></td></tr>'; });
+  h+='</tbody></table><div class="neu2" style="font-size:11px;margin-top:7px">入局区间=最近支撑带(均线/前低/筹码·每档可溯源·仅标位置不荐买卖) · 点行展开K线/股性 · 「个股360↗」看完整关键位与分析</div>';
   $('detail').innerHTML=h; $('detail').style.display='block'; $('detail').scrollIntoView({behavior:'smooth',block:'nearest'});
 }
 // 点龙头榜行 → 就地展开K线+股性(复用 /api/stock/profile + AKline)

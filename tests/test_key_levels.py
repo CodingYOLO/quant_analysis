@@ -102,9 +102,12 @@ def test_end_to_end_invariants() -> None:
     _assert(all(b["mid"] <= px for b in r["support"]), "支撑必在现价下方")
     _assert(all(b["mid"] >= px for b in r["resistance"]), "压力必在现价上方")
     _assert(r["entry_zone"] and r["entry_zone"]["low"] <= r["entry_zone"]["high"], "区间上下沿有序")
-    all_srcs = [s for b in r["support"] for s in b["srcs"]]
-    _assert(any("筹码" in s for s in all_srcs), "应含筹码依据(可溯源)")
-    _assert(any(s.startswith("MA") for s in all_srcs), "应含均线依据(可溯源)")
+    sup_srcs = [s for b in r["support"] for s in b["srcs"]]
+    res_srcs = [s for b in r["resistance"] for s in b["srcs"]]
+    _assert(any("筹码" in s for s in sup_srcs), "应含筹码依据(可溯源)")
+    _assert(any(s.startswith("MA") for s in sup_srcs), "应含均线依据(可溯源)")
+    _assert(not any("高" in s for s in sup_srcs), "支撑带不应含前高(方位约束)")
+    _assert(not any("低" in s for s in res_srcs), "压力带不应含前低(方位约束)")
     _assert(r["position"]["label"], "位置必须有文案")
     _assert(r["as_of"] == k["trade_date"].iloc[-1], "as_of 应为最新交易日")
     print(f"  ✓ 端到端：现价{px} 支撑{len(r['support'])}带 压力{len(r['resistance'])}带 "

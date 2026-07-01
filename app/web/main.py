@@ -1000,6 +1000,21 @@ async def api_chain(name: str = "", refresh: bool = False, _user: str = Depends(
         return {"ok": False, "msg": str(e)}
 
 
+@app.get("/api/chain/levels")
+async def api_chain_levels(name: str = "", _user: str = Depends(require_auth)):
+    """某条链龙头的关键位·入局区间叠加（地图渲染后异步单拉·按交易日缓存·线程池）。"""
+    try:
+        from fastapi.concurrency import run_in_threadpool
+
+        from app.data.composite_provider import CompositeProvider
+        from app.strategy import tech_chain
+        nm = name or tech_chain.chain_names()[0]
+        return await run_in_threadpool(tech_chain.build_chain_levels, CompositeProvider(), nm)
+    except Exception as e:
+        logger.exception("产业链关键位叠加失败")
+        return {"ok": False, "msg": str(e)}
+
+
 @app.get("/api/market/hot")
 async def api_market_hot(top: int = 40, kind: str = "rank", _user: str = Depends(require_auth)):
     """东财热榜（kind=rank 人气榜 / up 飙升榜）Top N（线程池·缓存）。"""

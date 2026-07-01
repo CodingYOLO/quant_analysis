@@ -256,6 +256,119 @@ def build_chain(provider: CompositeProvider, name: str) -> dict:
             "as_of": as_of, "source": "新浪实时报价·60秒缓存"}
 
 
+# ── 关键位·入局区间 叠加（对标稳智AI·每档可溯源·按交易日缓存·不拖慢地图）──────
+# zone(支撑/压力/入局区间)源自日线+筹码·每日静态 → 按交易日缓存；position 用实时价现算。
+_ZONE_CACHE: dict = {}                     # {yyyymmdd: {6位代码: levels_dict | None}}
+
+
+def _today_key() -> str:
+    import datetime
+    return datetime.date.today().strftime("%Y%m%d")
+
+
+def _chip_costs(provider: CompositeProvider, ts: str) -> dict | None:
+    """最新筹码成本三档(cost_5/50/95pct)·取关键位所需·轻量。失败返回 None。"""
+    import datetime
+
+    import pandas as pd
+    end = datetime.date.today().strftime("%Y%m%d")
+    start = (datetime.date.today() - datetime.timedelta(days=40)).strftime("%Y%m%d")
+    try:
+        df = provider.get_cyq_perf(ts, start, end)
+    except Exception:
+        return None
+    if df is None or df.empty:
+        return None
+    row = df.sort_values("trade_date").iloc[-1]
+
+    def num(key):
+        v = pd.to_numeric(row.get(key), errors="coerce")
+        return float(v) if pd.notna(v) else None
+    return {"cost_5pct": num("cost_5pct"), "cost_50pct": num("cost_50pct"),
+            "cost_95pct": num("cost_95pct")}
+
+
+def _zone_for(provider: CompositeProvider, code: str) -> dict | None:
+    """单只票的日线静态关键位(含 IO)·按交易日缓存。数据不足返回 None。"""
+    import datetime
+
+    from app.data.kline_loader import load_kline
+    from app.strategy.key_levels import build_key_levels
+    day = _today_key()
+    cache = _ZONE_CACHE.setdefault(day, {})
+    if code in cache:
+        return cache[code]
+    for d in list(_ZONE_CACHE):                    # 只留当日缓存·防泄漏
+        if d != day:
+            _ZONE_CACHE.pop(d, None)
+    ts = _to_ts(code)
+    end = datetime.date.today().strftime("%Y%m%d")
+    start = (datetime.date.today() - datetime.timedelta(days=240)).strftime("%Y%m%d")
+    lv = None
+    try:
+        k = load_kline(ts, start, end, provider, adj="qfq")
+        if k is not None and len(k) >= 60:
+            lv = build_key_levels(k, _chip_costs(provider, ts))
+    except Exception:
+        lv = None
+    cache[code] = lv
+    return lv
+
+
+def _overlay_for(lv: dict | None, price: float) -> dict:
+    """把日线静态 zone + 实时价 → 该票的叠加载荷(状态/入局区间/最近支撑压力)。"""
+    from app.strategy.key_levels import _position
+    if not lv or not lv.get("entry_zone"):
+        return {"state": "na"}
+    z = lv["entry_zone"]
+    px = price if price > 0 else lv["price"]
+    pos = _position(px, z)
+    sup = (lv.get("support") or [None])[0]
+    res = (lv.get("resistance") or [None])[0]
+    return {"state": pos["state"], "label": pos["label"], "price": round(px, 2),
+            "zlow": z["low"], "zhigh": z["high"], "basis": z["basis"],
+            "sup": {"mid": sup["mid"], "srcs": sup["srcs"]} if sup else None,
+            "res": {"mid": res["mid"], "srcs": res["srcs"]} if res else None,
+            "as_of": lv["as_of"]}
+
+
+def build_chain_levels(provider: CompositeProvider, name: str) -> dict:
+    """某条链所有龙头的关键位叠加：入局区间 + 现价相对位置 + 触发汇总。
+
+    地图渲染后异步单独拉·不拖慢主图。zone 按日缓存(静态)·position 用实时价现算。
+    返回 {ok, codes:{6位:{state,label,zlow,zhigh,basis,sup,res,as_of}}, summary}。
+    """
+    from concurrent.futures import ThreadPoolExecutor
+    chain = _CHAIN_BY_NAME.get(name) or _CHAINS[0]
+    codes = sorted({code for layer in chain["layers"] for nd in layer["nodes"]
+                    for _nm, code in nd["leaders"]})
+    spot = _spot_map(provider)
+
+    def one(code: str) -> tuple[str, dict | None]:
+        try:
+            return code, _zone_for(provider, code)
+        except Exception:
+            return code, None
+
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        zones = dict(ex.map(one, codes))
+
+    out, hit_in, hit_watch = {}, [], []
+    for code in codes:
+        q = spot.get(code, {})
+        ov = _overlay_for(zones.get(code), _num(q.get("price")))
+        out[code] = ov
+        nm = q.get("name") or code
+        if ov["state"] == "in":
+            hit_in.append(nm)
+        elif ov["state"] == "watch":
+            hit_watch.append(nm)
+    return {"ok": True, "name": chain["name"], "codes": out,
+            "summary": {"in": hit_in, "watch": hit_watch,
+                        "n_in": len(hit_in), "n_watch": len(hit_watch),
+                        "n_total": len(codes)}}
+
+
 def today_style(provider: CompositeProvider) -> dict:
     """全链资源材料层 vs 制造+应用层 平均强度 → 风格判断（高低切/成长 vs 资源）。"""
     spot = _spot_map(provider)
