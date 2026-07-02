@@ -233,7 +233,7 @@ function applyPreset(keys, sortBy) {
     if (b) { selected.add(k); b.classList.add('on'); }
   });
   document.getElementById('sort').value = sortBy;
-  document.getElementById('run').click();
+  runScreen();   // 直接发起(而非 run.click)：筛选进行中切换预设也能立刻取消上一次·重新筛选
 }
 
 // 🐌 慢牛吸筹预设
@@ -583,12 +583,24 @@ async function addWatch(code, el) {
   } catch (e) { if (el) el.textContent = '✗'; }
 }
 
-document.getElementById('run').addEventListener('click', async () => {
+// 当前进行中的筛选请求（切策略时取消上一次·避免"点一次锁死选不了别的"）
+let screenController = null;
+
+async function runScreen() {
   const btn = document.getElementById('run');
   const statusEl = document.getElementById('status');
   if (selected.size === 0 && customs.length === 0) { statusEl.textContent = '⚠️ 请至少选择一个因子或添加一个自定义条件'; return; }
+  // 取消仍在进行的上一次筛选，立刻让位给这次（用户切策略不再卡死）
+  if (screenController) screenController.abort();
+  const controller = new AbortController();
+  screenController = controller;
+  const mySignal = controller.signal;
   btn.disabled = true;
-  statusEl.textContent = '⏳ 筛选中（首次某日需计算因子表 ~30-60秒）...';
+  // 正常已预热=秒出，先温和提示；只有真的久(首次某日在建因子表)才升级为"请耐心等"
+  statusEl.textContent = '⏳ 筛选中…';
+  const slowTimer = setTimeout(() => {
+    if (!mySignal.aborted) statusEl.textContent = '⏳ 首次某日在建因子表，请稍候（最长约30-60秒）…';
+  }, 6000);
   const isoDate = document.getElementById('date').value;
   const body = {
     date: isoDate ? isoDate.replace(/-/g, '') : '',
@@ -601,10 +613,12 @@ document.getElementById('run').addEventListener('click', async () => {
   if (customs.length) body.customs = customs.map(c => ({ col: c.col, op: c.op, val: c.val }));
   try {
     const resp = await fetch('/api/screen', {
-      method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body),
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body), signal: mySignal,
     });
     const d = await resp.json();
-    if (!d.ok) { statusEl.textContent = '❌ ' + d.error; btn.disabled = false; return; }
+    clearTimeout(slowTimer);
+    if (!d.ok) { statusEl.textContent = '❌ ' + d.error; return; }
     statusEl.textContent = '✅ 命中 ' + d.count + ' 只，展示前 ' + d.shown + ' 只（红涨绿跌，点列头排序）';
     lastData = { columns: d.columns, rows: d.rows };
     sortState = { key: document.getElementById('sort').value, asc: false };
@@ -612,11 +626,17 @@ document.getElementById('run').addEventListener('click', async () => {
     document.getElementById('rescard').style.display = 'block';
     document.getElementById('rescount').textContent = '· 命中 ' + d.count + ' 只';
   } catch (e) {
+    clearTimeout(slowTimer);
+    if (e.name === 'AbortError') return;   // 用户切换策略主动取消·不算错误
     statusEl.textContent = '❌ 请求出错：' + e;
   } finally {
-    btn.disabled = false;
+    clearTimeout(slowTimer);
+    // 只有"当前这次"(未被更新的请求取代)才复位按钮·避免误开锁
+    if (screenController === controller) { btn.disabled = false; screenController = null; }
   }
-});
+}
+
+document.getElementById('run').addEventListener('click', runScreen);
 
 // 「只看主板」开关 → 即时重渲染（剔除科创/创业/北交）
 document.getElementById('main-board-only').addEventListener('change', renderTable);
