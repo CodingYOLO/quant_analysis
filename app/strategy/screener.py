@@ -199,8 +199,11 @@ FACTOR_GROUPS = [
             {"key": "wy_squeeze", "label": "蓄势收窄(ATR/价250日分位≤30%·横有多长)", "col": "squeeze_pctile", "op": "le", "val": 0.3},
             {"key": "wy_phase_accum", "label": "阶段=吸筹候选(蓄势收窄+OBV上行)", "col": "wy_accum", "op": "true"},
             {"key": "wy_phase_spring", "label": "阶段=Spring(假破位缩量承接·早埋点)", "col": "wy_spring", "op": "true"},
-            {"key": "wy_phase_sos", "label": "阶段=SOS突破(放量破60日高·稳健点)", "col": "wy_sos", "op": "true"},
+            {"key": "wy_phase_sos", "label": "阶段=SOS突破(放量破60日高·稳健点·回测已验证)", "col": "wy_sos", "op": "true"},
             {"key": "wy_no_dt", "label": "🛡无双顶破位(风险过滤·跌破颈线剔除)", "col": "dt_break", "op": "false"},
+            {"key": "box_near_high", "label": "临近箱顶(现价≥60日高95%·新高动量)", "col": "near_high", "op": "ge", "val": 0.95},
+            {"key": "box_aged", "label": "横盘≥20日(箱龄·横有多长竖有多高)", "col": "box_age", "op": "ge", "val": 20},
+            {"key": "box_no_ut", "label": "🛡无假突破UT(突破后跌回箱内=剔除)", "col": "false_breakout", "op": "false"},
         ],
     },
     {
@@ -242,6 +245,7 @@ CUSTOM_FIELDS = [
     {"col": "inst_net_yi", "label": "龙虎榜机构净买(亿)"},
     {"col": "obv_slope", "label": "OBV斜率(吸筹强度)"}, {"col": "obv_div", "label": "OBV背离(量比价·%)"},
     {"col": "squeeze_pctile", "label": "蓄势收窄分位"},
+    {"col": "near_high", "label": "距60日高(→1贴箱顶)"}, {"col": "box_age", "label": "横盘天数(箱龄)"},
 ]
 _CUSTOM_COLS = {f["col"] for f in CUSTOM_FIELDS}
 _CUSTOM_OPS = {"ge", "gt", "le", "lt", "eq"}
@@ -264,6 +268,7 @@ DISPLAY_COLS = [
     ("act_recover", "🔥人气回升位"), ("act_trough", "活跃度谷值"), ("inst_net_yi", "🏛️龙虎榜真钱(亿)"),
     ("reso_n", "🎯确定性"), ("entry_pos", "入局位置"),
     ("wyckoff_phase", "🎼威科夫阶段"), ("obv_slope", "OBV斜率"), ("obv_div", "OBV背离%"), ("squeeze_pctile", "蓄势分位"),
+    ("near_high", "距箱顶"), ("box_age", "横盘天数"),
 ]
 
 
@@ -272,7 +277,7 @@ DISPLAY_COLS = [
 # ──────────────────────────────────────────────
 
 # 因子表结构版本：新增因子列时 +1，使旧缓存自动失效重算（避免读到缺列的旧表）
-_FACTOR_TABLE_VERSION = "v18"  # v18: 并入威科夫量价(obv_slope/obv_div/squeeze/wyckoff_phase/dt_break)；v17 人气反转+真钱
+_FACTOR_TABLE_VERSION = "v19"  # v19: 威科夫补箱体(near_high/box_age/false_breakout)；v18 威科夫量价；v17 人气反转
 
 
 def _factor_cache_path(date: str) -> Path:
@@ -453,6 +458,7 @@ def _add_technical_factors(df: pd.DataFrame, date: str, provider) -> pd.DataFram
     pat_hits: dict[str, dict[str, bool]] = {}
     from app.factors import wyckoff as _W          # 威科夫量价（point-in-time·涨跌停量能剔除）
     wy_obv, wy_div, wy_sqz, wy_phase, wy_dt = {}, {}, {}, {}, {}
+    wy_nh, wy_age, wy_ut = {}, {}, {}              # 箱体：NearHigh/横盘天数/假突破UT
     for ts in close_m.columns:
         s = close_m[ts].dropna()
         if len(s) < 35:
@@ -485,6 +491,9 @@ def _add_technical_factors(df: pd.DataFrame, date: str, provider) -> pd.DataFram
                 wy_sqz[ts] = _W.squeeze_pctile(sh, sl_, s, 20, 250)
                 wy_phase[ts] = _W.wyckoff_phase(s, sh, sl_, sv, _mask)
                 wy_dt[ts] = _W.detect_double_top(s, sh, sv, 90)
+                wy_nh[ts] = _W.near_high(s, sh, 60)            # 箱体：距60日高
+                wy_age[ts] = _W.box_age(sh, sl_, 60)          # 箱体：横盘天数
+                wy_ut[ts] = _W.false_breakout(s, sh, 60)      # 箱体：假突破UT陷阱
         except Exception:
             continue
     df["macd_gold"] = df["ts_code"].map(macd_gold).fillna(False)
@@ -508,6 +517,9 @@ def _add_technical_factors(df: pd.DataFrame, date: str, provider) -> pd.DataFram
     df["wy_accum"] = df["wyckoff_phase"] == "吸筹候选"     # 阶段门控布尔（因子按 true 筛）
     df["wy_sos"] = df["wyckoff_phase"] == "SOS突破"
     df["wy_spring"] = df["wyckoff_phase"] == "Spring"
+    df["near_high"] = df["ts_code"].map(wy_nh)            # 箱体：现价/60日高(→1贴箱顶)
+    df["box_age"] = df["ts_code"].map(wy_age)            # 箱体：横盘持续天数
+    df["false_breakout"] = df["ts_code"].map(wy_ut).fillna(False)
     # K线形态布尔列 pat_<key>
     for key in PATTERN_REGISTRY:
         col = f"pat_{key}"

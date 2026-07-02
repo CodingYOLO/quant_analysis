@@ -99,6 +99,43 @@ def detect_double_top(close: pd.Series, high: pd.Series, vol: pd.Series, lookbac
     return float(c.iloc[-1]) < neckline * (1 - break_buf)      # 收盘有效跌破颈线
 
 
+# ── 箱体/达瓦斯 补充因子（与威科夫互补的小增量·point-in-time）──────────────────
+def near_high(close: pd.Series, high: pd.Series, n: int = 60) -> float | None:
+    """NearHigh：现价 / 近 n 日最高（临近箱顶/新高动量）。→1 = 贴箱顶。"""
+    close, high = _clean(close), _clean(high)
+    if len(high) < 5:
+        return None
+    hh = float(high.tail(n).max())
+    return round(float(close.iloc[-1]) / hh, 3) if hh > 0 else None
+
+
+def box_age(high: pd.Series, low: pd.Series, lookback: int = 60) -> int:
+    """横盘天数 = 距最近一次创 lookback 日新高/新低的连续天数（"横有多长"·因果定律的因）。"""
+    high, low = _clean(high), _clean(low)
+    if len(high) < 6:
+        return 0
+    win = min(lookback, len(high))
+    hs, ls = high.tail(win).to_numpy(), low.tail(win).to_numpy()
+    age = 0
+    for i in range(len(hs) - 1, 0, -1):                        # 从今日往回·只用 ≤i 的数据
+        if hs[i] >= hs[:i + 1].max() or ls[i] <= ls[:i + 1].min():
+            break                                             # 该日创了新高或新低 → 箱体在此重置
+        age += 1
+    return age
+
+
+def false_breakout(close: pd.Series, high: pd.Series, lookback: int = 60,
+                   k: int = 3, buf: float = 0.01) -> bool:
+    """假突破(威科夫UT陷阱)：近 k 日曾收盘突破前箱顶，但现价又跌回箱内 → 风险过滤(非买入)。"""
+    close, high = _clean(close), _clean(high)
+    if len(close) < lookback + k:
+        return False
+    prior_top = float(high.iloc[-(lookback + k):-k].max())    # k 日前的箱顶(不含突破那几日)
+    broke = bool((close.tail(k) > prior_top * (1 + buf)).any())
+    back_in = float(close.iloc[-1]) <= prior_top
+    return broke and back_in
+
+
 def wyckoff_phase(close: pd.Series, high: pd.Series, low: pd.Series, vol: pd.Series,
                   limit_mask: pd.Series | None = None) -> str:
     """威科夫阶段标签（门控用·现象描述非买卖建议）：派发破位 / SOS突破 / Spring / 吸筹候选 / —。"""

@@ -14,8 +14,8 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.factors.wyckoff import (  # noqa: E402
-    detect_double_top, obv_divergence, obv_series, obv_slope_norm,
-    squeeze_pctile, wyckoff_phase,
+    box_age, detect_double_top, false_breakout, near_high, obv_divergence,
+    obv_series, obv_slope_norm, squeeze_pctile, wyckoff_phase,
 )
 
 
@@ -42,6 +42,9 @@ def test_point_in_time_no_lookahead() -> None:
         ("obv_div", lambda c, v, h, lo: obv_divergence(c, v, 20)),
         ("squeeze", lambda c, v, h, lo: squeeze_pctile(h, lo, c, 20, 120)),
         ("phase", lambda c, v, h, lo: wyckoff_phase(c, h, lo, v)),
+        ("near_high", lambda c, v, h, lo: near_high(c, h, 60)),
+        ("box_age", lambda c, v, h, lo: box_age(h, lo, 60)),
+        ("false_breakout", lambda c, v, h, lo: false_breakout(c, h, 60)),
     ]
     # 追加两种不同的"未来"，再切回 ≤T，结果必须与只用历史一致（证明不看未来）
     for name, fn in fns:
@@ -117,6 +120,42 @@ def test_double_top() -> None:
     mono = _ser([10 + i * 0.3 for i in range(70)])
     _assert(detect_double_top(mono, mono + 0.1, _ser([100] * 70)) is False, "单峰不应误判双顶")
     print("  ✓ 双顶：清晰双顶破颈线=True·单峰=False")
+
+
+def test_near_high() -> None:
+    close = _ser([10 + i * 0.1 for i in range(60)])            # 单调上行·现价即新高
+    high = close + 0.05
+    nh = near_high(close, high, 60)
+    _assert(nh is not None and nh > 0.99, f"贴新高应≈1，实得 {nh}")
+    # 回落到箱体中部
+    close2 = _ser([10 + i * 0.1 for i in range(60)] + [13.0])   # 从~16回落到13
+    nh2 = near_high(close2, close2 + 0.05, 61)
+    _assert(nh2 < 0.95, f"回落中部应明显<1，实得 {nh2}")
+    print(f"  ✓ NearHigh：贴新高≈1({nh})·回落中部<1({nh2})")
+
+
+def test_box_age() -> None:
+    # 前段上行创新高(峰20)，随后 15 日窄幅横盘(压在峰下·不再创新高/新低)
+    rise = [10 + i * 0.5 for i in range(21)]                    # 涨到 20(第20日新高)
+    flat = [19.5 + (0.1 if i % 2 else -0.1) for i in range(15)]  # 横盘在20之下·未创新高新低
+    close = _ser(rise + flat)
+    age = box_age(close + 0.05, close - 0.05, 60)
+    _assert(12 <= age <= 15, f"横盘约15日应箱龄≈15，实得 {age}")
+    # 今日创新高 → 箱龄重置为0
+    close2 = _ser(rise + flat + [25.0])
+    _assert(box_age(close2 + 0.05, close2 - 0.05, 60) == 0, "今日创新高应重置箱龄=0")
+    print(f"  ✓ box_age：横盘持续≈15日·今日新高重置为0")
+
+
+def test_false_breakout() -> None:
+    # 箱体(前60日高~20)，近3日冲上20.5后又收回19.5(箱内) → 假突破True
+    box = [18 + (i % 5) * 0.4 for i in range(60)]               # 箱内震荡·高约19.6
+    close = _ser(box + [20.6, 20.8, 19.4])                      # 突破后跌回
+    _assert(false_breakout(close, close + 0.1, 60, 3) is True, "突破后跌回箱内应=True")
+    # 突破后守住 → False
+    close2 = _ser(box + [20.6, 21.0, 21.5])
+    _assert(false_breakout(close2, close2 + 0.1, 60, 3) is False, "突破守住不应判假突破")
+    print("  ✓ 假突破UT：突破后跌回=True·守住=False")
 
 
 def test_boundary() -> None:
