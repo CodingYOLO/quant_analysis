@@ -470,6 +470,18 @@ def stock_pool_cmd(trade_date: str, no_reason: bool, skip_if_fresh: bool) -> Non
         console.print(f"[green]✅ 生成 {n} 条分析理由[/green]\n")
 
 
+@cli.command("activity-rank")
+@click.option("--days", default=1, show_default=True, help="回填最近N交易日（首次用20；日常cron用1-2）")
+def activity_rank_cmd(days: int) -> None:
+    """算全市场活跃度排名(换手+流通成交额)落 hot_rank_log，供人气反转选股（盘后cron·替代东财家用脚本）。"""
+    from app.data.composite_provider import CompositeProvider
+    from app.strategy.activity_rank import backfill_activity
+
+    console.print(f"\n[bold cyan]🔥 活跃度排名[/bold cyan]  回填最近 {days} 交易日\n")
+    r = backfill_activity(CompositeProvider(), int(days))
+    console.print(f"[green]✅ {r['days_ok']}/{r['days_requested']} 日 · {r['rows']} 行 · 区间 {r['range']}[/green]\n")
+
+
 @cli.command("wide")
 @click.option("--date", "trade_date", default="last", show_default=True,
               help="交易日：YYYYMMDD / last（默认最近交易日）")

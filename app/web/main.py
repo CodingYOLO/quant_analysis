@@ -1117,18 +1117,32 @@ async def api_hotrank_universe(_user: str = Depends(require_auth)):
 
 
 @app.get("/api/hot-reversal")
-async def api_hot_reversal(require_tech: bool = True, days: int = 14,
+async def api_hot_reversal(require_tech: bool = True, days: int = 14, kind: str = "activity",
                            _user: str = Depends(require_auth)):
-    """人气榜反转选股候选池（曾火→洗盘→拐头回升·叠加关键位双确认·线程池）。"""
+    """人气反转选股（曾活跃→洗盘→拐头回升·叠加关键位双确认）。kind=activity(服务器自算·默认)/rank(东财家用)。"""
     try:
         from fastapi.concurrency import run_in_threadpool
 
         from app.data.composite_provider import CompositeProvider
         from app.strategy.hot_reversal import run_screen
-        return await run_in_threadpool(run_screen, CompositeProvider(), "rank", int(days),
+        return await run_in_threadpool(run_screen, CompositeProvider(), kind, int(days),
                                        {"require_tech": bool(require_tech)})
     except Exception as e:
         logger.exception("人气反转选股失败")
+        return {"ok": False, "msg": str(e)}
+
+
+@app.get("/api/hotrank/activity/refresh")
+async def api_activity_refresh(days: int = 1, _user: str = Depends(require_auth)):
+    """算/回填「活跃度排名」到 hot_rank_log(kind='activity')。days=1 只记最新日·>1 回填(供cron/首次)。"""
+    try:
+        from fastapi.concurrency import run_in_threadpool
+
+        from app.data.composite_provider import CompositeProvider
+        from app.strategy.activity_rank import backfill_activity
+        return await run_in_threadpool(backfill_activity, CompositeProvider(), int(days))
+    except Exception as e:
+        logger.exception("活跃度回填失败")
         return {"ok": False, "msg": str(e)}
 
 
