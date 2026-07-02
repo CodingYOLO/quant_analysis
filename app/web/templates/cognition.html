@@ -1,0 +1,177 @@
+{% extends "base.html" %}
+{% block title %}认知复盘 — A股Agent{% endblock %}
+
+{% block extra_style %}
+h1 { font-size:22px; text-align:center; margin-bottom:4px; }
+.sub { text-align:center; color:#9ca3af; font-size:12.5px; margin-bottom:12px; }
+.up { color:#f6465d; } .down { color:#2ebd85; } .neu2 { color:#9ca3af; }
+.intro { background:#141b2e; border:1px solid #2a3a5a; border-radius:10px; padding:11px 15px; margin-bottom:12px; font-size:12.5px; line-height:1.75; color:#cdd6f4; }
+.intro b { color:#7c9ef8; }
+.snap { display:flex; gap:9px; flex-wrap:wrap; margin-bottom:14px; }
+.kpi { background:#1a1d2e; border:1px solid #2d3052; border-radius:9px; padding:8px 12px; min-width:92px; }
+.kpi .l { font-size:11px; color:#9ca3af; } .kpi .v { font-size:17px; font-weight:800; color:#e8e8e8; }
+.snap .style { flex:1; min-width:240px; background:#1a1d2e; border:1px solid #2d3052; border-radius:9px; padding:8px 12px; font-size:12px; color:#cdd6f4; line-height:1.5; }
+.q { background:#1a1d2e; border:1px solid #2d3052; border-left:4px solid #3358e0; border-radius:10px; padding:13px 15px; margin-bottom:11px; }
+.q .h { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.q .no { font-size:17px; font-weight:800; color:#7c9ef8; }
+.q .tag { font-size:11px; background:#232640; color:#9ca3af; padding:2px 8px; border-radius:6px; }
+.q .ti { font-size:15px; font-weight:700; color:#e8e8e8; }
+.q .ln { margin-left:auto; font-size:12px; color:#7c9ef8; text-decoration:none; border:1px solid #2d3052; padding:3px 10px; border-radius:7px; }
+.q .ln:hover { border-color:#3358e0; background:#161b2e; }
+.q .qz { font-size:13px; color:#cdd6f4; margin:8px 0 6px; line-height:1.6; }
+.q .model { font-size:12px; color:#3ddc97; line-height:1.6; margin-bottom:3px; } .q .model b{ color:#3ddc97; }
+.q .look { font-size:11.5px; color:#9ca3af; line-height:1.55; margin-bottom:8px; }
+.q textarea { width:100%; box-sizing:border-box; background:#0f1117; color:#e8e8e8; border:1px solid #2d3052; border-radius:8px; padding:8px 10px; font-size:13px; min-height:52px; resize:vertical; font-family:inherit; }
+.q textarea:focus { border-color:#3358e0; outline:none; }
+.concl { background:#141b12; border:1px solid #2a4020; border-radius:10px; padding:13px 15px; margin-bottom:12px; }
+.concl h3 { font-size:14px; color:#3ddc97; margin-bottom:10px; }
+.row { display:flex; gap:12px; flex-wrap:wrap; align-items:center; margin-bottom:10px; }
+.row label { font-size:12.5px; color:#9ca3af; }
+.stance { display:flex; gap:6px; flex-wrap:wrap; }
+.stance span { font-size:13px; padding:5px 13px; border-radius:8px; border:1px solid #2d3052; background:#0f1117; color:#cdd6f4; cursor:pointer; }
+.stance span.on { background:#2742a8; color:#fff; border-color:#3358e0; }
+.concl input[type=text] { background:#0f1117; color:#e8e8e8; border:1px solid #2d3052; border-radius:8px; padding:7px 10px; font-size:13px; width:180px; }
+.conf { display:flex; gap:5px; } .conf span { cursor:pointer; font-size:18px; color:#3a3f52; } .conf span.on { color:#f6c343; }
+.btn { font-size:13.5px; color:#fff; cursor:pointer; padding:8px 20px; border-radius:8px; border:none; background:#2742a8; }
+.btn:disabled { opacity:.6; }
+.hint { color:#6b7280; font-size:11px; margin-top:6px; }
+.hist { margin-top:20px; }
+.hist h2 { font-size:15px; color:#7c9ef8; margin-bottom:10px; }
+.he { background:#161929; border:1px solid #242842; border-radius:9px; padding:10px 13px; margin-bottom:9px; font-size:12.5px; }
+.he .top { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:5px; }
+.he .d { font-weight:700; color:#e8e8e8; }
+.he .st { font-size:11px; padding:1px 8px; border-radius:6px; background:#232640; color:#cdd6f4; }
+.he .ret { font-weight:700; } .he .kv { color:#9ca3af; }
+.he .ans { color:#cdd6f4; line-height:1.6; margin:3px 0; }
+.he .rv { margin-top:6px; }
+.he .rv input { width:70%; background:#0f1117; color:#e8e8e8; border:1px solid #2d3052; border-radius:6px; padding:5px 8px; font-size:12px; }
+.he .rv button { font-size:11.5px; color:#7c9ef8; background:transparent; border:1px solid #2d3052; border-radius:6px; padding:5px 10px; cursor:pointer; }
+.empty { color:#9ca3af; font-size:12.5px; padding:10px; }
+.loading { color:#9ca3af; font-size:13px; padding:16px; }
+{% endblock %}
+
+{% block content %}
+<h1>🧠 认知复盘 · 5问框架</h1>
+<div class="sub">不给答案，给「提问顺序 + 思维模型 + 数据入口」——你自己走一遍、留下判断，N天后回看命中。认知是校准出来的，不是抄来的。</div>
+
+<div class="intro">
+  <b>怎么用</b>：每个交易日，对着数据把 5 问各写一句你自己的判断 → 定「今日结论」(立场/主押主线/信心) → 保存。<b>过几天回看</b>：对照上证客观走向，想想哪一问看对/看错、错在哪——积累几十次，你会看到自己的系统性偏差，那就是认知升级。
+</div>
+
+<div class="snap" id="snap"><div class="loading">⏳ 加载今日速览…</div></div>
+<div id="qs"><div class="loading">⏳ 加载 5 问框架…</div></div>
+
+<div class="concl" id="concl" style="display:none">
+  <h3>🎯 今日结论</h3>
+  <div class="row"><label>整体立场</label><div class="stance" id="stance"></div></div>
+  <div class="row"><label>主押主线</label><input type="text" id="mainline" placeholder="如 半导体设备 / 光模块 / 空仓观望">
+    <label>信心</label><div class="conf" id="conf"></div></div>
+  <button class="btn" id="save">💾 保存今日推演</button>
+  <span id="savemsg" class="hint"></span>
+  <div class="hint">保存的是「你的判断」——不是买卖建议，仅用于事后校准你自己的认知。</div>
+</div>
+
+<div class="hist" id="hist"></div>
+{% endblock %}
+
+{% block extra_script %}
+<script>
+const $=id=>document.getElementById(id);
+function esc(s){ return (s==null?'':String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+let _q=[], _stances=[], _date='', _stance='', _conf=0, _shClose=null;
+
+async function boot(){
+  try{
+    const j=await (await fetch('/api/cognition/snapshot')).json();
+    if(!j.ok){ $('qs').innerHTML='<div class="empty">❌ '+esc(j.msg||'失败')+'</div>'; return; }
+    _q=j.five_q||[]; _stances=j.stances||[]; _date=j.snapshot&&j.snapshot.as_of||'';
+    renderSnap(j.snapshot); renderQs(j.saved||{}); renderConcl(j.saved||{});
+    loadHist();
+  }catch(e){ $('qs').innerHTML='<div class="empty">❌ '+esc(e)+'</div>'; }
+}
+
+function renderSnap(s){
+  if(!s){ $('snap').innerHTML=''; return; }
+  _shClose=(s.sh_close!=null)?s.sh_close:null;
+  const k=s.kpi||{}; const kp=(l,v,c)=>v==null?'':'<div class="kpi"><div class="l">'+l+'</div><div class="v '+(c||'')+'">'+v+'</div></div>';
+  let h=kp('情绪温度',k.temp!=null?k.temp+'°':null)
+    +kp('成交额',k.amount_wy!=null?k.amount_wy+'万亿':null)
+    +kp('连板高度',k.lianban_height!=null?k.lianban_height+'板':null)
+    +kp('涨跌比',k.ad_ratio)
+    +kp('涨停',k.limit_up,'up')+kp('跌停',k.limit_down,'down');
+  if(s.style&&s.style.text) h+='<div class="style">🧭 今日风格：'+esc(s.style.text)+'</div>';
+  h+='<div class="kpi" style="min-width:120px"><div class="l">上证收盘·'+esc(s.as_of||'')+'</div><div class="v">'+(s.sh_close??'—')+'</div></div>';
+  $('snap').innerHTML=h;
+}
+
+function renderQs(saved){
+  $('qs').innerHTML=_q.map(q=>{
+    const val=esc(saved[q.field]||'');
+    return '<div class="q"><div class="h"><span class="no">'+esc(q.no)+'</span>'
+      +'<span class="tag">'+esc(q.tag)+'</span><span class="ti">'+esc(q.title)+'</span>'
+      +'<a class="ln" href="'+esc(q.link)+'" target="_blank">'+esc(q.link_txt)+' ↗</a></div>'
+      +'<div class="qz">'+esc(q.question)+'</div>'
+      +'<div class="model">💡 '+esc(q.model)+'</div>'
+      +'<div class="look">👀 看：'+esc(q.look)+'</div>'
+      +'<textarea id="ta-'+q.field+'" placeholder="写下你自己对这一问的判断和理由…">'+val+'</textarea></div>';
+  }).join('');
+}
+
+function renderConcl(saved){
+  $('concl').style.display='block';
+  $('stance').innerHTML=_stances.map(s=>'<span data-s="'+esc(s)+'">'+esc(s)+'</span>').join('');
+  _stance=saved.stance||''; syncStance();
+  $('stance').onclick=e=>{ const t=e.target.closest('span'); if(!t)return; _stance=t.dataset.s; syncStance(); };
+  $('mainline').value=saved.main_line||'';
+  $('conf').innerHTML=[1,2,3,4,5].map(i=>'<span data-c="'+i+'">★</span>').join('');
+  _conf=saved.confidence||0; syncConf();
+  $('conf').onclick=e=>{ const t=e.target.closest('span'); if(!t)return; _conf=+t.dataset.c; syncConf(); };
+  $('save').onclick=save;
+}
+function syncStance(){ [...$('stance').children].forEach(x=>x.classList.toggle('on',x.dataset.s===_stance)); }
+function syncConf(){ [...$('conf').children].forEach(x=>x.classList.toggle('on',+x.dataset.c<=_conf)); }
+
+async function save(){
+  const body={trade_date:_date, stance:_stance, main_line:$('mainline').value.trim(),
+    confidence:_conf||null, sh_close:_shClose};
+  _q.forEach(q=>{ body[q.field]=($('ta-'+q.field).value||'').trim(); });
+  $('save').disabled=true; $('savemsg').textContent='保存中…';
+  try{
+    const j=await (await fetch('/api/cognition/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})).json();
+    $('save').disabled=false; $('savemsg').textContent=j.ok?'✅ 已保存（'+_date+'）':('❌ '+(j.msg||'失败'));
+    if(j.ok) loadHist();
+  }catch(e){ $('save').disabled=false; $('savemsg').textContent='❌ '+esc(e); }
+}
+async function loadHist(){
+  try{
+    const j=await (await fetch('/api/cognition/history?limit=60')).json();
+    const rows=(j.rows||[]);
+    if(!rows.length){ $('hist').innerHTML='<h2>📜 历史推演 · 校准</h2><div class="empty">还没有记录。今天开始，坚持记，两三个月后回看你的命中曲线。</div>'; return; }
+    let h='<h2>📜 历史推演 · 校准（上证=自记录日起客观涨跌·对错自己想）</h2>';
+    h+=rows.map(he).join('');
+    $('hist').innerHTML=h;
+  }catch(e){ $('hist').innerHTML='<h2>📜 历史推演</h2><div class="empty">加载失败</div>'; }
+}
+function he(r){
+  const ret=r.sh_ret_since;
+  const retTxt=ret==null?'<span class="kv">上证—</span>':('上证 <span class="ret '+(ret>=0?'up':'down')+'">'+(ret>=0?'+':'')+ret+'%</span>');
+  const stars=r.confidence?'★'.repeat(r.confidence):'';
+  const ans=_q.map(q=>{ const v=r[q.field]; return v?'<div class="ans"><b style="color:#7c9ef8">'+esc(q.no+q.tag)+'</b> '+esc(v)+'</div>':''; }).join('');
+  return '<div class="he"><div class="top"><span class="d">'+esc(r.trade_date)+'</span>'
+    +(r.stance?'<span class="st">立场:'+esc(r.stance)+'</span>':'')
+    +(r.main_line?'<span class="st">主押:'+esc(r.main_line)+'</span>':'')
+    +(stars?'<span class="st" style="color:#f6c343">'+stars+'</span>':'')
+    +'<span style="margin-left:auto">'+retTxt+'</span></div>'
+    +ans
+    +(r.review_note?'<div class="ans" style="color:#3ddc97">📝 自评：'+esc(r.review_note)+'</div>':'')
+    +'<div class="rv"><input placeholder="回看自评：哪问看对/看错，为什么…" id="rv-'+esc(r.trade_date)+'" value="'+esc(r.review_note||'')+'"> '
+    +'<button onclick="saveReview(\''+esc(r.trade_date)+'\')">存自评</button></div></div>';
+}
+async function saveReview(d){
+  const note=($('rv-'+d)||{}).value||'';
+  try{ await fetch('/api/cognition/review',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({trade_date:d,note})}); loadHist(); }catch(e){}
+}
+window.saveReview=saveReview;
+boot();
+</script>
+{% endblock %}

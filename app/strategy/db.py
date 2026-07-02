@@ -279,6 +279,19 @@ def init_db() -> None:
                 rank_chg    INTEGER,            -- 较昨日名次变动
                 PRIMARY KEY (trade_date, kind, code)
             );
+            -- 认知脚手架：每日「5问框架」推演日志(练框架·事后校准命中率)。每交易日一条
+            CREATE TABLE IF NOT EXISTS cognition_log (
+                trade_date  TEXT PRIMARY KEY,
+                q1_regime   TEXT, q2_mainline TEXT, q3_tempo TEXT,   -- 定性/主线/节奏
+                q4_catalyst TEXT, q5_path     TEXT,                  -- 催化/风险路径
+                stance      TEXT,       -- 整体立场：进攻/均衡/防守/空仓
+                main_line   TEXT,       -- 主押主线(板块名)
+                confidence  INTEGER,    -- 信心 1-5
+                review_note TEXT,       -- 事后自评(回看时填)
+                sh_close    REAL,       -- 记录当日上证收盘(供客观校准·后填)
+                created_at  TEXT DEFAULT (datetime('now','localtime')),
+                updated_at  TEXT DEFAULT (datetime('now','localtime'))
+            );
         """)
         # 旧库幂等补列（CREATE TABLE IF NOT EXISTS 不会给已存在的表加列）
         existing = {row[1] for row in con.execute("PRAGMA table_info(stock_pool)")}
@@ -1040,3 +1053,54 @@ def _int_or_none(v):
         return int(v) if v is not None and str(v).strip() not in ("", "nan") else None
     except (TypeError, ValueError):
         return None
+
+
+# ──────────────────────────────────────────────
+# 认知脚手架：每日「5问框架」推演日志（练框架·事后校准）
+# ──────────────────────────────────────────────
+
+_COG_FIELDS = ("q1_regime", "q2_mainline", "q3_tempo", "q4_catalyst", "q5_path",
+               "stance", "main_line", "confidence", "sh_close")
+
+
+def save_cognition(trade_date: str, entry: dict) -> None:
+    """存/更一天的推演日志（每交易日一条·再存即覆盖当日·保留 created_at）。"""
+    init_db()
+    vals = {k: entry.get(k) for k in _COG_FIELDS}
+    with _conn() as con:
+        exists = con.execute("SELECT 1 FROM cognition_log WHERE trade_date=?", (trade_date,)).fetchone()
+        if exists:
+            sets = ", ".join(f"{k}=?" for k in _COG_FIELDS)
+            con.execute(f"UPDATE cognition_log SET {sets}, updated_at=datetime('now','localtime') "
+                        f"WHERE trade_date=?", (*[vals[k] for k in _COG_FIELDS], trade_date))
+        else:
+            cols = ", ".join(("trade_date", *_COG_FIELDS))
+            ph = ", ".join(["?"] * (len(_COG_FIELDS) + 1))
+            con.execute(f"INSERT INTO cognition_log ({cols}) VALUES ({ph})",
+                        (trade_date, *[vals[k] for k in _COG_FIELDS]))
+
+
+def get_cognition(trade_date: str) -> dict | None:
+    """取某日推演日志（供当日续填/编辑）。"""
+    init_db()
+    with _conn() as con:
+        r = con.execute("SELECT * FROM cognition_log WHERE trade_date=?", (trade_date,)).fetchone()
+    return dict(r) if r else None
+
+
+def list_cognition(limit: int = 60) -> list[dict]:
+    """近 N 条推演日志（倒序·供回看校准）。"""
+    init_db()
+    with _conn() as con:
+        rows = con.execute("SELECT * FROM cognition_log ORDER BY trade_date DESC LIMIT ?",
+                           (int(limit),)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def update_cognition_review(trade_date: str, note: str) -> bool:
+    """回看时补自评（哪问看对/看错）。"""
+    init_db()
+    with _conn() as con:
+        cur = con.execute("UPDATE cognition_log SET review_note=?, updated_at=datetime('now','localtime') "
+                          "WHERE trade_date=?", (note, trade_date))
+        return cur.rowcount > 0

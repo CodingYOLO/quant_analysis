@@ -1142,6 +1142,70 @@ async def api_hotrank_detail_script(_user: str = Depends(require_auth)):
                     headers={"Content-Disposition": "attachment; filename=hotrank_detail_sync.py"})
 
 
+@app.get("/api/cognition/snapshot")
+async def api_cognition_snapshot(_user: str = Depends(require_auth)):
+    """认知脚手架：5问框架 + 今日结构速览 + 今日已存推演(供续填)。"""
+    try:
+        from fastapi.concurrency import run_in_threadpool
+
+        from app.data.composite_provider import CompositeProvider
+        from app.strategy import cognition, db
+        snap = await run_in_threadpool(cognition.daily_snapshot, CompositeProvider())
+        saved = db.get_cognition(snap.get("as_of") or "")
+        return {"ok": True, "five_q": cognition.FIVE_Q, "stances": cognition.STANCES,
+                "snapshot": snap, "saved": saved}
+    except Exception as e:
+        logger.exception("认知速览失败")
+        return {"ok": False, "msg": str(e)}
+
+
+@app.post("/api/cognition/save")
+async def api_cognition_save(request: Request, _user: str = Depends(require_auth)):
+    """存/更一天的「5问」推演日志。Body: {trade_date, q1..q5, stance, main_line, confidence, sh_close}。"""
+    try:
+        from app.strategy import db
+        b = await request.json()
+        td = str(b.get("trade_date") or "").strip()
+        if not td:
+            return {"ok": False, "msg": "缺 trade_date"}
+        entry = {k: b.get(k) for k in ("q1_regime", "q2_mainline", "q3_tempo", "q4_catalyst",
+                                       "q5_path", "stance", "main_line", "confidence", "sh_close")}
+        db.save_cognition(td, entry)
+        return {"ok": True, "trade_date": td}
+    except Exception as e:
+        logger.exception("认知推演保存失败")
+        return {"ok": False, "msg": str(e)}
+
+
+@app.get("/api/cognition/history")
+async def api_cognition_history(limit: int = 60, _user: str = Depends(require_auth)):
+    """历史推演 + 客观校准（上证自记录日起涨跌·供你自评命中）。"""
+    try:
+        from fastapi.concurrency import run_in_threadpool
+
+        from app.data.composite_provider import CompositeProvider
+        from app.strategy import cognition, db
+        rows = db.list_cognition(int(limit))
+        rows = await run_in_threadpool(cognition.review_calibrate, CompositeProvider(), rows)
+        return {"ok": True, "rows": rows}
+    except Exception as e:
+        logger.exception("认知历史失败")
+        return {"ok": False, "msg": str(e)}
+
+
+@app.post("/api/cognition/review")
+async def api_cognition_review(request: Request, _user: str = Depends(require_auth)):
+    """回看时补自评（哪问看对/看错）。Body: {trade_date, note}。"""
+    try:
+        from app.strategy import db
+        b = await request.json()
+        ok = db.update_cognition_review(str(b.get("trade_date") or ""), str(b.get("note") or ""))
+        return {"ok": ok}
+    except Exception as e:
+        logger.exception("认知自评失败")
+        return {"ok": False, "msg": str(e)}
+
+
 @app.get("/api/market/news")
 async def api_market_news(n: int = 50, _user: str = Depends(require_auth)):
     """7×24 快讯（财联社电报·降级东财·线程池·3分钟缓存）。"""
@@ -1620,6 +1684,13 @@ async def hotpicks_page(request: Request, _user: str = Depends(require_auth)):
     """🔥 人气反转选股：曾火→洗盘→拐头回升 + 关键位双确认（对标吴川/稳智人气榜买入法）。"""
     return templates.TemplateResponse(request=request, name="hotpicks.html",
                                       context={"page": "hotpicks"})
+
+
+@app.get("/cognition", response_class=HTMLResponse)
+async def cognition_page(request: Request, _user: str = Depends(require_auth)):
+    """🧠 认知脚手架：每日「5问框架」结构复盘 + 推演记录 + 事后校准（练框架·非抄结论）。"""
+    return templates.TemplateResponse(request=request, name="cognition.html",
+                                      context={"page": "cognition"})
 
 
 @app.get("/screener", response_class=HTMLResponse)
