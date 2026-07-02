@@ -427,6 +427,13 @@ function renderTable() {
   });
   html += '</tbody>';
   window._scrRows = sorted;          // 供展开行按行号取 ts_code
+  // 命中数与「只看主板」同步：勾选后按主板过滤后的可见行数显示(全部→仅主板)
+  const _rc = document.getElementById('rescount');
+  if (_rc) {
+    const _total = (lastData.count != null) ? lastData.count : rows.length;
+    _rc.textContent = mainOnly ? ('· 命中 ' + _total + ' 只 · 仅主板 ' + sorted.length + ' 只')
+                               : ('· 命中 ' + _total + ' 只');
+  }
   const tbl = document.getElementById('restable');
   tbl.innerHTML = html;
   // 绑定表头点击排序
@@ -656,12 +663,11 @@ async function runScreen() {
     clearTimeout(slowTimer);
     if (!d.ok) { statusEl.textContent = '❌ ' + d.error; return; }
     statusEl.textContent = '✅ 命中 ' + d.count + ' 只，展示前 ' + d.shown + ' 只（红涨绿跌，点列头排序）';
-    lastData = { columns: d.columns, rows: d.rows };
+    lastData = { columns: d.columns, rows: d.rows, count: d.count };   // count=命中总数(供主板同步)
     lastCriteria = snapshotCriteria();          // 锁定本次筛选条件(复盘用)
     sortState = { key: document.getElementById('sort').value, asc: false };
-    renderTable();
+    renderTable();                              // renderTable 内部按「只看主板」同步命中数
     document.getElementById('rescard').style.display = 'block';
-    document.getElementById('rescount').textContent = '· 命中 ' + d.count + ' 只';
     renderCriteria();
   } catch (e) {
     clearTimeout(slowTimer);
