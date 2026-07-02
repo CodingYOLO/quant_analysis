@@ -85,7 +85,7 @@
 <div class="chart-card chart-full" id="radar-card" style="margin-top:18px">
   <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px">
     <h3 style="margin:0;text-align:left">🔭 板块广度雷达
-      <span class="neu" style="font-weight:400;font-size:12px">（切板块看广度趋势 + 今日低吸雷达·烂板块已过滤）</span></h3>
+      <span class="neu" style="font-weight:400;font-size:12px">（切板块看广度趋势 + 盘后资金/广度现状扫描·描述非推荐）</span></h3>
     <span style="margin-left:auto"></span>
     <span class="preset rtype" data-t="concept">概念</span>
     <span class="preset rtype" data-t="industry">行业(二级)</span>
@@ -325,7 +325,8 @@ async function loadRadar(){
     const asof=document.getElementById('radar-asof');
     const iso=(d.date&&d.date.length===8)?(d.date.slice(0,4)+'-'+d.date.slice(4,6)+'-'+d.date.slice(6,8)):(d.date||'—');
     asof.style.display='block';
-    asof.innerHTML='📅 <b>盘后数据日 '+iso+'</b> · 本模块用<b>盘后宽表·非实时</b>（每交易日盘后更新）→ 盘中看「今天什么在动/什么风格」请用 <a href="/chain" style="color:#7c9ef8">🔗 产业链地图（实时）</a>。此处适合<b>盘后复盘明天低吸候选</b>。';
+    asof.innerHTML='📅 <b>盘后数据日 '+iso+'</b> · 盘后宽表·<b>非实时</b>（次日盘中即失效）→ 盘中请用 <a href="/chain" style="color:#7c9ef8">🔗 产业链地图（实时）</a>。'
+      +'<br><span style="color:#f0a8a8">⚠️ 以下三栏只<b>描述盘后资金/广度现状，不预测涨跌、不构成买卖建议</b>；资金/动量是<b>回望数据·会反转</b>（"某板块昨天在涨"≠明天涨，追高危险自负）。给你事实，判断与下单由你负责。</span>';
     document.getElementById('radar-body').style.display='block';
     renderRadar(d);
   }catch(e){ st.textContent='❌ '+e; }
@@ -346,11 +347,11 @@ function renderRadar(d){
   sel.innerHTML=d.boards.map(b=>'<option value="'+b.name+'">'+b.name
     +(b.signal?' ['+b.signal+']':'')+' · 热'+(b.heat_score!=null?Math.round(b.heat_score):'—')+'</option>').join('');
   document.getElementById('radar-dip').innerHTML=
-    bucketHtml('🎯 今日低吸雷达（值得抄·点查广度）','#2ebd85',d.dip,'今日该类型无值得低吸的板块 —— 宁可不抄，可切换上方「行业/概念」看看');
+    bucketHtml('🎯 资金/趋势未走·今日回调（观察点·非买卖建议）','#2ebd85',d.dip,'今日该类型无符合的板块 —— 宁缺勿滥，可切换上方「行业/概念」看看');
   document.getElementById('radar-rotate').innerHTML=
-    bucketHtml('🚀 轮动上行（在途主线·可追）','#f6465d',d.rotate,'今日无轮动上行板块');
+    bucketHtml('🚀 近3日资金+涨幅居前（动量强·会反转·非追高建议）','#f6465d',d.rotate,'今日无此类板块');
   document.getElementById('radar-risk').innerHTML=
-    bucketHtml('⚠️ 高位风险（拥挤·防接盘）','#f0a020',d.risk,'今日无高位拥挤板块');
+    bucketHtml('⚠️ 涨幅+拥挤居前（追高风险·勿追）','#f0a020',d.risk,'今日无高位拥挤板块');
   document.getElementById('radar-note').textContent='ℹ️ '+(d.note||'');
   if(d.default){ sel.value=d.default; loadBreadth(d.default); }
 }

@@ -49,23 +49,26 @@ def _fmt(v, unit: str = "", nd: int = 0, signed: bool = False) -> str:
     return f"{s}{unit}"
 
 
-# ── 三栏催化理由（纯函数，便于单测）─────────────────────────────────────────
+# ── 三栏现状描述（纯函数·只陈述事实+风险·不作方向性买卖推荐·铁律）───────────
 def _dip_reason(r: dict) -> str:
     return (f"5日资金净流入 {_fmt(r.get('money_flow_5d'), '亿', signed=True)}"
             f"·站上MA20 {_fmt(r.get('breadth_ma20'), '%')}(结构未破)"
-            f"·今日 {_fmt(r.get('pct_chg_1d'), '%', 1, signed=True)}(回踩分歧) → 待回踩低吸")
+            f"·今日 {_fmt(r.get('pct_chg_1d'), '%', 1, signed=True)}(回调分歧)"
+            f" —— 中期资金/趋势未走 + 今日回调（观察点·非买入建议）")
 
 
 def _rotate_reason(r: dict) -> str:
     return (f"主力3日净流入 {_fmt(r.get('money_flow_3d'), '亿', signed=True)}"
             f"·3日 {_fmt(r.get('pct_chg_3d'), '%', 1, signed=True)}"
-            f"·站上MA20 {_fmt(r.get('breadth_ma20'), '%')} → 在途主线可追")
+            f"·站上MA20 {_fmt(r.get('breadth_ma20'), '%')}"
+            f" —— 近3日资金+涨幅居前（动量强·**回望数据会反转·追高自负**·非买卖建议）")
 
 
 def _risk_reason(r: dict) -> str:
     return (f"5日涨幅 {_fmt(r.get('pct_chg_5d'), '%', 1, signed=True)} 居前"
             f"·站上MA20 {_fmt(r.get('breadth_ma20'), '%')}"
-            f"·Top100占比 {_fmt(r.get('top100_ratio'), '%')} → 高位拥挤·防接盘")
+            f"·Top100占比 {_fmt(r.get('top100_ratio'), '%')}"
+            f" —— 涨幅+拥挤居前（**追高风险大·勿追**·非买卖建议）")
 
 
 def _bucket_row(r: dict, reason_fn) -> dict:
@@ -115,8 +118,9 @@ def build_sector_radar(date: str = "", theme_type: str = "concept") -> dict:
         "ok": True, "available": True, "date": sc.get("date", ""),
         "theme_type": theme_type, "boards": boards,
         "dip": dip, "rotate": rotate, "risk": risk, "default": default,
-        "note": ("低吸候选＝中期资金/趋势仍在 + 结构未破 + 今日回踩分歧；"
-                 "已过滤无资金/无催化/破位板块。名单为空＝今日无值得低吸的板块（宁可不抄）。"),
+        "note": ("三栏均为**盘后现状描述·非买卖建议·不预测涨跌**：观察点=中期资金/趋势仍在+结构未破+今日回调"
+                 "(已过滤无资金/无催化/破位板块·空=今日无符合的)；动量/资金栏为**回望数据·会反转**(追高自负)；"
+                 "高位栏为拥挤风险提示。判断与下单由你负责。"),
     }
 
 

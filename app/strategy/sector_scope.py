@@ -218,7 +218,9 @@ def _classify(rows: list[dict], ctx: dict) -> tuple[list, list, list]:
     for r in rows:
         flags = []
         is_risk = _is_risk(r, ctx)
-        if _is_rotate(r, ctx):
+        # 轮动与高位互斥：已拥挤/高位的板块不进"轮动"栏——避免同一板块既被描述为"资金在进"
+        # 又被标"高位拥挤"的自相矛盾（强但拥挤 → 只进高位风险栏，如实标"追高危险"）。
+        if _is_rotate(r, ctx) and not is_risk:
             flags.append("轮动")
             rotate.append(r)
         # 低吸与过热互斥：已拥挤/超买的板块不进低吸（不低吸高位板块）
