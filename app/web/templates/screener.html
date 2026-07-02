@@ -200,6 +200,7 @@
     </label>
     <button class="quickbtn" id="btn-export" style="float:right;border-color:#3358e0;color:#7c9ef8">📷 导出全列图</button>
   </h2>
+  <div id="rescrit" style="font-size:12px;color:#9aa0b4;margin:-2px 0 12px;line-height:1.7"></div>
   <div class="reswrap"><table id="restable"></table></div>
 </div>
 
@@ -583,6 +584,40 @@ async function addWatch(code, el) {
   } catch (e) { if (el) el.textContent = '✗'; }
 }
 
+// ── 复盘清单：把"本次筛选实际用的条件"显示在结果卡片 + 烙进导出长图（方便复盘）──
+let lastCriteria = null;
+function factorLabel(key) {                         // 因子 key → 页面上的中文名
+  const b = document.querySelector('.fbtn[data-key="' + key + '"]');
+  return b ? b.textContent.trim() : key;
+}
+function sortLabel() {                              // 排序下拉的中文名
+  const sel = document.getElementById('sort');
+  const opt = sel.options[sel.selectedIndex];
+  return (opt ? opt.textContent : sel.value).trim();
+}
+function snapshotCriteria() {                       // 锁定"本次筛选时刻"的条件(日期/因子/自定义/排序)
+  const iso = document.getElementById('date').value;
+  const facs = [...selected].map(factorLabel);
+  const cn = document.getElementById('cn').value, cv = document.getElementById('cv').value;
+  const extra = [];
+  if (cn && cv !== '') extra.push('近' + cn + '日涨幅≤' + cv + '%');
+  customs.forEach(c => extra.push(c.label + (OP_TXT[c.op] || c.op) + c.val));
+  return { date: iso || '(最新交易日)', factors: facs, extra, sort: sortLabel() };
+}
+function criteriaConds(c) { return [...c.factors, ...c.extra]; }   // 因子+自定义 合成一份条件清单
+function renderCriteria() {                         // 结果卡片头部那一行复盘清单
+  const el = document.getElementById('rescrit');
+  if (!el || !lastCriteria) return;
+  const c = lastCriteria, conds = criteriaConds(c);
+  const mainOnly = document.getElementById('main-board-only').checked;
+  el.innerHTML =
+    '📅 筛选日 <b style="color:#cdd6f4">' + c.date + '</b>' +
+    '　·　🎯 条件(' + conds.length + ')：' +
+    (conds.length ? '<span style="color:#cdd6f4">' + conds.join(' ＋ ') + '</span>' : '无') +
+    '　·　↕️ 排序：' + c.sort +
+    (mainOnly ? '　·　<span style="color:#7c9ef8">仅主板</span>' : '');
+}
+
 // 当前进行中的筛选请求（切策略时取消上一次·避免"点一次锁死选不了别的"）
 let screenController = null;
 
@@ -621,10 +656,12 @@ async function runScreen() {
     if (!d.ok) { statusEl.textContent = '❌ ' + d.error; return; }
     statusEl.textContent = '✅ 命中 ' + d.count + ' 只，展示前 ' + d.shown + ' 只（红涨绿跌，点列头排序）';
     lastData = { columns: d.columns, rows: d.rows };
+    lastCriteria = snapshotCriteria();          // 锁定本次筛选条件(复盘用)
     sortState = { key: document.getElementById('sort').value, asc: false };
     renderTable();
     document.getElementById('rescard').style.display = 'block';
     document.getElementById('rescount').textContent = '· 命中 ' + d.count + ' 只';
+    renderCriteria();
   } catch (e) {
     clearTimeout(slowTimer);
     if (e.name === 'AbortError') return;   // 用户切换策略主动取消·不算错误
@@ -639,10 +676,26 @@ async function runScreen() {
 document.getElementById('run').addEventListener('click', runScreen);
 
 // 「只看主板」开关 → 即时重渲染（剔除科创/创业/北交）
-document.getElementById('main-board-only').addEventListener('change', renderTable);
+document.getElementById('main-board-only').addEventListener('change', () => { renderTable(); renderCriteria(); });
 
 // ── 一键导出长图（用数据在 canvas 手绘整张表，不依赖 html2canvas/DOM 宽度，根治列截断）──
 const _EXPORT_FONT = '-apple-system,"PingFang SC","Microsoft YaHei",sans-serif';
+function _wrapLines(ctx, text, maxW) {            // 按最大宽度折行(中文逐字断行·避免复盘头溢出)
+  const out = [];
+  let cur = '';
+  for (const ch of String(text)) {
+    if (ch === '\n') { out.push(cur); cur = ''; continue; }
+    if (cur && ctx.measureText(cur + ch).width > maxW) { out.push(cur); cur = ch; }
+    else cur += ch;
+  }
+  if (cur) out.push(cur);
+  return out.length ? out : [''];
+}
+function _nowStr() {                              // 本地"生成时间"戳(YYYY-MM-DD HH:MM)
+  const d = new Date(), p = n => String(n).padStart(2, '0');
+  return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) +
+         ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+}
 function _cellText(key, r) {                      // 单元格纯文本（与页面口径一致）
   const v = r[key];
   if (key === 'is_leader') return (v === true || v === 'true') ? '🏆' : '—';
@@ -679,18 +732,45 @@ document.getElementById('btn-export').addEventListener('click', () => {
       return Math.ceil(w) + PADX * 2;
     });
     const totalW = colW.reduce((a, b) => a + b, 0);
-    const totalH = HEADH + rows.length * ROWH;
+
+    // ── 复盘头：筛选日 + 条件 + 排序 + 生成时间(全烙进图·脱离页面也看得懂标准) ──
+    const crit = lastCriteria || snapshotCriteria();
+    const mainOnly = document.getElementById('main-board-only').checked;
+    const conds = criteriaConds(crit);
+    const HLH = 22;                                                   // 头部行高
+    const titleTxt = '📋 因子选股结果    筛选日 ' + crit.date + '    命中 ' + rows.length + ' 只' + (mainOnly ? '（仅主板）' : '');
+    const condTxt = '🎯 条件(' + conds.length + ')：' + (conds.length ? conds.join('  ＋  ') : '无') + '        ↕ 排序：' + crit.sort;
+    const stampTxt = '生成于 ' + _nowStr() + '   ·   astock-agent 因子选股（现象描述·非买卖建议）';
+    meas.font = 'bold 15px ' + _EXPORT_FONT;
+    const titleLines = _wrapLines(meas, titleTxt, totalW - PADX * 2);
+    meas.font = FS + 'px ' + _EXPORT_FONT;
+    const condLines = _wrapLines(meas, condTxt, totalW - PADX * 2);
+    const bandH = 14 + (titleLines.length + condLines.length + 1) * HLH + 12;   // +1=时间戳行
+    const TOP = bandH;
+
+    const totalH = bandH + HEADH + rows.length * ROWH;
     const cv = document.createElement('canvas');
     cv.width = totalW * S; cv.height = totalH * S;
     const ctx = cv.getContext('2d'); ctx.scale(S, S);
     ctx.textBaseline = 'middle';
     ctx.fillStyle = '#0f1117'; ctx.fillRect(0, 0, totalW, totalH);
-    ctx.fillStyle = '#232640'; ctx.fillRect(0, 0, totalW, HEADH);     // 表头底
+    // 复盘头背景 + 左侧强调条 + 文字
+    ctx.fillStyle = '#1a1d2e'; ctx.fillRect(0, 0, totalW, bandH);
+    ctx.fillStyle = '#3358e0'; ctx.fillRect(0, 0, 4, bandH);
+    let hy = 14 + HLH / 2;
+    ctx.font = 'bold 15px ' + _EXPORT_FONT; ctx.fillStyle = '#e8ebff';
+    titleLines.forEach(ln => { ctx.fillText(ln, PADX, hy); hy += HLH; });
+    ctx.font = FS + 'px ' + _EXPORT_FONT; ctx.fillStyle = '#b8bdd4';
+    condLines.forEach(ln => { ctx.fillText(ln, PADX, hy); hy += HLH; });
+    ctx.font = '11px ' + _EXPORT_FONT; ctx.fillStyle = '#6b7280';
+    ctx.fillText(stampTxt, PADX, hy);
+
+    ctx.fillStyle = '#232640'; ctx.fillRect(0, TOP, totalW, HEADH);   // 表头底
     let x = 0;                                                         // 表头文字
     ctx.font = 'bold ' + FS + 'px ' + _EXPORT_FONT; ctx.fillStyle = '#9ca3af';
-    cols.forEach((c, i) => { ctx.fillText(c.label, x + PADX, HEADH / 2); x += colW[i]; });
+    cols.forEach((c, i) => { ctx.fillText(c.label, x + PADX, TOP + HEADH / 2); x += colW[i]; });
     rows.forEach((r, ri) => {                                         // 数据行
-      const y = HEADH + ri * ROWH;
+      const y = TOP + HEADH + ri * ROWH;
       if (ri % 2) { ctx.fillStyle = '#141729'; ctx.fillRect(0, y, totalW, ROWH); }
       let cx = 0;
       cols.forEach((c, i) => {
@@ -710,9 +790,10 @@ document.getElementById('btn-export').addEventListener('click', () => {
         cx += colW[i];
       });
     });
-    const today = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+    const fdate = (crit.date || '').replace(/-/g, '').replace(/[^0-9]/g, '')
+      || _nowStr().slice(0, 10).replace(/-/g, '');
     const a = document.createElement('a');
-    a.download = '选股结果_' + today + '.png';
+    a.download = '选股结果_筛选日' + fdate + '.png';
     a.href = cv.toDataURL('image/png'); a.click();
   } catch (e) {
     alert('长图生成失败：' + e);
