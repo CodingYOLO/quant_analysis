@@ -554,6 +554,45 @@ async def api_industry(date: str = "", _user: str = Depends(require_auth)):
         return {"ok": False, "error": str(e)}
 
 
+@app.get("/api/industry/persistent")
+async def api_industry_persistent(date: str = "", window: int = 10, _user: str = Depends(require_auth)):
+    """行业「资金持续流入榜」：近 window 日累计净流入 + 连续净流入天数(Tushare官方·估算)。"""
+    try:
+        from app.strategy.industry_flow import build_industry_persistent_flow
+        d = date or _last_trade_date()
+        window = max(3, min(int(window), 20))
+        return {"ok": True, "data": build_industry_persistent_flow(d, window=window)}
+    except Exception as e:
+        logger.exception("行业持续流入榜失败")
+        return {"ok": False, "error": str(e)}
+
+
+@app.get("/api/industry/persistent-detail")
+async def api_industry_persistent_detail(date: str = "", industry: str = "", _user: str = Depends(require_auth)):
+    """展开某板块 → 该板块内同样"资金持续流入"的个股(复用因子表 consec_inflow/流入天数·估算)。"""
+    if not industry:
+        return {"ok": False, "error": "缺少 industry 参数"}
+    try:
+        from app.strategy.screener import build_factor_table
+        d = date or _last_trade_date()
+        ft = build_factor_table(d)
+        sub = ft[ft["industry"] == industry].copy()
+        if sub.empty:
+            return {"ok": True, "industry": industry, "rows": []}
+        sort_cols = [c for c in ("consec_inflow", "inflow_days_10", "main_net_3d") if c in sub.columns]
+        if sort_cols:
+            sub = sub.sort_values(sort_cols, ascending=False)
+        want = ["ts_code", "name", "consec_inflow", "inflow_days_10",
+                "main_net_3d", "main_net_amount", "pct_chg", "close"]
+        cols = [c for c in want if c in sub.columns]
+        rows = sub[sub.get("consec_inflow", 0) > 0].head(12)[cols].to_dict("records") \
+            if "consec_inflow" in sub.columns else sub.head(12)[cols].to_dict("records")
+        return {"ok": True, "industry": industry, "rows": rows}
+    except Exception as e:
+        logger.exception("行业持续流入个股失败")
+        return {"ok": False, "error": str(e)}
+
+
 @app.get("/api/industry/detail")
 async def api_industry_detail(date: str = "", industry: str = "", _user: str = Depends(require_auth)):
     """单个行业的环境/宏观/微观详情（资金定性+公告+题材+LLM驱动点评，按需+缓存）。"""

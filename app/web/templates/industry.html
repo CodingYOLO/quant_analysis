@@ -37,6 +37,15 @@ tr.detailrow td { padding:0; background:#141729; }
   <label class="neu" style="font-size:13px">交易日</label>
   <input type="date" id="date">
   <button class="runbtn" id="reload">🔄 加载</button>
+  <span style="margin-left:16px;display:inline-flex;border:1px solid #2d3052;border-radius:8px;overflow:hidden">
+    <button id="mode-daily" style="background:#3358e0;color:#fff;border:none;padding:7px 14px;font-size:13px;cursor:pointer">单日快照</button>
+    <button id="mode-persist" style="background:#12141c;color:#9ca3af;border:none;padding:7px 14px;font-size:13px;cursor:pointer">🔥 资金持续流入榜</button>
+  </span>
+  <label class="neu" id="winwrap" style="font-size:12px;margin-left:10px;display:none">窗口
+    <select id="pwin" style="background:#0f1117;color:#e8e8e8;border:1px solid #2d3052;border-radius:6px;padding:4px 8px">
+      <option value="10">近10日</option><option value="5">近5日</option><option value="20">近20日</option>
+    </select>
+  </label>
 </div>
 <div style="font-size:12px;color:#fbbf24;background:#2a2410;border:1px solid #4a3d15;border-radius:8px;padding:8px 12px;margin-bottom:16px;line-height:1.6">
   💡 <strong>口径说明</strong>：资金流向 = 板块内个股「主力净流入」合计（主力=超大单+大单，数据源 Tushare 官方）；
@@ -64,6 +73,16 @@ tr.detailrow td { padding:0; background:#141729; }
   <div class="chart-card">
     <h3>板块资金明细 <span class="neu" id="tbl-cnt" style="font-weight:400;font-size:12px"></span></h3>
     <div style="overflow-x:auto"><table id="tbl"></table></div>
+  </div>
+</div>
+
+<!-- 🔥 资金持续流入榜（多日累计 + 连续净流入天数） -->
+<div id="persistcard" style="display:none">
+  <div id="persist-note" style="font-size:12px;color:#fbbf24;background:#2a2410;border:1px solid #4a3d15;border-radius:8px;padding:8px 12px;margin-bottom:14px;line-height:1.6"></div>
+  <div class="chart-card">
+    <h3>🔥 资金持续流入榜 <span class="neu" id="persist-cnt" style="font-weight:400;font-size:12px"></span></h3>
+    <div id="persist-loading" class="neu" style="font-size:14px;padding:16px">⏳ 计算近N日累计净流入…</div>
+    <div style="overflow-x:auto"><table id="ptbl"></table></div>
   </div>
 </div>
 
@@ -192,6 +211,94 @@ function renderDetailPanel(d){
   if(d.cached) html+='<div class="d-meta">· 已缓存</div>';
   return html+'</div>';
 }
+
+// ── 🔥 资金持续流入榜（多日累计 + 连续净流入天数）─────────────────────────────────
+let pRows=[], pSort={key:'cum5',asc:false}, pWindow=10, pDates=[];
+function setMode(daily){
+  const md=document.getElementById('mode-daily'), mp=document.getElementById('mode-persist');
+  md.style.background=daily?'#3358e0':'#12141c'; md.style.color=daily?'#fff':'#9ca3af';
+  mp.style.background=daily?'#12141c':'#c2410c'; mp.style.color=daily?'#9ca3af':'#fff';
+  document.getElementById('dash').style.display=daily?'block':'none';
+  document.getElementById('persistcard').style.display=daily?'none':'block';
+  document.getElementById('winwrap').style.display=daily?'none':'inline';
+  if(!daily && !pRows.length) loadPersist();
+}
+document.getElementById('mode-daily').addEventListener('click',()=>setMode(true));
+document.getElementById('mode-persist').addEventListener('click',()=>setMode(false));
+document.getElementById('pwin').addEventListener('change',()=>{ pWindow=+document.getElementById('pwin').value; loadPersist(); });
+
+async function loadPersist(){
+  const date=(document.getElementById('date').value||'').replace(/-/g,'');
+  const L=document.getElementById('persist-loading'); L.style.display='block'; L.textContent='⏳ 计算近'+pWindow+'日累计净流入…';
+  document.getElementById('ptbl').innerHTML='';
+  try{
+    const j=await (await fetch('/api/industry/persistent?window='+pWindow+'&date='+date)).json();
+    if(!j.ok){ L.textContent='❌ '+j.error; return; }
+    pRows=j.data.rows||[]; pDates=j.data.dates||[];
+    document.getElementById('persist-note').textContent='💡 '+j.data.note;
+    document.getElementById('persist-cnt').textContent='· '+pRows.length+' 个板块 · 窗口 '+(pDates[0]||'')+'~'+(pDates[pDates.length-1]||'')+'（红=流入 绿=流出·点表头排序·点板块看成分股）';
+    L.style.display='none'; renderPersist();
+  }catch(e){ L.textContent='❌ '+e; }
+}
+
+const PCOLS=[['rank','#'],['industry','板块'],['cum5','近5日累计(亿)'],['cum10','近10日累计(亿)'],
+  ['consec_days','连续流入天'],['days_in','流入天数'],['today_net','今日(亿)'],['ret5','板块5日涨%'],['ambush','形态']];
+const PSIGNED=new Set(['cum5','cum10','today_net','ret5']);
+const PTEXT=new Set(['industry','ambush']);
+function renderPersist(){
+  let data=pRows.slice();
+  if(pSort.key && !PTEXT.has(pSort.key)) data.sort((a,b)=>{let x=a[pSort.key],y=b[pSort.key];x=typeof x==='number'?x:-1e9;y=typeof y==='number'?y:-1e9;return pSort.asc?x-y:y-x;});
+  const arr=k=>pSort.key===k?(pSort.asc?' ▲':' ▼'):'';
+  let h='<thead><tr>'+PCOLS.map(([k,l])=>{const s=!PTEXT.has(k);return '<th data-k="'+k+'" style="'+(s?'cursor:pointer':'')+'">'+l+(s?'<span style="color:#7c9ef8">'+arr(k)+'</span>':'')+'</th>';}).join('')+'</tr></thead><tbody>';
+  data.slice(0,60).forEach(r=>{
+    h+='<tr class="datarow" data-ind="'+encodeURIComponent(r.industry)+'">'+PCOLS.map(([k])=>{
+      let v=r[k];
+      if(k==='industry') return '<td><span class="exp">▸</span>'+v+'</td>';
+      if(k==='ambush') return '<td>'+(v?'<span style="color:#f0a020" title="资金连续进但板块价没涨=埋伏">🔥暗流</span>':(r.consec_days>=3?'<span style="color:#f6465d">持续进</span>':'·'))+'</td>';
+      if(k==='days_in') return '<td>'+v+'/'+r.n_days+'</td>';
+      if(PSIGNED.has(k) && typeof v==='number'){const c=v>0?'up':(v<0?'down':'');const sg=v>0?'+':'';return '<td class="'+c+'">'+sg+v+'</td>';}
+      if(v==null) return '<td class="neu">·</td>';
+      return '<td>'+v+'</td>';
+    }).join('')+'</tr>';
+  });
+  h+='</tbody>';
+  const t=document.getElementById('ptbl'); t.innerHTML=h;
+  t.querySelectorAll('th[data-k]').forEach(th=>{ if(PTEXT.has(th.dataset.k))return;
+    th.addEventListener('click',()=>{const k=th.dataset.k; if(pSort.key===k)pSort.asc=!pSort.asc; else{pSort.key=k;pSort.asc=false;} renderPersist();}); });
+  t.querySelectorAll('tr.datarow').forEach(tr=>{ tr.addEventListener('click',()=>togglePersistDetail(tr)); });
+}
+
+async function togglePersistDetail(tr){
+  const ind=decodeURIComponent(tr.dataset.ind), arrow=tr.querySelector('.exp'), next=tr.nextElementSibling;
+  if(next && next.classList.contains('detailrow')){ next.remove(); if(arrow)arrow.textContent='▸'; return; }
+  document.querySelectorAll('#ptbl tr.detailrow').forEach(e=>e.remove());
+  document.querySelectorAll('#ptbl .exp').forEach(e=>e.textContent='▸');
+  if(arrow)arrow.textContent='▾';
+  const dr=document.createElement('tr'); dr.className='detailrow';
+  const td=document.createElement('td'); td.colSpan=document.querySelectorAll('#ptbl thead th').length;
+  td.innerHTML='<div style="padding:8px 12px;color:#9ca3af;font-size:12px">⏳ 加载该板块持续流入个股…</div>';
+  dr.appendChild(td); tr.after(dr);
+  const date=(document.getElementById('date').value||'').replace(/-/g,'');
+  try{
+    const j=await (await fetch('/api/industry/persistent-detail?industry='+encodeURIComponent(ind)+'&date='+date)).json();
+    if(!j.ok){ td.innerHTML='<div style="padding:8px 12px;color:#f87171">❌ '+j.error+'</div>'; return; }
+    const rs=j.rows||[];
+    if(!rs.length){ td.innerHTML='<div style="padding:8px 12px;color:#9ca3af;font-size:12px">该板块暂无「连续净流入」的个股（估算口径）</div>'; return; }
+    const cell=(v)=>{ if(v==null) return '<td style="text-align:center" class="neu">·</td>'; const c=v>0?'up':(v<0?'down':''); const sg=v>0?'+':''; return '<td style="text-align:center" class="'+c+'">'+sg+v+'</td>'; };
+    let hh='<div style="padding:8px 12px"><b style="color:#cdd6f4;font-size:12px">'+ind+' · 板块内持续流入个股（估算·按连续净流入天数排序）</b>'
+      +'<table style="width:100%;margin-top:6px;font-size:12px"><thead><tr style="color:#9ca3af"><th style="text-align:left">代码</th><th style="text-align:left">名称</th><th>连续流入天</th><th>近10流入天</th><th>主力3日(亿)</th><th>今日主力(亿)</th><th>涨跌%</th></tr></thead><tbody>';
+    rs.forEach(r=>{
+      const c6=String(r.ts_code||'').slice(0,6);
+      hh+='<tr><td><a href="/stock?code='+c6+'" style="color:#7c9ef8">'+c6+'</a></td><td>'+(r.name||'')+'</td>'
+        +'<td style="text-align:center">'+(r.consec_inflow==null?'·':r.consec_inflow)+'</td>'
+        +'<td style="text-align:center">'+(r.inflow_days_10==null?'·':r.inflow_days_10)+'</td>'
+        +cell(r.main_net_3d)+cell(r.main_net_amount)+cell(r.pct_chg)+'</tr>';
+    });
+    hh+='</tbody></table><div class="neu" style="font-size:10.5px;margin-top:4px">口径=估算(超大单+大单)·非龙虎榜真机构；点代码到个股360印证资金/龙虎榜</div></div>';
+    td.innerHTML=hh;
+  }catch(e){ td.innerHTML='<div style="padding:8px 12px;color:#f87171">❌ '+e+'</div>'; }
+}
+
 load();
 </script>
 {% endblock %}

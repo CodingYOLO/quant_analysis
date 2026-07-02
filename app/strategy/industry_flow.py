@@ -17,10 +17,14 @@ import logging
 
 import pandas as pd
 
+from app.data.cache import _cache_path
 from app.data.composite_provider import CompositeProvider
 from app.nodes.quick_report import _board_limit_pct, _recent_trade_dates
 
 logger = logging.getLogger(__name__)
+
+_PERSIST_COLS = ["industry", "cum5", "cum10", "consec_days", "days_in", "n_days",
+                 "today_net", "today_pct", "ret5", "ambush", "rank"]
 
 
 def _industry_agg(date: str, provider, code2name, code2ind) -> pd.DataFrame:
@@ -126,3 +130,99 @@ def build_industry_dashboard(date: str, force: bool = False) -> dict:
 
     rows = today_df.to_dict("records")
     return {"date": date, "kpi": kpi, "rows": rows}
+
+
+# ── 资金持续流入榜（多日累计 + 连续天数）──────────────────────────────────────────
+def _persist_df(date: str, dates: list[str], provider) -> pd.DataFrame:
+    """逐日行业聚合(复用 _industry_agg·同口径) → 每板块的近5/10日累计净流入、连续净流入天数、
+    流入天数、板块近5日涨幅(复利·中位)。识别"资金进但价没涨"的暗流(ambush)。point-in-time。"""
+    sb = provider.get_stock_basic()
+    code2name = dict(zip(sb["ts_code"], sb["name"]))
+    code2ind = dict(zip(sb["ts_code"], sb["industry"])) if "industry" in sb.columns else {}
+    if not code2ind:
+        raise ValueError("stock_basic 缺少 industry 字段")
+
+    net_maps, pct_maps = [], []                                # 逐日 {行业: 主力净流入(亿)} / {行业: 中位涨幅}
+    for d in dates:
+        agg = _industry_agg(d, provider, code2name, code2ind)
+        net_maps.append(dict(zip(agg["industry"], agg["main_flow"])) if not agg.empty else {})
+        pct_maps.append(dict(zip(agg["industry"], agg["pct_chg"])) if not agg.empty else {})
+
+    all_inds: set[str] = set().union(*[set(m) for m in net_maps]) if net_maps else set()
+    rows = []
+    for ind in all_inds:
+        nets = [m.get(ind) for m in net_maps]                  # 亿·None=当日缺该板块
+        pcts = [m.get(ind) for m in pct_maps]
+        if not any(v is not None for v in nets):
+            continue
+        rows.append({"industry": ind, **_series_metrics(nets, pcts)})
+    if not rows:
+        return pd.DataFrame(columns=_PERSIST_COLS)
+    df = pd.DataFrame(rows).sort_values(["cum5", "consec_days"], ascending=[False, False]).reset_index(drop=True)
+    df["rank"] = df.index + 1
+    return df
+
+
+def _series_metrics(nets: list, pcts: list) -> dict:
+    """从逐日净流入(亿)+逐日涨幅序列算持续性指标（纯函数·可测）。None=当日缺数据。
+
+    连续净流入天数=从最新往回连续 >0 的天数；累计=非空求和；暗流=连续进≥2天且近5累计>0但价没涨(<3%)。
+    """
+    consec = 0
+    for v in reversed(nets):
+        if v is not None and v > 0:
+            consec += 1
+        else:
+            break
+    cum5 = round(sum(v for v in nets[-5:] if v is not None), 2)
+    ret5 = _compound_pct([p for p in pcts[-5:] if p is not None])
+    return {
+        "cum5": cum5,
+        "cum10": round(sum(v for v in nets if v is not None), 2),
+        "consec_days": consec,
+        "days_in": sum(1 for v in nets if v is not None and v > 0),
+        "n_days": len(nets),
+        "today_net": (round(nets[-1], 2) if nets[-1] is not None else None),
+        "today_pct": pcts[-1] if pcts else None,
+        "ret5": ret5,
+        "ambush": bool(consec >= 2 and cum5 > 0 and ret5 is not None and ret5 < 3.0),
+    }
+
+
+def _compound_pct(pcts: list) -> float | None:
+    """复利叠加日涨幅 → 区间涨幅%(中位口径)。空→None。"""
+    if not pcts:
+        return None
+    prod = 1.0
+    for p in pcts:
+        prod *= (1 + p / 100.0)
+    return round((prod - 1) * 100, 2)
+
+
+def build_industry_persistent_flow(date: str, force: bool = False, window: int = 10) -> dict:
+    """行业「资金持续流入榜」：近 window 日主力净流入(Tushare官方口径·估算)聚合。
+
+    ⚠️ 口径=超大单+大单代理估算·**非龙虎榜真机构钱**(真机构看 /lhb)。累计=逐日行业汇总相加。
+    按日缓存；**冻结防护**：仅当最新日资金已入库(约17:40)才写缓存，避免盘中缓存到残缺数据。
+    """
+    provider = CompositeProvider()
+    dates = _recent_trade_dates(provider, date, n=window)      # 升序·末=date·point-in-time
+    if not dates:
+        raise ValueError(f"{date} 无法取到交易日序列")
+
+    path = _cache_path("industry_persist", f"{date}_w{window}")
+    if path.exists() and not force:
+        df = pd.read_parquet(path)
+    else:
+        df = _persist_df(date, dates, provider)
+        latest_mf = provider.get_money_flow(dates[-1])         # 最新日资金已入库才落缓存(防冻结残缺)
+        if not df.empty and latest_mf is not None and not latest_mf.empty:
+            df.to_parquet(path, index=False)
+
+    return {
+        "date": date, "window": len(dates),
+        "dates": [f"{d[4:6]}-{d[6:]}" for d in dates],
+        "rows": df.to_dict("records"),
+        "note": ("口径=Tushare官方主力净流入(超大单+大单)代理估算·非龙虎榜真机构钱(真钱看机构动向)；"
+                 "累计=近N日逐日行业汇总相加。红=流入 绿=流出。暗流=资金连续进但板块价没涨(埋伏)。"),
+    }
