@@ -143,7 +143,7 @@ def build_diagnosis(end: str, provider: CompositeProvider | None = None, level: 
     from app.strategy.sector_attribution import _margin, build_flow_map
     from app.strategy.sector_metrics import build_features
     provider = provider or CompositeProvider()
-    cache = _cache_path("sector_diagnosis", f"{end}_{level}_v4").with_suffix(".json")  # v4: 板块卡统一窗口资金
+    cache = _cache_path("sector_diagnosis", f"{end}_{level}_v6").with_suffix(".json")  # v6: 强度序列3日平滑
     if cache.exists() and not force:
         try:
             return json.loads(cache.read_text("utf-8"))
@@ -170,8 +170,10 @@ def build_diagnosis(end: str, provider: CompositeProvider | None = None, level: 
             "post": v["post"], "pre": v["pre"],
             "ma5": _last(s, "ma5", i), "ma20": _last(s, "ma20", i), "ma60": _last(s, "ma60", i),
             "ma_label": _ma_label(_last(s, "ma5", i), _last(s, "ma20", i), _last(s, "ma60", i)),
-            "pen_z": _last(s, "pen_z", i),                  # 当日·横截面相对排名(无量纲)
+            "pen_z": _last(s, "pen_z", i),                  # 当日·横截面相对排名(无量纲·收进展开)
             "pen_accel": _last(s, "pen_accel", i),          # 1日·渗透率日差
+            # 近5天资金强度序列(横截面z·3日平滑减噪·如 +2.1 +1.5 +0.9 -0.2 -0.8)→ 衰竭/拐头趋势一眼可见
+            "penz_seq": _smooth_seq(s.get("pen_z") or [], k=3, n=5),
             "net_today": _last(s, "net", i),                # 当日净流入(亿)
             "net5": round(sum(v for v in (s.get("net") or [])[-5:] if v is not None), 1),  # 近5日累计(同大类窗口)
             "flow_margin": _margin(s.get("net") or []),     # 该板块自身近5日资金边际(就地对账·同大类口径)
@@ -199,6 +201,15 @@ def build_diagnosis(end: str, provider: CompositeProvider | None = None, level: 
 def _last(s: dict, key: str, i: int):
     arr = s.get(key, [])
     return arr[i] if 0 <= i < len(arr) else None
+
+
+def _smooth_seq(seq: list, k: int = 3, n: int = 5) -> list:
+    """末 n 个点的 k 日滚动均值（平滑单日噪音·让衰竭/拐头趋势显现）。缺值跳过·全缺→None。"""
+    out = []
+    for idx in range(max(0, len(seq) - n), len(seq)):
+        w = [seq[j] for j in range(max(0, idx - k + 1), idx + 1) if seq[j] is not None]
+        out.append(round(sum(w) / len(w), 1) if w else None)
+    return out
 
 
 def _ma_label(ma5, ma20, ma60) -> dict:

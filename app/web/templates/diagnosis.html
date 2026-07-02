@@ -24,6 +24,11 @@
   .evid { font-size:11.5px; color:#9aa0b4; margin-top:7px; line-height:1.6; }
   .collapse-head { cursor:pointer; color:#9ca3af; font-size:12.5px; padding:8px 10px; background:#0f1117; border:1px dashed #2d3052; border-radius:8px; }
   .comprow { display:flex; gap:12px; align-items:center; font-size:12px; padding:5px 8px; border-bottom:1px solid #1a1d2e; }
+  .grouphead { padding:8px 12px; border-radius:8px; margin:10px 0 8px; font-size:13px; font-weight:600; }
+  .gh-sig { background:#2a1414; border:1px solid #6b2a2a; color:#f6465d; }
+  .gh-ref { background:#241f10; border:1px solid #5a4018; color:#f0a020; }
+  .verline { font-size:11px; font-weight:400; color:#9aa0b4; margin-top:3px; line-height:1.5; }
+  .sigcard, .refcard { cursor:pointer; }
   #dsearch { background:#0f1117; color:#e8e8e8; border:1px solid #2d3052; border-radius:7px; padding:7px 11px; font-size:13px; width:220px; }
 </style>
 
@@ -92,54 +97,71 @@ function renderFlow(fm) {
   document.getElementById('capbars').innerHTML = C.map(([n, v]) => macroRow(n, v, maxC)).join('');
 }
 
+let VERDICT = {};
 function maChip(ma) { ma = ma || {}; return '<span class="malabel ma-' + (ma.level || 'neutral') + '">' + (ma.text || '—') + '</span>'; }
-function metrics(r) {
+function seqHtml(seq) {                                   // 资金强度序列(近5天·一串看趋势)
+  if (!seq || !seq.length) return '·';
+  return seq.map(v => v == null ? '<span class="flat">·</span>'
+    : '<b style="color:' + (v > 0 ? '#f6465d' : (v < 0 ? '#2ebd85' : '#9ca3af')) + '">' + (v > 0 ? '+' : '') + v + '</b>').join(' ');
+}
+function seqTrend(seq) {                                  // 衰竭(持续走低)/拐头(触底回升)
+  const v = (seq || []).filter(x => x != null); const n = v.length;
+  if (n < 3) return '';
+  if (v[n - 1] > v[n - 2] && v[n - 2] <= v[n - 3]) return '<span style="color:#f0a020;font-weight:700">↗拐头</span>';
+  if (v[n - 1] < v[0] && v[n - 1] <= v[n - 2]) return '<span style="color:#2ebd85;font-weight:700">↓衰竭</span>';
+  return '';
+}
+function foresight(r) {                                   // 前瞻区(显眼)：资金强度序列 + 边际 + 近5日
   const fm = r.flow_margin || {};
-  const marg = fm.strong
-    ? '<span class="turn">' + fm.arrow + ' ' + fm.text + '</span>'
+  const marg = fm.strong ? '<span class="turn">' + fm.arrow + ' ' + fm.text + '</span>'
     : (fm.arrow ? '<span style="color:' + arrowCol(fm.arrow) + '">' + fm.arrow + ' ' + fm.text + '</span>' : '');
-  return '<div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:7px" class="kv">'
-    + '<span title="MA5/20/60宽度=成分站上均线占比">宽度 ' + pc(r.ma5) + '/' + pc(r.ma20) + '/' + pc(r.ma60) + '</span>'
-    + '<span title="近5日板块涨幅">近5涨 ' + fmt(r.ret5, true) + '%</span>'
-    + '<span title="近5日累计主力净流入·与上方大类地图同一窗口(就地对账)">资金·近5日 ' + fmt(r.net5, true) + '亿 ' + marg + '</span>'
-    + '<span title="当日渗透率的横截面z-score·板块间相对排名·无量纲">当日强度 ' + fmt(r.pen_z) + '</span>'
-    + '<span title="当日渗透率−前一日·仅1日变化">1日加速度 ' + fmt(r.pen_accel) + '</span></div>';
+  return '<div style="margin-top:8px;font-size:12.5px;color:#e2e6f0">'
+    + '<span title="近5天资金强度(横截面z)·单点看不出·一串才见衰竭/拐头">🔮 资金强度 ' + seqHtml(r.penz_seq) + ' ' + seqTrend(r.penz_seq) + '</span>'
+    + '<span style="margin-left:18px" title="近5日累计净流入·与大类地图同窗口">资金近5日 ' + fmt(r.net5, true) + '亿 ' + marg + '</span></div>';
 }
-function evid(r) {
-  return '<div class="evid">📊 回测：post-924 ' + (r.post || '—') + '<br>924前 ' + (r.pre || '—')
-    + (r.caveat ? '<br>⚠️ ' + r.caveat : '') + '</div>';
+function statusRow(r) {                                   // 现状区(低调·灰)：宽度 + 近5涨
+  const g = p => p == null ? '·' : p;
+  return '<div style="margin-top:5px;font-size:11.5px;color:#787e92">现状：宽度 '
+    + g(r.ma5) + '/' + g(r.ma20) + '/' + g(r.ma60) + ' · 近5涨 ' + fmt(r.ret5, true) + '%</div>';
 }
-function sigCard(r) {
-  return '<div class="sigcard"><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">'
-    + '<span class="avoid">⚠ 避开/减仓</span><b style="font-size:16px">' + r.sector + '</b>'
-    + '<span class="neu" style="font-size:12px">【顶背离·非买点】</span>' + maChip(r.ma_label)
+function cardInner(r, tag) {
+  return '<div style="display:flex;align-items:center;gap:9px;flex-wrap:wrap">'
+    + tag + '<b style="font-size:15px">' + r.sector + '</b>' + maChip(r.ma_label)
     + '<span class="neu" style="margin-left:auto;font-size:11px">成分' + (r.n || '·') + '</span></div>'
-    + metrics(r) + evid(r) + '</div>';
+    + foresight(r) + statusRow(r)
+    + '<div class="evid more" style="display:none">🔬 展开·对账用：当日强度z ' + fmt(r.pen_z)
+    + '（横截面排名·单点无前瞻）· 1日加速度 ' + fmt(r.pen_accel) + '</div>';
 }
-function refCard(r) {
-  return '<div class="refcard"><div style="display:flex;align-items:center;gap:9px;flex-wrap:wrap">'
-    + '<span class="t-reference tierbadge">参考</span><b style="font-size:14px">' + r.sector + '</b>'
-    + '<span class="neu" style="font-size:12px">【洗盘谷底·比基准少亏·非买点】</span>' + maChip(r.ma_label)
-    + '<span class="neu" style="margin-left:auto;font-size:11px">成分' + (r.n || '·') + '</span></div>'
-    + metrics(r) + evid(r) + '</div>';
-}
+function sigCard(r) { return '<div class="sigcard" onclick="tgl(this)">' + cardInner(r, '<span class="avoid">⚠ 避开/减仓</span>') + '</div>'; }
+function refCard(r) { return '<div class="refcard" onclick="tgl(this)">' + cardInner(r, '<span class="t-reference tierbadge">参考</span>') + '</div>'; }
+function descCard(r) { return '<div class="refcard" style="border-left-color:#2d3052" onclick="tgl(this)">' + cardInner(r, '<span class="t-descriptive tierbadge">' + r.state + '</span>') + '</div>'; }
+function tgl(el) { const m = el.querySelector('.more'); if (m) m.style.display = m.style.display === 'none' ? 'block' : 'none'; }
 function compRow(r) {
   return '<div class="comprow"><b style="width:92px">' + r.sector + '</b>'
-    + '<span class="neu" style="width:100px">' + r.state + '</span>' + maChip(r.ma_label)
-    + '<span class="kv" style="margin-left:auto">近5 ' + fmt(r.ret5, true) + '% · 资金 ' + fmt(r.pen_z) + '</span></div>';
+    + '<span class="neu" style="width:88px">' + r.state + '</span>' + maChip(r.ma_label)
+    + '<span class="kv" style="margin-left:auto" title="近5天资金强度序列">' + seqHtml(r.penz_seq) + ' ' + seqTrend(r.penz_seq) + '</span></div>';
+}
+function verdictLine(state) {
+  const v = VERDICT[state] || {}, p = [];
+  if (v.post) p.push('post-924: ' + v.post);
+  if (v.pre) p.push('924前: ' + v.pre);
+  if (v.caveat) p.push('⚠️' + v.caveat);
+  return p.join(' ｜ ');
 }
 
 function renderGroups() {
   const sig = ALL.filter(r => r.tier === 'signal'), ref = ALL.filter(r => r.tier === 'reference'),
     desc = ALL.filter(r => r.tier === 'descriptive');
   document.getElementById('dsig').innerHTML = sig.length
-    ? '<div class="neu" style="font-size:12px;margin:2px 0 8px">🔴 顶背离·避雷（唯一经双期验证·点看回测）</div>' + sig.map(sigCard).join('')
-    : '<div class="neu" style="font-size:12px;margin-bottom:8px">🔴 今日无顶背离避雷信号</div>';
+    ? '<div class="grouphead gh-sig">🔴 顶背离 · 避开/减仓（' + sig.length + '个·唯一经双期验证·非买点）'
+      + '<div class="verline">' + verdictLine('顶背离') + '</div></div>' + sig.map(sigCard).join('')
+    : '<div class="grouphead gh-sig">🔴 今日无顶背离避雷信号</div>';
   document.getElementById('dref').innerHTML = ref.length
-    ? '<div class="neu" style="font-size:12px;margin:6px 0">🟡 洗盘谷底·仅参考</div>' + ref.map(refCard).join('') : '';
+    ? '<div class="grouphead gh-ref">🟡 洗盘谷底 · 仅参考（' + ref.length + '个·比基准少亏·非买点）'
+      + '<div class="verline">' + verdictLine('洗盘谷底') + '</div></div>' + ref.map(refCard).join('') : '';
   document.getElementById('ddesc').innerHTML = desc.length
     ? '<div class="collapse-head" onclick="var e=document.getElementById(\'desclist\');e.style.display=e.style.display===\'none\'?\'block\':\'none\'">⚪ 描述态 '
-      + desc.length + ' 个（未过回测·仅描述·点展开/收起·或用上方搜索找特定板块）</div>'
+      + desc.length + ' 个（未过回测·仅描述·点展开·或搜索找特定板块·右侧资金强度序列看趋势）</div>'
       + '<div id="desclist" style="display:none;margin-top:6px">' + desc.map(compRow).join('') + '</div>' : '';
 }
 function onSearch() {
@@ -149,10 +171,8 @@ function onSearch() {
   groups.style.display = 'none';
   const hits = ALL.filter(r => r.sector.includes(q));
   res.innerHTML = hits.length
-    ? '<div class="neu" style="font-size:12px;margin-bottom:6px">🔍 “' + q + '” 命中 ' + hits.length + ' 个：</div>'
-      + hits.map(r => r.tier === 'signal' ? sigCard(r) : (r.tier === 'reference' ? refCard(r)
-        : '<div class="refcard" style="border-left-color:#2d3052">' + '<b style="font-size:14px">' + r.sector + '</b> '
-          + '<span class="neu">【' + r.state + '·描述】</span> ' + maChip(r.ma_label) + metrics(r) + '</div>')).join('')
+    ? '<div class="neu" style="font-size:12px;margin-bottom:6px">🔍 “' + q + '” 命中 ' + hits.length + ' 个（点卡展开对账）：</div>'
+      + hits.map(r => r.tier === 'signal' ? sigCard(r) : (r.tier === 'reference' ? refCard(r) : descCard(r))).join('')
     : '<div class="neu" style="font-size:13px">未找到含“' + q + '”的板块（当前 L2 口径·芯片细分在 L3）</div>';
 }
 
@@ -162,6 +182,7 @@ async function load() {
     if (!j.ok) { document.getElementById('dloading').textContent = '❌ ' + j.error; return; }
     const d = j.data;
     ALL = d.sectors;
+    VERDICT = d.verdict || {};
     document.getElementById('ddate').textContent = '· 数据日 ' + d.date + ' · 全市场 ' + d.n_total + ' 个板块';
     renderFlow(d.flow_map);
     document.getElementById('dloading').style.display = 'none';
