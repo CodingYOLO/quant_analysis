@@ -65,52 +65,89 @@ def build_flow_map(end: str, window: int = 15, provider: CompositeProvider | Non
     l1map = members_asof(load_history(provider), end, "L1", exclude_junk=False)
     code2macro = {c: _L1_TO_MACRO.get(l1, "其他") for l1, codes in l1map.items() for c in codes}
 
-    macro_day = {m: [] for m in MACROS}                            # 各大类逐日净流入(亿)
-    cap_day = {t: [] for t in CAP_NAMES}                           # 各市值档逐日净流入(亿)
+    # 逐日按大类/市值档聚合 净流入 + 流通市值 + 中位涨幅（供渗透率% + 价-资金背离）
+    grp = {m: {"net": [], "circ": [], "pct": []} for m in MACROS}
+    cgrp = {t: {"net": [], "circ": [], "pct": []} for t in CAP_NAMES}
     for d in dates:
         feat = _stock_features(provider, d)
         feat = feat[feat["net"].notna()].copy()
         feat["macro"] = feat.index.map(code2macro).fillna("其他")
         feat["cap"] = [(_cap_tier(c) if pd.notna(c) else None) for c in feat["circ"]]
-        gm = feat.groupby("macro")["net"].sum()
-        gc = feat[feat["cap"].notna()].groupby("cap")["net"].sum()
-        for m in MACROS:
-            macro_day[m].append(round(float(gm.get(m, 0.0)), 2))
-        for t in CAP_NAMES:
-            cap_day[t].append(round(float(gc.get(t, 0.0)), 2))
+        _accum(grp, feat, "macro", MACROS)
+        _accum(cgrp, feat[feat["cap"].notna()], "cap", CAP_NAMES)
 
-    macro = {m: _spans(macro_day[m]) for m in MACROS}
-    cap = {t: _spans(cap_day[t]) for t in CAP_NAMES}
+    macro = {m: _grp_metrics(grp[m]) for m in MACROS}
+    cap = {t: _grp_metrics(cgrp[t]) for t in CAP_NAMES}
     return {
         "end": end, "window": len(dates), "dates": dates,
-        "macro": dict(sorted(macro.items(), key=lambda kv: -kv[1]["cum15"])),  # 按近15日累计降序
-        "cap": cap,                                                            # 市值档保持大→微顺序
-        "note": ("资金地图·描述性：多跨度(近5/10/15日)各大类/各市值档累计主力净流入(亿·官方估算·非龙虎榜)。"
-                 "**边际变化**=近5日日均 vs 全期日均(看谁在改善/恶化·同诊断页'加速度'逻辑)。"
-                 "行业大类与市值分档**正交两条**·⚠️仅描述资金流向·**非买卖信号**·大类轮动需回测验证不入决策层。"),
+        "macro": dict(sorted(macro.items(), key=lambda kv: -(kv[1]["pen15"] or -99))),  # 按渗透率%降序(可比)
+        "cap": cap,
+        "note": ("资金地图·描述性：多跨度(近5/10/15日)主力净流入的**渗透率%**(占流通市值·跨体量可比) + 净额(亿)。"
+                 "**边际**区分'真转流入(一阶转正)'与'流出收窄(二阶)'；**价-资金背离**=钱进价跌(暗流)/价涨钱撤(顶背离)。"
+                 "行业大类与市值分档正交·⚠️仅描述·**非买卖信号**·大类轮动需回测验证不入决策层。"),
     }
 
 
-def _spans(series: list) -> dict:
-    """逐日净流入序列 → 多跨度累计(近5/10/15日) + 边际变化(近5日日均 vs 全期日均)。"""
-    def cum(n):
-        return round(sum(series[-n:]), 1) if series else 0.0
-    return {"cum5": cum(5), "cum10": cum(10), "cum15": cum(len(series)),
-            "series": series, "margin": _margin(series)}
+def _accum(store: dict, feat, key: str, names) -> None:
+    """把当日 feat 按 key(macro/cap) 聚合 净流入(sum)/流通市值(sum)/中位涨幅 追加到序列。"""
+    gn = feat.groupby(key)["net"].sum()
+    gc = feat.groupby(key)["circ"].sum()
+    gp = feat.groupby(key)["pct"].median()
+    for nm in names:
+        store[nm]["net"].append(round(float(gn.get(nm, 0.0)), 2))
+        store[nm]["circ"].append(round(float(gc.get(nm, 0.0)), 2))
+        v = gp.get(nm)
+        store[nm]["pct"].append(None if v is None or (isinstance(v, float) and v != v) else round(float(v), 3))
+
+
+def _grp_metrics(g: dict) -> dict:
+    """净流入/流通市值/涨幅序列 → 多跨度 净额+渗透率% · 近5日涨 · 边际(真转正/收窄) · 价-资金背离。"""
+    net, circ, pct = g["net"], g["circ"], g["pct"]
+    circ_now = next((c for c in reversed(circ) if c), 0) or 1               # 当前流通市值(分母·亿)
+    cum = lambda n: round(sum(net[-n:]), 1) if net else 0.0                 # noqa: E731
+    pen = lambda n: round(cum(n) / circ_now * 100, 3)                       # 渗透率%=累计净流入/流通市值 noqa: E731
+    price5 = _compound_pct([p for p in pct[-5:] if p is not None])          # 近5日板块涨(复利·中位)
+    return {
+        "cum5": cum(5), "cum10": cum(10), "cum15": cum(len(net)),
+        "pen5": pen(5), "pen10": pen(10), "pen15": pen(len(net)),
+        "price5": price5, "series": net,
+        "margin": _margin(net), "diverge": _diverge(cum(5), price5),
+    }
 
 
 def _margin(series: list) -> dict:
-    """边际变化：近5日日均 vs 全期日均 → 谁在改善/恶化。返回 {arrow, text}。"""
+    """边际：区分'真转流入(一阶导·近5实际净流入)'与'流出收窄(二阶导·仍净流出但放缓)'。strong=真拐点。"""
     if len(series) < 8:
-        return {"arrow": "→", "text": ""}
+        return {"arrow": "→", "text": "", "strong": False}
     cum5, cum_all = sum(series[-5:]), sum(series)
     avg5, avg_all = cum5 / 5, cum_all / len(series)
-    if cum_all < 0 and cum5 > 0:
-        return {"arrow": "↑", "text": "全期净流出·近5日转流入"}
-    if cum_all < 0:
-        return ({"arrow": "↗", "text": "流出中·近5日收窄改善"} if avg5 > avg_all
-                else {"arrow": "↓", "text": "流出中·近5日恶化"})
+    if cum_all < 0 and cum5 > 0:                                            # 一阶导转正=真转流入(最醒目)
+        return {"arrow": "↑", "text": "真转流入(一阶转正)", "strong": True}
+    if cum_all < 0:                                                         # 仍净流出：只是二阶导变化
+        return ({"arrow": "↗", "text": "流出收窄(仍净流出)", "strong": False} if avg5 > avg_all
+                else {"arrow": "↓", "text": "流出加剧", "strong": False})
     if cum_all > 0 and cum5 < 0:
-        return {"arrow": "↓", "text": "全期净流入·近5日转流出"}
-    return ({"arrow": "↗", "text": "流入中·近5日加速"} if avg5 > avg_all
-            else {"arrow": "↘", "text": "流入中·近5日转弱"})
+        return {"arrow": "↓", "text": "近5日转流出", "strong": False}
+    return ({"arrow": "↗", "text": "流入加速", "strong": False} if avg5 > avg_all
+            else {"arrow": "↘", "text": "流入转弱", "strong": False})
+
+
+def _diverge(net5, price5) -> dict:
+    """近5日 价-资金背离（这套系统的灵魂）：钱进价跌=暗流·价涨钱撤=顶背离(资金撤)。"""
+    if net5 is None or price5 is None:
+        return {"tag": "", "text": ""}
+    if net5 > 0 and price5 < -1:
+        return {"tag": "暗流", "text": "钱进价跌·埋伏"}
+    if net5 < 0 and price5 > 1:
+        return {"tag": "顶背离", "text": "价涨钱撤·警惕"}
+    return {"tag": "", "text": ""}
+
+
+def _compound_pct(pcts: list):
+    """复利叠加日涨幅 → 区间涨幅%(中位口径)。空→None。"""
+    if not pcts:
+        return None
+    prod = 1.0
+    for p in pcts:
+        prod *= (1 + p / 100.0)
+    return round((prod - 1) * 100, 2)

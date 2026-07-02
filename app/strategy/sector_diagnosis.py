@@ -130,7 +130,7 @@ _TIER_ORDER = {"signal": 0, "reference": 1, "descriptive": 2}
 
 
 def build_diagnosis(end: str, provider: CompositeProvider | None = None, level: str = "L2",
-                    window: int = 14, top: int = 24, min_n: int = 5, force: bool = False) -> dict:
+                    window: int = 14, top: int = 0, min_n: int = 5, force: bool = False) -> dict:
     """当日板块诊断面板：各板块当前状态(带回测可信度分层) + 关键指标 + 大类资金地图。
 
     T日盘后出诊断·供 T+1 参考(资金为盘后数据)。现象描述·非买卖建议。精选活跃(信号态优先)。
@@ -143,7 +143,7 @@ def build_diagnosis(end: str, provider: CompositeProvider | None = None, level: 
     from app.strategy.sector_attribution import build_flow_map
     from app.strategy.sector_metrics import build_features
     provider = provider or CompositeProvider()
-    cache = _cache_path("sector_diagnosis", f"{end}_{level}_v2").with_suffix(".json")  # v2: 多跨度+MA标签
+    cache = _cache_path("sector_diagnosis", f"{end}_{level}_v3").with_suffix(".json")  # v3: 渗透率+背离+全板块
     if cache.exists() and not force:
         try:
             return json.loads(cache.read_text("utf-8"))
@@ -205,17 +205,18 @@ def _ma_label(ma5, ma20, ma60) -> dict:
     """
     if ma5 is None or ma20 is None or ma60 is None:
         return {"text": "—", "level": "neutral"}
-    if ma20 < 50:                                                  # 中线破位
+    # 措辞中性(结构描述·非风险判断)：描述态未过回测·不用"崩盘"等与信号同重的词
+    if ma20 < 50:                                                  # 中线也走弱
         if ma5 < 50:
-            return {"text": "中线也破·崩盘风险", "level": "danger"}
-        return {"text": "短强中弱·中线已破", "level": "warn"}
+            return {"text": "短中双弱·中线走弱", "level": "warn"}
+        return {"text": "短强中弱·中线偏软", "level": "neutral"}
     # 中线完好(MA20≥50)
     if ma5 < 30:
         return {"text": "短线洗盘·中线完好", "level": "ok"}
     if ma5 < 55:
         return {"text": "短线回调·中线撑", "level": "ok"}
     if ma60 >= 55:
-        return {"text": "多周期强势", "level": "strong"}
+        return {"text": "多周期偏强", "level": "strong"}
     return {"text": "短中偏强·长线未跟", "level": "neutral"}
 
 

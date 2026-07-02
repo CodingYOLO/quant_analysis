@@ -10,20 +10,21 @@
   .t-descriptive { background:#1a1d2e; color:#9ca3af; border:1px solid #2d3052; }
   .up { color:#f6465d; } .down { color:#2ebd85; } .flat { color:#9ca3af; }
   .kv { font-size:12px; color:#c2c8de; }
-  .mabar { display:inline-block; height:6px; border-radius:3px; vertical-align:middle; }
-  .macrobar { display:flex; align-items:center; gap:8px; margin:4px 0; font-size:12px; }
-  .mbar { height:15px; border-radius:3px; }
-  /* 信号卡·放大做重 */
+  .frow { display:flex; align-items:center; gap:8px; margin:4px 0; font-size:12px; flex-wrap:wrap; }
+  .mbar { height:14px; border-radius:3px; }
+  .turn { background:#f6465d; color:#fff; font-weight:700; padding:1px 7px; border-radius:5px; font-size:11px; }
+  .divtag { font-size:11px; font-weight:600; padding:1px 7px; border-radius:5px; }
+  .div-ambush { background:#12271b; color:#5dd5c4; } .div-top { background:#3b1a1a; color:#f6465d; }
   .sigcard { border:1px solid #6b2a2a; border-left:4px solid #f6465d; border-radius:10px; padding:12px 14px; margin-bottom:10px; background:#17111490; }
   .avoid { background:#f6465d; color:#fff; font-size:12px; font-weight:700; padding:3px 9px; border-radius:6px; white-space:nowrap; }
   .refcard { border:1px solid #5a4018; border-left:4px solid #f0a020; border-radius:10px; padding:10px 12px; margin-bottom:8px; background:#0f1117; }
   .malabel { font-size:12px; font-weight:600; padding:2px 8px; border-radius:6px; }
-  .ma-danger { background:#3b1a1a; color:#f6465d; } .ma-warn { background:#3a2a10; color:#f0a020; }
-  .ma-ok { background:#12271b; color:#4ade80; } .ma-strong { background:#1a2b3b; color:#7c9ef8; }
-  .ma-neutral { background:#1a1d2e; color:#9ca3af; }
+  .ma-warn { background:#3a2a10; color:#f0a020; } .ma-ok { background:#12271b; color:#4ade80; }
+  .ma-strong { background:#1a2b3b; color:#7c9ef8; } .ma-neutral { background:#1a1d2e; color:#9ca3af; }
   .evid { font-size:11.5px; color:#9aa0b4; margin-top:7px; line-height:1.6; }
   .collapse-head { cursor:pointer; color:#9ca3af; font-size:12.5px; padding:8px 10px; background:#0f1117; border:1px dashed #2d3052; border-radius:8px; }
   .comprow { display:flex; gap:12px; align-items:center; font-size:12px; padding:5px 8px; border-bottom:1px solid #1a1d2e; }
+  #dsearch { background:#0f1117; color:#e8e8e8; border:1px solid #2d3052; border-radius:7px; padding:7px 11px; font-size:13px; width:220px; }
 </style>
 
 <div class="card">
@@ -31,65 +32,73 @@
   <div class="disc">
     ⏰ <b>数据时点</b>：T日盘后出诊断 · 供 <b>T+1</b> 参考（资金为盘后数据·非盘中实时）。<br>
     ⚠️ <b>可信度分层</b>：<span class="t-signal tierbadge">信号</span> 仅『顶背离』经 <b>924前后双期回测</b>（避雷/减仓·<b>非买点</b>）；
-    <span class="t-reference tierbadge">参考</span> 『洗盘谷底』<b>仅参考</b>（比基准少亏·非买点）；
+    <span class="t-reference tierbadge">参考</span> 『洗盘谷底』<b>仅参考</b>；
     <span class="t-descriptive tierbadge">描述</span> 其余<b>未过回测·只描述·不作信号</b>。全部<b>非买卖建议</b>。
   </div>
 </div>
 
 <div class="card">
-  <h3 style="margin:0 0 4px">🗺️ 大类资金地图 <span class="neu" style="font-size:12px">多跨度累计主力净流入(亿·估算)+边际变化·<b>描述性非信号</b></span></h3>
+  <h3 style="margin:0 0 4px">🗺️ 大类资金地图 <span class="neu" style="font-size:12px">渗透率%(净流入/流通市值·跨体量可比) + 净额 + 价-资金背离 · <b>描述性非信号</b></span></h3>
   <div id="macrobars" style="margin-top:8px"></div>
   <div class="neu" style="font-size:11px;margin:10px 0 4px">市值分档（与行业正交·并列看）：</div>
   <div id="capbars"></div>
 </div>
 
 <div class="card">
-  <h3 style="margin:0 0 10px">📋 板块状态诊断 <span class="neu" id="dcount" style="font-size:12px"></span></h3>
+  <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:10px">
+    <h3 style="margin:0">📋 板块状态诊断 <span class="neu" id="dcount" style="font-size:12px"></span></h3>
+    <input id="dsearch" placeholder="🔍 搜板块名（如 半导体）" style="margin-left:auto">
+  </div>
   <div id="dloading" class="neu" style="font-size:13px;padding:14px">⏳ 计算当日各板块状态…（首次约20-30秒）</div>
-  <div id="dsig"></div>
-  <div id="dref"></div>
-  <div id="ddesc"></div>
+  <div id="dsearchres"></div>
+  <div id="dgroups">
+    <div id="dsig"></div><div id="dref"></div><div id="ddesc"></div>
+  </div>
 </div>
 
 <script>
+let ALL = [];
 const fmt = (v, s) => v == null ? '<span class="flat">·</span>'
   : '<span class="' + (v > 0 ? 'up' : (v < 0 ? 'down' : 'flat')) + '">' + (s && v > 0 ? '+' : '') + v + '</span>';
-const sgn = v => v == null ? '·' : (v > 0 ? '+' : '') + v;
 const arrowCol = a => (a === '↑' || a === '↗') ? '#f6465d' : ((a === '↓' || a === '↘') ? '#2ebd85' : '#9ca3af');
+const pc = p => p == null ? '·' : '<b style="color:' + (p >= 60 ? '#f6465d' : (p >= 30 ? '#f0a020' : '#2ebd85')) + '">' + p + '</b>';
 
-function macroRow(name, v, maxAbs) {
-  const cum = v.cum15, m = v.margin || {};
-  const w = Math.max(2, Math.round(Math.abs(cum) / maxAbs * 130));
-  const col = cum >= 0 ? '#f6465d' : '#2ebd85';
-  return '<div class="macrobar">'
-    + '<span style="width:66px;text-align:right;color:#c2c8de">' + name + '</span>'
+function macroRow(name, v, maxPen) {
+  const pen = v.pen15, cum = v.cum15, m = v.margin || {}, dv = v.diverge || {};
+  const w = Math.max(2, Math.round(Math.abs(pen || 0) / maxPen * 120));
+  const col = (pen || 0) >= 0 ? '#f6465d' : '#2ebd85';
+  const marg = m.strong
+    ? '<span class="turn">' + m.arrow + ' ' + m.text + '</span>'
+    : '<span style="color:' + arrowCol(m.arrow) + '">' + (m.arrow || '') + ' ' + (m.text || '') + '</span>';
+  const div = dv.tag === '暗流' ? '<span class="divtag div-ambush">🌊 ' + dv.text + '</span>'
+    : (dv.tag === '顶背离' ? '<span class="divtag div-top">⚠ ' + dv.text + '</span>' : '');
+  return '<div class="frow"><span style="width:66px;text-align:right;color:#c2c8de">' + name + '</span>'
     + '<span class="mbar" style="width:' + w + 'px;background:' + col + '"></span>'
-    + '<span style="color:' + col + ';width:74px">' + (cum >= 0 ? '+' : '') + cum + '亿</span>'
-    + '<span class="neu" style="width:150px;font-size:11px">近5:' + sgn(v.cum5) + ' 近10:' + sgn(v.cum10) + '</span>'
-    + '<span style="font-size:11px;color:' + arrowCol(m.arrow) + '">' + (m.arrow || '') + ' ' + (m.text || '') + '</span></div>';
+    + '<span style="color:' + col + ';width:88px">渗透' + (pen >= 0 ? '+' : '') + pen + '%</span>'
+    + '<span class="neu" style="width:78px">' + (cum >= 0 ? '+' : '') + cum + '亿</span>'
+    + '<span style="width:74px">近5涨 ' + fmt(v.price5, true) + '%</span>'
+    + marg + div + '</div>';
 }
 function renderFlow(fm) {
   const M = Object.entries(fm.macro), C = Object.entries(fm.cap);
-  const maxM = Math.max(...M.map(([, v]) => Math.abs(v.cum15)), 1);
+  const maxM = Math.max(...M.map(([, v]) => Math.abs(v.pen15 || 0)), 0.001);
   document.getElementById('macrobars').innerHTML = M.map(([n, v]) => macroRow(n, v, maxM)).join('');
-  const maxC = Math.max(...C.map(([, v]) => Math.abs(v.cum15)), 1);
+  const maxC = Math.max(...C.map(([, v]) => Math.abs(v.pen15 || 0)), 0.001);
   document.getElementById('capbars').innerHTML = C.map(([n, v]) => macroRow(n, v, maxC)).join('');
 }
 
 function maChip(ma) { ma = ma || {}; return '<span class="malabel ma-' + (ma.level || 'neutral') + '">' + (ma.text || '—') + '</span>'; }
 function metrics(r) {
   return '<div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:7px" class="kv">'
-    + '<span title="MA5/20/60宽度=成分站上均线占比">宽度 ' + pc(r.ma5) + '/' + pc(r.ma20) + '/' + pc(r.ma60) + '</span>'
+    + '<span title="MA5/20/60宽度">宽度 ' + pc(r.ma5) + '/' + pc(r.ma20) + '/' + pc(r.ma60) + '</span>'
     + '<span>近5涨 ' + fmt(r.ret5, true) + '%</span>'
     + '<span title="资金渗透率横截面强度">资金强度 ' + fmt(r.pen_z) + '</span>'
     + '<span title="pen自身差分">加速度 ' + fmt(r.pen_accel) + '</span></div>';
 }
-const pc = p => p == null ? '·' : '<b style="color:' + (p >= 60 ? '#f6465d' : (p >= 30 ? '#f0a020' : '#2ebd85')) + '">' + p + '</b>';
 function evid(r) {
   return '<div class="evid">📊 回测：post-924 ' + (r.post || '—') + '<br>924前 ' + (r.pre || '—')
     + (r.caveat ? '<br>⚠️ ' + r.caveat : '') + '</div>';
 }
-
 function sigCard(r) {
   return '<div class="sigcard"><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">'
     + '<span class="avoid">⚠ 避开/减仓</span><b style="font-size:16px">' + r.sector + '</b>'
@@ -105,32 +114,51 @@ function refCard(r) {
     + metrics(r) + evid(r) + '</div>';
 }
 function compRow(r) {
-  return '<div class="comprow"><b style="width:88px">' + r.sector + '</b>'
-    + '<span class="neu" style="width:110px">' + r.state + '</span>' + maChip(r.ma_label)
+  return '<div class="comprow"><b style="width:92px">' + r.sector + '</b>'
+    + '<span class="neu" style="width:100px">' + r.state + '</span>' + maChip(r.ma_label)
     + '<span class="kv" style="margin-left:auto">近5 ' + fmt(r.ret5, true) + '% · 资金 ' + fmt(r.pen_z) + '</span></div>';
+}
+
+function renderGroups() {
+  const sig = ALL.filter(r => r.tier === 'signal'), ref = ALL.filter(r => r.tier === 'reference'),
+    desc = ALL.filter(r => r.tier === 'descriptive');
+  document.getElementById('dsig').innerHTML = sig.length
+    ? '<div class="neu" style="font-size:12px;margin:2px 0 8px">🔴 顶背离·避雷（唯一经双期验证·点看回测）</div>' + sig.map(sigCard).join('')
+    : '<div class="neu" style="font-size:12px;margin-bottom:8px">🔴 今日无顶背离避雷信号</div>';
+  document.getElementById('dref').innerHTML = ref.length
+    ? '<div class="neu" style="font-size:12px;margin:6px 0">🟡 洗盘谷底·仅参考</div>' + ref.map(refCard).join('') : '';
+  document.getElementById('ddesc').innerHTML = desc.length
+    ? '<div class="collapse-head" onclick="var e=document.getElementById(\'desclist\');e.style.display=e.style.display===\'none\'?\'block\':\'none\'">⚪ 描述态 '
+      + desc.length + ' 个（未过回测·仅描述·点展开/收起·或用上方搜索找特定板块）</div>'
+      + '<div id="desclist" style="display:none;margin-top:6px">' + desc.map(compRow).join('') + '</div>' : '';
+}
+function onSearch() {
+  const q = document.getElementById('dsearch').value.trim();
+  const res = document.getElementById('dsearchres'), groups = document.getElementById('dgroups');
+  if (!q) { res.innerHTML = ''; groups.style.display = 'block'; return; }
+  groups.style.display = 'none';
+  const hits = ALL.filter(r => r.sector.includes(q));
+  res.innerHTML = hits.length
+    ? '<div class="neu" style="font-size:12px;margin-bottom:6px">🔍 “' + q + '” 命中 ' + hits.length + ' 个：</div>'
+      + hits.map(r => r.tier === 'signal' ? sigCard(r) : (r.tier === 'reference' ? refCard(r)
+        : '<div class="refcard" style="border-left-color:#2d3052">' + '<b style="font-size:14px">' + r.sector + '</b> '
+          + '<span class="neu">【' + r.state + '·描述】</span> ' + maChip(r.ma_label) + metrics(r) + '</div>')).join('')
+    : '<div class="neu" style="font-size:13px">未找到含“' + q + '”的板块（当前 L2 口径·芯片细分在 L3）</div>';
 }
 
 async function load() {
   try {
     const j = await (await fetch('/api/diagnosis')).json();
     if (!j.ok) { document.getElementById('dloading').textContent = '❌ ' + j.error; return; }
-    const d = j.data, rows = d.sectors;
+    const d = j.data;
+    ALL = d.sectors;
     document.getElementById('ddate').textContent = '· 数据日 ' + d.date + ' · 全市场 ' + d.n_total + ' 个板块';
     renderFlow(d.flow_map);
     document.getElementById('dloading').style.display = 'none';
-    const sig = rows.filter(r => r.tier === 'signal');
-    const ref = rows.filter(r => r.tier === 'reference');
-    const desc = rows.filter(r => r.tier === 'descriptive');
-    document.getElementById('dcount').textContent = '· 信号 ' + sig.length + ' · 参考 ' + ref.length + ' · 描述 ' + desc.length;
-    document.getElementById('dsig').innerHTML = sig.length
-      ? '<div class="neu" style="font-size:12px;margin:2px 0 8px">🔴 顶背离·避雷（唯一经双期验证·点看回测）</div>' + sig.map(sigCard).join('')
-      : '<div class="neu" style="font-size:12px;margin-bottom:8px">🔴 今日无顶背离避雷信号</div>';
-    document.getElementById('dref').innerHTML = ref.length
-      ? '<div class="neu" style="font-size:12px;margin:6px 0 6px">🟡 洗盘谷底·仅参考</div>' + ref.map(refCard).join('') : '';
-    document.getElementById('ddesc').innerHTML = desc.length
-      ? '<div class="collapse-head" onclick="var e=document.getElementById(\'desclist\');e.style.display=e.style.display===\'none\'?\'block\':\'none\'">⚪ 描述态 '
-        + desc.length + ' 个（未过回测·仅描述·点展开/收起）</div><div id="desclist" style="display:none;margin-top:6px">'
-        + desc.map(compRow).join('') + '</div>' : '';
+    const c = t => ALL.filter(r => r.tier === t).length;
+    document.getElementById('dcount').textContent = '· 信号 ' + c('signal') + ' · 参考 ' + c('reference') + ' · 描述 ' + c('descriptive');
+    renderGroups();
+    document.getElementById('dsearch').addEventListener('input', onSearch);
   } catch (e) { document.getElementById('dloading').textContent = '❌ ' + e; }
 }
 load();
