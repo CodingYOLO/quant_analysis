@@ -87,8 +87,8 @@ function macroRow(name, v, maxPen) {
   const pen = v.pen15 == null ? 0 : v.pen15, m = v.margin || {}, dv = v.diverge || {};
   const inflow = pen > 0;
   const w = Math.max(3, Math.round(Math.abs(pen) / maxPen * 144));    // 条越长=|渗透|越大(多为流出)
-  const barCol = inflow ? '#f6465d' : '#3a3f52';                       // 流入=红·流出=中性深灰(不用绿·避免与红箭头打架)
-  const penTxt = '<span style="font-size:10.5px;color:' + (inflow ? '#f6465d' : '#8890a0') + '">' + (pen >= 0 ? '+' : '') + pen + '%</span>';
+  const dirCol = inflow ? '#f6465d' : '#2ebd85';                       // 流入=红·流出=绿(A股直觉·边际已灰化·不再打架)
+  const penTxt = '<span style="font-size:10.5px;color:' + dirCol + '">' + (pen >= 0 ? '+' : '') + pen + '%</span>';
   // 边际分主次：真转流入(一阶转正·strong)醒目红标；其余低调灰箭头；无→占位符
   const marg = m.strong
     ? '<span class="turn">' + m.arrow + ' ' + m.text + '</span>'
@@ -96,13 +96,13 @@ function macroRow(name, v, maxPen) {
   const div = dv.tag ? ' <span class="divtag div-' + (dv.tag === '暗流' ? 'ambush' : 'top') + '">' + dv.text + '</span>' : '';
   return '<div class="mgrid">'
     + '<span style="color:' + (inflow ? '#f6465d' : '#c2c8de') + (inflow ? ';font-weight:700' : '') + '">' + name + '</span>'
-    + '<span style="display:flex;align-items:center;gap:6px"><span class="bar" style="width:' + w + 'px;background:' + barCol + '"></span>' + penTxt + '</span>'
+    + '<span style="display:flex;align-items:center;gap:6px"><span class="bar" style="width:' + w + 'px;background:' + dirCol + '"></span>' + penTxt + '</span>'
     + '<span style="text-align:right;color:#9aa0b4">' + (v.cum15 >= 0 ? '+' : '') + v.cum15 + '亿</span>'
     + '<span style="text-align:right">' + fmtSigned(v.price5, '%') + '</span>'
     + '<span>' + marg + div + '</span></div>';
 }
 function ftableHead() {
-  return '<div class="fhead"><span>板块</span><span>渗透率（流入=红·条长=|净流|）</span><span style="text-align:right">15日净额</span><span style="text-align:right">近5涨</span><span>边际</span></div>';
+  return '<div class="fhead"><span>板块</span><span>渗透率（流入=红·流出=绿·条长=|净流|）</span><span style="text-align:right">15日净额</span><span style="text-align:right">近5涨</span><span>边际</span></div>';
 }
 function renderFlow(fm) {
   const M = Object.entries(fm.macro), C = Object.entries(fm.cap);
