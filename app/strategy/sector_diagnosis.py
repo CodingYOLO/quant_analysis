@@ -140,10 +140,10 @@ def build_diagnosis(end: str, provider: CompositeProvider | None = None, level: 
 
     from app.data.cache import _cache_path
     from app.factors.breadth_qfq import _recent_trade_dates
-    from app.strategy.sector_attribution import build_flow_map
+    from app.strategy.sector_attribution import _margin, build_flow_map
     from app.strategy.sector_metrics import build_features
     provider = provider or CompositeProvider()
-    cache = _cache_path("sector_diagnosis", f"{end}_{level}_v3").with_suffix(".json")  # v3: 渗透率+背离+全板块
+    cache = _cache_path("sector_diagnosis", f"{end}_{level}_v4").with_suffix(".json")  # v4: 板块卡统一窗口资金
     if cache.exists() and not force:
         try:
             return json.loads(cache.read_text("utf-8"))
@@ -170,9 +170,12 @@ def build_diagnosis(end: str, provider: CompositeProvider | None = None, level: 
             "post": v["post"], "pre": v["pre"],
             "ma5": _last(s, "ma5", i), "ma20": _last(s, "ma20", i), "ma60": _last(s, "ma60", i),
             "ma_label": _ma_label(_last(s, "ma5", i), _last(s, "ma20", i), _last(s, "ma60", i)),
-            "pen": _last(s, "pen", i), "pen_z": _last(s, "pen_z", i),
-            "pen_accel": _last(s, "pen_accel", i), "pen_f3d": _last(s, "pen_f3d", i),
-            "ret5": _ret5(s.get("pct", []), i), "net": _last(s, "net", i), "n": _last(s, "n", i),
+            "pen_z": _last(s, "pen_z", i),                  # 当日·横截面相对排名(无量纲)
+            "pen_accel": _last(s, "pen_accel", i),          # 1日·渗透率日差
+            "net_today": _last(s, "net", i),                # 当日净流入(亿)
+            "net5": round(sum(v for v in (s.get("net") or [])[-5:] if v is not None), 1),  # 近5日累计(同大类窗口)
+            "flow_margin": _margin(s.get("net") or []),     # 该板块自身近5日资金边际(就地对账·同大类口径)
+            "ret5": _ret5(s.get("pct", []), i), "n": _last(s, "n", i),
         })
     # 精选活跃：信号态优先，其余按活跃度(|近5日涨幅| + |资金z|)降序
     rows.sort(key=lambda r: (_TIER_ORDER.get(r["tier"], 3),

@@ -37,17 +37,22 @@
   </div>
 </div>
 
-<div class="card">
-  <h3 style="margin:0 0 4px">🗺️ 大类资金地图 <span class="neu" style="font-size:12px">渗透率%(净流入/流通市值·跨体量可比) + 净额 + 价-资金背离 · <b>描述性非信号</b></span></h3>
+<div class="card" style="border-left:3px solid #5dd5c4">
+  <h3 style="margin:0 0 4px">💰 资金层 · 大类资金地图 <span class="neu" style="font-size:12px">渗透率%(净流入/流通市值·跨体量可比)+净额+价资金背离 · <b>描述性·非信号·窗口=近5/10/15日</b></span></h3>
   <div id="macrobars" style="margin-top:8px"></div>
   <div class="neu" style="font-size:11px;margin:10px 0 4px">市值分档（与行业正交·并列看）：</div>
   <div id="capbars"></div>
 </div>
 
-<div class="card">
-  <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:10px">
-    <h3 style="margin:0">📋 板块状态诊断 <span class="neu" id="dcount" style="font-size:12px"></span></h3>
+<div class="card" style="border-left:3px solid #f6465d">
+  <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:6px">
+    <h3 style="margin:0">📐 形态层 · 板块状态诊断 <span class="neu" id="dcount" style="font-size:12px"></span></h3>
     <input id="dsearch" placeholder="🔍 搜板块名（如 半导体）" style="margin-left:auto">
+  </div>
+  <div style="font-size:11.5px;color:#9aa0b4;background:#0f1117;border:1px solid #22263a;border-radius:8px;padding:7px 11px;margin-bottom:10px;line-height:1.6">
+    ℹ️ <b>两层是不同维度·可同时成立</b>：上方💰<b>资金层</b>=大类·<b>近5-15日</b>资金边际（描述）；这里📐<b>形态层</b>=二级·<b>当日</b>技术形态（回测信号）。
+    例：医药大类"近5日真转流入"（一周资金回流）与二级"顶背离"（已涨高·当日资金减速→回调）<b>不矛盾</b>——钱一周回流 ≠ 涨高的板块不会先回调。
+    每张卡已并列该板块<b>自己的</b>「资金·近5日」「当日强度」「1日加速度」，就地对账、不用跨模块。
   </div>
   <div id="dloading" class="neu" style="font-size:13px;padding:14px">⏳ 计算当日各板块状态…（首次约20-30秒）</div>
   <div id="dsearchres"></div>
@@ -89,11 +94,16 @@ function renderFlow(fm) {
 
 function maChip(ma) { ma = ma || {}; return '<span class="malabel ma-' + (ma.level || 'neutral') + '">' + (ma.text || '—') + '</span>'; }
 function metrics(r) {
+  const fm = r.flow_margin || {};
+  const marg = fm.strong
+    ? '<span class="turn">' + fm.arrow + ' ' + fm.text + '</span>'
+    : (fm.arrow ? '<span style="color:' + arrowCol(fm.arrow) + '">' + fm.arrow + ' ' + fm.text + '</span>' : '');
   return '<div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:7px" class="kv">'
-    + '<span title="MA5/20/60宽度">宽度 ' + pc(r.ma5) + '/' + pc(r.ma20) + '/' + pc(r.ma60) + '</span>'
-    + '<span>近5涨 ' + fmt(r.ret5, true) + '%</span>'
-    + '<span title="资金渗透率横截面强度">资金强度 ' + fmt(r.pen_z) + '</span>'
-    + '<span title="pen自身差分">加速度 ' + fmt(r.pen_accel) + '</span></div>';
+    + '<span title="MA5/20/60宽度=成分站上均线占比">宽度 ' + pc(r.ma5) + '/' + pc(r.ma20) + '/' + pc(r.ma60) + '</span>'
+    + '<span title="近5日板块涨幅">近5涨 ' + fmt(r.ret5, true) + '%</span>'
+    + '<span title="近5日累计主力净流入·与上方大类地图同一窗口(就地对账)">资金·近5日 ' + fmt(r.net5, true) + '亿 ' + marg + '</span>'
+    + '<span title="当日渗透率的横截面z-score·板块间相对排名·无量纲">当日强度 ' + fmt(r.pen_z) + '</span>'
+    + '<span title="当日渗透率−前一日·仅1日变化">1日加速度 ' + fmt(r.pen_accel) + '</span></div>';
 }
 function evid(r) {
   return '<div class="evid">📊 回测：post-924 ' + (r.post || '—') + '<br>924前 ' + (r.pre || '—')
