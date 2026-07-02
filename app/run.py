@@ -648,6 +648,13 @@ def run_warmup(base_date: str) -> None:
         console.print(f"[green]✅ 行业持续流入榜预热 {latest}[/green]")
     except Exception as e:
         console.print(f"[yellow]⚠️ 持续流入榜预热失败: {e}[/yellow]")
+    # 1.6) 板块诊断面板(状态机+回测分层+大类资金地图·按日缓存·打开秒显示)
+    try:
+        from app.strategy.sector_diagnosis import build_diagnosis
+        build_diagnosis(latest, provider=prov, level="L2", force=True)
+        console.print(f"[green]✅ 板块诊断预热 {latest}[/green]")
+    except Exception as e:
+        console.print(f"[yellow]⚠️ 板块诊断预热失败: {e}[/yellow]")
     # 2) 大盘情绪默认区间(end=今/明/后·各往前30天·覆盖今晚与周末打开的缓存键)
     for off in (0, 1, 2):
         end = (datetime.datetime.strptime(base, "%Y%m%d") + datetime.timedelta(days=off)).strftime("%Y%m%d")

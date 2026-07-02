@@ -542,6 +542,24 @@ async def industry_page(request: Request, _user: str = Depends(require_auth)):
     return templates.TemplateResponse(request=request, name="industry.html", context={})
 
 
+@app.get("/diagnosis", response_class=HTMLResponse)
+async def diagnosis_page(request: Request, _user: str = Depends(require_auth)):
+    """🩺 板块诊断页面（价-资金背离状态机·回测可信度分层·大类资金地图）。"""
+    return templates.TemplateResponse(request=request, name="diagnosis.html", context={"page": "diagnosis"})
+
+
+@app.get("/api/diagnosis")
+async def api_diagnosis(date: str = "", level: str = "L2", _user: str = Depends(require_auth)):
+    """当日板块诊断：各板块状态(带回测可信度分层) + 大类资金地图。T日盘后出·供T+1参考。"""
+    try:
+        from app.strategy.sector_diagnosis import build_diagnosis
+        d = date or _last_trade_date()
+        return {"ok": True, "data": build_diagnosis(d, level=level)}
+    except Exception as e:
+        logger.exception("板块诊断失败")
+        return {"ok": False, "error": str(e)}
+
+
 @app.get("/api/industry")
 async def api_industry(date: str = "", _user: str = Depends(require_auth)):
     """行业资金流仪表盘数据。"""
