@@ -54,12 +54,12 @@ def build_features(end: str, start: str, provider: CompositeProvider | None = No
 
     # 2) 向量化多周期宽度：全市场 close×adj 面板 → 各档 (close≥MA) 布尔面板(一次算)
     span = len(calc_dates)
-    panel = build_qfq_panel(end, provider, lookback=span + hist)
-    above, valid = {}, {}                                          # w -> 布尔面板(stocks×dates)
-    for w in _MA:
-        ma = panel.T.rolling(w, min_periods=w).mean().T            # 沿日期轴滚动均线
-        valid[w] = ma.notna() & panel.notna()                      # 均线有效(次新股不足→剔除·不稀释)
-        above[w] = panel >= ma                                     # True 仅当有效且站上
+    panel = build_qfq_panel(end, provider, lookback=span + hist)   # 后复权(close×adj_d)·见 _breadth_panels
+    pre_cols = [c for c in panel.columns if c < out_dates[0]]       # 暖机校验：信号起前的面板天数
+    if len(pre_cols) < max(_MA):
+        logger.warning("[诊断] 宽度暖机不足：信号起 %s 前仅 %d 交易日(<MA%d)·长周期宽度可能残缺",
+                       out_dates[0], len(pre_cols), max(_MA))
+    above, valid = _breadth_panels(panel, _MA)
 
     # 3) 逐日 per-stock 特征(net/circ/amt/pct)——只在计算段
     day_feat: dict[str, pd.DataFrame] = {}
@@ -101,6 +101,22 @@ def build_features(end: str, start: str, provider: CompositeProvider | None = No
     trim = len(calc_dates) - len(out_dates)
     sectors = _derive(raw, calc_dates, trim)
     return {"dates": out_dates, "level": level, "sectors": sectors}
+
+
+def _breadth_panels(panel: pd.DataFrame, windows=_MA) -> tuple[dict, dict]:
+    """全市场 (close≥MAw) 布尔面板 + 有效均线掩码。
+
+    **复权口径一致性**：panel = close×adj_factor(当日) = **后复权**·MA 与 close 同口径同一序列。
+    后复权 adj_factor 为历史固定值（不随未来除权变动），故不引入"历史MA随未来除权平移"的前视
+    （前复权才有此问题·此处刻意用后复权）。对「≥」判断，后复权与前复权等价（线性缩放不改大小）。
+    **暖机**：min_periods=w → 不足 w 日的（次新股/面板头部）MA=NaN → valid=False 剔除·不算残缺值。
+    """
+    above, valid = {}, {}
+    for w in windows:
+        ma = panel.T.rolling(w, min_periods=w).mean().T            # 沿日期轴滚动均线
+        valid[w] = ma.notna() & panel.notna()                      # 均线有效(次新股/暖机不足→剔·不稀释)
+        above[w] = panel >= ma                                     # True 仅当有效且站上
+    return above, valid
 
 
 def _stock_features(provider, d: str) -> pd.DataFrame:

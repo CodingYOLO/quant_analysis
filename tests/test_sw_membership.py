@@ -78,6 +78,33 @@ def test_level_rollup() -> None:
     print("  ✓ L1 上卷聚合")
 
 
+# ── 真实已调出个股时点正确性（600198式：19/07进·22/07出）──────────────────────────
+# 验证"每个历史日重新取当天成分"：同一只票在其在册区间内的时点成分里出现、区间外消失。
+def test_departed_stock_windowed() -> None:
+    rows = [
+        {"ts_code": "600198.SH", "l2_name": "通信设备", "l1_name": "通信", "l3_name": "通信设备Ⅲ",
+         "in_date": "20190708", "out_date": "20220729", "is_new": "N"},          # 已调出
+        {"ts_code": "X", "l2_name": "通信设备", "l1_name": "通信", "l3_name": "通信设备Ⅲ",
+         "in_date": "20150101", "out_date": None, "is_new": "Y"},                 # 长期在册(锚)
+    ]
+    df = pd.DataFrame(rows)
+    for c in ("in_date", "out_date"):
+        df[c] = df[c].astype("string")
+
+    def has600198(d: str) -> bool:
+        return "600198.SH" in members_asof(df, d, "L2").get("通信设备", [])
+    _assert(not has600198("20190101"), "进场前(2019-01)不应含600198")
+    _assert(has600198("20200601"), "在册期(2020-06)应含600198")
+    _assert(has600198("20211231"), "在册期(2021-末)应含600198")
+    _assert(has600198("20220728"), "调出前一日(2022-07-28)应仍含")
+    _assert(not has600198("20230101"), "调出后(2023-01)不应含600198")
+    _assert(not has600198("20240101"), "调出后(2024-01)不应含600198")
+    # 锚股全程在册
+    _assert(all("X" in members_asof(df, d, "L2").get("通信设备", []) for d in
+                ("20200601", "20230101")), "长期在册股应各时点都在")
+    print("  ✓ 真实已调出股(600198式)：在册区间内纳入·区间外排除(逐日重取)")
+
+
 def _run_all() -> None:
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     print(f"\n申万时点成分·重建测试（{len(tests)} 项）")
