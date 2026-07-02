@@ -191,6 +191,19 @@ FACTOR_GROUPS = [
         ],
     },
     {
+        "group": "🎼 威科夫·量价结构（OBV吸筹/背离·蓄势·阶段·仅OHLCV可算）",
+        "factors": [
+            {"key": "wy_obv_up", "label": "OBV上行(价平量增·吸筹签名·涨停量已剔)", "col": "obv_slope", "op": "gt", "val": 0},
+            {"key": "wy_bottom_div", "label": "OBV强于价(底背离·量比价强)", "col": "obv_div", "op": "gt", "val": 15},
+            {"key": "wy_no_topdiv", "label": "🛡无顶背离(价涨OBV不跟=剔除)", "col": "obv_div", "op": "ge", "val": -10},
+            {"key": "wy_squeeze", "label": "蓄势收窄(ATR/价250日分位≤30%·横有多长)", "col": "squeeze_pctile", "op": "le", "val": 0.3},
+            {"key": "wy_phase_accum", "label": "阶段=吸筹候选(蓄势收窄+OBV上行)", "col": "wy_accum", "op": "true"},
+            {"key": "wy_phase_spring", "label": "阶段=Spring(假破位缩量承接·早埋点)", "col": "wy_spring", "op": "true"},
+            {"key": "wy_phase_sos", "label": "阶段=SOS突破(放量破60日高·稳健点)", "col": "wy_sos", "op": "true"},
+            {"key": "wy_no_dt", "label": "🛡无双顶破位(风险过滤·跌破颈线剔除)", "col": "dt_break", "op": "false"},
+        ],
+    },
+    {
         # K线/量价形态（由形态注册表自动生成，新增形态零侵入）
         "group": "K线形态/量价",
         "factors": [
@@ -227,6 +240,8 @@ CUSTOM_FIELDS = [
     {"col": "act_rank", "label": "活跃度排名(当前)"}, {"col": "act_peak", "label": "活跃度峰值"},
     {"col": "act_trough", "label": "活跃度谷值"}, {"col": "act_recover", "label": "人气回升位"},
     {"col": "inst_net_yi", "label": "龙虎榜机构净买(亿)"},
+    {"col": "obv_slope", "label": "OBV斜率(吸筹强度)"}, {"col": "obv_div", "label": "OBV背离(量比价·%)"},
+    {"col": "squeeze_pctile", "label": "蓄势收窄分位"},
 ]
 _CUSTOM_COLS = {f["col"] for f in CUSTOM_FIELDS}
 _CUSTOM_OPS = {"ge", "gt", "le", "lt", "eq"}
@@ -248,6 +263,7 @@ DISPLAY_COLS = [
     ("vwap_dev", "VWAP偏离%"), ("comment_score", "千评分"), ("popularity_rank", "人气排名"),
     ("act_recover", "🔥人气回升位"), ("act_trough", "活跃度谷值"), ("inst_net_yi", "🏛️龙虎榜真钱(亿)"),
     ("reso_n", "🎯确定性"), ("entry_pos", "入局位置"),
+    ("wyckoff_phase", "🎼威科夫阶段"), ("obv_slope", "OBV斜率"), ("obv_div", "OBV背离%"), ("squeeze_pctile", "蓄势分位"),
 ]
 
 
@@ -256,7 +272,7 @@ DISPLAY_COLS = [
 # ──────────────────────────────────────────────
 
 # 因子表结构版本：新增因子列时 +1，使旧缓存自动失效重算（避免读到缺列的旧表）
-_FACTOR_TABLE_VERSION = "v17"  # v17: 并入人气反转(活跃度轨迹 act_*)+龙虎榜真钱(inst_net_yi)·深度合并；v16 连板
+_FACTOR_TABLE_VERSION = "v18"  # v18: 并入威科夫量价(obv_slope/obv_div/squeeze/wyckoff_phase/dt_break)；v17 人气反转+真钱
 
 
 def _factor_cache_path(date: str) -> Path:
@@ -435,6 +451,8 @@ def _add_technical_factors(df: pd.DataFrame, date: str, provider) -> pd.DataFram
     kdj_gold, ema_bull, td9, long_up, long_dn = {}, {}, {}, {}, {}
     limit60, maxboard, consecnow = {}, {}, {}      # 近60日涨停天数 / 近120日最高连板 / 截至昨收当前连板
     pat_hits: dict[str, dict[str, bool]] = {}
+    from app.factors import wyckoff as _W          # 威科夫量价（point-in-time·涨跌停量能剔除）
+    wy_obv, wy_div, wy_sqz, wy_phase, wy_dt = {}, {}, {}, {}, {}
     for ts in close_m.columns:
         s = close_m[ts].dropna()
         if len(s) < 35:
@@ -457,6 +475,16 @@ def _add_technical_factors(df: pd.DataFrame, date: str, provider) -> pd.DataFram
             if len(v) >= 20:
                 vwap_dev[ts] = F.vwap_position(s.tail(20), v.tail(20), 20) * 100
             pat_hits[ts] = _detect_patterns(ts, close_m, open_m, high_m, low_m, vol_m)
+            if len(s) >= 60:                        # 威科夫量价（≤T 数据·涨跌停 bar 量能剔除）
+                sh, sl_, sv = hi.reindex(s.index), lo.reindex(s.index), vol_m[ts].reindex(s.index)
+                _lim = _board_limit_pct(ts, name_map.get(ts, ""))
+                _pct = s.pct_change() * 100
+                _mask = (_pct >= _lim - 0.3) | (_pct <= -(_lim - 0.3))
+                wy_obv[ts] = _W.obv_slope_norm(s, sv, 20, _mask)
+                wy_div[ts] = _W.obv_divergence(s, sv, 20, _mask)
+                wy_sqz[ts] = _W.squeeze_pctile(sh, sl_, s, 20, 250)
+                wy_phase[ts] = _W.wyckoff_phase(s, sh, sl_, sv, _mask)
+                wy_dt[ts] = _W.detect_double_top(s, sh, sv, 90)
         except Exception:
             continue
     df["macd_gold"] = df["ts_code"].map(macd_gold).fillna(False)
@@ -471,6 +499,15 @@ def _add_technical_factors(df: pd.DataFrame, date: str, provider) -> pd.DataFram
     df["limit_ups_60d"] = df["ts_code"].map(limit60)          # 妖股：近60日涨停天数
     df["max_consec_limit"] = df["ts_code"].map(maxboard)      # 妖股：近120日最高连板
     df["consec_limit_now"] = df["ts_code"].map(consecnow)     # 截至昨收当前连板数(情绪温度计连板梯队用)
+    # 威科夫量价（OBV吸筹/背离·蓄势收窄·阶段·双顶破位风险）
+    df["obv_slope"] = df["ts_code"].map(wy_obv)
+    df["obv_div"] = df["ts_code"].map(wy_div)
+    df["squeeze_pctile"] = df["ts_code"].map(wy_sqz)
+    df["wyckoff_phase"] = df["ts_code"].map(wy_phase).fillna("—")
+    df["dt_break"] = df["ts_code"].map(wy_dt).fillna(False)
+    df["wy_accum"] = df["wyckoff_phase"] == "吸筹候选"     # 阶段门控布尔（因子按 true 筛）
+    df["wy_sos"] = df["wyckoff_phase"] == "SOS突破"
+    df["wy_spring"] = df["wyckoff_phase"] == "Spring"
     # K线形态布尔列 pat_<key>
     for key in PATTERN_REGISTRY:
         col = f"pat_{key}"
