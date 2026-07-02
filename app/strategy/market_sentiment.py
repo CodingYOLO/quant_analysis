@@ -93,10 +93,12 @@ def build_dashboard(end_date: str, days: int = 22, start_date: str = "", force: 
     if path.exists() and not force:
         try:
             cached = json.loads(path.read_text(encoding="utf-8"))
-            if cached.get("dates") and cached["dates"][-1] == latest:
+            # 大中小盘广度全空＝建缓存时 daily_basic 未齐·不完整→重建（防"广度只剩全市场一条线"冻结）
+            cap_ok = any(v is not None for v in ((cached.get("breadth") or {}).get("micro") or []))
+            if cached.get("dates") and cached["dates"][-1] == latest and cap_ok:
                 return cached
-            logger.info("[情绪] 缓存过期：缓存末日 %s ≠ 最新数据日 %s，重建",
-                        (cached.get("dates") or ["?"])[-1], latest)
+            logger.info("[情绪] 缓存重建：末日 %s vs 最新 %s · 广度分层%s",
+                        (cached.get("dates") or ["?"])[-1], latest, "OK" if cap_ok else "全空")
         except Exception:
             pass
     if start_date:
@@ -359,19 +361,22 @@ def _breadth_series(provider, end_date: str, range_dates: list[str]) -> dict:
         logger.warning("[情绪] 广度矩阵加载失败: %s", e)
         return {"all": [], "micro": [], "mid": [], "large": []}
 
-    # 流通市值分层（用最近可用交易日的 daily_basic）。
-    # end_date 可能是周末/节假日/盘中未发布 → 直接用它会取空，导致微盘/中盘/大盘三条线全缺。
-    # 市值分层稳定，回退到最近交易日即可（修复"广度图只剩全市场一条线"）。
+    # 流通市值分层（用最近**有 daily_basic** 的交易日）。
+    # daily_basic 常比个股日线晚发布：若按 get_daily 定的日期取 daily_basic 会取空，
+    # 导致微盘/中盘/大盘三条线全缺。市值分层稳定→逐日回退到第一个有 daily_basic 的交易日
+    # （昨日兜底即可），修复"广度图只剩全市场一条线"复发。
     cap_tier = {}
     try:
-        cap_date = _latest_data_date(provider, end_date)
-        db = provider.get_daily_basic(cap_date)
-        if db is not None and not db.empty:
+        for cap_date in reversed(_recent_trade_dates(provider, end_date, n=4)):
+            db = provider.get_daily_basic(cap_date)
+            if db is None or db.empty:
+                continue
             for ts, cmv in zip(db["ts_code"], pd.to_numeric(db["circ_mv"], errors="coerce")):
                 if pd.isna(cmv):
                     continue
                 yi = cmv / 10000
                 cap_tier[ts] = "micro" if yi < _CAP_MICRO else ("large" if yi > _CAP_LARGE else "mid")
+            break
     except Exception:
         pass
 

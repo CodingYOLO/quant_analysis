@@ -539,17 +539,30 @@ class TushareProvider(DataProvider):
         )
 
     def get_index_daily(self, ts_code: str, trade_date: str) -> pd.DataFrame:
-        """指数日线（近60日，用于MA计算）。"""
-        import datetime
-        end_dt = datetime.datetime.strptime(trade_date, "%Y%m%d")
-        start_dt = end_dt - datetime.timedelta(days=90)
-        start_date = start_dt.strftime("%Y%m%d")
+        """指数日线（近90日）。
 
-        return cached_daily(
-            name=f"tushare_index_{ts_code}",
-            date_key=trade_date,
-            fetch_fn=lambda: self._fetch_index_daily(ts_code, start_date, trade_date),
-        )
+        缓存自愈：Tushare 指数日线常比个股晚发布，早前拉到「只到昨日」的非空数据若被冻结，
+        会让指数曲线永远停在昨天。故仅当数据**已覆盖到请求日**才写缓存；否则返回但不缓存，
+        下次自动重取（修复"指数 6.30 后不更新"）。
+        """
+        import datetime
+        from app.data.cache import _cache_path
+        end_dt = datetime.datetime.strptime(trade_date, "%Y%m%d")
+        start_date = (end_dt - datetime.timedelta(days=90)).strftime("%Y%m%d")
+        path = _cache_path(f"tushare_index_{ts_code}", trade_date)
+
+        def _covers(df) -> bool:
+            return (df is not None and not df.empty
+                    and str(df["trade_date"].astype(str).max()) >= trade_date)
+
+        if path.exists():
+            cached = pd.read_parquet(path)
+            if _covers(cached):
+                return cached
+        df = self._fetch_index_daily(ts_code, start_date, trade_date)
+        if _covers(df):
+            df.to_parquet(path, index=False)
+        return df
 
     @_RETRY
     def _fetch_index_daily(self, ts_code: str, start_date: str, end_date: str) -> pd.DataFrame:
