@@ -2,6 +2,31 @@
 {% block title %}因子选股 — A股Agent{% endblock %}
 
 {% block extra_style %}
+/* —— 选股中心·模式 Tab（因子筛选 / 人气反转 / 共振评分 三合一）—— */
+.modetabs { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:16px; }
+.mtab { font-size:14px; font-weight:600; color:#9ca3af; cursor:pointer; padding:8px 18px; border-radius:9px; border:1px solid #2d3052; background:#0f1117; }
+.mtab.on { background:#2742a8; color:#fff; border-color:#3358e0; }
+.pmethod { background:#141b2e; border:1px solid #2a3a5a; border-radius:10px; padding:11px 15px; margin-bottom:10px; font-size:12.5px; line-height:1.75; color:#cdd6f4; }
+.pmethod b { color:#7c9ef8; }
+.pdisc { background:#241015; border:1px solid #4a2020; border-radius:9px; padding:9px 14px; margin-bottom:12px; font-size:12px; line-height:1.7; color:#f0a8a8; }
+.pbar { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:12px; }
+.pcard { background:#1a1d2e; border:1px solid #2d3052; border-radius:10px; padding:12px 14px; margin-bottom:10px; border-left:4px solid #5b6478; }
+.pcard.A,.pcard.best { border-left-color:#f6c343; } .pcard.B { border-left-color:#7c9ef8; } .pcard.C,.pcard.steady { border-left-color:#5b6478; } .pcard.D { border-left-color:#3a3f52; }
+.pcard .ptop { display:flex; align-items:center; gap:9px; flex-wrap:wrap; }
+.pnm { font-size:15px; font-weight:700; color:#e8e8e8; cursor:pointer; } .pnm:hover { color:#7c9ef8; }
+.pcode { color:#6b7280; font-size:12px; } .pind { font-size:11px; background:#232640; color:#9ca3af; padding:1px 8px; border-radius:6px; }
+.gr { font-size:15px; font-weight:800; width:26px; height:26px; display:inline-flex; align-items:center; justify-content:center; border-radius:7px; }
+.gr.A { background:#3a2c08; color:#f6c343; } .gr.B { background:#141b33; color:#7c9ef8; } .gr.C { background:#232640; color:#9ca3af; } .gr.D { background:#1a1d2e; color:#6b7280; }
+.zpill { font-size:11px; padding:1px 8px; border-radius:6px; font-weight:600; }
+.zpill.in { background:#0e2a1a; color:#3ddc97; border:1px solid #1a5a38; } .zpill.watch { background:#3a2c08; color:#f6c343; border:1px solid #6b5410; }
+.zpill.far,.zpill.below { background:#2a1414; color:#f08a8a; border:1px solid #5a2a2a; } .zpill.na { background:#161929; color:#6b7280; border:1px solid #242842; }
+.pdims { display:grid; grid-template-columns:1fr 1fr; gap:5px 14px; margin-top:9px; }
+.pdim { font-size:12px; display:flex; gap:6px; align-items:baseline; } .pdim .dn { color:#9ca3af; min-width:52px; } .pdim.miss .tx { color:#6b7280; } .pdim.hit .tx { color:#cdd6f4; }
+.ptraj { display:flex; gap:16px; flex-wrap:wrap; margin-top:8px; font-size:12.5px; color:#cdd6f4; } .ptraj .k { color:#9ca3af; } .ptraj .v { font-weight:700; }
+.rt { display:inline-block; font-size:11px; padding:1px 7px; border-radius:6px; margin:2px 5px 2px 0; background:#161929; border:1px solid #242842; color:#b7c0e0; }
+.tier-h { font-size:14px; font-weight:700; margin:14px 0 8px; } .tier-h.best { color:#f6c343; } .tier-h.steady { color:#7c9ef8; }
+.pempty { background:#161929; border:1px dashed #2d3052; border-radius:10px; padding:18px; color:#9ca3af; font-size:13px; line-height:1.8; }
+.pfilt { display:flex; gap:5px; } .pfilt span { font-size:12.5px; padding:5px 12px; border-radius:8px; border:1px solid #2d3052; background:#0f1117; color:#9ca3af; cursor:pointer; } .pfilt span.on { background:#2742a8; color:#fff; border-color:#3358e0; }
 .hint-box {
   font-size: 12px; color: #fbbf24; background: #2a2410;
   border: 1px solid #4a3d15; border-radius: 8px; padding: 10px 14px; margin: 10px 0 18px;
@@ -56,6 +81,13 @@
 {% endblock %}
 
 {% block content %}
+<div class="modetabs">
+  <span class="mtab on" data-m="factor">🔍 因子筛选</span>
+  <span class="mtab" data-m="hot">🔥 人气反转</span>
+  <span class="mtab" data-m="reso">🎯 共振评分</span>
+</div>
+
+<div id="mode-factor">
 <div class="card">
   <h2>🔍 量化因子选股（基于收盘全量数据）</h2>
   <div class="hint-box">
@@ -168,6 +200,25 @@
     <button class="quickbtn" id="btn-export" style="float:right;border-color:#3358e0;color:#7c9ef8">📷 导出全列图</button>
   </h2>
   <div class="reswrap"><table id="restable"></table></div>
+</div>
+</div><!-- /mode-factor -->
+
+<div id="mode-hot" style="display:none">
+  <div class="pmethod"><b>🔥 人气反转</b>：全市场<b>活跃度排名</b>(服务器自算·换手+成交额·<b>零本地依赖</b>)轨迹——曾进Top100(峰值)→洗盘跌到300-800(谷值)→拐头回升+流通≥80亿+现价回踩到入局区间(关键位双确认)。</div>
+  <div class="pdisc">⚠️ 活跃度=成交关注度代理，<b>非资金、非龙虎榜真钱</b>，<b>不是涨停预测</b>·阈值待回测·候选由你拍板，风险自担。</div>
+  <div class="pbar"><button class="runbtn" id="hot-run">🔎 扫描候选</button>
+    <label class="neu" style="font-size:12.5px;display:flex;align-items:center;gap:5px"><input type="checkbox" id="hot-tech" checked> 叠加关键位双确认</label>
+    <span id="hot-meta" class="neu" style="font-size:11.5px"></span></div>
+  <div id="hot-out"><div class="pempty">点「扫描候选」开始（服务器活跃度数据·约数十秒）</div></div>
+</div>
+
+<div id="mode-reso" style="display:none">
+  <div class="pmethod"><b>🎯 共振评分</b>：选股池 × 4个<b>正交维度</b>共振——①板块强势(方向)②龙虎榜真钱③入局区间到位(砍价)④基本面。共振越多越"确定"；<b>A</b>=共振强+回踩到位(可低吸)·<b>B</b>=共振强但远离(等回踩·别追)。</div>
+  <div class="pdisc">⚠️ 共振高 ≠ 无风险(拥挤)·位置分级即防追高·<b>不输出胜率</b>·阈值待回测，最终由你拍板。</div>
+  <div class="pbar"><button class="runbtn" id="reso-run">🔎 扫描共振</button>
+    <div class="pfilt" id="reso-filt"><span data-g="A" class="on">A</span><span data-g="B" class="on">B</span><span data-g="C">C</span><span data-g="D">D</span></div>
+    <span id="reso-meta" class="neu" style="font-size:11.5px"></span></div>
+  <div id="reso-out"><div class="pempty">点「扫描共振」开始（基于选股池·约数十秒）</div></div>
 </div>
 
 <script src="/static/echarts.min.js"></script>
@@ -727,5 +778,65 @@ document.getElementById('strat-close').addEventListener('click', () => { modal.s
 modal.addEventListener('click', e => { if (e.target === modal) modal.style.display = 'none'; });
 document.getElementById('strat-search').addEventListener('input', loadStrategies);
 document.getElementById('strat-mine').addEventListener('change', loadStrategies);
+
+// —— 选股中心·模式切换 + 人气反转/共振 面板（并入因子选股·砍掉独立导航）——
+(function(){
+  const $=id=>document.getElementById(id);
+  const pEsc=s=>(s==null?'':String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  const modes={factor:'mode-factor',hot:'mode-hot',reso:'mode-reso'};
+  document.querySelectorAll('.mtab').forEach(t=>t.addEventListener('click',()=>{
+    document.querySelectorAll('.mtab').forEach(x=>x.classList.toggle('on',x===t));
+    const m=t.dataset.m; for(const k in modes){ $(modes[k]).style.display=(k===m)?'':'none'; }
+    if(location.hash!=='#'+m) history.replaceState(null,'','#'+m);
+  }));
+  // 深链接：/screener#hot 或 #reso 直接进对应模式（旧 /hotpicks /resonance 重定向来）
+  const initM=(location.hash||'').replace('#','');
+  if(initM==='hot'||initM==='reso'){ const t=document.querySelector('.mtab[data-m="'+initM+'"]'); if(t) t.click(); }
+
+  const HZ={in:'✅到位',watch:'🟡警戒带',far:'远离·等回踩',below:'⚠️破位',na:'—'};
+  $('hot-run').addEventListener('click',async()=>{
+    const tech=$('hot-tech').checked,btn=$('hot-run'); btn.disabled=true;
+    $('hot-out').innerHTML='<div class="pempty">⏳ 扫描中（活跃度轨迹→补流通+关键位双确认，约数十秒）…</div>';
+    try{ const j=await (await fetch('/api/hot-reversal?require_tech='+(tech?1:0))).json(); btn.disabled=false;
+      if(!j.ok){ $('hot-out').innerHTML='<div class="pempty">❌ '+pEsc(j.msg||'失败')+'</div>'; return; }
+      $('hot-meta').textContent='活跃度轨迹 '+j.n_traj+' 只 · 命中 '+(j.candidates||[]).length+' 只'; hotRender(j);
+    }catch(e){ btn.disabled=false; $('hot-out').innerHTML='<div class="pempty">❌ '+pEsc(e)+'</div>'; }
+  });
+  function hotCard(c){ const zs=c.tech_state||'na',z=c.entry_zone;
+    const pill='<span class="zpill '+(['in','watch','far','below'].includes(zs)?zs:'na')+'">'+(HZ[zs]||zs)+'</span>';
+    return '<div class="pcard '+c.tier+'"><div class="ptop"><span class="pnm" onclick="location.href=\'/stock?code='+pEsc(c.code)+'\'">'+pEsc(c.name||c.code)+'</span>'
+      +'<span class="pcode">'+pEsc(c.code)+'</span>'+pill+'<span class="neu" style="font-size:11px">'+(z?(' 入局 '+z.low+'~'+z.high):'')+'</span></div>'
+      +'<div class="ptraj"><span><span class="k">峰</span> <span class="v">#'+c.peak_rank+'</span></span><span><span class="k">谷</span> <span class="v">#'+c.trough_rank+'</span></span>'
+      +'<span><span class="k">今</span> <span class="v">#'+c.cur_rank+'</span></span><span><span class="k">回升</span> <span class="v" style="color:#f6465d">↑'+c.recover+'</span></span>'
+      +(c.float_mv_yi?'<span><span class="k">流通</span> <span class="v">'+c.float_mv_yi+'亿</span></span>':'')+'</div></div>'; }
+  function hotRender(j){ const b=j.best||[],s=j.steady||[];
+    if(!j.n_traj){ $('hot-out').innerHTML='<div class="pempty">暂无活跃度轨迹数据（服务器每日18:20自动记）。</div>'; return; }
+    if(!b.length&&!s.length){ $('hot-out').innerHTML='<div class="pempty">本轮无命中候选·可取消双确认放宽。</div>'; return; }
+    let h=''; if(b.length) h+='<div class="tier-h best">🏆 最佳候选（'+b.length+'）</div>'+b.map(hotCard).join('');
+    if(s.length) h+='<div class="tier-h steady">🌱 稳健候选（'+s.length+'）</div>'+s.map(hotCard).join(''); $('hot-out').innerHTML=h; }
+
+  const RZ={in:'✅到位',watch:'🟡警戒带',far:'远离·等回踩',below:'⚠️破位',na:'—'};
+  const RD=[['sector','板块'],['realmoney','真钱'],['entry','位置'],['fundamental','基本面']];
+  let rAll=[],rShow={A:1,B:1,C:0,D:0};
+  $('reso-run').addEventListener('click',async()=>{ const btn=$('reso-run'); btn.disabled=true;
+    $('reso-out').innerHTML='<div class="pempty">⏳ 扫描中（选股池→补入局区间+基本面→4维共振，约数十秒）…</div>';
+    try{ const j=await (await fetch('/api/resonance')).json(); btn.disabled=false;
+      if(!j.ok){ $('reso-out').innerHTML='<div class="pempty">❌ '+pEsc(j.msg||'失败')+'</div>'; return; }
+      rAll=j.candidates||[]; const gc=j.grade_counts||{};
+      $('reso-meta').textContent='选股池 '+(j.n_pool||0)+' 只 · A'+(gc.A||0)+' B'+(gc.B||0)+' C'+(gc.C||0)+' D'+(gc.D||0); resoRender();
+    }catch(e){ btn.disabled=false; $('reso-out').innerHTML='<div class="pempty">❌ '+pEsc(e)+'</div>'; } });
+  $('reso-filt').addEventListener('click',e=>{ const t=e.target.closest('span'); if(!t)return; t.classList.toggle('on'); rShow[t.dataset.g]=t.classList.contains('on')?1:0; resoRender(); });
+  function resoCard(c){ const est=c.entry_state||'na',z=c.entry_zone;
+    const zp='<span class="zpill '+(['in','watch','far','below'].includes(est)?est:'na')+'">'+(RZ[est]||est)+'</span>';
+    const dims=RD.map(([k,lbl])=>{ const d=c.dims[k]||{}; return '<div class="pdim '+(d.hit?'hit':'miss')+'"><span>'+(d.hit?'🟢':'⚪')+'</span><span class="dn">'+lbl+'</span><span class="tx">'+pEsc(d.label||'—')+'</span></div>'; }).join('');
+    return '<div class="pcard '+c.grade+'"><div class="ptop"><span class="gr '+c.grade+'">'+c.grade+'</span>'
+      +'<span class="pnm" onclick="location.href=\'/stock?code='+pEsc(c.ts_code)+'\'">'+pEsc(c.name||c.ts_code)+'</span>'
+      +'<span class="pcode">'+pEsc(c.ts_code)+'</span>'+(c.industry?'<span class="pind">'+pEsc(c.industry)+'</span>':'')+zp
+      +'<span class="neu" style="font-size:11px">'+(z?(' 入局 '+z.low+'~'+z.high):'')+'</span>'
+      +'<span style="margin-left:auto;font-size:12px;color:#9ca3af">共振 <b style="color:#f6c343;font-size:15px">'+c.resonance+'</b>/4</span></div><div class="pdims">'+dims+'</div></div>'; }
+  function resoRender(){ if(!rAll.length){ $('reso-out').innerHTML='<div class="pempty">选股池暂无候选（弱市/信号未生成·空则等盘后流水线）。</div>'; return; }
+    const rows=rAll.filter(c=>rShow[c.grade]); if(!rows.length){ $('reso-out').innerHTML='<div class="pempty">当前筛选无候选·点上方 A/B/C/D 放宽。</div>'; return; }
+    $('reso-out').innerHTML=rows.map(resoCard).join(''); }
+})();
 </script>
 {% endblock %}

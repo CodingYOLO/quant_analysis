@@ -1707,18 +1707,18 @@ async def insight_page(request: Request, _user: str = Depends(require_auth)):
     return templates.TemplateResponse(request=request, name="industry_insight.html", context={"page": "insight"})
 
 
-@app.get("/hotpicks", response_class=HTMLResponse)
-async def hotpicks_page(request: Request, _user: str = Depends(require_auth)):
-    """🔥 人气反转选股：曾火→洗盘→拐头回升 + 关键位双确认（对标吴川/稳智人气榜买入法）。"""
-    return templates.TemplateResponse(request=request, name="hotpicks.html",
-                                      context={"page": "hotpicks"})
+@app.get("/hotpicks")
+async def hotpicks_page(_user: str = Depends(require_auth)):
+    """已并入因子选股·重定向到 选股中心「人气反转」Tab（旧链接兼容）。"""
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse(url="/screener#hot")
 
 
-@app.get("/resonance", response_class=HTMLResponse)
-async def resonance_page(request: Request, _user: str = Depends(require_auth)):
-    """🎯 共振选股：选股池 × 4正交维度共振 + 位置分级（对标吴川"几个系统叠加=确定性高"）。"""
-    return templates.TemplateResponse(request=request, name="resonance.html",
-                                      context={"page": "resonance"})
+@app.get("/resonance")
+async def resonance_page(_user: str = Depends(require_auth)):
+    """已并入因子选股·重定向到 选股中心「共振评分」Tab（旧链接兼容）。"""
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse(url="/screener#reso")
 
 
 @app.get("/cognition", response_class=HTMLResponse)
