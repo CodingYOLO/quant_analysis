@@ -358,7 +358,9 @@ def _ths_forecast_summary(df: pd.DataFrame) -> dict:
         if not y or pd.isna(avg):
             continue
         rows.append({
-            "year": y, "n_org": int(pd.to_numeric(r.get("预测机构数"), errors="coerce") or 0),
+            "year": y,
+            "n_org": (int(pd.to_numeric(r.get("预测机构数"), errors="coerce"))
+                      if pd.notna(pd.to_numeric(r.get("预测机构数"), errors="coerce")) else 0),
             "eps_avg": round(float(avg), 2),
             "eps_min": round(float(pd.to_numeric(r.get("最小值"), errors="coerce")), 2) if pd.notna(pd.to_numeric(r.get("最小值"), errors="coerce")) else None,
             "eps_max": round(float(pd.to_numeric(r.get("最大值"), errors="coerce")), 2) if pd.notna(pd.to_numeric(r.get("最大值"), errors="coerce")) else None,

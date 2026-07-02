@@ -12,12 +12,14 @@ A股Agent Web UI（FastAPI）。
 启动：.venv/bin/python -m app.run web
 """
 
+import json as _json_std
 import logging
+import math
 import secrets
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request, Depends, status
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.templating import Jinja2Templates
 
@@ -25,7 +27,33 @@ from app.config import get_settings
 
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="A股Agent", docs_url=None, redoc_url=None)
+
+def _json_sanitize(obj):
+    """递归把 NaN/Inf → None，保证任何响应都能 JSON 序列化。
+
+    根治反复出现的 `ValueError: Out of range float values are not JSON compliant`：
+    个别端点某个浮点算出 NaN/Inf（低量除零、`NaN or 0` 因 NaN 为 truthy 仍得 NaN 等），
+    一个坏值就打崩整份响应→前端 500/白屏。此处在序列化前统一兜底，杜绝打地鼠。
+    """
+    if isinstance(obj, float):
+        return obj if math.isfinite(obj) else None
+    if isinstance(obj, dict):
+        return {k: _json_sanitize(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_json_sanitize(v) for v in obj]
+    return obj
+
+
+class SafeJSONResponse(JSONResponse):
+    """全局 JSON 响应：序列化前清洗 NaN/Inf→null（只影响 dict/list 返回·不动 HTML/重定向/文件响应）。"""
+
+    def render(self, content) -> bytes:
+        return _json_std.dumps(_json_sanitize(content), ensure_ascii=False,
+                               allow_nan=False, separators=(",", ":")).encode("utf-8")
+
+
+app = FastAPI(title="A股Agent", docs_url=None, redoc_url=None,
+              default_response_class=SafeJSONResponse)
 
 _TEMPLATES_DIR = Path(__file__).parent / "templates"
 templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))

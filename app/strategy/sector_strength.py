@@ -37,6 +37,12 @@ def _f(g: pd.DataFrame, col: str, how: str = "mean") -> float:
     return float(s.mean() if how == "mean" else s.sum())
 
 
+def _nz(v) -> float:
+    """NaN/无效 → 0.0（切勿用 `x or 0`：NaN 为 truthy 会仍得 NaN·破坏 JSON 序列化）。"""
+    x = pd.to_numeric(v, errors="coerce")
+    return float(x) if pd.notna(x) else 0.0
+
+
 def _aggregate_sectors(df: pd.DataFrame, min_n: int = 3, top_leaders: int = 2) -> list[dict]:
     """因子表 → 各行业强弱聚合 + 龙头（纯函数·可单测）。按板块强度(avg_rps)降序。"""
     out = []
@@ -56,8 +62,8 @@ def _aggregate_sectors(df: pd.DataFrame, min_n: int = 3, top_leaders: int = 2) -
             "main_net": round(_f(g, "main_net_amount", "sum"), 2),
             "phase": _sector_phase(avg_rps, avg_ret5, ma60_pct),
             "leaders": [{"name": str(r.get("name", "")), "code": str(r.get("ts_code", "")),
-                         "rps": round(float(pd.to_numeric(r.get("rps120"), errors="coerce") or 0), 0),
-                         "ret5": round(float(pd.to_numeric(r.get("ret5"), errors="coerce") or 0), 1)}
+                         "rps": round(_nz(r.get("rps120")), 0),      # NaN→0（防 'NaN or 0' 仍得 NaN 的泄漏）
+                         "ret5": round(_nz(r.get("ret5")), 1)}
                         for _, r in leaders.iterrows()],
         })
     out.sort(key=lambda x: -x["avg_rps"])
