@@ -1708,17 +1708,11 @@ async def insight_page(request: Request, _user: str = Depends(require_auth)):
 
 
 @app.get("/hotpicks")
-async def hotpicks_page(_user: str = Depends(require_auth)):
-    """已并入因子选股·重定向到 选股中心「人气反转」Tab（旧链接兼容）。"""
-    from fastapi.responses import RedirectResponse
-    return RedirectResponse(url="/screener#hot")
-
-
 @app.get("/resonance")
-async def resonance_page(_user: str = Depends(require_auth)):
-    """已并入因子选股·重定向到 选股中心「共振评分」Tab（旧链接兼容）。"""
+async def _legacy_select_redirect(_user: str = Depends(require_auth)):
+    """人气反转/共振已深度并入因子选股(因子组+确定性列)·旧链接重定向到因子选股。"""
     from fastapi.responses import RedirectResponse
-    return RedirectResponse(url="/screener#reso")
+    return RedirectResponse(url="/screener")
 
 
 @app.get("/cognition", response_class=HTMLResponse)

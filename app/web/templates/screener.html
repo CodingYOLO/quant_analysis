@@ -81,15 +81,8 @@
 {% endblock %}
 
 {% block content %}
-<div class="modetabs">
-  <span class="mtab on" data-m="factor">🔍 因子筛选</span>
-  <span class="mtab" data-m="hot">🔥 人气反转</span>
-  <span class="mtab" data-m="reso">🎯 共振评分</span>
-</div>
-
-<div id="mode-factor">
 <div class="card">
-  <h2>🔍 量化因子选股（基于收盘全量数据）</h2>
+  <h2>🔍 量化因子选股（人气反转 / 多维共振 已并入·一个引擎多因子叠加）</h2>
   <div class="hint-box">
     ⚠️ <strong>数据时点</strong>：基于收盘后全量数据。当日资金流（主力/超大单）通常 <strong>17:40 后</strong>入库，北向更晚；
     盘中或 17:40 前查「当日」会因缺资金数据报错，建议查<strong>上一交易日</strong>（已默认选好）或收盘后再查当日。
@@ -105,12 +98,16 @@
     <button class="quickbtn" id="preset-break5" style="border-color:#5a2a6b;color:#c084fc">🔄 破五反五·放量真反抽（高质量）</button>
     <button class="quickbtn" id="preset-ma20life" style="border-color:#2a5a4a;color:#4ade80">🛡️ 机构生命线·稳站20日线</button>
     <button class="quickbtn" id="preset-repeat" style="border-color:#1f5a3a;color:#4ade80">💰 资金反复吸筹·潜伏（多日净流入）</button>
+    <button class="quickbtn" id="preset-hotrev" style="border-color:#6b2a2a;color:#f6465d">🔥 人气反转埋伏（曾火→洗盘→回升）</button>
+    <button class="quickbtn" id="preset-reso" style="border-color:#5a4018;color:#f6c343">🎯 多维共振·高确定性</button>
     <span class="neu" style="font-size:11.5px;line-height:1.6;width:100%">
       <b style="color:#4ade80">慢牛吸筹</b>：温和放量＋量价配合＋缓涨＋没大涨，挑"主力悄悄吸"的票（按🐌吸筹分排序）。
       <b style="color:#f87171">🔥妖股启动</b>：<b>连板基因(近60日涨停≥2)</b>＋<b>启动迹象(放量)</b>，且<b>🛡已排雷</b>(剔ST/负净资产/高负债)，按60日涨停数排序。<b>不限市值/价格</b>(实测连板多为中大盘题材龙头);想专挑小盘/低价妖,手动勾「小流通≤50亿」「低价≤15」即可。
       <b style="color:#7c9ef8">💎强势龙头·超跌低吸</b>：<b>前期强势(RPS≥70)</b>＋<b>近5日超跌(≤-5%)</b>＋<b>趋势未破(站上MA60·防接刀)</b>＋龙头体格(流通≥100亿)，按强度排序——挑"之前很好、今天被错杀"的大龙头。看结果的<b>行业列扎堆在哪</b>，那几个就是值得关注的超跌板块。
       <b style="color:#f0a020">📈二季度业绩预增</b>：<b>有中报预告 + 预喜(预增/扭亏) + 非ST</b>，按预告净利增幅排序——抓7-8月中报旺季的业绩催化(现在刚开始出、越往后越多)。预告是真实公告(强催化)，但⚠️<b>"预增不等于会涨"</b>，常有"见光死"(预告兑现即出货)，别只看业绩追高。
-      ⚠️ 三个都<b>只是形态筛选器，不预测涨跌</b>；<b>超跌≠会涨(可能接飞刀)</b>，低吸要等<b>缩量企稳/站回短均线</b>再动，别下跌途中乱接；命中后到 <a href="/stock" style="color:#7c9ef8">🎯个股360</a> 看资金/龙虎榜印证，严格控仓位+止损。
+      <b style="color:#f6465d">🔥人气反转埋伏</b>：曾进<b>活跃度Top100</b>(峰值·曾是焦点)→被洗盘<b>跌到300-800名</b>(谷值)→<b>回升50-200位</b>(拐头但不追高)+站MA20不破+排雷。活跃度=换手+成交额服务器自算(<b>零本地依赖</b>)，是"关注度反转"埋伏，<b>非涨停预测</b>。
+      <b style="color:#f6c343">🎯多维共振·高确定性</b>：<b>板块强+龙虎榜真钱</b>打底+站MA20+排雷；结果看 <b>🎯确定性 N/4</b> 那列（4个正交维度：板块/真钱/回踩到位/基本面·<b>鼠标悬浮看解释</b>），<b>挑4/4的最确定</b>。共振高≠无风险(拥挤)，位置"到位"才可低吸、"远"就别追。
+      ⚠️ 全部<b>只是筛选器，不预测涨跌、不输出胜率</b>；<b>超跌≠会涨(可能接飞刀)</b>，低吸要等<b>缩量企稳/站回短均线</b>再动；命中后到 <a href="/stock" style="color:#7c9ef8">🎯个股360</a> 看资金/龙虎榜印证，严格控仓位+止损。
     </span>
   </div>
 
@@ -201,25 +198,6 @@
   </h2>
   <div class="reswrap"><table id="restable"></table></div>
 </div>
-</div><!-- /mode-factor -->
-
-<div id="mode-hot" style="display:none">
-  <div class="pmethod"><b>🔥 人气反转</b>：全市场<b>活跃度排名</b>(服务器自算·换手+成交额·<b>零本地依赖</b>)轨迹——曾进Top100(峰值)→洗盘跌到300-800(谷值)→拐头回升+流通≥80亿+现价回踩到入局区间(关键位双确认)。</div>
-  <div class="pdisc">⚠️ 活跃度=成交关注度代理，<b>非资金、非龙虎榜真钱</b>，<b>不是涨停预测</b>·阈值待回测·候选由你拍板，风险自担。</div>
-  <div class="pbar"><button class="runbtn" id="hot-run">🔎 扫描候选</button>
-    <label class="neu" style="font-size:12.5px;display:flex;align-items:center;gap:5px"><input type="checkbox" id="hot-tech" checked> 叠加关键位双确认</label>
-    <span id="hot-meta" class="neu" style="font-size:11.5px"></span></div>
-  <div id="hot-out"><div class="pempty">点「扫描候选」开始（服务器活跃度数据·约数十秒）</div></div>
-</div>
-
-<div id="mode-reso" style="display:none">
-  <div class="pmethod"><b>🎯 共振评分</b>：选股池 × 4个<b>正交维度</b>共振——①板块强势(方向)②龙虎榜真钱③入局区间到位(砍价)④基本面。共振越多越"确定"；<b>A</b>=共振强+回踩到位(可低吸)·<b>B</b>=共振强但远离(等回踩·别追)。</div>
-  <div class="pdisc">⚠️ 共振高 ≠ 无风险(拥挤)·位置分级即防追高·<b>不输出胜率</b>·阈值待回测，最终由你拍板。</div>
-  <div class="pbar"><button class="runbtn" id="reso-run">🔎 扫描共振</button>
-    <div class="pfilt" id="reso-filt"><span data-g="A" class="on">A</span><span data-g="B" class="on">B</span><span data-g="C">C</span><span data-g="D">D</span></div>
-    <span id="reso-meta" class="neu" style="font-size:11.5px"></span></div>
-  <div id="reso-out"><div class="pempty">点「扫描共振」开始（基于选股池·约数十秒）</div></div>
-</div>
 
 <script src="/static/echarts.min.js"></script>
 <script src="/static/kline.js"></script>
@@ -275,6 +253,12 @@ document.getElementById('preset-ma20life').addEventListener('click', () =>
 // 💰 资金反复吸筹·潜伏：真·持续吸筹(非脉冲·近期未退潮) + 板块偏持续流入 + 站MA20(趋势没破) + 排雷，按净流入天数排序
 document.getElementById('preset-repeat').addEventListener('click', () =>
   applyPreset(['fund_sustained', 'sector_inflow5', 'above_ma20', 'risk_not_st'], 'inflow_days_10'));
+// 🔥 人气反转埋伏：曾进活跃Top100 + 洗盘跌到300-800 + 回升50-200(不追高) + 站MA20不破 + 排雷
+document.getElementById('preset-hotrev').addEventListener('click', () =>
+  applyPreset(['act_was_hot', 'act_washed', 'act_recover_ok', 'above_ma20', 'risk_not_st'], 'act_recover'));
+// 🎯 多维共振·高确定性：板块强 + 龙虎榜真钱 + 站MA20 + 排雷；结果看🎯确定性N/4挑4/4
+document.getElementById('preset-reso').addEventListener('click', () =>
+  applyPreset(['reso_sector', 'reso_money', 'above_ma20', 'risk_not_st'], 'rps120'));
 
 // 🗺️ 板块强弱榜：先选板块层(读因子表聚合·各行业强弱+龙头)
 let _sectorLoaded = false;
@@ -384,6 +368,20 @@ function fmtCell(key, v, row) {
   }
   if (key === 'ts_code') return '<td class="code">' + v
     + ' <span class="addw" title="加入我的持仓·自选" onclick="event.stopPropagation();addWatch(\'' + v + '\',this)">＋自选</span></td>';
+  if (key === 'reso_n') {                                    // 🎯确定性 N/4：亮灯 + 悬浮解释(透明·替代黑话A/B/C/D)
+    const d = (row && row.reso_dims) || {};
+    const dot = hit => hit ? '🟢' : '⚪';
+    const tip = '确定性=4个正交维度共振(越多越确定，非胜率)：\n'
+      + dot(d.sector) + ' 板块强势(自上而下·方向)\n' + dot(d.money) + ' 龙虎榜机构真钱\n'
+      + dot(d.entry) + ' 回踩到位(贴均线/前低·砍价)\n' + dot(d.fund) + ' 基本面(ROE≥8且增长)';
+    const n = +v || 0, c = n >= 3 ? '#f6c343' : (n >= 2 ? '#7c9ef8' : '#9ca3af');
+    return '<td title="' + tip + '" style="cursor:help"><b style="color:' + c + '">' + n + '/4</b> '
+      + '<span style="font-size:10px">' + dot(d.sector) + dot(d.money) + dot(d.entry) + dot(d.fund) + '</span></td>';
+  }
+  if (key === 'entry_pos') {                                 // 入局位置(砍价)
+    const c = v === '到位' ? '#3ddc97' : (v && v.indexOf('等回踩') >= 0 ? '#f6c343' : '#9ca3af');
+    return '<td style="color:' + c + ';font-weight:600" title="现价相对支撑(MA20/MA60/20日低)：到位=可低吸·等回踩=近·远=别追">' + (v || '—') + '</td>';
+  }
   return '<td>' + v + '</td>';
 }
 
@@ -778,65 +776,5 @@ document.getElementById('strat-close').addEventListener('click', () => { modal.s
 modal.addEventListener('click', e => { if (e.target === modal) modal.style.display = 'none'; });
 document.getElementById('strat-search').addEventListener('input', loadStrategies);
 document.getElementById('strat-mine').addEventListener('change', loadStrategies);
-
-// —— 选股中心·模式切换 + 人气反转/共振 面板（并入因子选股·砍掉独立导航）——
-(function(){
-  const $=id=>document.getElementById(id);
-  const pEsc=s=>(s==null?'':String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-  const modes={factor:'mode-factor',hot:'mode-hot',reso:'mode-reso'};
-  document.querySelectorAll('.mtab').forEach(t=>t.addEventListener('click',()=>{
-    document.querySelectorAll('.mtab').forEach(x=>x.classList.toggle('on',x===t));
-    const m=t.dataset.m; for(const k in modes){ $(modes[k]).style.display=(k===m)?'':'none'; }
-    if(location.hash!=='#'+m) history.replaceState(null,'','#'+m);
-  }));
-  // 深链接：/screener#hot 或 #reso 直接进对应模式（旧 /hotpicks /resonance 重定向来）
-  const initM=(location.hash||'').replace('#','');
-  if(initM==='hot'||initM==='reso'){ const t=document.querySelector('.mtab[data-m="'+initM+'"]'); if(t) t.click(); }
-
-  const HZ={in:'✅到位',watch:'🟡警戒带',far:'远离·等回踩',below:'⚠️破位',na:'—'};
-  $('hot-run').addEventListener('click',async()=>{
-    const tech=$('hot-tech').checked,btn=$('hot-run'); btn.disabled=true;
-    $('hot-out').innerHTML='<div class="pempty">⏳ 扫描中（活跃度轨迹→补流通+关键位双确认，约数十秒）…</div>';
-    try{ const j=await (await fetch('/api/hot-reversal?require_tech='+(tech?1:0))).json(); btn.disabled=false;
-      if(!j.ok){ $('hot-out').innerHTML='<div class="pempty">❌ '+pEsc(j.msg||'失败')+'</div>'; return; }
-      $('hot-meta').textContent='活跃度轨迹 '+j.n_traj+' 只 · 命中 '+(j.candidates||[]).length+' 只'; hotRender(j);
-    }catch(e){ btn.disabled=false; $('hot-out').innerHTML='<div class="pempty">❌ '+pEsc(e)+'</div>'; }
-  });
-  function hotCard(c){ const zs=c.tech_state||'na',z=c.entry_zone;
-    const pill='<span class="zpill '+(['in','watch','far','below'].includes(zs)?zs:'na')+'">'+(HZ[zs]||zs)+'</span>';
-    return '<div class="pcard '+c.tier+'"><div class="ptop"><span class="pnm" onclick="location.href=\'/stock?code='+pEsc(c.code)+'\'">'+pEsc(c.name||c.code)+'</span>'
-      +'<span class="pcode">'+pEsc(c.code)+'</span>'+pill+'<span class="neu" style="font-size:11px">'+(z?(' 入局 '+z.low+'~'+z.high):'')+'</span></div>'
-      +'<div class="ptraj"><span><span class="k">峰</span> <span class="v">#'+c.peak_rank+'</span></span><span><span class="k">谷</span> <span class="v">#'+c.trough_rank+'</span></span>'
-      +'<span><span class="k">今</span> <span class="v">#'+c.cur_rank+'</span></span><span><span class="k">回升</span> <span class="v" style="color:#f6465d">↑'+c.recover+'</span></span>'
-      +(c.float_mv_yi?'<span><span class="k">流通</span> <span class="v">'+c.float_mv_yi+'亿</span></span>':'')+'</div></div>'; }
-  function hotRender(j){ const b=j.best||[],s=j.steady||[];
-    if(!j.n_traj){ $('hot-out').innerHTML='<div class="pempty">暂无活跃度轨迹数据（服务器每日18:20自动记）。</div>'; return; }
-    if(!b.length&&!s.length){ $('hot-out').innerHTML='<div class="pempty">本轮无命中候选·可取消双确认放宽。</div>'; return; }
-    let h=''; if(b.length) h+='<div class="tier-h best">🏆 最佳候选（'+b.length+'）</div>'+b.map(hotCard).join('');
-    if(s.length) h+='<div class="tier-h steady">🌱 稳健候选（'+s.length+'）</div>'+s.map(hotCard).join(''); $('hot-out').innerHTML=h; }
-
-  const RZ={in:'✅到位',watch:'🟡警戒带',far:'远离·等回踩',below:'⚠️破位',na:'—'};
-  const RD=[['sector','板块'],['realmoney','真钱'],['entry','位置'],['fundamental','基本面']];
-  let rAll=[],rShow={A:1,B:1,C:0,D:0};
-  $('reso-run').addEventListener('click',async()=>{ const btn=$('reso-run'); btn.disabled=true;
-    $('reso-out').innerHTML='<div class="pempty">⏳ 扫描中（选股池→补入局区间+基本面→4维共振，约数十秒）…</div>';
-    try{ const j=await (await fetch('/api/resonance')).json(); btn.disabled=false;
-      if(!j.ok){ $('reso-out').innerHTML='<div class="pempty">❌ '+pEsc(j.msg||'失败')+'</div>'; return; }
-      rAll=j.candidates||[]; const gc=j.grade_counts||{};
-      $('reso-meta').textContent='选股池 '+(j.n_pool||0)+' 只 · A'+(gc.A||0)+' B'+(gc.B||0)+' C'+(gc.C||0)+' D'+(gc.D||0); resoRender();
-    }catch(e){ btn.disabled=false; $('reso-out').innerHTML='<div class="pempty">❌ '+pEsc(e)+'</div>'; } });
-  $('reso-filt').addEventListener('click',e=>{ const t=e.target.closest('span'); if(!t)return; t.classList.toggle('on'); rShow[t.dataset.g]=t.classList.contains('on')?1:0; resoRender(); });
-  function resoCard(c){ const est=c.entry_state||'na',z=c.entry_zone;
-    const zp='<span class="zpill '+(['in','watch','far','below'].includes(est)?est:'na')+'">'+(RZ[est]||est)+'</span>';
-    const dims=RD.map(([k,lbl])=>{ const d=c.dims[k]||{}; return '<div class="pdim '+(d.hit?'hit':'miss')+'"><span>'+(d.hit?'🟢':'⚪')+'</span><span class="dn">'+lbl+'</span><span class="tx">'+pEsc(d.label||'—')+'</span></div>'; }).join('');
-    return '<div class="pcard '+c.grade+'"><div class="ptop"><span class="gr '+c.grade+'">'+c.grade+'</span>'
-      +'<span class="pnm" onclick="location.href=\'/stock?code='+pEsc(c.ts_code)+'\'">'+pEsc(c.name||c.ts_code)+'</span>'
-      +'<span class="pcode">'+pEsc(c.ts_code)+'</span>'+(c.industry?'<span class="pind">'+pEsc(c.industry)+'</span>':'')+zp
-      +'<span class="neu" style="font-size:11px">'+(z?(' 入局 '+z.low+'~'+z.high):'')+'</span>'
-      +'<span style="margin-left:auto;font-size:12px;color:#9ca3af">共振 <b style="color:#f6c343;font-size:15px">'+c.resonance+'</b>/4</span></div><div class="pdims">'+dims+'</div></div>'; }
-  function resoRender(){ if(!rAll.length){ $('reso-out').innerHTML='<div class="pempty">选股池暂无候选（弱市/信号未生成·空则等盘后流水线）。</div>'; return; }
-    const rows=rAll.filter(c=>rShow[c.grade]); if(!rows.length){ $('reso-out').innerHTML='<div class="pempty">当前筛选无候选·点上方 A/B/C/D 放宽。</div>'; return; }
-    $('reso-out').innerHTML=rows.map(resoCard).join(''); }
-})();
 </script>
 {% endblock %}

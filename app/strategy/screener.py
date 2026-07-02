@@ -162,6 +162,25 @@ FACTOR_GROUPS = [
         ],
     },
     {
+        "group": "🔥 人气反转（活跃度洗盘反转·服务器自算·零本地）",
+        "factors": [
+            {"key": "act_was_hot", "label": "曾进活跃Top100(峰值·曾是焦点)", "col": "act_peak", "op": "le", "val": 100},
+            {"key": "act_washed", "label": "洗盘跌到300-800名(谷值·弱手清出)", "col": "act_trough", "op": "between", "val": [300, 800]},
+            {"key": "act_recover50", "label": "人气拐头回升≥50位(趋势明确)", "col": "act_recover", "op": "ge", "val": 50},
+            {"key": "act_recover_ok", "label": "回升50-200位(明确但不追高·甜蜜点)", "col": "act_recover", "op": "between", "val": [50, 200]},
+            {"key": "act_recover10", "label": "人气刚拐头回升(≥10位)", "col": "act_recover", "op": "ge", "val": 10},
+        ],
+    },
+    {
+        "group": "🎯 确定性维度（多信号共振·独立正交·越多越确定）",
+        "factors": [
+            {"key": "reso_sector", "label": "①板块强势(自上而下·行业RPS中位≥55)", "col": "sector_strong", "op": "true"},
+            {"key": "reso_money", "label": "②龙虎榜机构真钱净买>0(唯一真机构钱)", "col": "inst_net_yi", "op": "gt", "val": 0},
+            {"key": "reso_roe8", "label": "③基本面·ROE≥8%", "col": "roe", "op": "ge", "val": 8},
+            {"key": "reso_grow", "label": "③基本面·净利同比>0(增长)", "col": "netprofit_yoy", "op": "gt", "val": 0},
+        ],
+    },
+    {
         # K线/量价形态（由形态注册表自动生成，新增形态零侵入）
         "group": "K线形态/量价",
         "factors": [
@@ -195,6 +214,9 @@ CUSTOM_FIELDS = [
     {"col": "youzi_relay_days", "label": "游资接力天数"}, {"col": "forecast_chg", "label": "预告净利变动%"},
     {"col": "debt_to_assets", "label": "资产负债率%"}, {"col": "netprofit_yoy", "label": "净利同比%"},
     {"col": "roe", "label": "ROE%"},
+    {"col": "act_rank", "label": "活跃度排名(当前)"}, {"col": "act_peak", "label": "活跃度峰值"},
+    {"col": "act_trough", "label": "活跃度谷值"}, {"col": "act_recover", "label": "人气回升位"},
+    {"col": "inst_net_yi", "label": "龙虎榜机构净买(亿)"},
 ]
 _CUSTOM_COLS = {f["col"] for f in CUSTOM_FIELDS}
 _CUSTOM_OPS = {"ge", "gt", "le", "lt", "eq"}
@@ -214,6 +236,8 @@ DISPLAY_COLS = [
     ("inflow_days_10", "💰流入天数(近10)"), ("consec_inflow", "连续流入天"), ("sector_inflow_days", "板块流入天"),
     ("rps50", "RPS50"), ("rps120", "RPS120"), ("rsi14", "RSI"),
     ("vwap_dev", "VWAP偏离%"), ("comment_score", "千评分"), ("popularity_rank", "人气排名"),
+    ("act_recover", "🔥人气回升位"), ("act_trough", "活跃度谷值"), ("inst_net_yi", "🏛️龙虎榜真钱(亿)"),
+    ("reso_n", "🎯确定性"), ("entry_pos", "入局位置"),
 ]
 
 
@@ -222,7 +246,7 @@ DISPLAY_COLS = [
 # ──────────────────────────────────────────────
 
 # 因子表结构版本：新增因子列时 +1，使旧缓存自动失效重算（避免读到缺列的旧表）
-_FACTOR_TABLE_VERSION = "v16"  # v16: 加 consec_limit_now(截至昨收当前连板·情绪温度计连板梯队/晋级率用)；v15 关键位数值
+_FACTOR_TABLE_VERSION = "v17"  # v17: 并入人气反转(活跃度轨迹 act_*)+龙虎榜真钱(inst_net_yi)·深度合并；v16 连板
 
 
 def _factor_cache_path(date: str) -> Path:
@@ -265,6 +289,8 @@ def build_factor_table(date: str, provider: CompositeProvider | None = None,
     df = _add_earnings(df, provider)                  # 业绩预告(中报+一季报·二季度催化)
     df = _add_leader_flags(df)                         # 板块龙头标记(行业内强+大+活排名)
     df = _add_sector_strength_flag(df)                 # 板块走强标记(所属行业 RPS 中位偏强)
+    df = _add_activity_trajectory(df)                  # 人气反转：活跃度轨迹(峰值/谷值/回升·自建hot_rank_log)
+    df = _add_inst_money(df, date, provider)           # 确定性：近5日龙虎榜机构真钱(唯一真机构钱)
     df = _add_accum_score(df)                          # 慢牛吸筹评分(合成上面多日因子)
 
     df.to_parquet(path, index=False)
@@ -703,6 +729,44 @@ def _add_leader_flags(df: pd.DataFrame, top_n: int = 2) -> pd.DataFrame:
     return df
 
 
+def _add_activity_trajectory(df: pd.DataFrame, days: int = 14) -> pd.DataFrame:
+    """并入人气反转所需的活跃度轨迹：峰值/谷值/回升/当前活跃排名（来自自建 hot_rank_log·kind=activity）。
+
+    深度合并：让「曾进Top100→洗盘跌到300-800→拐头回升」成为可筛可排的因子列，而非独立页。无数据则留空列。
+    """
+    cols = ["act_rank", "act_peak", "act_trough", "act_recover"]
+    try:
+        from app.strategy import db
+        traj = db.hot_rank_trajectory("activity", days)
+    except Exception:
+        traj = None
+    if not traj:
+        for c in cols:
+            df[c] = pd.NA
+        return df
+    t = pd.DataFrame(traj)
+    t["act_recover"] = pd.to_numeric(t["trough_rank"], errors="coerce") - pd.to_numeric(t["cur_rank"], errors="coerce")
+    t = t.rename(columns={"cur_rank": "act_rank", "peak_rank": "act_peak", "trough_rank": "act_trough"})
+    t["_c6"] = t["code"].astype(str).str.zfill(6)
+    df["_c6"] = df["ts_code"].str[:6]
+    df = df.merge(t[["_c6", *cols]], on="_c6", how="left").drop(columns=["_c6"])
+    return df
+
+
+def _add_inst_money(df: pd.DataFrame, date: str, provider) -> pd.DataFrame:
+    """并入近5日龙虎榜机构净买(真钱·A股唯一的个股级真机构钱)——确定性维度。无上榜=0(非NaN·便于筛≤0)。"""
+    m: dict = {}
+    try:
+        from app.factors.breadth_qfq import _recent_trade_dates
+        from app.strategy.fund_triangle import _inst_net_map
+        m = _inst_net_map(provider, _recent_trade_dates(provider, date, 5))
+    except Exception:
+        logger.debug("[因子] 龙虎榜机构真钱获取失败（列置0）", exc_info=True)
+    df["inst_net_yi"] = df["ts_code"].map(lambda t: round(float(m[t][0]), 2) if t in m else 0.0)
+    df["inst_buy_days"] = df["ts_code"].map(lambda t: int(m[t][1]) if t in m else 0)
+    return df
+
+
 def _add_fundamentals(df: pd.DataFrame, provider) -> pd.DataFrame:
     """全市场批量财务(1次 vip 调用)：资产负债率/净利同比/ROE，供妖股排雷。失败优雅跳过。"""
     try:
@@ -928,6 +992,29 @@ def _apply_customs(df: pd.DataFrame, customs: list[dict] | None) -> pd.Series:
     return mask
 
 
+def _add_certainty_cols(df: pd.DataFrame) -> pd.DataFrame:
+    """结果级「确定性 N/4」= 4 个正交维度命中数（透明·替代黑话 A/B/C/D）。全部用现成列·秒出。
+
+    ①板块强势(sector_strong) ②龙虎榜真钱(inst_net_yi>0) ③回踩到位(现价贴 MA20/MA60/20日低)
+    ④基本面(ROE≥8 且 净利同比>0)。入局位置用轻量口径(贴均线/前低)·非逐票算 key_levels。
+    """
+    close = pd.to_numeric(df.get("close"), errors="coerce")
+    bias20 = (close / pd.to_numeric(df.get("ma20"), errors="coerce") - 1) * 100
+    near_ma20 = bias20.between(-1.5, 3)
+    near_ma60 = ((close / pd.to_numeric(df.get("ma60"), errors="coerce") - 1) * 100).between(-1.5, 3)
+    near_low = ((close / pd.to_numeric(df.get("low20"), errors="coerce") - 1) * 100).between(0, 3)
+    roe = pd.to_numeric(df.get("roe"), errors="coerce")
+    yoy = pd.to_numeric(df.get("netprofit_yoy"), errors="coerce")
+    df["reso_sector"] = df.get("sector_strong", False).fillna(False).astype(bool)
+    df["reso_money"] = pd.to_numeric(df.get("inst_net_yi"), errors="coerce").fillna(0) > 0
+    df["reso_entry"] = (near_ma20 | near_ma60 | near_low).fillna(False)
+    df["reso_fund"] = ((roe >= 8) & (yoy > 0)).fillna(False)
+    df["reso_n"] = df[["reso_sector", "reso_money", "reso_entry", "reso_fund"]].sum(axis=1).astype(int)
+    df["entry_pos"] = np.where(df["reso_entry"], "到位",
+                               np.where(bias20.between(3, 8).fillna(False), "近·等回踩", "远"))
+    return df
+
+
 def screen(date: str, selected_keys: list[str],
            custom: dict | None = None, customs: list[dict] | None = None,
            sort_by: str = "rps120", limit: int = 100,
@@ -962,6 +1049,7 @@ def screen(date: str, selected_keys: list[str],
     if sort_by in result.columns:
         result = result.sort_values(sort_by, ascending=False, na_position="last")
     result = result.head(limit)
+    result = _add_certainty_cols(result)              # 确定性 N/4（透明·替代 A/B/C/D）
 
     cols = [(c, lbl) for c, lbl in DISPLAY_COLS if c in result.columns]
     rows = []
@@ -975,6 +1063,8 @@ def screen(date: str, selected_keys: list[str],
                 row[c] = bool(v)
             else:
                 row[c] = "" if pd.isna(v) else str(v)
+        row["reso_dims"] = {"sector": bool(r["reso_sector"]), "money": bool(r["reso_money"]),
+                            "entry": bool(r["reso_entry"]), "fund": bool(r["reso_fund"])}
         rows.append(row)
 
     return {
