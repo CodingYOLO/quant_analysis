@@ -15,6 +15,10 @@
   .turn { background:#f6465d; color:#fff; font-weight:700; padding:1px 7px; border-radius:5px; font-size:11px; }
   .divtag { font-size:11px; font-weight:600; padding:1px 7px; border-radius:5px; }
   .div-ambush { background:#12271b; color:#5dd5c4; } .div-top { background:#3b1a1a; color:#f6465d; }
+  .fhead, .mgrid { display:grid; grid-template-columns:80px 176px 78px 54px 1fr; gap:10px; align-items:center; }
+  .fhead { font-size:10px; color:#6b7280; padding:2px 0 5px; border-bottom:1px solid #22263a; margin-bottom:2px; }
+  .mgrid { font-size:12px; padding:4px 0; border-bottom:1px solid #16192a; }
+  .bar { height:13px; border-radius:3px; flex:none; }
   .sigcard { border:1px solid #6b2a2a; border-left:4px solid #f6465d; border-radius:10px; padding:12px 14px; margin-bottom:10px; background:#17111490; }
   .avoid { background:#f6465d; color:#fff; font-size:12px; font-weight:700; padding:3px 9px; border-radius:6px; white-space:nowrap; }
   .refcard { border:1px solid #5a4018; border-left:4px solid #f0a020; border-radius:10px; padding:10px 12px; margin-bottom:8px; background:#0f1117; }
@@ -73,28 +77,39 @@ const fmt = (v, s) => v == null ? '<span class="flat">·</span>'
 const arrowCol = a => (a === '↑' || a === '↗') ? '#f6465d' : ((a === '↓' || a === '↘') ? '#2ebd85' : '#9ca3af');
 const pc = p => p == null ? '·' : '<b style="color:' + (p >= 60 ? '#f6465d' : (p >= 30 ? '#f0a020' : '#2ebd85')) + '">' + p + '</b>';
 
+// 有正负号·颜色只承担语义(红涨绿跌·空=灰)。用于近5涨等价格列。
+function fmtSigned(v, unit) {
+  if (v == null) return '<span style="color:#5b6070">·</span>';
+  const c = v > 0 ? '#f6465d' : (v < 0 ? '#2ebd85' : '#8890a0');
+  return '<span style="color:' + c + '">' + (v > 0 ? '+' : '') + v + (unit || '') + '</span>';
+}
 function macroRow(name, v, maxPen) {
-  const pen = v.pen15, cum = v.cum15, m = v.margin || {}, dv = v.diverge || {};
-  const w = Math.max(2, Math.round(Math.abs(pen || 0) / maxPen * 120));
-  const col = (pen || 0) >= 0 ? '#f6465d' : '#2ebd85';
+  const pen = v.pen15 == null ? 0 : v.pen15, m = v.margin || {}, dv = v.diverge || {};
+  const inflow = pen > 0;
+  const w = Math.max(3, Math.round(Math.abs(pen) / maxPen * 144));    // 条越长=|渗透|越大(多为流出)
+  const barCol = inflow ? '#f6465d' : '#3a3f52';                       // 流入=红·流出=中性深灰(不用绿·避免与红箭头打架)
+  const penTxt = '<span style="font-size:10.5px;color:' + (inflow ? '#f6465d' : '#8890a0') + '">' + (pen >= 0 ? '+' : '') + pen + '%</span>';
+  // 边际分主次：真转流入(一阶转正·strong)醒目红标；其余低调灰箭头；无→占位符
   const marg = m.strong
     ? '<span class="turn">' + m.arrow + ' ' + m.text + '</span>'
-    : '<span style="color:' + arrowCol(m.arrow) + '">' + (m.arrow || '') + ' ' + (m.text || '') + '</span>';
-  const div = dv.tag === '暗流' ? '<span class="divtag div-ambush">🌊 ' + dv.text + '</span>'
-    : (dv.tag === '顶背离' ? '<span class="divtag div-top">⚠ ' + dv.text + '</span>' : '');
-  return '<div class="frow"><span style="width:66px;text-align:right;color:#c2c8de">' + name + '</span>'
-    + '<span class="mbar" style="width:' + w + 'px;background:' + col + '"></span>'
-    + '<span style="color:' + col + ';width:88px">渗透' + (pen >= 0 ? '+' : '') + pen + '%</span>'
-    + '<span class="neu" style="width:78px">' + (cum >= 0 ? '+' : '') + cum + '亿</span>'
-    + '<span style="width:74px">近5涨 ' + fmt(v.price5, true) + '%</span>'
-    + marg + div + '</div>';
+    : (m.arrow ? '<span style="color:#787e92;font-size:11px">' + m.arrow + ' ' + m.text + '</span>' : '<span style="color:#4b5163">—</span>');
+  const div = dv.tag ? ' <span class="divtag div-' + (dv.tag === '暗流' ? 'ambush' : 'top') + '">' + dv.text + '</span>' : '';
+  return '<div class="mgrid">'
+    + '<span style="color:' + (inflow ? '#f6465d' : '#c2c8de') + (inflow ? ';font-weight:700' : '') + '">' + name + '</span>'
+    + '<span style="display:flex;align-items:center;gap:6px"><span class="bar" style="width:' + w + 'px;background:' + barCol + '"></span>' + penTxt + '</span>'
+    + '<span style="text-align:right;color:#9aa0b4">' + (v.cum15 >= 0 ? '+' : '') + v.cum15 + '亿</span>'
+    + '<span style="text-align:right">' + fmtSigned(v.price5, '%') + '</span>'
+    + '<span>' + marg + div + '</span></div>';
+}
+function ftableHead() {
+  return '<div class="fhead"><span>板块</span><span>渗透率（流入=红·条长=|净流|）</span><span style="text-align:right">15日净额</span><span style="text-align:right">近5涨</span><span>边际</span></div>';
 }
 function renderFlow(fm) {
   const M = Object.entries(fm.macro), C = Object.entries(fm.cap);
   const maxM = Math.max(...M.map(([, v]) => Math.abs(v.pen15 || 0)), 0.001);
-  document.getElementById('macrobars').innerHTML = M.map(([n, v]) => macroRow(n, v, maxM)).join('');
+  document.getElementById('macrobars').innerHTML = ftableHead() + M.map(([n, v]) => macroRow(n, v, maxM)).join('');
   const maxC = Math.max(...C.map(([, v]) => Math.abs(v.pen15 || 0)), 0.001);
-  document.getElementById('capbars').innerHTML = C.map(([n, v]) => macroRow(n, v, maxC)).join('');
+  document.getElementById('capbars').innerHTML = ftableHead() + C.map(([n, v]) => macroRow(n, v, maxC)).join('');
 }
 
 let VERDICT = {};
