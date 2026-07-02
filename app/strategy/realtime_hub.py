@@ -340,9 +340,25 @@ def build_board_cached() -> dict:
     with _BOARD_CLOCK:
         if c["data"] is not None and time.time() - c["ts"] < _BOARD_TTL:   # 双检·避免并发重复算
             return c["data"]
-        c["data"] = build_board()
+        c["data"] = _json_safe(build_board())     # 清洗 NaN/Inf·一个坏数据不再拖垮整个响应
         c["ts"] = time.time()
         return c["data"]
+
+
+def _json_safe(obj):
+    """递归把 NaN/Inf 浮点替换为 None，保证 board 一定能 JSON 序列化（比替 0 诚实）。
+
+    根因：全市场比率字段偶发 NaN（如低量除零、`NaN or 0` 因 NaN 为 truthy 仍得 NaN），
+    而 FastAPI 序列化整份响应时一个 NaN 就抛 'Out of range float'，导致整个盯盘看板白屏。
+    """
+    import math
+    if isinstance(obj, float):
+        return obj if math.isfinite(obj) else None
+    if isinstance(obj, dict):
+        return {k: _json_safe(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_json_safe(v) for v in obj]
+    return obj
 
 
 def build_board() -> dict:
