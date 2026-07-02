@@ -76,6 +76,89 @@ def evaluate_wyckoff_phases(end: str, window: int = 25, min_circ_yi: float = 80.
     }
 
 
+def evaluate_double_bottom(end: str, window: int = 30, min_circ_yi: float = 80.0) -> dict:
+    """双底事件研究 + 正交化代理：双底事件前向收益 vs 基准，并拆'双底∩SOS'与'双底\\SOS'——
+    若'双底但非SOS突破'的前向收益≈基准，则双底的增量**全来自它是突破(SOS)**=共线·不值得单列。"""
+    provider = CompositeProvider()
+    close_m, open_m, high_m, low_m, vol_m = load_price_matrix(end, provider, n_days=window + 130)
+    idx = list(close_m.index)
+    dates_ext = _dates_with_forward(provider, idx[0], end)
+    get_daily = _make_daily_loader(provider)
+    universe = _liquid_universe(provider, end, min_circ_yi, set(close_m.columns))
+    names = _name_map(provider)
+    sig_dates = [d for d in idx[-window:] if d in dates_ext]
+
+    keys = ("双底(全部)", "双底∩SOS突破", "双底但非SOS", "基准(全液)")
+    b = {k: {h: [] for h in (1, 5, 10, 20)} for k in keys}
+    n_db = n_overlap = 0
+    for d in sig_dates:
+        pos, d_ext = idx.index(d), dates_ext.index(d)
+        for code in universe:
+            fwd = _fwd_multi(code, d_ext, dates_ext, get_daily)
+            if not fwd:
+                continue
+            _push_h(b["基准(全液)"], fwd)
+            if not _is_double_bottom(code, pos, close_m, low_m, vol_m):
+                continue
+            n_db += 1
+            _push_h(b["双底(全部)"], fwd)
+            is_sos = _phase_at(code, pos, close_m, high_m, low_m, vol_m, names.get(code, "")) == "SOS突破"
+            if is_sos:
+                n_overlap += 1
+                _push_h(b["双底∩SOS突破"], fwd)
+            else:
+                _push_h(b["双底但非SOS"], fwd)
+
+    return {
+        "ok": True, "end": end, "window": len(sig_dates), "universe": len(universe),
+        "n_double_bottom": n_db, "overlap_with_sos": n_overlap,
+        "overlap_rate": round(n_overlap / n_db * 100, 1) if n_db else None,
+        "buckets": {k: {f"t{h}": _agg(b[k][h]) for h in (1, 5, 10, 20)} for k in keys},
+        "note": ("买入=次日T+1开盘·point-in-time·涨停量剔。正交化代理:'双底但非SOS'若≈基准→双底增量全来自突破(共线)。"
+                 "小样本(n<30)不足信。严格CAR/回归残差/中性化需因子研究引擎(未建·不造假)。"),
+    }
+
+
+def _fwd_multi(code, d_idx, dates, get_daily) -> dict | None:
+    """T+1开盘买入·T+{1,5,10,20}收盘相对买入价(事件研究多期·同系统口径)。"""
+    if d_idx + 1 >= len(dates):
+        return None
+    t1_df = get_daily(dates[d_idx + 1])
+    if t1_df is None or code not in t1_df.index:
+        return None
+    entry = float(t1_df.loc[code, "open"])
+    if entry <= 0:
+        return None
+    out = {}
+    for h in (1, 5, 10, 20):
+        j = d_idx + h
+        df_h = get_daily(dates[j]) if j < len(dates) else None
+        if df_h is None or code not in df_h.index:
+            out[h] = None
+            continue
+        ex = float(df_h.loc[code, "close"])
+        out[h] = round((ex - entry) / entry * 100, 3) if ex > 0 else None
+    return out
+
+
+def _push_h(b: dict, fwd: dict) -> None:
+    for h in (1, 5, 10, 20):
+        if fwd.get(h) is not None:
+            b[h].append(fwd[h])
+
+
+def _is_double_bottom(code, pos, close_m, low_m, vol_m) -> bool:
+    try:
+        s = pd.to_numeric(close_m[code].iloc[:pos + 1], errors="coerce").dropna()
+        if len(s) < 40:
+            return False
+        lo = pd.to_numeric(low_m[code], errors="coerce").reindex(s.index)
+        v = pd.to_numeric(vol_m[code], errors="coerce").reindex(s.index)
+        return W.detect_double_bottom(s, lo, v, 90)
+    except Exception:
+        return False
+
+
 def _index_close(provider, end: str) -> pd.Series:
     """上证收盘序列(index=trade_date str·升序)·判市场 regime 用。"""
     df = provider.get_index_daily("000001.SH", end)

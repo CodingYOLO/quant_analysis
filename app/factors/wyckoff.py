@@ -136,6 +136,32 @@ def false_breakout(close: pd.Series, high: pd.Series, lookback: int = 60,
     return broke and back_in
 
 
+def detect_double_bottom(close: pd.Series, low: pd.Series, vol: pd.Series, lookback: int = 90,
+                         tol: float = 0.04, break_buf: float = 0.02, min_gap: int = 15) -> bool:
+    """双底突破（并入突破族·非独立alpha）：近 lookback 日两个等低谷(间隔>min_gap)+第二谷缩量二次探底+收盘突破颈线。"""
+    close, low, vol = _clean(close), _clean(low), _clean(vol)
+    if len(close) < min_gap + 10:
+        return False
+    lo = low.tail(lookback).to_numpy()
+    c = close.tail(lookback)
+    if len(lo) < min_gap + 10:
+        return False
+    troughs = [i for i in range(2, len(lo) - 2)
+               if lo[i] <= lo[i - 1] and lo[i] <= lo[i - 2] and lo[i] <= lo[i + 1] and lo[i] <= lo[i + 2]]
+    if len(troughs) < 2:
+        return False
+    p1, p2 = troughs[-2], troughs[-1]
+    if p2 - p1 < min_gap:
+        return False
+    if abs(lo[p2] - lo[p1]) / lo[p1] > tol:                   # 两谷不等低
+        return False
+    v = vol.tail(lookback).to_numpy()
+    if v[max(0, p2 - 2):p2 + 1].mean() >= v[max(0, p1 - 2):p1 + 1].mean():  # 第二谷未缩量
+        return False
+    neckline = float(c.iloc[p1:p2 + 1].max())                 # 两谷间最高收盘=颈线
+    return float(c.iloc[-1]) > neckline * (1 + break_buf)     # 收盘突破颈线
+
+
 def wyckoff_phase(close: pd.Series, high: pd.Series, low: pd.Series, vol: pd.Series,
                   limit_mask: pd.Series | None = None) -> str:
     """威科夫阶段标签（门控用·现象描述非买卖建议）：派发破位 / SOS突破 / Spring / 吸筹候选 / —。"""

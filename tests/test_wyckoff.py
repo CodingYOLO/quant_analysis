@@ -14,8 +14,8 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.factors.wyckoff import (  # noqa: E402
-    box_age, detect_double_top, false_breakout, near_high, obv_divergence,
-    obv_series, obv_slope_norm, squeeze_pctile, wyckoff_phase,
+    box_age, detect_double_bottom, detect_double_top, false_breakout, near_high,
+    obv_divergence, obv_series, obv_slope_norm, squeeze_pctile, wyckoff_phase,
 )
 
 
@@ -156,6 +156,20 @@ def test_false_breakout() -> None:
     close2 = _ser(box + [20.6, 21.0, 21.5])
     _assert(false_breakout(close2, close2 + 0.1, 60, 3) is False, "突破守住不应判假突破")
     print("  ✓ 假突破UT：突破后跌回=True·守住=False")
+
+
+def test_double_bottom() -> None:
+    down = [20 - i * 0.5 for i in range(20)]       # 跌到第一底 ~10.5
+    up = [10.5 + i * 0.4 for i in range(12)]        # 反弹到颈线 ~15
+    down2 = [15 - i * 0.45 for i in range(10)]       # 二次探底 ~10.5(等低)
+    brk = [10.5 + i * 0.6 for i in range(12)]        # 放量突破颈线
+    close = _ser(down + up + down2 + brk)
+    low = close - 0.1
+    vol = _ser([200] * 20 + [100] * 12 + [90] * 10 + [100] * 12)   # 第二底缩量(90<200)
+    _assert(detect_double_bottom(close, low, vol, lookback=90) is True, "清晰双底+破颈线应=True")
+    mono = _ser([20 - i * 0.2 for i in range(70)])   # 单边下跌无双底
+    _assert(detect_double_bottom(mono, mono - 0.1, _ser([100] * 70)) is False, "单边跌不应误判双底")
+    print("  ✓ 双底：清晰双底破颈线=True·单边跌=False")
 
 
 def test_boundary() -> None:
