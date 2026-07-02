@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+{% block title %}人气反转选股 — A股Agent{% endblock %}
+
+{% block extra_style %}
+h1 { font-size:22px; text-align:center; margin-bottom:4px; }
+.sub { text-align:center; color:#9ca3af; font-size:12.5px; margin-bottom:12px; }
+.up { color:#f6465d; } .down { color:#2ebd85; } .neu2 { color:#9ca3af; }
+.method { background:#141b12; border:1px solid #2a4020; border-radius:10px; padding:12px 15px; margin-bottom:12px; font-size:12.5px; line-height:1.75; color:#cdd6f4; }
+.method b { color:#3ddc97; }
+.disc { background:#241015; border:1px solid #4a2020; border-radius:9px; padding:10px 14px; margin-bottom:12px; font-size:12px; line-height:1.7; color:#f0a8a8; }
+.bar { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:12px; }
+.btn { font-size:13px; color:#cdd6f4; cursor:pointer; padding:7px 15px; border-radius:8px; border:1px solid #3358e0; background:transparent; }
+.btn.primary { background:#2742a8; color:#fff; }
+.btn:disabled { opacity:.55; cursor:wait; }
+label.sw { font-size:12.5px; color:#9ca3af; display:flex; align-items:center; gap:6px; cursor:pointer; }
+.tier-h { font-size:14px; font-weight:700; margin:16px 0 8px; }
+.tier-h.best { color:#f6c343; } .tier-h.steady { color:#7c9ef8; }
+.card { background:#1a1d2e; border:1px solid #2d3052; border-radius:10px; padding:12px 14px; margin-bottom:10px; }
+.card .top { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+.card .nm { font-size:15px; font-weight:700; color:#e8e8e8; cursor:pointer; }
+.card .nm:hover { color:#7c9ef8; }
+.card .code { color:#6b7280; font-size:12px; }
+.zpill { display:inline-block; padding:1px 8px; border-radius:6px; font-size:11px; font-weight:600; }
+.zpill.in { background:#0e2a1a; color:#3ddc97; border:1px solid #1a5a38; }
+.zpill.watch { background:#3a2c08; color:#f6c343; border:1px solid #6b5410; }
+.zpill.na { background:#161929; color:#6b7280; border:1px solid #242842; }
+.traj { display:flex; gap:16px; flex-wrap:wrap; margin-top:8px; font-size:12.5px; color:#cdd6f4; }
+.traj .k { color:#9ca3af; } .traj .v { font-weight:700; color:#e8e8e8; }
+.reasons { margin-top:7px; }
+.rt { display:inline-block; font-size:11px; padding:1px 7px; border-radius:6px; margin:2px 5px 2px 0; background:#161929; border:1px solid #242842; color:#b7c0e0; }
+.empty { background:#161929; border:1px dashed #2d3052; border-radius:10px; padding:20px; color:#9ca3af; font-size:13px; line-height:1.8; }
+.empty b { color:#7c9ef8; }
+.loading { color:#9ca3af; font-size:13px; padding:16px; }
+{% endblock %}
+
+{% block content %}
+<h1>🔥 人气反转选股</h1>
+<div class="sub">曾火 → 洗盘冷落 → 人气拐头回升 + 关键位双确认 · 对标吴川/稳智「人气榜买入法」，但每档可溯源 · 仅供研究，不构成投资建议</div>
+
+<div class="method">
+  <b>🎯 选法</b>：东财个股人气排名轨迹——① 近2周<b>进过Top100</b>(峰值·曾是焦点) → ② 被洗盘<b>跌到300-800名</b>(谷值·弱手清出) → ③ 人气<b>拐头回升</b>(排除回升太快) → ④ 流通≥80亿 → ⑤ <b>叠加我们的关键位</b>：现价回踩到入局区间/警戒带(技术双确认)。
+</div>
+<div class="disc">
+  ⚠️ <b>诚实提示</b>：人气=散户关注度(自选/浏览)，<b>非资金、非龙虎榜真钱</b>。这是「关注度反转」的概率倾斜，<b>不是涨停预测</b>——阈值(80亿/300-800/回升区间)取自稳智公开口径，<b>待用我们自己回测校准</b>。候选=关注池，最终由你拍板，风险自担。
+</div>
+
+<div class="bar">
+  <button class="btn primary" id="run">🔎 扫描候选</button>
+  <label class="sw"><input type="checkbox" id="tech" checked> 叠加关键位双确认</label>
+  <a class="btn" href="/api/hotrank/detail-script" title="在你家电脑跑·拉每票人气历史名次(能到300-800名)→推服务器">⬇️ 家用同步脚本</a>
+  <span id="meta" class="neu2" style="font-size:11.5px"></span>
+</div>
+
+<div id="out"><div class="loading">点「扫描候选」开始（先确保已跑过家用同步脚本或已积累每日快照）</div></div>
+{% endblock %}
+
+{% block extra_script %}
+<script>
+const $=id=>document.getElementById(id);
+function esc(s){ return (s==null?'':String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+const ZST={in:'✅ 入局区间内',watch:'🟡 警戒带·可蹲守',na:'—'};
+
+async function run(){
+  const tech=$('tech').checked;
+  $('run').disabled=true; $('out').innerHTML='<div class="loading">⏳ 扫描中（取人气轨迹→补流通市值→算关键位双确认，约数十秒）…</div>';
+  try{
+    const j=await (await fetch('/api/hot-reversal?require_tech='+(tech?1:0))).json();
+    $('run').disabled=false;
+    if(!j.ok){ $('out').innerHTML='<div class="empty">❌ '+esc(j.msg||'失败')+'</div>'; return; }
+    $('meta').textContent='人气轨迹 '+j.n_traj+' 只 · 预筛 '+(j.n_pre??'—')+' · 命中 '+(j.candidates||[]).length+' 只';
+    render(j);
+  }catch(e){ $('run').disabled=false; $('out').innerHTML='<div class="empty">❌ '+esc(e)+'</div>'; }
+}
+
+function render(j){
+  if(!j.n_traj){ $('out').innerHTML='<div class="empty">还没有人气轨迹数据。<br>请先在你家电脑跑 <b>家用同步脚本</b>（上面按钮下载）拉取每票人气历史名次，或等每日快照积累约2周。<br>脚本首次运行会打印一只票的返回样例——把它发我，我核对列名。</div>'; return; }
+  const cands=j.candidates||[];
+  if(!cands.length){ $('out').innerHTML='<div class="empty">本轮无命中候选（'+j.n_traj+' 只轨迹里没有同时满足 曾火→洗盘→拐头回升+双确认 的票）。<br>可取消「双确认」放宽看纯人气版，或等更多轨迹积累。</div>'; return; }
+  let h='';
+  const best=j.best||[], steady=j.steady||[];
+  if(best.length) h+='<div class="tier-h best">🏆 最佳候选（回升明确·'+best.length+'）</div>'+best.map(card).join('');
+  if(steady.length) h+='<div class="tier-h steady">🌱 稳健候选（刚拐头·'+steady.length+'）</div>'+steady.map(card).join('');
+  $('out').innerHTML=h;
+}
+
+function card(c){
+  const zs=c.tech_state||'na', z=c.entry_zone;
+  const pill='<span class="zpill '+(zs==='in'?'in':(zs==='watch'?'watch':'na'))+'">'+(ZST[zs]||zs)+'</span>';
+  const zone=z?(' 入局 '+z.low+'~'+z.high):'';
+  const reasons=(c.reasons||[]).map(r=>'<span class="rt">'+esc(r)+'</span>').join('');
+  return '<div class="card"><div class="top">'
+    +'<span class="nm" onclick="location.href=\'/stock?code='+esc(c.code)+'\'">'+esc(c.name||c.code)+'</span>'
+    +'<span class="code">'+esc(c.code)+'</span>'+pill+'<span class="neu2" style="font-size:11.5px">'+esc(zone)+'</span>'
+    +(c.signal?'<span class="rt" style="border-color:#5a4018;color:#f0a020">'+esc(c.signal)+'</span>':'')+'</div>'
+    +'<div class="traj"><span><span class="k">峰值</span> <span class="v">#'+c.peak_rank+'</span></span>'
+    +'<span><span class="k">谷值</span> <span class="v">#'+c.trough_rank+'</span></span>'
+    +'<span><span class="k">当前</span> <span class="v">#'+c.cur_rank+'</span></span>'
+    +'<span><span class="k">回升</span> <span class="v up">↑'+c.recover+'位</span></span>'
+    +(c.float_mv_yi?'<span><span class="k">流通</span> <span class="v">'+c.float_mv_yi+'亿</span></span>':'')+'</div>'
+    +'<div class="reasons">'+reasons+'</div></div>';
+}
+$('run').onclick=run;
+</script>
+{% endblock %}

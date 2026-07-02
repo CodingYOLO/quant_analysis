@@ -8,12 +8,14 @@ from __future__ import annotations
 
 import datetime
 import json
+import logging
 import time
 from pathlib import Path
 
 from app.config import get_settings
 from app.data.composite_provider import CompositeProvider
 
+logger = logging.getLogger(__name__)
 _CACHE: dict[str, tuple[float, list]] = {}
 
 
@@ -34,6 +36,11 @@ def save_hot_disk(kind: str, rows: list[dict], source: str = "本地同步") -> 
     payload = {"rows": rows, "ts": time.time(),
                "as_of": datetime.datetime.now().strftime("%m-%d %H:%M:%S"), "source": source}
     _hot_disk(f"hot_{kind}").write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    try:                                        # 顺带落每日快照·自建人气轨迹(供人气反转选股)·失败不影响主流程
+        from app.strategy import db
+        db.log_hot_rank(kind, rows)
+    except Exception:
+        logger.debug("[hot] 人气轨迹落库失败(不影响热榜)", exc_info=True)
     return len(rows)
 
 

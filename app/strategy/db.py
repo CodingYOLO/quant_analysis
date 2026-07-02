@@ -269,6 +269,16 @@ def init_db() -> None:
                 points        REAL, direction_right INTEGER,
                 created_at    TEXT DEFAULT (datetime('now','localtime'))
             );
+            -- 人气榜每日快照(自建轨迹·算峰值/谷值/回升)。kind: rank人气/up飙升
+            CREATE TABLE IF NOT EXISTS hot_rank_log (
+                trade_date  TEXT NOT NULL,
+                kind        TEXT NOT NULL DEFAULT 'rank',
+                code        TEXT NOT NULL,      -- 6位代码
+                name        TEXT,
+                rank        INTEGER,            -- 当日名次(越小越火)
+                rank_chg    INTEGER,            -- 较昨日名次变动
+                PRIMARY KEY (trade_date, kind, code)
+            );
         """)
         # 旧库幂等补列（CREATE TABLE IF NOT EXISTS 不会给已存在的表加列）
         existing = {row[1] for row in con.execute("PRAGMA table_info(stock_pool)")}
@@ -949,3 +959,84 @@ def delete_chat_session(session_id: int) -> bool:
     with _conn() as con:
         con.execute("DELETE FROM chat_messages WHERE session_id=?", (session_id,))
         return con.execute("DELETE FROM chat_sessions WHERE id=?", (session_id,)).rowcount > 0
+
+
+# ──────────────────────────────────────────────
+# 人气榜每日快照（自建轨迹·供人气反转选股算峰值/谷值/回升）
+# ──────────────────────────────────────────────
+
+def log_hot_rank(kind: str, rows: list[dict], trade_date: str | None = None) -> int:
+    """把人气/飙升榜快照落到 hot_rank_log（幂等·同日同票覆盖）。返回写入条数。
+
+    两条路径共用：
+      · 自建路径：每交易日的当日榜 rows=[{code,name,rank,rank_chg?}]，trade_date 缺省=当天。
+      · 详情API路径(家用脚本)：一次推多票多日历史，**每行自带 trade_date**（覆盖 day 参数）。
+    """
+    import datetime
+    if not rows:
+        return 0
+    fallback = trade_date or datetime.date.today().strftime("%Y%m%d")
+    init_db()
+    n = 0
+    with _conn() as con:
+        for r in rows:
+            code = str(r.get("code") or "").zfill(6)
+            if not code or code == "000000":
+                continue
+            day = str(r.get("trade_date") or fallback)
+            con.execute(
+                """INSERT OR REPLACE INTO hot_rank_log (trade_date, kind, code, name, rank, rank_chg)
+                   VALUES (?,?,?,?,?,?)""",
+                (day, kind, code, r.get("name"), _int_or_none(r.get("rank")),
+                 _int_or_none(r.get("rank_chg"))),
+            )
+            n += 1
+    return n
+
+
+def hot_rank_trajectory(kind: str = "rank", days: int = 14) -> list[dict]:
+    """从自建日志聚合每票近 N 日人气轨迹：当前/峰值(最小名次)/谷值(最大名次)/回升。
+
+    仅覆盖曾进榜(被记录)的票；未进当日榜的天缺失 → 谷值为"被记录到的最差名次"(偏乐观·会低估洗盘深度)，
+    故自建轨迹只作近似，精确 300-800 需家用详情API路径。返回 [{code,name,cur_rank,peak_rank,trough_rank,days_seen}]。
+    """
+    init_db()
+    with _conn() as con:
+        rows = [dict(r) for r in con.execute(
+            """SELECT code, name, rank, trade_date FROM hot_rank_log
+               WHERE kind = ? AND trade_date IN (
+                   SELECT DISTINCT trade_date FROM hot_rank_log
+                   WHERE kind = ? ORDER BY trade_date DESC LIMIT ?)
+               ORDER BY code, trade_date""",
+            (kind, kind, int(days))).fetchall()]
+    return _agg_hot_trajectory(rows)
+
+
+def _agg_hot_trajectory(rows: list[dict]) -> list[dict]:
+    """聚合成每票轨迹（纯函数·可测）。名次越小越火：峰值=min rank·谷值=max rank·当前=最新日 rank。"""
+    by: dict[str, dict] = {}
+    for r in rows:
+        code = r.get("code")
+        rk = r.get("rank")
+        if not code or rk is None:
+            continue
+        g = by.setdefault(code, {"code": code, "name": r.get("name"),
+                                 "ranks": [], "last_date": "", "last_rank": None})
+        g["ranks"].append(int(rk))
+        if str(r.get("trade_date") or "") >= g["last_date"]:
+            g["last_date"], g["last_rank"], g["name"] = str(r.get("trade_date")), int(rk), r.get("name")
+    out = []
+    for g in by.values():
+        if not g["ranks"]:
+            continue
+        out.append({"code": g["code"], "name": g["name"], "cur_rank": g["last_rank"],
+                    "peak_rank": min(g["ranks"]), "trough_rank": max(g["ranks"]),
+                    "days_seen": len(g["ranks"])})
+    return out
+
+
+def _int_or_none(v):
+    try:
+        return int(v) if v is not None and str(v).strip() not in ("", "nan") else None
+    except (TypeError, ValueError):
+        return None

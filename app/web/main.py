@@ -1083,6 +1083,65 @@ async def api_market_sync_script(_user: str = Depends(require_auth)):
                     headers={"Content-Disposition": "attachment; filename=local_hotrank_sync.py"})
 
 
+@app.post("/api/hotrank/history/ingest")
+async def api_hotrank_history_ingest(request: Request, _user: str = Depends(require_auth)):
+    """接收家用详情API脚本推的【个股人气排名历史】(每行自带 trade_date)→落 hot_rank_log。"""
+    try:
+        from app.strategy import db
+        b = await request.json()
+        rows = b.get("rows") or []
+        kind = b.get("kind") or "rank"
+        if not rows:
+            return {"ok": False, "msg": "空 rows", "saved": 0}
+        n = db.log_hot_rank(kind, rows)
+        return {"ok": bool(n), "saved": n}
+    except Exception as e:
+        logger.exception("人气历史同步接收失败")
+        return {"ok": False, "msg": str(e)}
+
+
+@app.get("/api/hotrank/universe")
+async def api_hotrank_universe(_user: str = Depends(require_auth)):
+    """给家用脚本的扫描清单：自选 + 产业链龙头（我们真正在盯的票·6位代码）。"""
+    try:
+        from app.strategy import db, tech_chain
+        codes = set(tech_chain._all_codes())
+        for w in db.get_watchlist():
+            c = str(w.get("ts_code") or "").split(".")[0]
+            if c:
+                codes.add(c)
+        return {"ok": True, "codes": sorted(codes), "n": len(codes)}
+    except Exception as e:
+        logger.exception("人气扫描清单失败")
+        return {"ok": False, "msg": str(e), "codes": []}
+
+
+@app.get("/api/hot-reversal")
+async def api_hot_reversal(require_tech: bool = True, days: int = 14,
+                           _user: str = Depends(require_auth)):
+    """人气榜反转选股候选池（曾火→洗盘→拐头回升·叠加关键位双确认·线程池）。"""
+    try:
+        from fastapi.concurrency import run_in_threadpool
+
+        from app.data.composite_provider import CompositeProvider
+        from app.strategy.hot_reversal import run_screen
+        return await run_in_threadpool(run_screen, CompositeProvider(), "rank", int(days),
+                                       {"require_tech": bool(require_tech)})
+    except Exception as e:
+        logger.exception("人气反转选股失败")
+        return {"ok": False, "msg": str(e)}
+
+
+@app.get("/api/hotrank/detail-script")
+async def api_hotrank_detail_script(_user: str = Depends(require_auth)):
+    """下载家用【详情API同步脚本】：在家电脑跑·拉每票人气历史名次→推服务器(即时算峰值/谷值/回升)。"""
+    from fastapi.responses import Response
+
+    from app.strategy.hot_reversal import DETAIL_SYNC_SCRIPT
+    return Response(content=DETAIL_SYNC_SCRIPT, media_type="text/x-python",
+                    headers={"Content-Disposition": "attachment; filename=hotrank_detail_sync.py"})
+
+
 @app.get("/api/market/news")
 async def api_market_news(n: int = 50, _user: str = Depends(require_auth)):
     """7×24 快讯（财联社电报·降级东财·线程池·3分钟缓存）。"""
@@ -1554,6 +1613,13 @@ async def api_concept_detail(date: str = "", code: str = "", _user: str = Depend
 async def insight_page(request: Request, _user: str = Depends(require_auth)):
     """产业认知教练：数据接地的认知卡片 + 练习反馈 + 自由探讨。"""
     return templates.TemplateResponse(request=request, name="industry_insight.html", context={"page": "insight"})
+
+
+@app.get("/hotpicks", response_class=HTMLResponse)
+async def hotpicks_page(request: Request, _user: str = Depends(require_auth)):
+    """🔥 人气反转选股：曾火→洗盘→拐头回升 + 关键位双确认（对标吴川/稳智人气榜买入法）。"""
+    return templates.TemplateResponse(request=request, name="hotpicks.html",
+                                      context={"page": "hotpicks"})
 
 
 @app.get("/screener", response_class=HTMLResponse)
