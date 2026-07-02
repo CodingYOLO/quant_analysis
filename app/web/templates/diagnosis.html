@@ -8,30 +8,36 @@
   .t-signal { background:#3b1a1a; color:#f6465d; border:1px solid #6b2a2a; }
   .t-reference { background:#2a2410; color:#f0a020; border:1px solid #5a4018; }
   .t-descriptive { background:#1a1d2e; color:#9ca3af; border:1px solid #2d3052; }
-  .drow { border:1px solid #22263a; border-radius:10px; padding:10px 12px; margin-bottom:8px; background:#0f1117; cursor:pointer; }
-  .drow.signal { border-left:3px solid #f6465d; }
-  .drow.reference { border-left:3px solid #f0a020; }
   .up { color:#f6465d; } .down { color:#2ebd85; } .flat { color:#9ca3af; }
-  .mabar { display:inline-block; height:6px; border-radius:3px; vertical-align:middle; }
   .kv { font-size:12px; color:#c2c8de; }
-  .evid { font-size:11.5px; color:#9aa0b4; margin-top:6px; line-height:1.6; display:none; }
-  .macrobar { display:flex; align-items:center; gap:8px; margin:3px 0; font-size:12px; }
-  .mbar { height:14px; border-radius:3px; }
+  .mabar { display:inline-block; height:6px; border-radius:3px; vertical-align:middle; }
+  .macrobar { display:flex; align-items:center; gap:8px; margin:4px 0; font-size:12px; }
+  .mbar { height:15px; border-radius:3px; }
+  /* 信号卡·放大做重 */
+  .sigcard { border:1px solid #6b2a2a; border-left:4px solid #f6465d; border-radius:10px; padding:12px 14px; margin-bottom:10px; background:#17111490; }
+  .avoid { background:#f6465d; color:#fff; font-size:12px; font-weight:700; padding:3px 9px; border-radius:6px; white-space:nowrap; }
+  .refcard { border:1px solid #5a4018; border-left:4px solid #f0a020; border-radius:10px; padding:10px 12px; margin-bottom:8px; background:#0f1117; }
+  .malabel { font-size:12px; font-weight:600; padding:2px 8px; border-radius:6px; }
+  .ma-danger { background:#3b1a1a; color:#f6465d; } .ma-warn { background:#3a2a10; color:#f0a020; }
+  .ma-ok { background:#12271b; color:#4ade80; } .ma-strong { background:#1a2b3b; color:#7c9ef8; }
+  .ma-neutral { background:#1a1d2e; color:#9ca3af; }
+  .evid { font-size:11.5px; color:#9aa0b4; margin-top:7px; line-height:1.6; }
+  .collapse-head { cursor:pointer; color:#9ca3af; font-size:12.5px; padding:8px 10px; background:#0f1117; border:1px dashed #2d3052; border-radius:8px; }
+  .comprow { display:flex; gap:12px; align-items:center; font-size:12px; padding:5px 8px; border-bottom:1px solid #1a1d2e; }
 </style>
 
 <div class="card">
   <h2 style="margin:0 0 8px">🩺 板块诊断 <span class="neu" id="ddate" style="font-size:13px"></span></h2>
   <div class="disc">
     ⏰ <b>数据时点</b>：T日盘后出诊断 · 供 <b>T+1</b> 参考（资金为盘后数据·非盘中实时）。<br>
-    ⚠️ <b>可信度分层</b>：<span class="t-signal tierbadge">信号</span> 仅『顶背离』经 <b>924前后双期回测</b>（避雷/减仓用·<b>非买点</b>）；
+    ⚠️ <b>可信度分层</b>：<span class="t-signal tierbadge">信号</span> 仅『顶背离』经 <b>924前后双期回测</b>（避雷/减仓·<b>非买点</b>）；
     <span class="t-reference tierbadge">参考</span> 『洗盘谷底』<b>仅参考</b>（比基准少亏·非买点）；
-    <span class="t-descriptive tierbadge">描述</span> 其余状态<b>未过回测·只描述现象·不作信号</b>。
-    全部<b>非买卖建议</b>，自行判断+控仓位。
+    <span class="t-descriptive tierbadge">描述</span> 其余<b>未过回测·只描述·不作信号</b>。全部<b>非买卖建议</b>。
   </div>
 </div>
 
-<div class="card" id="flowcard">
-  <h3 style="margin:0 0 4px">🗺️ 大类资金地图 <span class="neu" style="font-size:12px">近15日累计主力净流入(亿·估算·非龙虎榜)·<b>描述性·非信号</b></span></h3>
+<div class="card">
+  <h3 style="margin:0 0 4px">🗺️ 大类资金地图 <span class="neu" style="font-size:12px">多跨度累计主力净流入(亿·估算)+边际变化·<b>描述性非信号</b></span></h3>
   <div id="macrobars" style="margin-top:8px"></div>
   <div class="neu" style="font-size:11px;margin:10px 0 4px">市值分档（与行业正交·并列看）：</div>
   <div id="capbars"></div>
@@ -40,65 +46,91 @@
 <div class="card">
   <h3 style="margin:0 0 10px">📋 板块状态诊断 <span class="neu" id="dcount" style="font-size:12px"></span></h3>
   <div id="dloading" class="neu" style="font-size:13px;padding:14px">⏳ 计算当日各板块状态…（首次约20-30秒）</div>
-  <div id="dlist"></div>
+  <div id="dsig"></div>
+  <div id="dref"></div>
+  <div id="ddesc"></div>
 </div>
 
 <script>
 const fmt = (v, s) => v == null ? '<span class="flat">·</span>'
   : '<span class="' + (v > 0 ? 'up' : (v < 0 ? 'down' : 'flat')) + '">' + (s && v > 0 ? '+' : '') + v + '</span>';
-const maColor = p => p == null ? '#3a3f5c' : (p >= 60 ? '#f6465d' : (p >= 30 ? '#f0a020' : '#2ebd85'));
+const sgn = v => v == null ? '·' : (v > 0 ? '+' : '') + v;
+const arrowCol = a => (a === '↑' || a === '↗') ? '#f6465d' : ((a === '↓' || a === '↘') ? '#2ebd85' : '#9ca3af');
 
-function macroRow(name, cum, maxAbs) {
-  const w = Math.max(2, Math.round(Math.abs(cum) / maxAbs * 180));
+function macroRow(name, v, maxAbs) {
+  const cum = v.cum15, m = v.margin || {};
+  const w = Math.max(2, Math.round(Math.abs(cum) / maxAbs * 130));
   const col = cum >= 0 ? '#f6465d' : '#2ebd85';
-  return '<div class="macrobar"><span style="width:64px;text-align:right;color:#c2c8de">' + name + '</span>'
+  return '<div class="macrobar">'
+    + '<span style="width:66px;text-align:right;color:#c2c8de">' + name + '</span>'
     + '<span class="mbar" style="width:' + w + 'px;background:' + col + '"></span>'
-    + '<span style="color:' + col + '">' + (cum >= 0 ? '+' : '') + cum + '亿</span></div>';
+    + '<span style="color:' + col + ';width:74px">' + (cum >= 0 ? '+' : '') + cum + '亿</span>'
+    + '<span class="neu" style="width:150px;font-size:11px">近5:' + sgn(v.cum5) + ' 近10:' + sgn(v.cum10) + '</span>'
+    + '<span style="font-size:11px;color:' + arrowCol(m.arrow) + '">' + (m.arrow || '') + ' ' + (m.text || '') + '</span></div>';
 }
 function renderFlow(fm) {
   const M = Object.entries(fm.macro), C = Object.entries(fm.cap);
-  const maxM = Math.max(...M.map(([, v]) => Math.abs(v.cum)), 1);
-  document.getElementById('macrobars').innerHTML = M.map(([n, v]) => macroRow(n, v.cum, maxM)).join('');
-  const maxC = Math.max(...C.map(([, v]) => Math.abs(v.cum)), 1);
-  document.getElementById('capbars').innerHTML = C.map(([n, v]) => macroRow(n, v.cum, maxC)).join('');
+  const maxM = Math.max(...M.map(([, v]) => Math.abs(v.cum15)), 1);
+  document.getElementById('macrobars').innerHTML = M.map(([n, v]) => macroRow(n, v, maxM)).join('');
+  const maxC = Math.max(...C.map(([, v]) => Math.abs(v.cum15)), 1);
+  document.getElementById('capbars').innerHTML = C.map(([n, v]) => macroRow(n, v, maxC)).join('');
 }
 
-function maCell(label, p) {
-  return '<span class="kv" title="' + label + '宽度=成分站上' + label + '占比">' + label + ' '
-    + '<span class="mabar" style="width:' + (p == null ? 0 : Math.round(p / 100 * 34)) + 'px;background:' + maColor(p) + '"></span> '
-    + '<b style="color:' + maColor(p) + '">' + (p == null ? '·' : p + '%') + '</b></span>';
+function maChip(ma) { ma = ma || {}; return '<span class="malabel ma-' + (ma.level || 'neutral') + '">' + (ma.text || '—') + '</span>'; }
+function metrics(r) {
+  return '<div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:7px" class="kv">'
+    + '<span title="MA5/20/60宽度=成分站上均线占比">宽度 ' + pc(r.ma5) + '/' + pc(r.ma20) + '/' + pc(r.ma60) + '</span>'
+    + '<span>近5涨 ' + fmt(r.ret5, true) + '%</span>'
+    + '<span title="资金渗透率横截面强度">资金强度 ' + fmt(r.pen_z) + '</span>'
+    + '<span title="pen自身差分">加速度 ' + fmt(r.pen_accel) + '</span></div>';
 }
-function drow(r) {
-  const badge = '<span class="tierbadge t-' + r.tier + '">'
-    + ({ signal: '信号', reference: '参考', descriptive: '描述' }[r.tier]) + '</span>';
-  const sub = r.sub ? '<span class="neu" style="font-size:11px"> · ' + r.sub + '</span>' : '';
-  const head = '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">'
-    + badge + '<b style="font-size:14px">' + r.sector + '</b>'
-    + '<span style="color:#cdd6f4">【' + r.state + '】' + r.label + '</span>' + sub
-    + '<span class="neu" style="margin-left:auto;font-size:11px">成分' + (r.n || '·') + '</span></div>';
-  const metrics = '<div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:7px">'
-    + maCell('MA5', r.ma5) + maCell('MA20', r.ma20) + maCell('MA60', r.ma60)
-    + '<span class="kv">近5涨 ' + fmt(r.ret5, true) + '%</span>'
-    + '<span class="kv" title="资金渗透率横截面强度(z)">资金强度 ' + fmt(r.pen_z) + '</span>'
-    + '<span class="kv" title="pen自身差分·加速度">加速度 ' + fmt(r.pen_accel) + '</span></div>';
-  const evid = (r.tier !== 'descriptive' || r.post || r.pre)
-    ? '<div class="evid">📊 回测：post-924 ' + (r.post || '—') + ' ｜ ' + (r.pre || '—')
-      + (r.caveat ? '<br>⚠️ ' + r.caveat : '') + '</div>'
-    : '';
-  return '<div class="drow ' + r.tier + '" onclick="this.querySelector(\'.evid\')&&(this.querySelector(\'.evid\').style.display=this.querySelector(\'.evid\').style.display===\'block\'?\'none\':\'block\')">'
-    + head + metrics + evid + '</div>';
+const pc = p => p == null ? '·' : '<b style="color:' + (p >= 60 ? '#f6465d' : (p >= 30 ? '#f0a020' : '#2ebd85')) + '">' + p + '</b>';
+function evid(r) {
+  return '<div class="evid">📊 回测：post-924 ' + (r.post || '—') + '<br>924前 ' + (r.pre || '—')
+    + (r.caveat ? '<br>⚠️ ' + r.caveat : '') + '</div>';
+}
+
+function sigCard(r) {
+  return '<div class="sigcard"><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">'
+    + '<span class="avoid">⚠ 避开/减仓</span><b style="font-size:16px">' + r.sector + '</b>'
+    + '<span class="neu" style="font-size:12px">【顶背离·非买点】</span>' + maChip(r.ma_label)
+    + '<span class="neu" style="margin-left:auto;font-size:11px">成分' + (r.n || '·') + '</span></div>'
+    + metrics(r) + evid(r) + '</div>';
+}
+function refCard(r) {
+  return '<div class="refcard"><div style="display:flex;align-items:center;gap:9px;flex-wrap:wrap">'
+    + '<span class="t-reference tierbadge">参考</span><b style="font-size:14px">' + r.sector + '</b>'
+    + '<span class="neu" style="font-size:12px">【洗盘谷底·比基准少亏·非买点】</span>' + maChip(r.ma_label)
+    + '<span class="neu" style="margin-left:auto;font-size:11px">成分' + (r.n || '·') + '</span></div>'
+    + metrics(r) + evid(r) + '</div>';
+}
+function compRow(r) {
+  return '<div class="comprow"><b style="width:88px">' + r.sector + '</b>'
+    + '<span class="neu" style="width:110px">' + r.state + '</span>' + maChip(r.ma_label)
+    + '<span class="kv" style="margin-left:auto">近5 ' + fmt(r.ret5, true) + '% · 资金 ' + fmt(r.pen_z) + '</span></div>';
 }
 
 async function load() {
   try {
     const j = await (await fetch('/api/diagnosis')).json();
     if (!j.ok) { document.getElementById('dloading').textContent = '❌ ' + j.error; return; }
-    const d = j.data;
+    const d = j.data, rows = d.sectors;
     document.getElementById('ddate').textContent = '· 数据日 ' + d.date + ' · 全市场 ' + d.n_total + ' 个板块';
     renderFlow(d.flow_map);
-    document.getElementById('dcount').textContent = '· 展示 ' + d.sectors.length + ' 个（信号态优先·点行看回测证据）';
     document.getElementById('dloading').style.display = 'none';
-    document.getElementById('dlist').innerHTML = d.sectors.map(drow).join('');
+    const sig = rows.filter(r => r.tier === 'signal');
+    const ref = rows.filter(r => r.tier === 'reference');
+    const desc = rows.filter(r => r.tier === 'descriptive');
+    document.getElementById('dcount').textContent = '· 信号 ' + sig.length + ' · 参考 ' + ref.length + ' · 描述 ' + desc.length;
+    document.getElementById('dsig').innerHTML = sig.length
+      ? '<div class="neu" style="font-size:12px;margin:2px 0 8px">🔴 顶背离·避雷（唯一经双期验证·点看回测）</div>' + sig.map(sigCard).join('')
+      : '<div class="neu" style="font-size:12px;margin-bottom:8px">🔴 今日无顶背离避雷信号</div>';
+    document.getElementById('dref').innerHTML = ref.length
+      ? '<div class="neu" style="font-size:12px;margin:6px 0 6px">🟡 洗盘谷底·仅参考</div>' + ref.map(refCard).join('') : '';
+    document.getElementById('ddesc').innerHTML = desc.length
+      ? '<div class="collapse-head" onclick="var e=document.getElementById(\'desclist\');e.style.display=e.style.display===\'none\'?\'block\':\'none\'">⚪ 描述态 '
+        + desc.length + ' 个（未过回测·仅描述·点展开/收起）</div><div id="desclist" style="display:none;margin-top:6px">'
+        + desc.map(compRow).join('') + '</div>' : '';
   } catch (e) { document.getElementById('dloading').textContent = '❌ ' + e; }
 }
 load();

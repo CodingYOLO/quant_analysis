@@ -79,13 +79,38 @@ def build_flow_map(end: str, window: int = 15, provider: CompositeProvider | Non
         for t in CAP_NAMES:
             cap_day[t].append(round(float(gc.get(t, 0.0)), 2))
 
-    macro = {m: {"cum": round(sum(macro_day[m]), 1), "series": macro_day[m]} for m in MACROS}
-    cap = {t: {"cum": round(sum(cap_day[t]), 1), "series": cap_day[t]} for t in CAP_NAMES}
+    macro = {m: _spans(macro_day[m]) for m in MACROS}
+    cap = {t: _spans(cap_day[t]) for t in CAP_NAMES}
     return {
         "end": end, "window": len(dates), "dates": dates,
-        "macro": dict(sorted(macro.items(), key=lambda kv: -kv[1]["cum"])),   # 按累计净流入降序
-        "cap": cap,                                                           # 市值档保持大→微顺序
-        "note": ("资金地图·描述性：近N日各大类/各市值档累计主力净流入(亿·Tushare官方估算·非龙虎榜真钱)。"
-                 "行业大类与市值分档为**正交两条**(小盘电子仍计入科技·不重复计数)。"
-                 "⚠️ 仅描述资金流向·**非买卖信号**；大类轮动判断需回测验证·不入决策层。"),
+        "macro": dict(sorted(macro.items(), key=lambda kv: -kv[1]["cum15"])),  # 按近15日累计降序
+        "cap": cap,                                                            # 市值档保持大→微顺序
+        "note": ("资金地图·描述性：多跨度(近5/10/15日)各大类/各市值档累计主力净流入(亿·官方估算·非龙虎榜)。"
+                 "**边际变化**=近5日日均 vs 全期日均(看谁在改善/恶化·同诊断页'加速度'逻辑)。"
+                 "行业大类与市值分档**正交两条**·⚠️仅描述资金流向·**非买卖信号**·大类轮动需回测验证不入决策层。"),
     }
+
+
+def _spans(series: list) -> dict:
+    """逐日净流入序列 → 多跨度累计(近5/10/15日) + 边际变化(近5日日均 vs 全期日均)。"""
+    def cum(n):
+        return round(sum(series[-n:]), 1) if series else 0.0
+    return {"cum5": cum(5), "cum10": cum(10), "cum15": cum(len(series)),
+            "series": series, "margin": _margin(series)}
+
+
+def _margin(series: list) -> dict:
+    """边际变化：近5日日均 vs 全期日均 → 谁在改善/恶化。返回 {arrow, text}。"""
+    if len(series) < 8:
+        return {"arrow": "→", "text": ""}
+    cum5, cum_all = sum(series[-5:]), sum(series)
+    avg5, avg_all = cum5 / 5, cum_all / len(series)
+    if cum_all < 0 and cum5 > 0:
+        return {"arrow": "↑", "text": "全期净流出·近5日转流入"}
+    if cum_all < 0:
+        return ({"arrow": "↗", "text": "流出中·近5日收窄改善"} if avg5 > avg_all
+                else {"arrow": "↓", "text": "流出中·近5日恶化"})
+    if cum_all > 0 and cum5 < 0:
+        return {"arrow": "↓", "text": "全期净流入·近5日转流出"}
+    return ({"arrow": "↗", "text": "流入中·近5日加速"} if avg5 > avg_all
+            else {"arrow": "↘", "text": "流入中·近5日转弱"})

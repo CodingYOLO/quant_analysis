@@ -143,7 +143,7 @@ def build_diagnosis(end: str, provider: CompositeProvider | None = None, level: 
     from app.strategy.sector_attribution import build_flow_map
     from app.strategy.sector_metrics import build_features
     provider = provider or CompositeProvider()
-    cache = _cache_path("sector_diagnosis", f"{end}_{level}").with_suffix(".json")
+    cache = _cache_path("sector_diagnosis", f"{end}_{level}_v2").with_suffix(".json")  # v2: 多跨度+MA标签
     if cache.exists() and not force:
         try:
             return json.loads(cache.read_text("utf-8"))
@@ -169,6 +169,7 @@ def build_diagnosis(end: str, provider: CompositeProvider | None = None, level: 
             "label": v["label"], "sub": v["sub"], "caveat": v["caveat"],
             "post": v["post"], "pre": v["pre"],
             "ma5": _last(s, "ma5", i), "ma20": _last(s, "ma20", i), "ma60": _last(s, "ma60", i),
+            "ma_label": _ma_label(_last(s, "ma5", i), _last(s, "ma20", i), _last(s, "ma60", i)),
             "pen": _last(s, "pen", i), "pen_z": _last(s, "pen_z", i),
             "pen_accel": _last(s, "pen_accel", i), "pen_f3d": _last(s, "pen_f3d", i),
             "ret5": _ret5(s.get("pct", []), i), "net": _last(s, "net", i), "n": _last(s, "n", i),
@@ -195,6 +196,27 @@ def build_diagnosis(end: str, provider: CompositeProvider | None = None, level: 
 def _last(s: dict, key: str, i: int):
     arr = s.get(key, [])
     return arr[i] if 0 <= i < len(arr) else None
+
+
+def _ma_label(ma5, ma20, ma60) -> dict:
+    """MA5/20/60 宽度 → 合成结构判断（替用户读三个百分比）。MA20<50%=中线破位为界。
+
+    返回 {text, level}：level=danger(崩盘)/warn(分歧)/ok(洗盘中线撑)/strong(强势)/neutral。
+    """
+    if ma5 is None or ma20 is None or ma60 is None:
+        return {"text": "—", "level": "neutral"}
+    if ma20 < 50:                                                  # 中线破位
+        if ma5 < 50:
+            return {"text": "中线也破·崩盘风险", "level": "danger"}
+        return {"text": "短强中弱·中线已破", "level": "warn"}
+    # 中线完好(MA20≥50)
+    if ma5 < 30:
+        return {"text": "短线洗盘·中线完好", "level": "ok"}
+    if ma5 < 55:
+        return {"text": "短线回调·中线撑", "level": "ok"}
+    if ma60 >= 55:
+        return {"text": "多周期强势", "level": "strong"}
+    return {"text": "短中偏强·长线未跟", "level": "neutral"}
 
 
 def _zscore_cross(net_map: dict) -> dict:
