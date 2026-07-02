@@ -181,6 +181,16 @@ FACTOR_GROUPS = [
         ],
     },
     {
+        "group": "🌊 资金暗流·吸筹埋伏（资金进+价没涨·资金领先价格·对标吴川）",
+        "factors": [
+            {"key": "flow_in_today", "label": "今日主力净流入>0(估算·资金在进)", "col": "main_net_amount", "op": "gt", "val": 0},
+            {"key": "flow_price_flat", "label": "今日价没涨(≤0%·资金进价没动)", "col": "pct_chg", "op": "le", "val": 0, "pos": True},
+            {"key": "flow_lag5", "label": "5日滞涨(涨幅≤3%·价未被推动)", "col": "ret5", "op": "le", "val": 3, "pos": True},
+            {"key": "flow_consec3", "label": "主力连续净流入≥3天(估算·持续吸筹)", "col": "consec_inflow", "op": "ge", "val": 3},
+            {"key": "flow_days6", "label": "近10日净流入≥6天(估算·反复吸筹)", "col": "inflow_days_10", "op": "ge", "val": 6},
+        ],
+    },
+    {
         # K线/量价形态（由形态注册表自动生成，新增形态零侵入）
         "group": "K线形态/量价",
         "factors": [

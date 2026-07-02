@@ -39,6 +39,8 @@ _THRESHOLDS = {
     "risk_top100_pctile": 0.85,    # 拥挤：Top100 占比进入当日前 15%
     "risk_top100_floor": 10.0,     # 拥挤绝对下限（分位过低时兜底，%）
     "risk_breadth_overbought": 70.0,  # 极度超买：>70% 成分站上 MA20
+    # 资金暗流（资金领先价格·吴川"资金进+价没涨"埋伏）
+    "ambush_pct5_max": 3.0,        # 5日涨幅 < 此 = 价还没被推动（滞涨）
     # 通用
     "min_sample": 3,               # 成分过少的板块不参与诊断（统计不可靠）
 }
@@ -133,6 +135,17 @@ def _is_risk(r: dict, ctx: dict) -> bool:
     return big_run and overheated
 
 
+def _is_ambush(r: dict, ctx: dict) -> bool:
+    """资金暗流（资金领先价格）：近5日主力资金净流入(估算) 但 5日涨幅<3%（钱进了·价还没被推动），
+    且今日资金未净流出。即吴川"资金进+价没涨"的埋伏窗口。已拥挤/高位者在 _classify 排除。"""
+    t = _THRESHOLDS
+    return (
+        _num(r.get("money_flow_5d")) > 0
+        and _num(r.get("pct_chg_5d"), 99.0) < t["ambush_pct5_max"]
+        and _num(r.get("money_flow_1d"), 0.0) >= 0
+    )
+
+
 # ── 主入口 ──────────────────────────────────────────────────────────────────
 def build_sectorscope(date: str = "",
                       theme_types: tuple[str, ...] = ("industry", "concept")) -> dict:
@@ -158,7 +171,7 @@ def build_sectorscope(date: str = "",
                 "msg": f"{d} 宽表未计算（数据缺失，不展示旧/假数据）"}
 
     ctx = _build_context(rows)
-    rotate, dip, risk = _classify(rows, ctx)
+    rotate, dip, risk, ambush = _classify(rows, ctx)
     surge, decay = _stage_tops(rows)
 
     return {
@@ -169,6 +182,7 @@ def build_sectorscope(date: str = "",
             "rotate": rotate[:12],
             "dip": dip[:12],
             "risk": risk[:12],
+            "ambush": ambush[:15],   # 资金暗流（资金进+价没涨）
         },
         # 板块阶段·趋势动量（对标吴川：趋势强度 heat_score + 3日变化 Δ）
         "stage": {
@@ -212,9 +226,9 @@ def _load_rows(d: str, theme_types: tuple[str, ...]) -> list[dict]:
     ]
 
 
-def _classify(rows: list[dict], ctx: dict) -> tuple[list, list, list]:
-    """对每行打三类标签，写回 signal/signals，并分栏排序。"""
-    rotate, dip, risk = [], [], []
+def _classify(rows: list[dict], ctx: dict) -> tuple[list, list, list, list]:
+    """对每行打类别标签，写回 signal/signals，并分栏排序。返回 (rotate, dip, risk, ambush)。"""
+    rotate, dip, risk, ambush = [], [], [], []
     for r in rows:
         flags = []
         is_risk = _is_risk(r, ctx)
@@ -227,6 +241,10 @@ def _classify(rows: list[dict], ctx: dict) -> tuple[list, list, list]:
         if not is_risk and _is_dip(r, ctx):
             flags.append("低吸")
             dip.append(r)
+        # 资金暗流（资金进+价没涨）：非高位·资金领先价格
+        if not is_risk and _is_ambush(r, ctx):
+            flags.append("资金暗流")
+            ambush.append(r)
         if is_risk:
             flags.append("高位风险")
             risk.append(r)
@@ -238,4 +256,6 @@ def _classify(rows: list[dict], ctx: dict) -> tuple[list, list, list]:
     # 高位风险：拥挤度优先（更危险），同档按 5 日涨幅
     risk.sort(key=lambda r: (_num(r.get("top100_ratio")), _num(r.get("pct_chg_5d"))),
               reverse=True)
-    return rotate, dip, risk
+    # 资金暗流：近5日净流入越多越靠前（资金领先幅度）
+    ambush.sort(key=lambda r: _num(r.get("money_flow_5d")), reverse=True)
+    return rotate, dip, risk, ambush

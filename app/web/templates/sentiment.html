@@ -103,8 +103,9 @@
         </div>
         <div id="c-radar-breadth" class="chart" style="height:280px"></div>
       </div>
-      <!-- 右：三栏诊断（低吸为主）-->
+      <!-- 右：四栏诊断（资金暗流为主·对标吴川"资金进+价没涨"）-->
       <div style="font-size:13px">
+        <div id="radar-ambush"></div>
         <div id="radar-dip"></div>
         <div id="radar-rotate"></div>
         <div id="radar-risk"></div>
@@ -333,7 +334,8 @@ async function loadRadar(){
 }
 
 function radarItem(r){
-  return '<div class="radar-item" data-name="'+r.name+'"><b style="color:#c9d2f8">'+r.name
+  const star=r.watched?'<span title="你自选/持仓覆盖的板块" style="color:#f6c343">★</span> ':'';
+  return '<div class="radar-item" data-name="'+r.name+'">'+star+'<b style="color:#c9d2f8">'+r.name
     +'</b> <span class="neu" style="font-size:11px">'+r.reason+'</span></div>';
 }
 function bucketHtml(title,color,rows,emptyMsg){
@@ -346,6 +348,8 @@ function renderRadar(d){
   const sel=document.getElementById('radar-board');
   sel.innerHTML=d.boards.map(b=>'<option value="'+b.name+'">'+b.name
     +(b.signal?' ['+b.signal+']':'')+' · 热'+(b.heat_score!=null?Math.round(b.heat_score):'—')+'</option>').join('');
+  document.getElementById('radar-ambush').innerHTML=
+    bucketHtml('🌊 资金暗流·资金进+价没涨（资金领先价格·估算·非买卖建议）','#5dd5c4',d.ambush,'今日无"资金进+价没涨"的板块');
   document.getElementById('radar-dip').innerHTML=
     bucketHtml('🎯 资金/趋势未走·今日回调（观察点·非买卖建议）','#2ebd85',d.dip,'今日该类型无符合的板块 —— 宁缺勿滥，可切换上方「行业/概念」看看');
   document.getElementById('radar-rotate').innerHTML=

@@ -71,6 +71,13 @@ def _risk_reason(r: dict) -> str:
             f" —— 涨幅+拥挤居前（**追高风险大·勿追**·非买卖建议）")
 
 
+def _ambush_reason(r: dict) -> str:
+    return (f"近5日主力净流入 {_fmt(r.get('money_flow_5d'), '亿', signed=True)}(估算)"
+            f"·5日涨幅仅 {_fmt(r.get('pct_chg_5d'), '%', 1, signed=True)}"
+            f"·今日资金 {_fmt(r.get('money_flow_1d'), '亿', signed=True)}"
+            f" —— **资金进、价还没涨**（资金领先价格的现象·主力资金为估算非真钱·非买卖建议）")
+
+
 def _bucket_row(r: dict, reason_fn) -> dict:
     """单个板块的诊断行（名 + 理由 + 关键数字，供前端点选载入广度图）。"""
     return {
@@ -92,12 +99,14 @@ def _board_brief(r: dict) -> dict:
 
 
 # ── 三栏雷达（读宽表·已过滤）─────────────────────────────────────────────────
-def build_sector_radar(date: str = "", theme_type: str = "concept") -> dict:
+def build_sector_radar(date: str = "", theme_type: str = "concept",
+                       watch_names: set | None = None) -> dict:
     """
-    构建板块雷达：板块下拉列表 + 三栏诊断（低吸/轮动/高位风险）。
+    构建板块雷达：板块下拉列表 + 四栏诊断（资金暗流/低吸/轮动/高位风险）。
 
+    watch_names：用户自选/持仓覆盖的板块名集合 → 命中的板块标 watched=True（持仓对照）。
     Returns:
-        {ok, available, date, theme_type, boards[], dip[], rotate[], risk[], default, note}
+        {ok, available, date, theme_type, boards[], ambush[], dip[], rotate[], risk[], default, note}
         无宽表数据时 available=False（不展示旧/假数据）。
     """
     from app.strategy.sector_scope import build_sectorscope
@@ -106,21 +115,29 @@ def build_sector_radar(date: str = "", theme_type: str = "concept") -> dict:
         return {"ok": True, "available": False, "date": sc.get("date", ""),
                 "theme_type": theme_type, "msg": sc.get("msg", "宽表尚未计算")}
 
+    watch = watch_names or set()
+
+    def _mark(r: dict) -> dict:
+        r["watched"] = r.get("name", "") in watch
+        return r
+
     rows = sc.get("rows", [])
     buckets = sc.get("buckets", {})
-    dip = [_bucket_row(r, _dip_reason) for r in buckets.get("dip", [])]
-    rotate = [_bucket_row(r, _rotate_reason) for r in buckets.get("rotate", [])]
-    risk = [_bucket_row(r, _risk_reason) for r in buckets.get("risk", [])]
+    ambush = [_mark(_bucket_row(r, _ambush_reason)) for r in buckets.get("ambush", [])]
+    dip = [_mark(_bucket_row(r, _dip_reason)) for r in buckets.get("dip", [])]
+    rotate = [_mark(_bucket_row(r, _rotate_reason)) for r in buckets.get("rotate", [])]
+    risk = [_mark(_bucket_row(r, _risk_reason)) for r in buckets.get("risk", [])]
     boards = [_board_brief(r) for r in rows[:_MAX_BOARDS]]
-    default = dip[0]["name"] if dip else (boards[0]["name"] if boards else "")
+    default = (ambush[0]["name"] if ambush else (dip[0]["name"] if dip
+               else (boards[0]["name"] if boards else "")))
 
     return {
         "ok": True, "available": True, "date": sc.get("date", ""),
         "theme_type": theme_type, "boards": boards,
-        "dip": dip, "rotate": rotate, "risk": risk, "default": default,
-        "note": ("三栏均为**盘后现状描述·非买卖建议·不预测涨跌**：观察点=中期资金/趋势仍在+结构未破+今日回调"
-                 "(已过滤无资金/无催化/破位板块·空=今日无符合的)；动量/资金栏为**回望数据·会反转**(追高自负)；"
-                 "高位栏为拥挤风险提示。判断与下单由你负责。"),
+        "ambush": ambush, "dip": dip, "rotate": rotate, "risk": risk, "default": default,
+        "note": ("四栏均为**盘后现状描述·非买卖建议·不预测涨跌**：资金暗流=近5日主力(估算)净流入但5日涨幅<3%"
+                 "(资金进+价没涨·资金领先价格的现象)；观察点=资金/趋势仍在+结构未破+今日回调；动量栏为**回望数据会反转**；"
+                 "高位栏为拥挤风险。★=你自选/持仓覆盖的板块。判断与下单由你负责。"),
     }
 
 

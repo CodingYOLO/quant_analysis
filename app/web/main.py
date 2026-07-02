@@ -624,13 +624,28 @@ async def api_theme_detail(date: str = "", name: str = "", type: str = "industry
 @app.get("/api/sector/radar")
 async def api_sector_radar(date: str = "", type: str = "concept",
                            _user: str = Depends(require_auth)):
-    """板块雷达：下拉列表 + 三栏诊断（低吸/轮动/高位风险，读宽表已过滤）。"""
+    """板块雷达：下拉列表 + 四栏诊断（资金暗流/低吸/轮动/高位风险，读宽表已过滤）+ 持仓对照。"""
     try:
         from app.strategy.sector_radar import build_sector_radar
-        return build_sector_radar(date, theme_type=type)
+        watch = _watch_industries() if type == "industry" else set()
+        return build_sector_radar(date, theme_type=type, watch_names=watch)
     except Exception as e:
         logger.exception("板块雷达失败")
         return {"ok": False, "error": str(e)}
+
+
+def _watch_industries() -> set:
+    """用户自选/持仓覆盖的申万行业集合（供板块雷达持仓对照·失败返回空集不影响主流程）。"""
+    try:
+        from app.data.composite_provider import CompositeProvider
+        from app.strategy import db
+        codes = {w["ts_code"] for w in db.get_watchlist()}
+        if not codes:
+            return set()
+        sb = CompositeProvider().get_stock_basic()
+        return set(sb[sb["ts_code"].isin(codes)]["industry"].dropna().astype(str))
+    except Exception:
+        return set()
 
 
 @app.get("/api/sector/breadth")
