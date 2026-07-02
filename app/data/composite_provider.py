@@ -106,6 +106,10 @@ class CompositeProvider(DataProvider):
         """全市场个股 → 申万行业映射（当前成分），供需要直接用申万分类的模块。"""
         return self._ts.get_sw_industry_map()
 
+    def get_sw_member_history(self) -> pd.DataFrame:
+        """全市场申万成分历史（含已调出·带 in_date/out_date），供 point-in-time 时点成分重建。"""
+        return self._ts.get_sw_member_history()
+
     def get_trade_cal(self, start_date: str, end_date: str) -> pd.DataFrame:
         return self._ts.get_trade_cal(start_date, end_date)
 

@@ -519,6 +519,46 @@ class TushareProvider(DataProvider):
                             "l3_code", "l3_name"] if c in out.columns]
         return out[cols]
 
+    def get_sw_member_history(self) -> pd.DataFrame:
+        """全市场申万成分**历史**（含已调出·带 in_date/out_date）·供 point-in-time 时点成分重建。
+
+        列：ts_code / l1_name / l2_name / l3_name / in_date / out_date / is_new。按 ISO 周缓存。
+        ⚠️ 残余偏差：Tushare 成分库**不含已退市股**（退市幸存者偏差·有界·上层需标注）。
+        """
+        import datetime
+        iso = datetime.date.today().isocalendar()
+        return cached_daily(
+            name="tushare_sw_member_hist",
+            date_key=f"{iso[0]}W{iso[1]:02d}",
+            fetch_fn=self._fetch_sw_member_history,
+        )
+
+    @_RETRY
+    def _fetch_sw_member_history(self) -> pd.DataFrame:
+        """分页拉取申万全历史成分（is_new=Y 在册 + is_new=N 已调出）·含 in_date/out_date。"""
+        fields = "ts_code,l1_name,l2_name,l3_name,in_date,out_date,is_new"
+        frames: list[pd.DataFrame] = []
+        for is_new in ("Y", "N"):
+            offset = 0
+            while True:
+                df = rate_limited_call(
+                    "tushare_sw_member_hist", self._api.index_member_all,
+                    is_new=is_new, fields=fields, offset=offset, limit=3000,
+                )
+                if df is None or df.empty:
+                    break
+                frames.append(df)
+                if len(df) < 3000:
+                    break
+                offset += len(df)
+        if not frames:
+            return pd.DataFrame()
+        out = pd.concat(frames, ignore_index=True)
+        for c in ("in_date", "out_date"):                          # 规范为字符串·便于时点比较(空=None)
+            if c in out.columns:
+                out[c] = out[c].astype("string")
+        return out
+
     def get_trade_cal(self, start_date: str, end_date: str) -> pd.DataFrame:
         """交易日历。"""
         key = f"{start_date}_{end_date}"
