@@ -1142,6 +1142,20 @@ async def api_hotrank_detail_script(_user: str = Depends(require_auth)):
                     headers={"Content-Disposition": "attachment; filename=hotrank_detail_sync.py"})
 
 
+@app.get("/api/resonance")
+async def api_resonance(market: str = "震荡", _user: str = Depends(require_auth)):
+    """共振确定性选股：选股池 × 4正交维度(板块/真钱/入局区间/基本面) → 共振分+位置分级(线程池)。"""
+    try:
+        from fastapi.concurrency import run_in_threadpool
+
+        from app.data.composite_provider import CompositeProvider
+        from app.strategy.resonance import run_resonance
+        return await run_in_threadpool(run_resonance, CompositeProvider(), None, market)
+    except Exception as e:
+        logger.exception("共振选股失败")
+        return {"ok": False, "msg": str(e)}
+
+
 @app.get("/api/cognition/snapshot")
 async def api_cognition_snapshot(_user: str = Depends(require_auth)):
     """认知脚手架：5问框架 + 今日结构速览 + 今日已存推演(供续填)。"""
@@ -1684,6 +1698,13 @@ async def hotpicks_page(request: Request, _user: str = Depends(require_auth)):
     """🔥 人气反转选股：曾火→洗盘→拐头回升 + 关键位双确认（对标吴川/稳智人气榜买入法）。"""
     return templates.TemplateResponse(request=request, name="hotpicks.html",
                                       context={"page": "hotpicks"})
+
+
+@app.get("/resonance", response_class=HTMLResponse)
+async def resonance_page(request: Request, _user: str = Depends(require_auth)):
+    """🎯 共振选股：选股池 × 4正交维度共振 + 位置分级（对标吴川"几个系统叠加=确定性高"）。"""
+    return templates.TemplateResponse(request=request, name="resonance.html",
+                                      context={"page": "resonance"})
 
 
 @app.get("/cognition", response_class=HTMLResponse)

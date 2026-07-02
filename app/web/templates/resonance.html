@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+{% block title %}共振选股 — A股Agent{% endblock %}
+
+{% block extra_style %}
+h1 { font-size:22px; text-align:center; margin-bottom:4px; }
+.sub { text-align:center; color:#9ca3af; font-size:12.5px; margin-bottom:12px; }
+.up { color:#f6465d; } .down { color:#2ebd85; } .neu2 { color:#9ca3af; }
+.method { background:#141b2e; border:1px solid #2a3a5a; border-radius:10px; padding:11px 15px; margin-bottom:10px; font-size:12.5px; line-height:1.75; color:#cdd6f4; }
+.method b { color:#7c9ef8; }
+.disc { background:#241015; border:1px solid #4a2020; border-radius:9px; padding:9px 14px; margin-bottom:12px; font-size:12px; line-height:1.7; color:#f0a8a8; }
+.bar { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:12px; }
+.btn { font-size:13px; color:#fff; cursor:pointer; padding:8px 18px; border-radius:8px; border:none; background:#2742a8; }
+.btn:disabled { opacity:.55; cursor:wait; }
+.filt { display:flex; gap:5px; } .filt span { font-size:12.5px; padding:5px 12px; border-radius:8px; border:1px solid #2d3052; background:#0f1117; color:#9ca3af; cursor:pointer; }
+.filt span.on { background:#2742a8; color:#fff; border-color:#3358e0; }
+.card { background:#1a1d2e; border:1px solid #2d3052; border-radius:10px; padding:12px 14px; margin-bottom:10px; border-left:4px solid #5b6478; }
+.card.A { border-left-color:#f6c343; } .card.B { border-left-color:#7c9ef8; } .card.C { border-left-color:#5b6478; } .card.D { border-left-color:#3a3f52; }
+.card .top { display:flex; align-items:center; gap:9px; flex-wrap:wrap; }
+.gr { font-size:15px; font-weight:800; width:26px; height:26px; display:inline-flex; align-items:center; justify-content:center; border-radius:7px; }
+.gr.A { background:#3a2c08; color:#f6c343; } .gr.B { background:#141b33; color:#7c9ef8; } .gr.C { background:#232640; color:#9ca3af; } .gr.D { background:#1a1d2e; color:#6b7280; }
+.nm { font-size:15px; font-weight:700; color:#e8e8e8; cursor:pointer; } .nm:hover { color:#7c9ef8; }
+.code { color:#6b7280; font-size:12px; } .ind { font-size:11px; background:#232640; color:#9ca3af; padding:1px 8px; border-radius:6px; }
+.reso { margin-left:auto; font-size:12px; color:#9ca3af; } .reso b { color:#f6c343; font-size:15px; }
+.zpill { font-size:11px; padding:1px 8px; border-radius:6px; font-weight:600; }
+.zpill.in { background:#0e2a1a; color:#3ddc97; border:1px solid #1a5a38; } .zpill.watch { background:#3a2c08; color:#f6c343; border:1px solid #6b5410; }
+.zpill.far,.zpill.below { background:#2a1414; color:#f08a8a; border:1px solid #5a2a2a; } .zpill.na { background:#161929; color:#6b7280; border:1px solid #242842; }
+.dims { display:grid; grid-template-columns:1fr 1fr; gap:5px 14px; margin-top:9px; }
+.dim { font-size:12px; display:flex; gap:6px; align-items:baseline; }
+.dim .ic { font-size:12px; } .dim.hit .tx { color:#cdd6f4; } .dim.miss .tx { color:#6b7280; }
+.dim .dn { color:#9ca3af; min-width:52px; }
+@media(max-width:560px){ .dims{ grid-template-columns:1fr; } }
+.empty { background:#161929; border:1px dashed #2d3052; border-radius:10px; padding:18px; color:#9ca3af; font-size:13px; line-height:1.8; }
+.empty b { color:#7c9ef8; }
+.loading { color:#9ca3af; font-size:13px; padding:16px; }
+{% endblock %}
+
+{% block content %}
+<h1>🎯 共振选股 · 确定性叠加</h1>
+<div class="sub">选股池 × 4个正交维度共振 + 砍价位置分级 · 对标吴川"几个选股系统叠加=确定性高" · 仅供研究，不构成投资建议</div>
+
+<div class="method">
+  <b>🎯 逻辑</b>：确定性来自<b>独立维度</b>的共振（同质信号叠加是自欺）。给每只票查 4 个尽量不相关的维度是否同时点亮：
+  ① <b>板块强势</b>(自上而下·方向) ② <b>龙虎榜真钱</b>(唯一真机构钱) ③ <b>入局区间到位</b>(砍价位置) ④ <b>基本面</b>(ROE/增速)。
+  共振越多越"确定"；再按位置分级：<b>A</b>=共振强+回踩到位(可低吸) · <b>B</b>=共振强但远离(等回踩·别追) · C/D=弱。
+</div>
+<div class="disc">
+  ⚠️ <b>诚实</b>：共振高 ≠ 无风险——大家系统都指同一只 = <b>拥挤</b>。共振给"确定性倾斜"，位置(砍价)给"赔率保护"，两个都要。阈值(ROE≥8/板块中位)<b>待回测校准</b>，不输出胜率，最终由你拍板，风险自担。
+</div>
+
+<div class="bar">
+  <button class="btn" id="run">🔎 扫描共振候选</button>
+  <div class="filt" id="filt">
+    <span data-g="A" class="on">A</span><span data-g="B" class="on">B</span><span data-g="C">C</span><span data-g="D">D</span>
+  </div>
+  <span id="meta" class="neu2" style="font-size:11.5px"></span>
+</div>
+
+<div id="out"><div class="loading">点「扫描共振候选」开始（基于选股池·补关键位+基本面·约数十秒）</div></div>
+{% endblock %}
+
+{% block extra_script %}
+<script>
+const $=id=>document.getElementById(id);
+function esc(s){ return (s==null?'':String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+const DIMS=[['sector','板块'],['realmoney','真钱'],['entry','位置'],['fundamental','基本面']];
+const ZST={in:'✅到位',watch:'🟡警戒带',far:'远离·等回踩',below:'⚠️破位',na:'—'};
+let _all=[], _show={A:1,B:1,C:0,D:0};
+
+async function run(){
+  $('run').disabled=true; $('out').innerHTML='<div class="loading">⏳ 扫描中（选股池→补入局区间+基本面→4维共振，约数十秒）…</div>';
+  try{
+    const j=await (await fetch('/api/resonance')).json();
+    $('run').disabled=false;
+    if(!j.ok){ $('out').innerHTML='<div class="empty">❌ '+esc(j.msg||'失败')+'</div>'; return; }
+    _all=j.candidates||[];
+    const gc=j.grade_counts||{};
+    $('meta').textContent='选股池 '+(j.n_pool||0)+' 只 · A'+(gc.A||0)+' B'+(gc.B||0)+' C'+(gc.C||0)+' D'+(gc.D||0)+' · '+esc(j.trade_date||'');
+    render();
+  }catch(e){ $('run').disabled=false; $('out').innerHTML='<div class="empty">❌ '+esc(e)+'</div>'; }
+}
+
+function render(){
+  if(!_all.length){ $('out').innerHTML='<div class="empty">选股池暂无候选（可能弱市/信号未生成）。<br>选股池由每日选股流水线生成——若为空，等盘后信号跑完再来。</div>'; return; }
+  const rows=_all.filter(c=>_show[c.grade]);
+  if(!rows.length){ $('out').innerHTML='<div class="empty">当前筛选(仅显示已选等级)下无候选，点上方 A/B/C/D 放宽。</div>'; return; }
+  $('out').innerHTML=rows.map(card).join('');
+}
+
+function card(c){
+  const est=c.entry_state||'na', z=c.entry_zone;
+  const zp='<span class="zpill '+(['in','watch','far','below'].includes(est)?est:'na')+'">'+(ZST[est]||est)+'</span>';
+  const dims=DIMS.map(([k,lbl])=>{ const d=c.dims[k]||{}; const hit=d.hit;
+    return '<div class="dim '+(hit?'hit':'miss')+'"><span class="ic">'+(hit?'🟢':'⚪')+'</span>'
+      +'<span class="dn">'+lbl+'</span><span class="tx">'+esc(d.label||'—')+'</span></div>'; }).join('');
+  const zone=z?(' 入局 '+z.low+'~'+z.high):'';
+  return '<div class="card '+c.grade+'"><div class="top">'
+    +'<span class="gr '+c.grade+'">'+c.grade+'</span>'
+    +'<span class="nm" onclick="location.href=\'/stock?code='+esc(c.ts_code)+'\'">'+esc(c.name||c.ts_code)+'</span>'
+    +'<span class="code">'+esc(c.ts_code)+'</span>'+(c.industry?'<span class="ind">'+esc(c.industry)+'</span>':'')
+    +zp+'<span class="neu2" style="font-size:11px">'+esc(zone)+'</span>'
+    +'<span class="reso">共振 <b>'+c.resonance+'</b>/4</span></div>'
+    +'<div class="dims">'+dims+'</div></div>';
+}
+
+$('filt').addEventListener('click',e=>{ const t=e.target.closest('span'); if(!t)return;
+  t.classList.toggle('on'); _show[t.dataset.g]=t.classList.contains('on')?1:0; render(); });
+$('run').onclick=run;
+</script>
+{% endblock %}
