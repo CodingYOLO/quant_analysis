@@ -152,6 +152,7 @@
     <label>近N日涨幅≤</label>
     <input type="number" id="cn" placeholder="N" style="width:56px">
     <input type="number" id="cv" placeholder="%" style="width:64px">
+    <button class="quickbtn" id="clear-cond" style="border-color:#5a3a3a;color:#f0a0a0">🧹 清空条件</button>
     <button class="runbtn" id="run">🚀 开始筛选</button>
   </div>
 
@@ -674,6 +675,19 @@ async function runScreen() {
 }
 
 document.getElementById('run').addEventListener('click', runScreen);
+
+// 一键清空所有筛选条件（因子勾选 + 自定义条件 + 近N日涨幅），方便重新选择
+function clearConditions() {
+  selected.clear();
+  document.querySelectorAll('.fbtn').forEach(b => b.classList.remove('on'));
+  customs.length = 0;
+  renderChips();
+  document.getElementById('cn').value = '';
+  document.getElementById('cv').value = '';
+  document.getElementById('cf-val').value = '';   // 顺手清掉自定义暂存输入
+  document.getElementById('status').textContent = '🧹 已清空所有条件，可重新选择';
+}
+document.getElementById('clear-cond').addEventListener('click', clearConditions);
 
 // 「只看主板」开关 → 即时重渲染（剔除科创/创业/北交）
 document.getElementById('main-board-only').addEventListener('change', () => { renderTable(); renderCriteria(); });
