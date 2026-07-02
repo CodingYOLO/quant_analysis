@@ -73,6 +73,10 @@ tr.datarow:hover td { background:#1e2138; cursor:pointer; }
   </div>
   <div id="signals" class="neu2" style="font-size:12.5px">⏳ 扫描今日信号（首次约 10-40 秒·之后秒回）…</div>
 </div>
+<div style="margin:2px 0 10px">
+  <button class="addbtn" id="healthbtn" style="background:#1f3a5a;border-color:#2d5a8a">🩺 体检刷新</button>
+  <span class="neu2" style="font-size:11px;margin-left:8px">增/删自选只更新名单(秒开)；管理完点这里再跑 现价·技术·资金体检 + 今日信号</span>
+</div>
 <div id="summary" class="summary"></div>
 <div id="loading" class="neu2" style="padding:14px">⏳ 读取自选名单…</div>
 <div id="empty" class="neu2" style="display:none;padding:12px"></div>
@@ -97,11 +101,13 @@ function sectorTag(phase){ if(!phase) return '';
   const bg = /破位|弱势/.test(phase) ? '#16321f' : (/强势|领涨|低吸/.test(phase) ? '#3b1a1a' : '#1a1d2e');
   return '<span style="font-size:10px;padding:1px 5px;border-radius:5px;margin-left:5px;background:'+bg+';color:'+c+'" title="所在板块强弱(盘后)">'+phase+'</span>'; }
 let _rows=[];
+let _lastDate=null;   // 最近一次体检截止日(供增/删清单时保留右侧显示·不误报"体检中")
 
 // 两段式加载：先秒显名单骨架(loadList·纯DB)，再后台填体检数据(loadLive·现价/技术/资金)
 async function reload(){ if(await loadList()) loadLive(); }
 
 // 阶段一：自选名单即时可见（代码/名称/成本/止损·体检列先占位）
+// 合并已加载的体检数据：增/删自选时其它行不退回⏳(不再每次都重新体检)
 async function loadList(){
   $('loading').style.display='none'; $('empty').style.display='none';
   try{
@@ -110,10 +116,13 @@ async function loadList(){
     const rows=j.rows||[];
     if(!rows.length){ _rows=[]; $('alerts').innerHTML=''; $('summary').innerHTML=''; $('dash').style.display='none';
       $('empty').style.display='block'; $('empty').textContent='ℹ️ 还没有自选——在上方输入代码/名称，加入你观察的票'; return false; }
-    _rows=rows.map(r=>({...r, _pending:true}));
-    $('alerts').innerHTML='<span class="neu2" style="font-size:12px">⏳ 预警体检中…</span>';
-    renderSummary({n:j.n, n_holding:j.n_holding}, null);   // date=null → 右侧显示「体检中」
-    renderTable();                                          // 骨架即时渲染
+    const prev={}; _rows.forEach(r=>{ if(!r._pending) prev[(r.owner||'me')+'|'+String(r.ts_code).slice(0,6)]=r; });
+    _rows=rows.map(r=>{ const old=prev[(r.owner||'me')+'|'+String(r.ts_code).slice(0,6)];
+      return old ? {...old, ...r, _pending:false} : {...r, _pending:true}; });   // 老行保留体检·新行占位
+    const hasPending=_rows.some(r=>r._pending);
+    if(hasPending) $('alerts').innerHTML='<span class="neu2" style="font-size:12px">⏳ 有新增自选待体检 — 点「🩺 体检刷新」更新现价/技术/资金</span>';
+    renderSummary({n:j.n, n_holding:j.n_holding}, hasPending?null:_lastDate);
+    renderTable();
     return true;
   }catch(e){ $('empty').style.display='block'; $('empty').textContent='❌ '+e; return false; }
 }
@@ -123,7 +132,7 @@ async function loadLive(){
   try{
     const j=await (await fetch('/api/portfolio')).json();
     if(!j.ok) return;
-    _rows=j.rows||[];
+    _rows=j.rows||[]; _lastDate=j.date||_lastDate;
     renderAlerts(j.alerts||[]); renderSummary(j.summary||{}, j.date);
     renderTable();
   }catch(e){ /* 保留骨架 */ }
@@ -253,7 +262,7 @@ async function addStock(){
   const body={code, owner, is_holding:$('a_hold').checked, cost:$('a_cost').value, stop_loss:$('a_stop').value, target_price:$('a_target').value, note:$('a_note').value};
   try{
     const d=await (await fetch('/api/portfolio/add',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})).json();
-    if(d.ok){ $('addmsg').textContent='✅ 已加入「'+ulabel+'」 '+(d.name||''); ['a_code','a_cost','a_stop','a_note'].forEach(x=>$(x).value=''); $('a_hold').checked=false; reload(); loadSignals(); }
+    if(d.ok){ $('addmsg').textContent='✅ 已加入「'+ulabel+'」 '+(d.name||'')+'（点🩺体检刷新看数据）'; ['a_code','a_cost','a_stop','a_note'].forEach(x=>$(x).value=''); $('a_hold').checked=false; loadList(); }   // 只刷名单·不自动体检/扫信号
     else $('addmsg').textContent='❌ '+(d.msg||'失败');
   }catch(e){ $('addmsg').textContent='❌ '+e; }
 }
@@ -267,8 +276,15 @@ async function delRow(i){
   const r=_rows[i]; if(!r) return;
   const label=(r.owner==='dad')?'用户2':'用户1';
   if(!confirm('从「'+label+'」移除 '+(r.name||r.ts_code)+'？')) return;
-  try{ await fetch('/api/portfolio/remove',{method:'POST',headers:{'Content-Type':'application/json'},
-       body:JSON.stringify({code:r.ts_code, owner:r.owner||'me'})}); reload(); }catch(e){}
+  try{
+    await fetch('/api/portfolio/remove',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({code:r.ts_code, owner:r.owner||'me'})});
+    _rows.splice(i,1);                              // 本地移除·不重新体检(其它行保留·可连续删)
+    if(!_rows.length){ $('dash').style.display='none'; $('summary').innerHTML=''; $('alerts').innerHTML='';
+      $('empty').style.display='block'; $('empty').textContent='ℹ️ 还没有自选——在上方输入代码/名称，加入你观察的票'; return; }
+    renderTable();
+    renderSummary({n:_rows.length, n_holding:_rows.filter(x=>x.is_holding).length}, _lastDate);
+  }catch(e){}
 }
 // 🔔 今日信号（异步·体检后填充·按日缓存）
 async function loadSignals(refresh){
@@ -294,6 +310,7 @@ function sigCard(it){
   return h;
 }
 $('sigbtn').onclick=()=>loadSignals(true);
+$('healthbtn').onclick=()=>{ loadLive(); loadSignals(true); };   // 手动全量体检+信号(增删清单后再点)
 $('addbtn').onclick=addStock;
 $('a_code').addEventListener('keydown',e=>{ if(e.key==='Enter') addStock(); });
 reload(); loadSignals();
