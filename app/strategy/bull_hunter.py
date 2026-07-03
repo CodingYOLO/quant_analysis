@@ -65,8 +65,9 @@ _RESEARCH_TECH_QUERIES = [
 
 
 def _is_tech_concept(name: str) -> bool:
-    """概念名是否属于科技赛道（命中关键词即是）。纯函数，便于单测。"""
-    return any(k in (name or "") for k in _TECH_KEYWORDS)
+    """概念名是否属于科技赛道（命中关键词即是）。纯函数，便于单测。非字符串(NaN/None)→False。"""
+    s = name if isinstance(name, str) else ""           # 防 NaN(float) 让 `k in s` 崩溃
+    return any(k in s for k in _TECH_KEYWORDS)
 
 # ── 埋伏层常量（可调）────────────────────────────────────────────────────────
 _AMBUSH_MIN_CAP = 100.0      # 市值下限(亿)：较选股池(200)放宽，纳入更多左侧中盘埋伏标的

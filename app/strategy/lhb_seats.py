@@ -38,7 +38,7 @@ def classify_seat(exalter: str) -> dict:
 
     type ∈ inst(机构) / north(北向) / foreign(外资) / hot(游资) / normal(普通营业部)。
     """
-    s = exalter or ""
+    s = exalter if isinstance(exalter, str) else ""     # 防 NaN(float)/None 让下游 `k in s` 崩溃
     if _INST in s:
         return {"type": "inst", "label": "机构", "nickname": ""}
     if any(k in s for k in _NORTH):
@@ -133,7 +133,7 @@ def interpret_next_day(seats: list[dict], reason: str) -> dict:
         return sum(1 for s in seats if s["type"] == t and s["net_yi"] < -0.05)
 
     inst, north, hot = net("inst"), net("north"), net("hot")
-    rs = reason or ""
+    rs = reason if isinstance(reason, str) else ""      # 防 NaN(float)/None 让下游 `k in rs` 崩溃
     strong = any(k in rs for k in _REASON_STRONG)
     weak = any(k in rs for k in _REASON_WEAK)
     diverge = any(k in rs for k in _REASON_DIVERGE)

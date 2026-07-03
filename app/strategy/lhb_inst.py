@@ -53,7 +53,9 @@ def _agg_inst(df: pd.DataFrame) -> dict[str, dict]:
     inst = df[df["exalter"] == _INST_SEAT]
     for _, r in inst.iterrows():
         ts = r["ts_code"]
-        d = out.setdefault(ts, {"net": 0.0, "buy": 0.0, "sell": 0.0, "seats": 0, "reason": r.get("reason") or ""})
+        rsn = r.get("reason")
+        d = out.setdefault(ts, {"net": 0.0, "buy": 0.0, "sell": 0.0, "seats": 0,
+                                "reason": rsn if isinstance(rsn, str) else ""})   # 防 NaN 混入·下游 in 崩溃/展示nan
         d["net"] += _num(r.get("net_buy")) / 1e8
         d["buy"] += _num(r.get("buy")) / 1e8
         d["sell"] += _num(r.get("sell")) / 1e8

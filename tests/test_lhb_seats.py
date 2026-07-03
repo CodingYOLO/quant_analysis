@@ -104,6 +104,15 @@ def test_interpret_diverge_watch() -> None:
     assert v["level"] == "watch"
 
 
+def test_nan_inputs_never_crash() -> None:
+    """回归：席位名/上榜原因为 NaN(float·脏数据) 时，分类与次日研判不得崩溃(argument of type 'float' is not iterable)。"""
+    import numpy as np
+    assert S.classify_seat(np.nan)["type"] == "normal"      # 非字符串席位 → 普通营业部
+    assert S.classify_seat(None)["type"] == "normal"
+    v = S.interpret_next_day([], np.nan)                     # 原因 NaN → 不崩溃·可给中性判断
+    assert isinstance(v, dict) and "level" in v
+
+
 def _run_all() -> None:
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     for fn in fns:
