@@ -1,0 +1,61 @@
+{# 共享组件：板块资金页 / 概念资金页 顶部「今日主线研判」卡片。数据走 /api/mainline（两页共用·日缓存）。 #}
+<div id="mainline-card" style="background:linear-gradient(135deg,#1a1d2e,#171a29);border:1px solid #2d3350;border-radius:12px;padding:15px 18px;margin-bottom:18px">
+  <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
+    <h3 style="font-size:15px;color:#e8ecff;margin:0;font-weight:700">🧭 今日主线研判
+      <span style="font-size:11px;color:#8b93b8;font-weight:400">· 资金 + 催化剂 + 政策 · AI综合 · 非投资建议</span></h3>
+    <div style="display:flex;align-items:center;gap:8px">
+      <span id="ml-date" style="font-size:11px;color:#6b7280"></span>
+      <button id="ml-refresh" title="重新生成(调用LLM·约15秒)" style="background:#23264a;color:#9ca3af;border:none;border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer">↻ 刷新</button>
+      <button id="ml-toggle" style="background:none;color:#7c9ef8;border:none;font-size:12px;cursor:pointer">收起</button>
+    </div>
+  </div>
+  <div id="ml-body">
+    <div id="ml-loading" class="neu" style="font-size:13px;padding:14px 0">🧭 AI 正在综合资金面 + 新闻 + 政策研判主线…（首次约 15-20 秒，当日之后秒开）</div>
+    <div id="ml-content" style="display:none">
+      <div id="ml-analysis" style="font-size:13.5px;line-height:1.85;color:#dfe6ff;margin:6px 0"></div>
+      <div id="ml-evidence" style="margin:10px 0"></div>
+      <div id="ml-sources"></div>
+      <div id="ml-disclaimer" class="neu" style="font-size:11px;margin-top:10px;padding-top:8px;border-top:1px solid #23263e;line-height:1.6"></div>
+    </div>
+  </div>
+</div>
+<script>
+(function(){
+  const $=id=>document.getElementById(id);
+  // 极简 markdown：转义 + **加粗** + 换行（LLM 偶尔用 markdown 强调）
+  function md(t){ return (t||'').replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/^\s*#{1,6}\s+/gm,'')                                   // 去 markdown 标题井号
+    .replace(/^\s*-{3,}\s*$/gm,'§HR§')                               // 分隔线占位
+    .replace(/\*\*(.+?)\*\*/g,'<b style="color:#f0a020">$1</b>')
+    .replace(/\n{2,}/g,'<br><br>').replace(/\n/g,'<br>')
+    .replace(/§HR§/g,'<hr style="border:none;border-top:1px solid #2a2f4d;margin:8px 0">'); }
+  function chip(html,color){ return '<span style="display:inline-block;background:#1e2138;border:1px solid #2a2f4d;border-radius:10px;padding:3px 10px;font-size:12px;margin:3px 4px 0 0;color:'+(color||'#c9d2f8')+'">'+html+'</span>'; }
+  async function loadML(force){
+    $('ml-loading').style.display='block'; $('ml-content').style.display='none';
+    if(force) $('ml-loading').textContent='🧭 重新调用 AI 研判中…（约 15-20 秒）';
+    const el=document.getElementById('date'); const date=((el&&el.value)||'').replace(/-/g,'');
+    try{
+      const j=await (await fetch('/api/mainline?date='+date+(force?'&force=true':''))).json();
+      if(!j.ok){ $('ml-loading').textContent='❌ 主线研判失败：'+j.error; return; }
+      renderML(j.data);
+    }catch(e){ $('ml-loading').textContent='❌ '+e; }
+  }
+  function renderML(d){
+    $('ml-analysis').innerHTML=md(d.analysis);
+    let ev='<div style="font-size:11px;color:#8b93b8;margin-bottom:2px">📊 资金证据（供核对·详见下方表格）</div>';
+    (d.ind_evidence||[]).forEach(r=>{ ev+=chip('🏭'+r.name+' 净'+(r.cum5>=0?'+':'')+r.cum5+'亿'+(r.ambush?' 🔥暗流':''), r.cum5>=0?'#f6465d':'#2ebd85'); });
+    (d.con_evidence||[]).forEach(r=>{ const p=(r.pen5!=null)?(' 渗'+r.pen5+'%'):''; ev+=chip('💡'+r.name+p+(r.ambush?' 🔥':''), '#f0a020'); });
+    $('ml-evidence').innerHTML=ev;
+    let src='';
+    if((d.web||[]).length){ src+='<div style="font-size:11px;color:#8b93b8;margin:8px 0 2px">🌐 联网检索来源（博查·点击核对）</div><ul style="margin:0 0 0 16px;padding:0">'+d.web.map(w=>{const m=[w.date,w.site].filter(Boolean).join(' · ');return '<li style="margin:2px 0;font-size:12px"><a href="'+(w.url||'#')+'" target="_blank" rel="noopener" style="color:#7c9ef8">'+(w.title||'')+'</a>'+(m?' <span class="neu">（'+m+'）</span>':'')+'</li>';}).join('')+'</ul>'; }
+    if((d.news||[]).length){ src+='<div style="font-size:11px;color:#8b93b8;margin:8px 0 2px">📰 相关新闻（财联社电报·已精筛）</div><ul style="margin:0 0 0 16px;padding:0">'+d.news.map(n=>'<li style="margin:2px 0;font-size:12px;color:#b8c2e8">'+n+'</li>').join('')+'</ul>'; }
+    $('ml-sources').innerHTML=src;
+    $('ml-disclaimer').textContent='⚠️ '+(d.disclaimer||'')+(d.cached?'（已缓存·当日一次）':'');
+    if(d.date){ const s=String(d.date).replace(/-/g,''); $('ml-date').textContent='数据日 '+(s.length===8?s.replace(/(\d{4})(\d{2})(\d{2})/,'$1-$2-$3'):s); }
+    $('ml-loading').style.display='none'; $('ml-content').style.display='block';
+  }
+  $('ml-refresh').addEventListener('click',()=>loadML(true));
+  $('ml-toggle').addEventListener('click',()=>{ const b=$('ml-body'); const on=b.style.display!=='none'; b.style.display=on?'none':'block'; $('ml-toggle').textContent=on?'展开':'收起'; });
+  setTimeout(()=>loadML(false), 600);   // 等主流程回填日期框后再拉
+})();
+</script>

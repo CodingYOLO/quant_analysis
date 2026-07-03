@@ -662,6 +662,13 @@ def run_warmup(base_date: str) -> None:
         console.print(f"[green]✅ 板块诊断预热 {latest}[/green]")
     except Exception as e:
         console.print(f"[yellow]⚠️ 板块诊断预热失败: {e}[/yellow]")
+    # 1.7) 主线板块研判(资金+催化剂+政策·LLM综合·日缓存·板块/概念页顶部秒显示·夜间预算一次LLM)
+    try:
+        from app.strategy.mainline_analysis import build_mainline_analysis
+        build_mainline_analysis(latest, force=True, provider=prov)
+        console.print(f"[green]✅ 主线研判预热 {latest}[/green]")
+    except Exception as e:
+        console.print(f"[yellow]⚠️ 主线研判预热失败: {e}[/yellow]")
     # 2) 大盘情绪默认区间(end=今/明/后·各往前30天·覆盖今晚与周末打开的缓存键)
     for off in (0, 1, 2):
         end = (datetime.datetime.strptime(base, "%Y%m%d") + datetime.timedelta(days=off)).strftime("%Y%m%d")

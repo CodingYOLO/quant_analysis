@@ -658,6 +658,18 @@ async def api_concept_persistent_detail(date: str = "", concept: str = "", _user
         return {"ok": False, "error": str(e)}
 
 
+@app.get("/api/mainline")
+async def api_mainline(date: str = "", force: bool = False, _user: str = Depends(require_auth)):
+    """市场「主线板块」研判（资金面+催化剂+政策·接地式LLM综合·非投资建议·日缓存）。板块/概念页共用。"""
+    try:
+        from app.strategy.mainline_analysis import build_mainline_analysis
+        d = date or _last_trade_date()
+        return {"ok": True, "data": build_mainline_analysis(d, force=force)}
+    except Exception as e:
+        logger.exception("主线研判失败")
+        return {"ok": False, "error": str(e)}
+
+
 @app.get("/api/industry/detail")
 async def api_industry_detail(date: str = "", industry: str = "", _user: str = Depends(require_auth)):
     """单个行业的环境/宏观/微观详情（资金定性+公告+题材+LLM驱动点评，按需+缓存）。"""
