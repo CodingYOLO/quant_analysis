@@ -40,6 +40,7 @@ h1 { font-size:22px; text-align:center; margin-bottom:4px; }
 .stk-t td { padding:5px 8px; border-bottom:1px solid #1a1d2e; color:#dfe4f5; white-space:nowrap; }
 .stk-n { color:#7c9ef8; cursor:pointer; font-weight:600; }
 .stk-n:hover { text-decoration:underline; }
+.seg { display:inline-block; font-size:10.5px; color:#f0a020; background:#2a2410; border:1px solid #4a3d15; border-radius:5px; padding:1px 6px; margin-right:6px; font-weight:500; vertical-align:1px; }
 .stk-n .caret { display:inline-block; width:11px; color:#5d7cff; font-size:10px; transition:transform .15s; }
 .stk-n.open .caret { transform:rotate(90deg); }
 .stk-note { font-size:11px; color:#6b7280; margin-top:4px; }
@@ -156,14 +157,17 @@ function stockTable(title, rows, prefix, note){
     const star=r.is_leader?'🏆 ':'';
     const yc=(r['净利同比']>0?'up':(r['净利同比']<0?'down':'neu'));
     const uid=prefix+i;
+    const seg=r['环节']?'<span class="seg">'+esc(r['环节'])+'</span>':'';
     return '<tr><td class="stk-n" data-code="'+esc(r.code)+'" data-name="'+esc(r.name)+'" data-uid="'+uid+'">'
-      +'<span class="caret">▶</span>'+star+esc(r.name)+'</td>'
+      +'<span class="caret">▶</span>'+seg+star+esc(r.name)+'</td>'
       +'<td>'+mv+'</td><td class="'+yc+'">'+yoy+'</td><td>'+fc+'</td><td>'+rps+'</td></tr>';
   }).join('');
   return head+body+'</tbody></table>'+(note?('<div class="stk-note">'+note+'</div>'):'')+'</div>';
 }
 function renderStocks(data){
-  const html=stockTable('🏆 龙头（强+大+活·板块核心权重）', data&&data['龙头'], 'L')
+  const core=data&&data['核心口径'];
+  const leadTitle=core?'🏆 核心龙头（产业链卡位·手工梳理·按上游→下游·带环节）':'🏆 龙头（强+大+活·因子·未必产业核心）';
+  const html=stockTable(leadTitle, data&&data['龙头'], 'L')
     +stockTable('🚀 高成长（净利增速最快）', data&&data['高成长'], 'G', '注：扭亏/低基数会让同比偏高，结合流通市值与RPS判断质量。')
     +stockTable('⚡ 业绩催化（中报/季报预喜·已剔ST）', data&&data['催化'], 'C');
   if(!html){ $('stocks-card').style.display='none'; return; }
@@ -177,8 +181,10 @@ function toggleExpand(n){
   const tr=n.closest('tr'), uid=n.dataset.uid, nxt=tr.nextElementSibling;
   if(nxt && nxt.classList.contains('exp-row') && nxt.dataset.uid===uid){ nxt.remove(); n.classList.remove('open'); return; }
   const er=document.createElement('tr'); er.className='exp-row'; er.dataset.uid=uid;
-  er.innerHTML='<td colspan="5"><div class="exp-k" id="k_'+uid+'" style="height:230px"></div>'
-    +'<div id="t_'+uid+'" class="loading">⏳ 加载K线+股性…</div></td>';
+  // 约束到 920px：防止 K线被超宽表格拉成又宽又扁(colspan 撑满全表)
+  er.innerHTML='<td colspan="5"><div style="max-width:920px">'
+    +'<div class="exp-k" id="k_'+uid+'" style="height:300px"></div>'
+    +'<div id="t_'+uid+'" class="loading">⏳ 加载K线+股性…</div></div></td>';
   tr.after(er); n.classList.add('open');
   loadProfile(n.dataset.code, n.dataset.name||'', uid);
 }

@@ -32,7 +32,7 @@ _FRAMEWORK = (
 )
 
 
-_CARD_VER = "v3"  # v3：概念型主题也解析到个股(申万行业+同花顺概念成分)·个股地图加真业绩/护城河/资金印证/证伪
+_CARD_VER = "v4"  # v4：龙头改用 tech_chain 手工梳理的产业链核心卡位(带环节)·而非通用 leader_score
 
 
 def _cache(name: str, key: str) -> Path:
@@ -160,6 +160,52 @@ def _new_provider():
     return CompositeProvider()
 
 
+# 主题 → tech_chain 产业链名（手工梳理的核心龙头篮子·比 leader_score 更懂"卡位"）
+_THEME_CHAIN = {
+    "人形机器人": "具身智能·机器人", "机器人": "具身智能·机器人", "具身智能": "具身智能·机器人",
+    "减速器": "具身智能·机器人", "丝杠": "具身智能·机器人", "执行器": "具身智能·机器人",
+    "AI算力": "AI算力·芯片", "算力": "AI算力·芯片", "半导体": "AI算力·芯片", "芯片": "AI算力·芯片",
+    "光模块": "AI算力·光/PCB/连接", "CPO": "AI算力·光/PCB/连接", "PCB": "AI算力·光/PCB/连接", "光通信": "AI算力·光/PCB/连接",
+    "服务器": "AI算力·服务器/散热", "液冷": "AI算力·服务器/散热", "散热": "AI算力·服务器/散热",
+    "稀土永磁": "稀土永磁", "稀土": "稀土永磁", "磁材": "稀土永磁", "小金属": "有色·小金属",
+}
+
+
+def _chain_core(df, theme: str) -> list[dict]:
+    """主题命中 tech_chain → 返回**手工梳理的产业链核心龙头**(带「环节」·按上游→下游排序)，从因子表补真实数据。
+
+    解决"leader_score 只按 强+大+活 排序，把光纤/存储巨头顶上来、真核心零部件公司(三花智控/埃斯顿)沉底"的问题。
+    未命中 tech_chain → 返回空(调用方回退 leader_score)。
+    """
+    try:
+        from app.strategy import tech_chain as TC
+        name = _THEME_CHAIN.get(theme) or next((n for n in TC.chain_names() if theme and theme in n), None)
+        chain = TC._CHAIN_BY_NAME.get(name) if name else None
+        if not chain:
+            return []
+        seen, ordered = set(), []                              # 按 上游→中游→下游 收集·去重(留最核心环节)
+        for layer in chain.get("layers", []):
+            for node in layer.get("nodes", []):
+                for _lname, code in node.get("leaders", []):
+                    c6 = str(code)[:6]
+                    if c6 not in seen:
+                        seen.add(c6)
+                        ordered.append((c6, node.get("name", "")))
+        code6 = df["ts_code"].astype(str).str[:6]
+        rows: list[dict] = []
+        for c6, seg in ordered:
+            sub = df[code6 == c6]
+            if sub.empty:                                      # 该龙头不在因子表(停牌/退市)→跳过
+                continue
+            br = _brief_rows(sub, 1)[0]
+            br["环节"] = seg                                    # 减速器/丝杠·执行器/无框电机/力传感器/本体…
+            rows.append(br)
+        return rows
+    except Exception as e:
+        logger.debug("[认知] 产业链核心龙头解析失败: %s", e)
+        return []
+
+
 def _gather_data(industry: str, provider=None) -> dict:
     """从因子表+板块强弱聚合该行业/概念的真实数据面（业绩/资金/阶段/龙头），供 LLM 接地。
 
@@ -177,6 +223,8 @@ def _gather_data(industry: str, provider=None) -> dict:
             df = pd.read_parquet(files[-1])
             g, via = _theme_group(df, industry, provider)          # 申万行业 或 同花顺概念成分
             out["解析口径"] = via
+            core = _chain_core(df, industry)                        # 产业链策展核心龙头(带环节·优先)
+            out["核心口径"] = bool(core)
             if not g.empty:
                 yoy = pd.to_numeric(g.get("netprofit_yoy"), errors="coerce")
                 out.update({
@@ -184,7 +232,8 @@ def _gather_data(industry: str, provider=None) -> dict:
                     "avg_rps120": round(float(pd.to_numeric(g.get("rps120"), errors="coerce").mean()), 1),
                     "净利同比中位": (round(float(yoy.median()), 1) if yoy.notna().any() else None),
                     "业绩预增数": int((g.get("earn_good") == True).sum()) if "earn_good" in g else 0,  # noqa: E712
-                    "龙头": _brief_rows(g.sort_values("leader_score", ascending=False), 6),
+                    # 龙头：命中产业链→用手工梳理的核心卡位公司(带环节)；否则回退 leader_score(强+大+活)
+                    "龙头": core if core else _brief_rows(g.sort_values("leader_score", ascending=False), 6),
                     "高成长": _brief_rows(_growth_pool(g), 6),
                     "催化": _brief_rows(_catalyst_pool(g), 6),
                     "资金流入": _brief_rows(_fund_pool(g), 6),        # 真金进场(估算)·连续流入+主力净额
@@ -228,13 +277,14 @@ def _web_research(theme: str, max_items: int = 10) -> list[dict]:
 
 def _stock_line(prefix: str, l: dict) -> str:
     """个股一行式：名称(代码) 市值 业绩 预告 RPS，None 字段自动略过。"""
+    seg = f"[{l['环节']}]" if l.get("环节") else ""              # 产业链环节(减速器/丝杠·执行器…)
     bits = [f"流通{l['流通市值']}亿" if l.get("流通市值") is not None else "",
             f"净利同比{l['净利同比']}%" if l.get("净利同比") is not None else "",
             (f"{l['预告']}" + (f"+{l['预告增幅']}%" if l.get("预告增幅") is not None else "")) if l.get("预告") else "",
             f"RPS{l['rps']}" if l.get("rps") is not None else "",
             f"主力净流入{l['主力净流入']}亿" if l.get("主力净流入") is not None else "",
             f"连续流入{l['连续流入天']}天" if l.get("连续流入天") else ""]
-    return f"- {prefix} {l['name']}({l.get('code','')})：" + " ".join(b for b in bits if b)
+    return f"- {prefix}{seg} {l['name']}({l.get('code','')})：" + " ".join(b for b in bits if b)
 
 
 def _facts_block(data: dict, web: list[dict]) -> str:
@@ -243,8 +293,9 @@ def _facts_block(data: dict, web: list[dict]) -> str:
     for k in ("n", "avg_rps120", "净利同比中位", "业绩预增数", "板块判定", "近20日涨幅"):
         if data.get(k) is not None:
             lines.append(f"- {k}: {data[k]}")
+    lead_tag = "产业链核心龙头(手工梳理·卡位)" if data.get("核心口径") else "龙头(强+大+活·因子)"
     for l in data.get("龙头", []):
-        lines.append(_stock_line("龙头(强+大+活)", l))
+        lines.append(_stock_line(lead_tag, l))
     for l in data.get("高成长", []):
         lines.append(_stock_line("高成长(业绩增速)", l))
     for l in data.get("催化", []):
@@ -278,7 +329,9 @@ def build_insight_card(theme: str, force: bool = False, client=None) -> dict:
               f"2) 用『{_FRAMEWORK}』逐条判断：哪些是真趋势、哪些是炒作/听风就是雨；\n"
               "3) 真龙头 vs 蹭概念(结合给定龙头业绩区分)；\n"
               "4) **个股地图(全卡片最重点·必须落到具体个股)**：把上面【系统真实数据】里给的"
-              "龙头/高成长/催化/资金流入个股，逐个对应到产业链环节，并给**真实依据**(每只票尽量覆盖)：\n"
+              "龙头/高成长/催化/资金流入个股，逐个对应到产业链环节，并给**真实依据**(每只票尽量覆盖)。"
+              "**其中标了『产业链核心龙头』的是按卡位手工梳理的真核心(带[环节]标签如[减速器][丝杠·执行器])，"
+              "务必优先、重点讲这些**；『强+大+活·因子』类只是市值大/涨得好，未必是本产业核心，需甄别其是否只是沾边；\n"
               "   · 产业链卡位——上游核心零部件/中游整机/下游应用，卡的什么脖子；\n"
               "   · 真业绩——引给定的净利同比/业绩预告数字(有就写、没有就说'业绩待兑现')；\n"
               "   · 护城河/壁垒——定性说明，可结合联网检索的产业信息，但**涉及具体数字只用给定数据**；\n"
