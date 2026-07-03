@@ -32,7 +32,7 @@ _FRAMEWORK = (
 )
 
 
-_CARD_VER = "v2"  # 卡片 prompt 版本（加了个股地图）；改 prompt 时 bump，使旧缓存失效
+_CARD_VER = "v3"  # v3：概念型主题也解析到个股(申万行业+同花顺概念成分)·个股地图加真业绩/护城河/资金印证/证伪
 
 
 def _cache(name: str, key: str) -> Path:
@@ -60,6 +60,9 @@ def _brief_rows(g, n: int) -> list[dict]:
             "预告增幅": num("forecast_chg"),
             "流通市值": num("circ_mv_100m", 0),
             "rps": num("rps120", 0),
+            "主力净流入": num("main_net_amount"),         # 今日主力净流入(亿·估算超大单+大单)
+            "主力3日": num("main_net_3d"),                # 近3日主力净流入(亿·估算)
+            "连续流入天": num("consec_inflow", 0),         # 连续净流入天数(估算)
             "is_leader": bool(r.get("is_leader")) if pd.notna(r.get("is_leader")) else False,
         })
     return rows
@@ -89,8 +92,79 @@ def _catalyst_pool(g):
     return pool.assign(_chg=chg.fillna(-1e9)).sort_values("_chg", ascending=False)
 
 
-def _gather_data(industry: str) -> dict:
-    """从因子表+板块强弱聚合该行业的真实数据面（业绩/资金/阶段/龙头），供 LLM 接地。"""
+def _fund_pool(g):
+    """资金池：非 ST、今日主力净流入为正，按 连续流入天数→主力净流入 降序（真金进场·估算）。"""
+    import pandas as pd
+
+    net = pd.to_numeric(g.get("main_net_amount"), errors="coerce")
+    st = g.get("is_st")
+    st = (pd.Series(False, index=g.index) if st is None else st.fillna(False).astype(bool))
+    pool = g[net.notna() & (net > 0) & ~st].copy()
+    if pool.empty:
+        return pool
+    pool["_consec"] = pd.to_numeric(pool.get("consec_inflow"), errors="coerce").fillna(0)
+    pool["_net"] = pd.to_numeric(pool.get("main_net_amount"), errors="coerce").fillna(0)
+    return pool.sort_values(["_consec", "_net"], ascending=False)
+
+
+def _theme_group(df, theme: str, provider):
+    """把主题解析成因子表子集：先按申万行业(精确→包含)；匹配不到→按同花顺概念成分匹配。
+
+    修复"人形机器人/AI算力/固态电池"等**概念型主题**在因子表(申万口径)查无个股→个股地图为空的问题。
+    返回 (子表 g, 命中方式描述)。都匹配不到→空表。
+    """
+    import pandas as pd
+
+    ind = df["industry"].astype(str)
+    g = df[ind == theme]                                           # 申万行业·精确
+    if not g.empty:
+        return g, f"申万行业「{theme}」"
+    g = df[ind.str.contains(theme, na=False, regex=False)]         # 申万行业·包含
+    if not g.empty:
+        return g, f"申万行业(含「{theme}」)"
+    try:                                                           # 同花顺概念·成分（可并集多个别名概念）
+        from app.factors.theme_wide import concept_members_map
+        from app.strategy.concept_flow import _concept_member_codes_wide
+        provider = provider or _new_provider()
+        mmap = _concept_member_codes_wide(provider) or concept_members_map(provider)
+        cand = [theme] + _THEME_ALIAS.get(theme, [])               # 俗名→同花顺概念名(光模块→CPO 等)
+        keys = [k for k in cand if k in mmap]                       # 精确/别名命中
+        if not keys:                                               # 退回子串包含
+            sub = next((k for k in mmap if theme in k or k in theme), None)
+            keys = [sub] if sub else []
+        if keys:
+            codes = set()
+            for k in keys:
+                codes |= {str(c)[:6] for c in (mmap.get(k) or [])}
+            g = df[df["ts_code"].astype(str).str[:6].isin(codes)]
+            if not g.empty:
+                return g, f"同花顺概念「{'/'.join(keys)}」成分"
+    except Exception as e:
+        logger.debug("[认知] 概念成分解析失败: %s", e)
+    return df.iloc[0:0], ""
+
+
+# 俗名 → 同花顺概念名（俗名与同花顺口径不一致的补映射；命中的会并集取成分）
+_THEME_ALIAS = {
+    "光模块": ["共封装光学(CPO)", "光通信"],
+    "CPO": ["共封装光学(CPO)"],
+    "AI算力": ["东数西算(算力)", "算力租赁", "共封装光学(CPO)"],
+    "算力": ["东数西算(算力)", "算力租赁"],
+    "机器人": ["人形机器人", "减速器"],
+    "半导体设备": ["半导体设备"],
+}
+
+
+def _new_provider():
+    from app.data.composite_provider import CompositeProvider
+    return CompositeProvider()
+
+
+def _gather_data(industry: str, provider=None) -> dict:
+    """从因子表+板块强弱聚合该行业/概念的真实数据面（业绩/资金/阶段/龙头），供 LLM 接地。
+
+    主题解析支持 **申万行业 + 同花顺概念成分**（概念型主题也能落到个股·[[relative-strength-over-absolute]] 同源）。
+    """
     out: dict = {"industry": industry}
     try:
         import pandas as pd
@@ -101,7 +175,8 @@ def _gather_data(industry: str) -> dict:
         if files:
             date = files[-1].name.split("_")[0]
             df = pd.read_parquet(files[-1])
-            g = df[df["industry"] == industry]
+            g, via = _theme_group(df, industry, provider)          # 申万行业 或 同花顺概念成分
+            out["解析口径"] = via
             if not g.empty:
                 yoy = pd.to_numeric(g.get("netprofit_yoy"), errors="coerce")
                 out.update({
@@ -109,16 +184,18 @@ def _gather_data(industry: str) -> dict:
                     "avg_rps120": round(float(pd.to_numeric(g.get("rps120"), errors="coerce").mean()), 1),
                     "净利同比中位": (round(float(yoy.median()), 1) if yoy.notna().any() else None),
                     "业绩预增数": int((g.get("earn_good") == True).sum()) if "earn_good" in g else 0,  # noqa: E712
-                    "龙头": _brief_rows(g.sort_values("leader_score", ascending=False), 5),
+                    "龙头": _brief_rows(g.sort_values("leader_score", ascending=False), 6),
                     "高成长": _brief_rows(_growth_pool(g), 6),
                     "催化": _brief_rows(_catalyst_pool(g), 6),
+                    "资金流入": _brief_rows(_fund_pool(g), 6),        # 真金进场(估算)·连续流入+主力净额
                 })
-        from app.strategy.sector_strength import build_sector_strength
-        if files:
-            sec = {s["industry"]: s for s in build_sector_strength(date).get("sectors", [])}.get(industry)
-            if sec:
-                out["板块判定"] = sec.get("phase")
-                out["近20日涨幅"] = sec.get("avg_ret20")
+            # 板块阶段/涨幅：仅申万行业口径可对齐 sector_strength（概念口径跳过·不硬凑）
+            if not g.empty and via.startswith("申万行业"):
+                from app.strategy.sector_strength import build_sector_strength
+                sec = {s["industry"]: s for s in build_sector_strength(date).get("sectors", [])}.get(industry)
+                if sec:
+                    out["板块判定"] = sec.get("phase")
+                    out["近20日涨幅"] = sec.get("avg_ret20")
     except Exception as e:
         logger.debug("行业数据聚合失败: %s", e)
     return out
@@ -154,12 +231,15 @@ def _stock_line(prefix: str, l: dict) -> str:
     bits = [f"流通{l['流通市值']}亿" if l.get("流通市值") is not None else "",
             f"净利同比{l['净利同比']}%" if l.get("净利同比") is not None else "",
             (f"{l['预告']}" + (f"+{l['预告增幅']}%" if l.get("预告增幅") is not None else "")) if l.get("预告") else "",
-            f"RPS{l['rps']}" if l.get("rps") is not None else ""]
+            f"RPS{l['rps']}" if l.get("rps") is not None else "",
+            f"主力净流入{l['主力净流入']}亿" if l.get("主力净流入") is not None else "",
+            f"连续流入{l['连续流入天']}天" if l.get("连续流入天") else ""]
     return f"- {prefix} {l['name']}({l.get('code','')})：" + " ".join(b for b in bits if b)
 
 
 def _facts_block(data: dict, web: list[dict]) -> str:
-    lines = [f"【系统真实数据·行业「{data.get('industry')}」（数据日{data.get('date','?')}）】"]
+    via = data.get("解析口径") or "未匹配到成分"
+    lines = [f"【系统真实数据·主题「{data.get('industry')}」·解析口径：{via}（数据日{data.get('date','?')}）】"]
     for k in ("n", "avg_rps120", "净利同比中位", "业绩预增数", "板块判定", "近20日涨幅"):
         if data.get(k) is not None:
             lines.append(f"- {k}: {data[k]}")
@@ -169,6 +249,10 @@ def _facts_block(data: dict, web: list[dict]) -> str:
         lines.append(_stock_line("高成长(业绩增速)", l))
     for l in data.get("催化", []):
         lines.append(_stock_line("业绩催化(预喜)", l))
+    for l in data.get("资金流入", []):
+        lines.append(_stock_line("资金流入(真金进场·估算)", l))
+    if not data.get("龙头") and not data.get("高成长"):
+        lines.append("（该主题未在因子表匹配到成分股——申万行业与同花顺概念均未命中；个股地图请显式写'数据不足·未匹配到成分'，不得杜撰个股）")
     lines.append("\n【博查联网检索·产业信息（来源见URL·需甄别）】")
     for i, h in enumerate(web, 1):
         lines.append(f"[{i}] {h['title']}（{h['site']}）：{h['summary']}  {h['url']}")
@@ -193,9 +277,14 @@ def build_insight_card(theme: str, force: bool = False, client=None) -> dict:
               "1) 产业链结构(上游→中游→下游+核心环节/壁垒)，大白话；\n"
               f"2) 用『{_FRAMEWORK}』逐条判断：哪些是真趋势、哪些是炒作/听风就是雨；\n"
               "3) 真龙头 vs 蹭概念(结合给定龙头业绩区分)；\n"
-              "4) **个股地图**：把上面【系统真实数据】里给的龙头/高成长/催化个股，对应到产业链的哪个环节、"
-              "一句话点明各自逻辑(卡位/壁垒/业绩驱动)与真假(真受益龙头 vs 纯蹭概念)；"
-              "**只能用给定的这些个股名，绝不许编造其它公司名或杜撰数字**；\n"
+              "4) **个股地图(全卡片最重点·必须落到具体个股)**：把上面【系统真实数据】里给的"
+              "龙头/高成长/催化/资金流入个股，逐个对应到产业链环节，并给**真实依据**(每只票尽量覆盖)：\n"
+              "   · 产业链卡位——上游核心零部件/中游整机/下游应用，卡的什么脖子；\n"
+              "   · 真业绩——引给定的净利同比/业绩预告数字(有就写、没有就说'业绩待兑现')；\n"
+              "   · 护城河/壁垒——定性说明，可结合联网检索的产业信息，但**涉及具体数字只用给定数据**；\n"
+              "   · 资金印证——引给定的主力净流入/连续流入天，并注明'估算·非龙虎榜真钱'；\n"
+              "   · 判定——真受益龙头(有业绩+卡位+资金) vs 纯蹭概念(仅沾边无收入)，并给一句**证伪点**(什么情况说明它不是真龙头)；\n"
+              "   **铁律：只能用上面给定的这些个股名，绝不许编造其它公司名或杜撰任何数字/业绩**；引用检索处标来源[n]。\n"
               "5) 当前所处阶段 + 主要风险；\n"
               "**只引用给定数据/检索，不编造数字；说不清就写'数据不足'；标注关键结论的来源[n]；"
               "不预测涨跌、不给买卖建议、不输出胜率。** 用 Markdown，分小标题，控制在 800 字内。\n\n"
@@ -228,6 +317,8 @@ def _sys_data_line(data: dict) -> str:
         parts.append(f"龙头{l['name']}(流通{l['流通市值']}亿/净利同比{l['净利同比']}%)")
     for l in data.get("高成长", [])[:4]:
         parts.append(f"高成长{l['name']}(净利同比{l['净利同比']}%)")
+    for l in data.get("资金流入", [])[:4]:
+        parts.append(f"资金流入{l['name']}(主力净流入{l.get('主力净流入')}亿/连流{l.get('连续流入天')}天·估算)")
     return " · ".join(parts)
 
 
