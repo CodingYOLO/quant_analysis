@@ -194,7 +194,7 @@ def build_concept_flow_features(end: str, window: int = 14, provider=None, min_c
             "f1d": round(f1d, 1) if f1d is not None else None,
             "net_seq": [round(x, 1) if x is not None else None for x in nets[-5:]],
             "ma5": None,                                            # 概念无成分宽度
-            "ambush": bool(f5d > 0 and (ret5 or 0) < 3),           # 资金进+价没涨=暗流
+            "ambush": bool(f5d > 0 and -3 <= (ret5 or 0) < 3),     # 资金进+价没涨(走平·非大跌)=暗流
         })
     return rows
 

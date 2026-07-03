@@ -40,7 +40,10 @@ _THRESHOLDS = {
     "risk_top100_floor": 10.0,     # 拥挤绝对下限（分位过低时兜底，%）
     "risk_breadth_overbought": 70.0,  # 极度超买：>70% 成分站上 MA20
     # 资金暗流（资金领先价格·吴川"资金进+价没涨"埋伏）
-    "ambush_pct5_max": 3.0,        # 5日涨幅 < 此 = 价还没被推动（滞涨）
+    "ambush_pct5_max": 3.0,        # 5日涨幅 < 此 = 价还没被推动（上限·滞涨）
+    "ambush_pct5_min": -3.0,       # 5日涨幅 ≥ 此 = 价走平未跌穿；**下限·避免把大跌(−6%/−8%)误判成"没涨"**
+    "ambush_mf5_pctile": 0.60,     # 近5日净流入进当日前 40%（显著·剔"+1亿"边际噪音·与其他栏一致用相对分位）
+    "ambush_breadth_min": 45.0,    # 结构未破（≥45%成分站上MA20）·真吸筹埋伏·非破位下跌板块（接刀）
     # 通用
     "min_sample": 3,               # 成分过少的板块不参与诊断（统计不可靠）
 }
@@ -70,6 +73,7 @@ def _percentile(values: list[float], q: float) -> float:
 def _build_context(rows: list[dict]) -> dict:
     """预计算当日横截面阈值（分位 + 中位），供各诊断规则共享。"""
     mf3 = [_num(r.get("money_flow_3d")) for r in rows]
+    mf5 = [_num(r.get("money_flow_5d")) for r in rows]
     pct5 = [_num(r.get("pct_chg_5d")) for r in rows]
     pct3 = [_num(r.get("pct_chg_3d")) for r in rows]
     pct1 = [_num(r.get("pct_chg_1d")) for r in rows]
@@ -77,6 +81,7 @@ def _build_context(rows: list[dict]) -> dict:
     t = _THRESHOLDS
     return {
         "mf3_cut": _percentile(mf3, t["rotate_mf3_pctile"]),
+        "mf5_cut": _percentile(mf5, t["ambush_mf5_pctile"]),   # 暗流：净流入显著门槛（剔噪）
         "pct5_cut": _percentile(pct5, t["risk_pct5_pctile"]),
         "pct3_cut": _percentile(pct3, t["risk_pct3_pctile"]),
         "pct1_median": _percentile(pct1, 0.50),   # 当日涨幅中位（判定「相对走弱」）
@@ -136,13 +141,20 @@ def _is_risk(r: dict, ctx: dict) -> bool:
 
 
 def _is_ambush(r: dict, ctx: dict) -> bool:
-    """资金暗流（资金领先价格）：近5日主力资金净流入(估算) 但 5日涨幅<3%（钱进了·价还没被推动），
-    且今日资金未净流出。即吴川"资金进+价没涨"的埋伏窗口。已拥挤/高位者在 _classify 排除。"""
+    """资金暗流（资金领先价格·吴川"资金进+价没涨"埋伏）——四条同时满足才算，剔除误判/噪音：
+      ① 近5日主力净流入 **显著**（横截面前 40%·剔"+1亿"边际噪音）；
+      ② 5日涨幅在 **[-3%, 3%) 走平区间**（价没被推动·**非大跌**——避免把跌6%/8%的板块误标"没涨"）；
+      ③ 今日资金未净流出；
+      ④ **结构未破**（≥45%成分站上MA20）——真吸筹埋伏，而非破位下跌的"接刀"板块。
+    已拥挤/高位者在 _classify 另行排除。"""
     t = _THRESHOLDS
+    pct5 = _num(r.get("pct_chg_5d"), 99.0)
     return (
         _num(r.get("money_flow_5d")) > 0
-        and _num(r.get("pct_chg_5d"), 99.0) < t["ambush_pct5_max"]
-        and _num(r.get("money_flow_1d"), 0.0) >= 0
+        and _num(r.get("money_flow_5d")) >= ctx["mf5_cut"]            # ① 净流入显著
+        and t["ambush_pct5_min"] <= pct5 < t["ambush_pct5_max"]      # ② 价走平·非大跌
+        and _num(r.get("money_flow_1d"), 0.0) >= 0                    # ③ 今日未净流出
+        and _num(r.get("breadth_ma20")) >= t["ambush_breadth_min"]  # ④ 结构未破·非接刀
     )
 
 

@@ -72,10 +72,11 @@ def _risk_reason(r: dict) -> str:
 
 
 def _ambush_reason(r: dict) -> str:
-    return (f"近5日主力净流入 {_fmt(r.get('money_flow_5d'), '亿', signed=True)}(估算)"
-            f"·5日涨幅仅 {_fmt(r.get('pct_chg_5d'), '%', 1, signed=True)}"
+    return (f"近5日主力净流入 {_fmt(r.get('money_flow_5d'), '亿', signed=True)}(估算·居前)"
+            f"·5日涨幅 {_fmt(r.get('pct_chg_5d'), '%', 1, signed=True)}(走平未跌穿)"
+            f"·站上MA20 {_fmt(r.get('breadth_ma20'), '%')}(结构未破)"
             f"·今日资金 {_fmt(r.get('money_flow_1d'), '亿', signed=True)}"
-            f" —— **资金进、价还没涨**（资金领先价格的现象·主力资金为估算非真钱·非买卖建议）")
+            f" —— **资金进、价没涨·结构未破**（资金领先价格的现象·主力资金为估算非真钱·非买卖建议）")
 
 
 def _bucket_row(r: dict, reason_fn) -> dict:
@@ -135,9 +136,10 @@ def build_sector_radar(date: str = "", theme_type: str = "concept",
         "ok": True, "available": True, "date": sc.get("date", ""),
         "theme_type": theme_type, "boards": boards,
         "ambush": ambush, "dip": dip, "rotate": rotate, "risk": risk, "default": default,
-        "note": ("四栏均为**盘后现状描述·非买卖建议·不预测涨跌**：资金暗流=近5日主力(估算)净流入但5日涨幅<3%"
-                 "(资金进+价没涨·资金领先价格的现象)；观察点=资金/趋势仍在+结构未破+今日回调；动量栏为**回望数据会反转**；"
-                 "高位栏为拥挤风险。★=你自选/持仓覆盖的板块。判断与下单由你负责。"),
+        "note": ("四栏均为**盘后现状描述·非买卖建议·不预测涨跌**：资金暗流=近5日主力(估算)净流入**居前**"
+                 "+5日涨幅**在−3%~3%走平**(非大跌)+**结构未破**(≥45%站上MA20)——即"
+                 "资金进+价没涨的埋伏窗口(已剔除大跌误判与边际噪音)；观察点=资金/趋势仍在+结构未破+今日回调；"
+                 "动量栏为**回望数据会反转**；高位栏为拥挤风险。★=你自选/持仓覆盖的板块。判断与下单由你负责。"),
     }
 
 

@@ -167,7 +167,8 @@ def _persist_df(date: str, dates: list[str], provider) -> pd.DataFrame:
 def _series_metrics(nets: list, pcts: list) -> dict:
     """从逐日净流入(亿)+逐日涨幅序列算持续性指标（纯函数·可测）。None=当日缺数据。
 
-    连续净流入天数=从最新往回连续 >0 的天数；累计=非空求和；暗流=连续进≥2天且近5累计>0但价没涨(<3%)。
+    连续净流入天数=从最新往回连续 >0 的天数；累计=非空求和；
+    暗流=连续进≥2天且近5累计>0且5日涨幅**在−3%~3%走平**(价没涨·**非大跌**·避免把跌6%/8%的板块误标"没涨")。
     """
     consec = 0
     for v in reversed(nets):
@@ -194,7 +195,7 @@ def _series_metrics(nets: list, pcts: list) -> dict:
         "today_net": (round(today_net, 2) if today_net is not None else None),
         "today_pct": pcts[-1] if pcts else None,
         "ret5": ret5,
-        "ambush": bool(consec >= 2 and cum5 > 0 and ret5 is not None and ret5 < 3.0),
+        "ambush": bool(consec >= 2 and cum5 > 0 and ret5 is not None and -3.0 <= ret5 < 3.0),
     }
 
 
