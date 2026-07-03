@@ -68,19 +68,29 @@ def _num(v) -> float:
 
 
 def _name_maps(basic: pd.DataFrame) -> tuple[dict, dict, dict]:
-    """从 get_stock_basic 构建 {ts_code: name/industry/industry_l1} 三张映射。"""
+    """从 get_stock_basic 构建 {ts_code: name/industry/industry_l1} 三张映射。
+
+    列值一律 NaN→'' 并转字符串——防缺行业的票让下游 `k in 值` 对 float(NaN) 崩溃。
+    """
     if basic is None or basic.empty:
         return {}, {}, {}
-    name = dict(zip(basic["ts_code"], basic.get("name", "")))
-    ind = dict(zip(basic["ts_code"], basic.get("industry", "")))
-    l1_col = basic["industry_l1"] if "industry_l1" in basic.columns else basic.get("industry", "")
-    l1 = dict(zip(basic["ts_code"], l1_col))
+
+    def _map(col: str) -> dict:
+        if col not in basic.columns:
+            return {}
+        vals = basic[col].fillna("").astype(str)          # NaN→''·统一字符串
+        return dict(zip(basic["ts_code"], vals))
+
+    name = _map("name")
+    ind = _map("industry")
+    l1 = _map("industry_l1") or _map("industry")           # 无申万一级列 → 回退二级
     return name, ind, l1
 
 
-def _is_tech(industry_l1: str) -> bool:
-    """申万一级是否属科技赛道（电子/通信/计算机/电力设备/机械设备…）。"""
-    return any(k in (industry_l1 or "") for k in _TECH_INDUSTRIES)
+def _is_tech(industry_l1) -> bool:
+    """申万一级是否属科技赛道（电子/通信/计算机/电力设备/机械设备…）。非字符串(缺行业/NaN)→False。"""
+    s = industry_l1 if isinstance(industry_l1, str) else ""
+    return any(k in s for k in _TECH_INDUSTRIES)
 
 
 def build_inst_board(

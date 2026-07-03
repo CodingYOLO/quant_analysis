@@ -90,6 +90,32 @@ def test_board_tech_only_filter() -> None:
     assert b["n_total"] == 2
 
 
+# ---- 4. 回归：缺行业(NaN)不得让科技判定崩溃 ----
+
+def test_is_tech_non_string_safe() -> None:
+    """_is_tech 收到 float(NaN)/None/数字 应安全返回 False，而非 `argument of type 'float' is not iterable`。"""
+    import numpy as np
+    assert L._is_tech(np.nan) is False
+    assert L._is_tech(None) is False
+    assert L._is_tech(1.5) is False
+
+
+def test_nan_industry_no_crash() -> None:
+    """端到端回归：某上榜票 industry/industry_l1 缺失(NaN) 时 build_inst_board 不崩溃，且判为非科技。"""
+    import numpy as np
+    inst = _inst_df([
+        {"ts_code": "300999.SZ", "exalter": "机构专用", "buy": 4e8, "sell": 1e8, "net_buy": 3e8, "reason": "涨停"},
+    ])
+    basic = _basic_df([
+        {"ts_code": "300999.SZ", "name": "缺行业票", "industry": np.nan, "industry_l1": np.nan},
+    ])
+    b = L.build_inst_board(_FakeProvider(inst, basic), "20260618", top=10)   # 修复前此处抛 TypeError
+    assert b["n_total"] == 1 and b["buys"][0]["name"] == "缺行业票"
+    assert b["buys"][0]["is_tech"] is False                                   # 缺行业 → 非科技
+    bt = L.build_inst_board(_FakeProvider(inst, basic), "20260618", top=10, tech_only=True)
+    assert bt["n_total"] == 0                                                 # 科技过滤下被剔除
+
+
 def _run_all() -> None:
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     for fn in fns:
