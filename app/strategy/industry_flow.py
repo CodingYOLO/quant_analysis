@@ -24,7 +24,8 @@ from app.nodes.quick_report import _board_limit_pct, _recent_trade_dates
 logger = logging.getLogger(__name__)
 
 _PERSIST_COLS = ["industry", "cum3", "cum5", "cum10", "delta1d", "delta3d",
-                 "consec_days", "days_in", "n_days", "today_net", "today_pct", "ret5", "ambush", "rank"]
+                 "consec_days", "days_in", "n_days", "today_net", "today_pct", "ret5", "ambush", "rank",
+                 "ma5", "ma10", "ma20"]
 
 
 def _industry_agg(date: str, provider, code2name, code2ind) -> pd.DataFrame:
@@ -207,6 +208,23 @@ def _compound_pct(pcts: list) -> float | None:
     return round((prod - 1) * 100, 2)
 
 
+def _industry_breadth(end: str, provider, windows=(5, 10, 20)) -> dict:
+    """各行业成分股「站上 MA5/10/20 前复权均线」的占比%（板块内部健康度·复用 breadth_qfq）。"""
+    from app.factors.breadth_qfq import build_qfq_panel, compute_breadth
+    sb = provider.get_stock_basic()
+    code2ind = dict(zip(sb["ts_code"], sb["industry"])) if "industry" in sb.columns else {}
+    if not code2ind:
+        return {}
+    ind2codes: dict[str, list[str]] = {}
+    for ts, ind in code2ind.items():
+        if ind:
+            ind2codes.setdefault(ind, []).append(ts)
+    panel = build_qfq_panel(end, provider, lookback=max(windows) + 30)
+    if panel is None or panel.empty:
+        return {}
+    return {ind: compute_breadth(panel, codes, windows) for ind, codes in ind2codes.items()}
+
+
 def build_industry_persistent_flow(date: str, force: bool = False, window: int = 10) -> dict:
     """行业「资金持续流入榜」：近 window 日主力净流入(Tushare官方口径·估算)聚合。
 
@@ -218,11 +236,15 @@ def build_industry_persistent_flow(date: str, force: bool = False, window: int =
     if not dates:
         raise ValueError(f"{date} 无法取到交易日序列")
 
-    path = _cache_path("industry_persist_v2", f"{date}_w{window}")   # v2: 加近3日累计+1日/3日变化
+    path = _cache_path("industry_persist_v3", f"{date}_w{window}")   # v3: 加板块广度(站上MA5/10/20占比)
     if path.exists() and not force:
         df = pd.read_parquet(path)
     else:
         df = _persist_df(date, dates, provider)
+        if not df.empty:                                       # 并入板块广度(成分站上MA5/10/20占比%)
+            breadth = _industry_breadth(date, provider)
+            for w in (5, 10, 20):
+                df[f"ma{w}"] = df["industry"].map(lambda ind, w=w: (breadth.get(ind) or {}).get(f"ma{w}"))
         latest_mf = provider.get_money_flow(dates[-1])         # 最新日资金已入库才落缓存(防冻结残缺)
         if not df.empty and latest_mf is not None and not latest_mf.empty:
             df.to_parquet(path, index=False)
