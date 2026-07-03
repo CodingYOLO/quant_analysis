@@ -165,8 +165,10 @@ function stockTable(title, rows, prefix, note){
   return head+body+'</tbody></table>'+(note?('<div class="stk-note">'+note+'</div>'):'')+'</div>';
 }
 function renderStocks(data){
-  const core=data&&data['核心口径'];
-  const leadTitle=core?'🏆 核心龙头（产业链卡位·手工梳理·按上游→下游·带环节）':'🏆 龙头（强+大+活·因子·未必产业核心）';
+  const src=data&&data['核心来源'];
+  const leadTitle = src==='chain' ? '🏆 核心龙头（产业链卡位·手工梳理·上游→下游·带环节）'
+    : src==='llm' ? '🏆 核心龙头（产业链卡位·AI从成分归类·带环节·仅供研究）'
+    : '🏆 龙头（强+大+活·因子·未必产业核心）';
   const html=stockTable(leadTitle, data&&data['龙头'], 'L')
     +stockTable('🚀 高成长（净利增速最快）', data&&data['高成长'], 'G', '注：扭亏/低基数会让同比偏高，结合流通市值与RPS判断质量。')
     +stockTable('⚡ 业绩催化（中报/季报预喜·已剔ST）', data&&data['催化'], 'C');

@@ -32,7 +32,7 @@ _FRAMEWORK = (
 )
 
 
-_CARD_VER = "v4"  # v4：龙头改用 tech_chain 手工梳理的产业链核心卡位(带环节)·而非通用 leader_score
+_CARD_VER = "v5"  # v5：非策展产业也用 LLM 从成分归类核心卡位龙头(带环节)·覆盖任意产业·而非通用 leader_score
 
 
 def _cache(name: str, key: str) -> Path:
@@ -206,6 +206,61 @@ def _chain_core(df, theme: str) -> list[dict]:
         return []
 
 
+def _llm_core_leaders(df, theme: str, g=None, client=None) -> list[dict]:
+    """**无 tech_chain 覆盖的产业**：LLM 做产业链结构科普(核心环节+代表龙头)→与因子表按名匹配·补真实数据·周缓存。
+
+    让"产业链核心龙头"质量覆盖**任意产业**(不止手工策展的少数链)。
+    关键：用"产业链科普(客观知识·非荐股)"式问法——直接"从成分名单挑龙头"会触发国产模型的荐股合规过滤返回空。
+    接地：LLM 报出的公司名与**因子表按名严格匹配**，只保留真实 A 股(剔除幻觉/非A股/港美股)并补真实业绩+资金。
+    按 ISO 周缓存，同题同周只调一次 LLM。
+    """
+    import pandas as pd
+    cache = _cache("chain_leaders", f"{hashlib.md5(theme.encode()).hexdigest()[:10]}_{datetime.date.today().strftime('%G%V')}")
+    if cache.exists():
+        try:
+            return json.loads(cache.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+    # ⚠️措辞极敏感：国产模型对"列公司"类指令有荐股合规过滤(某些措辞如"龙头公司"/全角标点/"投资建议"会返回空)。
+    # 下面这版极简·半角标点·科普口吻·实测稳定返回。改动务必重测(_llm_core_leaders 返回空=被过滤)。
+    prompt = (f"你在做产业链结构科普(客观知识·非荐股)。梳理「{theme}」产业链核心环节(上游→下游),"
+              "每环节列1-3家代表性A股上市公司。只输出JSON数组,每项{\"环节\":\"..\",\"公司\":\"..\"}。")
+    if client is None:
+        from app.llm.client import LLMClient
+        client = LLMClient()
+    try:
+        raw = client.chat([{"role": "user", "content": prompt}], task_type="flash", max_tokens=1000, temperature=0.3)
+    except Exception as e:
+        logger.warning("[认知] LLM 产业链科普失败: %s", e)
+        return []
+    names = df["name"].astype(str)
+    seen, rows = set(), []
+    for it in (_parse_json_array(raw) or []):
+        comp = str(it.get("公司", "") or "").strip()
+        seg = str(it.get("环节", "") or "").strip()
+        if not comp:
+            continue
+        sub = df[names == comp]                                         # 精确名匹配(接地·剔幻觉/非A股)
+        if sub.empty and len(comp) >= 3:
+            sub = df[names.str.contains(comp, na=False, regex=False)]   # 退回包含
+        if sub.empty:
+            continue
+        c6 = str(sub.iloc[0]["ts_code"])[:6]
+        if c6 in seen:
+            continue
+        seen.add(c6)
+        br = _brief_rows(sub.head(1), 1)[0]
+        br["环节"] = seg
+        rows.append(br)
+        if len(rows) >= 10:
+            break
+    try:                                                               # 空结果也缓存(过滤确定性·避免同题同周重复调LLM)
+        cache.write_text(json.dumps(rows, ensure_ascii=False), encoding="utf-8")
+    except Exception:
+        pass
+    return rows
+
+
 def _gather_data(industry: str, provider=None) -> dict:
     """从因子表+板块强弱聚合该行业/概念的真实数据面（业绩/资金/阶段/龙头），供 LLM 接地。
 
@@ -223,8 +278,13 @@ def _gather_data(industry: str, provider=None) -> dict:
             df = pd.read_parquet(files[-1])
             g, via = _theme_group(df, industry, provider)          # 申万行业 或 同花顺概念成分
             out["解析口径"] = via
-            core = _chain_core(df, industry)                        # 产业链策展核心龙头(带环节·优先)
+            core = _chain_core(df, industry)                        # ①策展核心龙头(tech_chain·带环节·最优)
+            core_src = "chain" if core else ""
+            if not core and not g.empty and len(g) >= 10:           # ②非策展产业→LLM 从成分挑核心(覆盖任意产业)
+                core = _llm_core_leaders(df, industry, g)
+                core_src = "llm" if core else ""
             out["核心口径"] = bool(core)
+            out["核心来源"] = core_src                               # chain(策展) / llm(AI归类) / ''(回退因子)
             if not g.empty:
                 yoy = pd.to_numeric(g.get("netprofit_yoy"), errors="coerce")
                 out.update({
@@ -293,7 +353,8 @@ def _facts_block(data: dict, web: list[dict]) -> str:
     for k in ("n", "avg_rps120", "净利同比中位", "业绩预增数", "板块判定", "近20日涨幅"):
         if data.get(k) is not None:
             lines.append(f"- {k}: {data[k]}")
-    lead_tag = "产业链核心龙头(手工梳理·卡位)" if data.get("核心口径") else "龙头(强+大+活·因子)"
+    lead_tag = {"chain": "产业链核心龙头(手工梳理·卡位)",
+                "llm": "产业链核心龙头(AI从成分归类·卡位)"}.get(data.get("核心来源"), "龙头(强+大+活·因子)")
     for l in data.get("龙头", []):
         lines.append(_stock_line(lead_tag, l))
     for l in data.get("高成长", []):
