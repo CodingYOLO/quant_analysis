@@ -26,6 +26,9 @@
   .hmtag { font-size:10px; white-space:nowrap; }
   .hbrow { display:flex; align-items:center; gap:12px; padding:7px 10px; border-bottom:1px solid #1a1d2e; font-size:12px; flex-wrap:wrap; }
   .hbrank { color:#6b7280; width:16px; font-weight:700; text-align:right; }
+  .flowhead, .flowgrid { display:grid; grid-template-columns:130px 58px 68px 54px 44px 1fr 100px; gap:8px; align-items:center; font-size:12px; }
+  .flowhead { font-size:10px; color:#6b7280; padding:2px 0 5px; border-bottom:1px solid #22263a; }
+  .flowgrid { padding:5px 0; border-bottom:1px solid #16192a; }
   .sigcard { border:1px solid #6b2a2a; border-left:4px solid #f6465d; border-radius:10px; padding:12px 14px; margin-bottom:10px; background:#17111490; }
   .avoid { background:#f6465d; color:#fff; font-size:12px; font-weight:700; padding:3px 9px; border-radius:6px; white-space:nowrap; }
   .refcard { border:1px solid #5a4018; border-left:4px solid #f0a020; border-radius:10px; padding:10px 12px; margin-bottom:8px; background:#0f1117; }
@@ -53,18 +56,28 @@
   </div>
 </div>
 
-<!-- 🔥 今日升温榜（含概念·按升温速度排序·热点在哪一眼看到） -->
-<div class="card" style="border-left:3px solid #f0a020">
-  <h3 style="margin:0 0 6px">🔥 今日升温榜 <span class="neu" style="font-size:12px">按升温速度(资金强度加速)·行业+概念 · <b>热点在哪一眼看到</b> · 描述性·非信号</span></h3>
-  <div id="dloading" class="neu" style="font-size:13px;padding:14px">⏳ 计算全市场(含概念题材)资金流动…（首次约20-40秒）</div>
-  <div id="heatboard"></div>
+<div id="dloading" class="neu" style="font-size:13px;padding:14px 4px">⏳ 计算全市场(含概念题材)资金流动…（首次约20-40秒）</div>
+
+<!-- 🌊 暗流榜（核心·明天潜伏候选：资金进 + 价没涨） -->
+<div class="card" style="border-left:3px solid #5dd5c4">
+  <h3 style="margin:0 0 4px">🌊 暗流榜 · 资金进+价还没涨（潜伏候选） <span class="neu" style="font-size:12px">"有人在买·价还没涨"·<b style="color:#5dd5c4">明天重点看这里</b> · 描述非荐股</span></h3>
+  <div class="neu" style="font-size:11px;margin-bottom:4px">按近5日资金流入排序 · 今F1d/近5F5d=主力净流入(亿·业=Tushare/题=同花顺·仅同列比) · 日资金序列看升温/衰竭</div>
+  <div id="ambushtbl"></div>
 </div>
 
-<!-- 💰 资金层·资金强度趋势（热力条主视觉·含概念题材） -->
-<div class="card" style="border-left:3px solid #5dd5c4">
-  <h3 style="margin:0 0 4px">💰 资金层 · 资金强度趋势（含概念题材） <span class="neu" style="font-size:12px">嗅钱往哪流·谁在升温 · 描述性·非信号</span></h3>
-  <div class="neu" style="font-size:11.5px;margin-bottom:5px">近5天·左旧右新·<b style="color:#f6465d">红=流入</b>/<b style="color:#2ebd85">绿=流出</b>·深浅=强度 · 连红=升温 / 绿转红=拐头 / 红渐浅=衰竭 · <b>按升温速度排序·行业(业)+概念(题)</b></div>
-  <div id="heatmap"></div>
+<!-- 🔥 加速榜（今日1日资金加速流入·升温最快） -->
+<div class="card" style="border-left:3px solid #f0a020">
+  <h3 style="margin:0 0 4px">🔥 加速榜 · 今日资金加速流入（1日加速度） <span class="neu" style="font-size:12px">谁今天资金<b style="color:#f0a020">突然加速/拐头</b>·升温最快·行业+概念</span></h3>
+  <div id="acceltbl"></div>
+</div>
+
+<!-- 💰 全板块资金表（含概念·可搜·吴川式） -->
+<div class="card" style="border-left:3px solid #7c9ef8">
+  <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:4px">
+    <h3 style="margin:0">💰 全板块资金表（行业+概念） <span class="neu" style="font-size:12px">今F1d/近5F5d/价/日资金序列/背离 · 按升温速度排</span></h3>
+    <input id="flowsearch" placeholder="🔍 搜板块/概念（如 机器人）" style="margin-left:auto;background:#0f1117;color:#e8e8e8;border:1px solid #2d3052;border-radius:7px;padding:7px 11px;font-size:13px;width:200px">
+  </div>
+  <div id="fulltbl"></div>
   <div class="collapse-head" style="margin-top:10px" onclick="var e=document.getElementById('flowtable');e.style.display=e.style.display==='none'?'block':'none'">▸ 大类/市值 渗透率明细表（静态·点展开）</div>
   <div id="flowtable" style="display:none;margin-top:8px">
     <div id="macrobars"></div>
@@ -128,48 +141,58 @@ function renderFlow(fm) {
   document.getElementById('capbars').innerHTML = ftableHead() + C.map(([n, v]) => macroRow(n, v, maxC)).join('');
 }
 
+let FLOW = [];
 // 升温速度 = 平滑资金强度序列的最后一步变化(行业/概念统一可比·正=升温)
 function heatOf(r) {
   const s = (r.penz_seq || []).filter(x => x != null);
   return s.length >= 2 ? +(s[s.length - 1] - s[s.length - 2]).toFixed(2) : -99;
 }
-function heatColor(v) {                                   // 红=流入·绿=流出·深浅=强度
-  if (v == null) return '#161a29';
-  const mag = Math.min(1, Math.abs(v) / 3);
-  return v > 0 ? 'rgba(246,70,93,' + (0.2 + mag * 0.8).toFixed(2) + ')' : 'rgba(46,189,133,' + (0.2 + mag * 0.8).toFixed(2) + ')';
+function flowNum(v, unit) {                               // 带符号·红涨绿跌·空=灰
+  if (v == null) return '<span style="color:#5b6070">·</span>';
+  const c = v > 0 ? '#f6465d' : (v < 0 ? '#2ebd85' : '#8890a0');
+  return '<span style="color:' + c + '">' + (v > 0 ? '+' : '') + v + (unit || '') + '</span>';
 }
-const kindBadge = k => k === '概念'
-  ? '<span class="tierbadge" style="background:#2a1a3a;color:#c084fc">题材</span>'
-  : '<span class="tierbadge" style="background:#12271b;color:#5dd5c4">行业</span>';
-
-// 🔥 今日升温榜（行业+概念·按升温速度·Top10）
-function renderHeatboard(fr) {
-  const data = fr.filter(r => r.penz_seq && r.penz_seq.some(x => x != null))
-    .map(r => ({ ...r, heat: heatOf(r) })).sort((a, b) => b.heat - a.heat).slice(0, 10);
-  document.getElementById('heatboard').innerHTML = data.map((r, idx) => {
-    const now = (r.penz_seq || []).filter(x => x != null).slice(-1)[0];
-    const cells = r.penz_seq.map(v => '<span class="hmcell" style="width:16px;background:' + heatColor(v) + '"></span>').join(' ');
-    return '<div class="hbrow"><span class="hbrank">' + (idx + 1) + '</span>' + kindBadge(r.kind)
-      + '<b style="font-size:14px;min-width:120px">' + r.sector + '</b>'
-      + '<span style="color:#f0a020;font-weight:600">升温 ' + (r.heat > 0 ? '+' : '') + r.heat + '</span>'
-      + '<span class="kv">今日强度 ' + (now == null ? '·' : fmt(now)) + '</span>'
-      + '<span class="kv">近5日 ' + fmt(r.net5, true) + '亿</span>'
-      + '<span style="display:flex;gap:2px;margin-left:auto">' + cells + '</span>'
-      + '<span class="hmtag">' + seqTrend(r.penz_seq) + '</span></div>';
-  }).join('');
+function seqNums(seq) {                                   // 近5天日资金(亿)·红绿·看升温/衰竭
+  if (!seq || !seq.length) return '·';
+  return seq.map(v => v == null ? '<span style="color:#5b6070">·</span>'
+    : '<span style="color:' + (v > 0 ? '#f6465d' : (v < 0 ? '#2ebd85' : '#8890a0')) + '">' + (v > 0 ? '+' : '') + v + '</span>').join(' ');
 }
-
-// 💰 资金强度热力条（行业+概念·按升温速度排序·Top40）
-function renderHeatmap(fr) {
-  const data = fr.filter(r => r.penz_seq && r.penz_seq.some(x => x != null))
-    .map(r => ({ ...r, heat: heatOf(r) })).sort((a, b) => b.heat - a.heat).slice(0, 40);
-  let h = '<div class="hmrow hmhead"><span style="text-align:left">板块</span><span>5日前</span><span>4日</span><span>3日</span><span>昨</span><span>今</span><span>趋势</span></div>';
-  h += data.map(r => {
-    const cells = r.penz_seq.map(v => '<span class="hmcell" style="background:' + heatColor(v) + '" title="' + (v == null ? '·' : v) + '"></span>').join('');
-    const tag = r.kind === '概念' ? '<span style="color:#c084fc">题</span>' : '<span style="color:#5dd5c4">业</span>';
-    return '<div class="hmrow"><span class="hmname" title="' + r.sector + '">' + tag + ' ' + r.sector + '</span>' + cells + '<span class="hmtag">' + seqTrend(r.penz_seq) + '</span></div>';
-  }).join('');
-  document.getElementById('heatmap').innerHTML = h;
+function stateTag(r) {                                    // 暗流/背离/升温/衰竭/拐头
+  const p = [];
+  if (r.ambush) p.push('<span class="divtag div-ambush">🌊暗流</span>');
+  if ((r.net5 || 0) < 0 && (r.ret5 || 0) > 1) p.push('<span class="divtag div-top">⚠背离</span>');
+  const t = seqTrend(r.penz_seq); if (t) p.push(t);
+  return p.join(' ') || '<span style="color:#4b5163">·</span>';
+}
+const kindTag = k => k === '概念' ? '<span style="color:#c084fc">题</span>' : '<span style="color:#5dd5c4">业</span>';
+function flowHead() {
+  return '<div class="flowhead"><span style="text-align:left">板块</span><span style="text-align:right">今F1d</span><span style="text-align:right">近5F5d</span><span style="text-align:right">5日涨</span><span style="text-align:right">MA5</span><span>近5天日资金(亿)·趋势</span><span>状态</span></div>';
+}
+function flowRow(r) {
+  return '<div class="flowgrid"><span class="hmname" title="' + r.sector + '">' + kindTag(r.kind) + ' ' + r.sector + '</span>'
+    + '<span style="text-align:right">' + flowNum(r.f1d, '') + '</span>'
+    + '<span style="text-align:right">' + flowNum(r.net5, '') + '</span>'
+    + '<span style="text-align:right">' + flowNum(r.ret5, '%') + '</span>'
+    + '<span style="text-align:right;color:#9aa0b4">' + (r.ma5 == null ? '·' : r.ma5 + '%') + '</span>'
+    + '<span title="近5天每天主力净流入(亿)·看升温/衰竭">' + seqNums(r.net_seq) + '</span>'
+    + '<span>' + stateTag(r) + '</span></div>';
+}
+function renderInto(id, list) {
+  document.getElementById(id).innerHTML = list.length ? flowHead() + list.map(flowRow).join('')
+    : '<div class="neu" style="font-size:12px;padding:8px">暂无</div>';
+}
+function renderAmbush() {                                 // 🌊 资金进+价没涨·按近5日流入排
+  renderInto('ambushtbl', FLOW.filter(r => r.ambush).sort((a, b) => (b.net5 || 0) - (a.net5 || 0)).slice(0, 15));
+}
+function renderAccel() {                                  // 🔥 今日1日加速度最猛
+  renderInto('acceltbl', FLOW.filter(r => r.penz_seq && r.penz_seq.some(x => x != null))
+    .map(r => ({ ...r, h: heatOf(r) })).sort((a, b) => b.h - a.h).slice(0, 12));
+}
+function renderFull(q) {                                  // 💰 全表·可搜(找机器人等)·否则按升温Top60
+  let list = FLOW.filter(r => r.penz_seq && r.penz_seq.some(x => x != null));
+  list = q ? list.filter(r => r.sector.includes(q))
+    : list.map(r => ({ ...r, h: heatOf(r) })).sort((a, b) => b.h - a.h).slice(0, 60);
+  renderInto('fulltbl', list);
 }
 
 let VERDICT = {};
@@ -259,10 +282,11 @@ async function load() {
     ALL = d.sectors;
     VERDICT = d.verdict || {};
     document.getElementById('ddate').textContent = '· 数据日 ' + d.date + ' · 全市场 ' + d.n_total + ' 个板块';
-    renderHeatboard(d.flow_rows || []);
-    renderHeatmap(d.flow_rows || []);
+    FLOW = d.flow_rows || [];
+    renderAmbush(); renderAccel(); renderFull('');
     renderFlow(d.flow_map);
     document.getElementById('dloading').style.display = 'none';
+    document.getElementById('flowsearch').addEventListener('input', e => renderFull(e.target.value.trim()));
     const c = t => ALL.filter(r => r.tier === t).length;
     document.getElementById('dcount').textContent = '· 信号 ' + c('signal') + ' · 参考 ' + c('reference') + ' · 描述 ' + c('descriptive');
     renderGroups();

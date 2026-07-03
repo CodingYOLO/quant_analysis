@@ -184,12 +184,16 @@ def build_concept_flow_features(end: str, window: int = 14, provider=None, min_c
         accel = (round(zfull[-1] - zfull[-2], 2)
                  if zfull[-1] is not None and zfull[-2] is not None else None)
         pcts = [m.get(nm) for m in pct_by]
+        f5d = round(sum(x for x in nets[-5:] if x is not None), 1)
+        ret5 = _compound_pct([p for p in pcts[-5:] if p is not None])
+        f1d = next((x for x in reversed(nets) if x is not None), None)
         rows.append({
             "sector": nm, "kind": "概念",
-            "net5": round(sum(x for x in nets[-5:] if x is not None), 1),
-            "penz_seq": _smooth_seq(zfull, 3, 5), "pen_accel": accel,
-            "flow_margin": _margin(nets),
-            "ret5": _compound_pct([p for p in pcts[-5:] if p is not None]),
-            "n": comp.get(nm, 0),
+            "net5": f5d, "penz_seq": _smooth_seq(zfull, 3, 5), "pen_accel": accel,
+            "flow_margin": _margin(nets), "ret5": ret5, "n": comp.get(nm, 0),
+            "f1d": round(f1d, 1) if f1d is not None else None,
+            "net_seq": [round(x, 1) if x is not None else None for x in nets[-5:]],
+            "ma5": None,                                            # 概念无成分宽度
+            "ambush": bool(f5d > 0 and (ret5 or 0) < 3),           # 资金进+价没涨=暗流
         })
     return rows

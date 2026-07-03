@@ -143,7 +143,7 @@ def build_diagnosis(end: str, provider: CompositeProvider | None = None, level: 
     from app.strategy.sector_attribution import _margin, build_flow_map
     from app.strategy.sector_metrics import build_features
     provider = provider or CompositeProvider()
-    cache = _cache_path("sector_diagnosis", f"{end}_{level}_v8").with_suffix(".json")  # v8: 概念资金并入flow_rows
+    cache = _cache_path("sector_diagnosis", f"{end}_{level}_v9").with_suffix(".json")  # v9: 吴川式F1d/F5d/序列/暗流
     if cache.exists() and not force:
         try:
             return json.loads(cache.read_text("utf-8"))
@@ -187,10 +187,20 @@ def build_diagnosis(end: str, provider: CompositeProvider | None = None, level: 
     rows.sort(key=lambda r: (_TIER_ORDER.get(r["tier"], 3),
                              -(abs(r["ret5"] or 0) + abs((r["pen_z"] or 0) * 1.5))))
 
-    # 资金层统一流动行(行业L2 + 概念)：供"嗅热点"的热力条/升温榜·纯描述含概念题材
-    flow_rows = [{"sector": r["sector"], "kind": "行业", "net5": r["net5"], "penz_seq": r["penz_seq"],
-                  "pen_accel": r["pen_accel"], "flow_margin": r["flow_margin"],
-                  "ret5": r["ret5"], "n": r["n"]} for r in rows]
+    # 资金层统一流动行(行业L2 + 概念)：吴川式暗流扫描·今F1d+近5日F5d+日资金序列+价背离
+    flow_rows = []
+    for nm, s in sectors.items():
+        rr = next((x for x in rows if x["sector"] == nm), None)
+        if rr is None:
+            continue
+        net_seq = [round(x, 1) if x is not None else None for x in (s.get("net") or [])[-5:]]
+        f5d = rr["net5"]
+        flow_rows.append({
+            "sector": nm, "kind": "行业", "net5": f5d, "penz_seq": rr["penz_seq"],
+            "pen_accel": rr["pen_accel"], "flow_margin": rr["flow_margin"], "ret5": rr["ret5"], "n": rr["n"],
+            "f1d": rr["net_today"], "net_seq": net_seq, "ma5": rr["ma5"],
+            "ambush": bool((f5d or 0) > 0 and (rr["ret5"] or 0) < 3),   # 资金进+价没涨=暗流(潜伏候选)
+        })
     try:
         from app.strategy.concept_flow import build_concept_flow_features
         flow_rows += build_concept_flow_features(end, provider=provider)   # 概念题材(机器人/CPO…)
