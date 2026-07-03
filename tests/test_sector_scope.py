@@ -23,9 +23,9 @@ def _row(**kw) -> dict:
     return base
 
 
-def _ctx(mf3=0.0, pct5=3.0, pct3=3.0, top100=10.0, pct1_median=1.5) -> dict:
+def _ctx(mf3=0.0, mf5=0.0, pct5=3.0, pct3=3.0, top100=10.0, pct1_median=1.5) -> dict:
     """直接给定阈值，隔离规则与分位计算。"""
-    return {"mf3_cut": mf3, "pct5_cut": pct5, "pct3_cut": pct3,
+    return {"mf3_cut": mf3, "mf5_cut": mf5, "pct5_cut": pct5, "pct3_cut": pct3,
             "top100_cut": top100, "pct1_median": pct1_median}
 
 
@@ -67,7 +67,7 @@ def test_classify_dip_excludes_overheated() -> None:
     rows = [_row(theme_name="过热票", money_flow_5d=20, pct_chg_5d=12.0,
                  pct_chg_3d=8.0, pct_chg_1d=0.2, money_flow_1d=-3,
                  breadth_ma20=85, top100_ratio=25)]
-    rotate, dip, risk = ss._classify(rows, ss._build_context(rows))
+    rotate, dip, risk, ambush = ss._classify(rows, ss._build_context(rows))
     assert rows[0] in risk
     assert rows[0] not in dip  # 互斥：过热不进低吸
 
@@ -84,6 +84,28 @@ def test_risk_overbought_or_crowded() -> None:
     assert ss._is_risk(_row(pct_chg_5d=8, breadth_ma20=40, top100_ratio=2), ctx) is False
 
 
+def test_ambush_hit_and_miss() -> None:
+    """资金暗流：净流入显著(≥mf5_cut) + 5日涨幅走平[-3%,3%) + 结构未破(≥45%) + 今日未净流出。"""
+    ctx = _ctx(mf5=10.0)
+    base = dict(money_flow_5d=50, pct_chg_5d=-0.5, money_flow_1d=5, breadth_ma20=70)
+    assert ss._is_ambush(_row(**base), ctx) is True                    # 走平+显著+结构好=命中
+    # 核心修正：大跌(5日-6%)不算"价没涨" → 不命中（承接下跌≠埋伏）
+    assert ss._is_ambush(_row(money_flow_5d=50, pct_chg_5d=-6.0,
+                              money_flow_1d=5, breadth_ma20=70), ctx) is False
+    # 净流入不显著(+1亿噪音 < 分位) → 不命中
+    assert ss._is_ambush(_row(money_flow_5d=1, pct_chg_5d=-0.5,
+                              money_flow_1d=5, breadth_ma20=70), ctx) is False
+    # 结构已破(广度<45) → 不命中（破位下跌"接刀"非埋伏）
+    assert ss._is_ambush(_row(money_flow_5d=50, pct_chg_5d=-0.5,
+                              money_flow_1d=5, breadth_ma20=30), ctx) is False
+    # 已涨(5日≥3%) → 不算"没涨" → 不命中
+    assert ss._is_ambush(_row(money_flow_5d=50, pct_chg_5d=5.0,
+                              money_flow_1d=5, breadth_ma20=70), ctx) is False
+    # 今日资金净流出 → 不命中
+    assert ss._is_ambush(_row(money_flow_5d=50, pct_chg_5d=-0.5,
+                              money_flow_1d=-5, breadth_ma20=70), ctx) is False
+
+
 def test_missing_data_never_falsely_hits() -> None:
     """全 None 行不得命中任何诊断（避免对缺数据板块误判）。"""
     ctx = _ctx()
@@ -91,6 +113,7 @@ def test_missing_data_never_falsely_hits() -> None:
     assert ss._is_rotate(empty, ctx) is False
     assert ss._is_dip(empty, ctx) is False
     assert ss._is_risk(empty, ctx) is False
+    assert ss._is_ambush(empty, ctx) is False
 
 
 def test_percentile_and_context() -> None:
@@ -99,7 +122,7 @@ def test_percentile_and_context() -> None:
     rows = [_row(money_flow_3d=float(i), pct_chg_5d=float(i),
                  pct_chg_3d=float(i), top100_ratio=float(i)) for i in range(10)]
     ctx = ss._build_context(rows)
-    for key in ("mf3_cut", "pct5_cut", "pct3_cut", "top100_cut"):
+    for key in ("mf3_cut", "mf5_cut", "pct5_cut", "pct3_cut", "top100_cut"):
         assert key in ctx
 
 

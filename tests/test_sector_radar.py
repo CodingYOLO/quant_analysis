@@ -19,9 +19,9 @@ def test_reasons_carry_numbers_and_units() -> None:
     row = {"money_flow_5d": 104.2, "money_flow_3d": 60.0, "breadth_ma20": 90.5,
            "pct_chg_1d": -1.08, "pct_chg_3d": 2.1, "pct_chg_5d": 12.8, "top100_ratio": 25.0}
     dip = R._dip_reason(row)
-    assert "+104亿" in dip and "90%" in dip and "-1.1%" in dip and "低吸" in dip
-    assert "+60亿" in R._rotate_reason(row) and "在途主线" in R._rotate_reason(row)
-    assert "+12.8%" in R._risk_reason(row) and "防接盘" in R._risk_reason(row)
+    assert "+104亿" in dip and "90%" in dip and "-1.1%" in dip and "观察点" in dip
+    assert "+60亿" in R._rotate_reason(row) and "动量强" in R._rotate_reason(row)
+    assert "+12.8%" in R._risk_reason(row) and "勿追" in R._risk_reason(row)
     # None 安全 → '—'，不抛错
     assert "—" in R._dip_reason({"breadth_ma20": None})
 
@@ -31,7 +31,7 @@ def test_bucket_row_and_brief() -> None:
          "money_flow_5d": 104.2, "pct_chg_1d": -1.08, "phase": "趋势",
          "signal": "低吸", "signals": ["低吸"]}
     br = R._bucket_row(r, R._dip_reason)
-    assert br["name"] == "银行" and br["signals"] == ["低吸"] and "低吸" in br["reason"]
+    assert br["name"] == "银行" and br["signals"] == ["低吸"] and "观察点" in br["reason"]
     bf = R._board_brief(r)
     assert bf["name"] == "银行" and bf["phase"] == "趋势" and bf["signal"] == "低吸"
 
@@ -59,7 +59,7 @@ def test_build_radar_with_dip(monkeypatch=None) -> None:
         assert r["ok"] and r["available"] and r["date"] == "20260615"
         assert len(r["boards"]) == 2 and len(r["dip"]) == 1 and r["dip"][0]["name"] == "银行"
         assert r["default"] == "银行"                 # 有低吸 → 默认选低吸首位
-        assert "宁可不抄" in r["note"]                 # 诚实提示常驻
+        assert "非买卖建议" in r["note"]               # 诚实提示常驻
         assert r["risk"][0]["name"] == "PCB概念"
     finally:
         SS.build_sectorscope = orig
