@@ -64,9 +64,12 @@ h1 { font-size:22px; text-align:center; margin-bottom:4px; }
 <div class="chips" id="chips"></div>
 
 <div id="result" style="display:none">
-  <div class="card"><h2 id="card-title">🧭 认知卡片</h2><div id="card" class="md loading">⏳ 正在生成(首次约30-60秒·之后秒开)…</div>
+  <div class="card" id="card-box"><h2 id="card-title">🧭 认知卡片
+      <button id="exp-img" style="float:right;background:#23264a;color:#7c9ef8;border:none;border-radius:6px;padding:5px 12px;font-size:12px;cursor:pointer;font-weight:400;display:none">📷 导出长图</button></h2>
+    <div id="card" class="md loading">⏳ 正在生成(首次约30-60秒·之后秒开)…</div>
     <div id="sources" class="src" style="margin-top:12px"></div>
     <div id="disc-disclaimer" class="disc-note"></div>
+    <div id="exp-foot" style="display:none;margin-top:10px;padding-top:8px;border-top:1px solid #23263e;font-size:11px;color:#6b7280">🧭 A股Agent · 产业认知教练 · 认知框架+真实数据·非投资建议</div>
   </div>
   <div class="card" id="stocks-card" style="display:none"><h2>📋 这个产业的 A 股清单 <span style="font-size:12px;color:#9ca3af;font-weight:400">龙头·高成长·有催化 — 点名称看个股360 · 数据来自系统因子表(真实)</span></h2><div id="stocks"></div></div>
   <div class="card"><h2>🧠 认知练习 <span style="font-size:12px;color:#9ca3af;font-weight:400">先自己答，再看AI反馈——主动输出，认知才长进</span></h2><div id="quiz" class="loading">⏳ 出题中…</div></div>
@@ -81,6 +84,7 @@ h1 { font-size:22px; text-align:center; margin-bottom:4px; }
 {% block extra_script %}
 <script src="/static/echarts.min.js"></script>
 <script src="/static/kline.js"></script>
+<script src="/static/html2canvas.min.js"></script>
 <script>
 const $=id=>document.getElementById(id);
 function esc(s){ return (s==null?'':String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
@@ -109,10 +113,12 @@ async function go(){
   $('go').disabled=true; $('card-title').textContent='🧭 「'+esc(t)+'」认知卡片';
   $('card').className='md loading'; $('card').textContent='⏳ 正在生成(首次约30-60秒·之后秒开)…';
   $('sources').innerHTML=''; $('quiz').className='loading'; $('quiz').textContent='⏳ 出题中…'; $('disc').innerHTML=''; $('stocks-card').style.display='none';
+  $('exp-img').style.display='none'; $('exp-foot').style.display='none';
   try{
     const j=await (await fetch('/api/insight/card?theme='+encodeURIComponent(t))).json();
     if(!j.ok){ $('card').className='md'; $('card').innerHTML='<p>❌ '+esc(j.msg||'生成失败')+'</p>'; $('go').disabled=false; return; }
     $('card').className='md'; $('card').innerHTML=md(j.card);
+    $('exp-img').style.display='inline-block';
     $('sources').innerHTML=(j.sources&&j.sources.length)?('📎 来源(需自行甄别)：'+j.sources.map(s=>'<a href="'+esc(s.url)+'" target="_blank">'+esc(s.title||s.site||'链接')+'</a>').join(' · ')):'';
     $('disc-disclaimer').innerHTML='📅 业绩/资金数据日 <b>'+esc((j.data&&j.data.date)||'—')+'</b>(最新交易日·每晚自动刷新) · 联网信息近1月 · 问答/批改/探讨均接<b>实时真实数据</b>(DeepSeek V4-Pro 最强推理)。<br>⚠️ '+esc(j.disclaimer||'');
     renderStocks(j.data);
@@ -121,6 +127,21 @@ async function go(){
   finally{ $('go').disabled=false; }
 }
 $('go').onclick=go; $('theme').addEventListener('keydown',e=>{ if(e.key==='Enter') go(); });
+
+// 导出长图：把整张认知卡片(标题+正文+来源+数据日) html2canvas 截成 PNG(深色底·便于分享/存档)
+$('exp-img').addEventListener('click', async ()=>{
+  const node=$('card-box'); if(!node) return;
+  if(typeof html2canvas==='undefined'){ alert('图片库未加载，请刷新后重试'); return; }
+  const btn=$('exp-img'), old=btn.textContent;
+  btn.style.display='none';                       // 导出前藏掉按钮自身(不入图)
+  try{
+    const canvas=await html2canvas(node,{scale:2,backgroundColor:'#12141c',useCORS:true,windowWidth:node.scrollWidth});
+    const a=document.createElement('a');
+    a.download='认知卡片_'+(_theme||'card')+'.png';
+    a.href=canvas.toDataURL('image/png'); a.click();
+  }catch(e){ alert('长图生成失败（内容过长或浏览器限制）：'+e); }
+  finally{ btn.style.display='inline-block'; btn.textContent=old; }
+});
 
 // 个股清单：龙头/高成长/催化三类，点名称【就地展开】K线+股性标签（复用 /api/stock/profile）
 function stockTable(title, rows, prefix, note){
