@@ -648,6 +648,13 @@ def run_warmup(base_date: str) -> None:
         console.print(f"[green]✅ 行业持续流入榜预热 {latest}[/green]")
     except Exception as e:
         console.print(f"[yellow]⚠️ 持续流入榜预热失败: {e}[/yellow]")
+    # 1.55) 概念资金持续流入榜(渗透率+多窗口·宽成分周缓存首建~30s·避免用户次周首访等待)
+    try:
+        from app.strategy.concept_flow import build_concept_persistent_flow
+        build_concept_persistent_flow(latest, window=10, provider=prov)
+        console.print(f"[green]✅ 概念持续流入榜预热 {latest}[/green]")
+    except Exception as e:
+        console.print(f"[yellow]⚠️ 概念持续流入榜预热失败: {e}[/yellow]")
     # 1.6) 板块诊断面板(状态机+回测分层+大类资金地图·按日缓存·打开秒显示)
     try:
         from app.strategy.sector_diagnosis import build_diagnosis

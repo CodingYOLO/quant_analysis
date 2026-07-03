@@ -197,3 +197,148 @@ def build_concept_flow_features(end: str, window: int = 14, provider=None, min_c
             "ambush": bool(f5d > 0 and (ret5 or 0) < 3),           # 资金进+价没涨=暗流
         })
     return rows
+
+
+# ── 概念资金持续流入榜（多窗口变化 + 渗透率·相对强度·点开看成分股）──────────────────────
+# 非题材归类池（次新/业绩预告类）：随财报季机械进出·非真炒作热点·从榜单剔除
+_NON_THEME = ("次新股", "预增", "预减", "预亏", "预盈", "扭亏", "摘帽", "年报", "季报", "中报", "举牌")
+
+
+def _is_non_theme(name: str) -> bool:
+    """概念名是否为「非题材归类池」（次新股/业绩预告等·非可炒作主题）。"""
+    return any(k in name for k in _NON_THEME)
+
+
+def _fetch_concept_member_codes_wide(provider, cap_max: int = 1600) -> "pd.DataFrame":
+    """全题材概念成分长表(concept_name/member_code)·成分数∈[5,cap_max]·剔垃圾+非题材池。
+
+    独立于 theme_wide 的 300 上限（不影响热度看板），**覆盖大概念**(人形机器人456/机器人1204)，
+    供概念「渗透率」分母（成分流通市值合计）。逐概念 ths_member·较慢·按 ISO 周缓存。
+    """
+    from app.factors.theme_wide import _is_junk_concept
+    pro = provider._ts._api
+    try:
+        idx = pro.ths_index(type="N")
+    except Exception as e:
+        logger.warning("[概念渗透率] ths_index 失败: %s", e)
+        return pd.DataFrame()
+    if idx is None or idx.empty:
+        return pd.DataFrame()
+    idx = idx.copy()
+    idx["count"] = pd.to_numeric(idx.get("count"), errors="coerce")
+    idx = idx[(idx["count"] >= 5) & (idx["count"] <= cap_max)]
+    idx = idx[~idx["name"].astype(str).apply(lambda s: _is_junk_concept(s) or _is_non_theme(s))]
+    rows = []
+    for _, r in idx.iterrows():
+        name = str(r["name"])
+        try:
+            m = pro.ths_member(ts_code=r["ts_code"])
+        except Exception:
+            continue
+        if m is None or m.empty or "con_code" not in m.columns:
+            continue
+        for con in m["con_code"]:
+            rows.append({"concept_name": name, "member_code": str(con)})
+    logger.info("[概念渗透率] 宽成分缓存：%d 概念 / %d 条", idx.shape[0], len(rows))
+    return pd.DataFrame(rows)
+
+
+def _concept_member_codes_wide(provider) -> dict:
+    """{概念名: [成分ts_code]}·按 ISO 周缓存（成分变动慢）。覆盖大概念·供渗透率分母。"""
+    import datetime as _dt
+
+    from app.data.cache import cached_daily
+    iso = _dt.date.today().isocalendar()
+    wk = f"{iso[0]}W{iso[1]:02d}"
+    df = cached_daily("concept_members_wide", wk, lambda: _fetch_concept_member_codes_wide(provider))
+    if df is None or df.empty:
+        return {}
+    return {nm: g["member_code"].tolist() for nm, g in df.groupby("concept_name")}
+
+
+def build_concept_persistent_flow(date: str, window: int = 10, provider=None) -> dict:
+    """概念「资金持续流入榜」：近 window 日同花顺概念净流入 + **渗透率(净流入/概念流通市值·相对强度)**
+    + 多窗口(今/1日变化/近3/3日变化/近5/近10) + 连续流入天。渗透率抓"小盘子资金猛灌"的真热点。
+
+    ⚠️口径：同花顺概念·**成分严重重叠**→概念流通市值重复计数·**渗透率是近似**(行业口径更干净)；净流入非龙虎榜真钱。
+    """
+    import math
+
+    import pandas as pd
+    from app.data.cache import cached_daily
+    from app.factors.theme_wide import _is_junk_concept, concept_members_map
+    from app.strategy.industry_flow import _series_metrics
+    provider = provider or CompositeProvider()
+    pro = provider._ts._api
+    dates = _recent_trade_dates(provider, date, window)
+    if not dates:
+        raise ValueError(f"{date} 无交易日")
+
+    def _num(x):
+        """转 float；None/NaN/±inf → None（防脏值污染累计与渗透率）。"""
+        if x is None or (isinstance(x, float) and not math.isfinite(x)):
+            return None
+        try:
+            v = float(x)
+        except (TypeError, ValueError):
+            return None
+        return v if math.isfinite(v) else None
+
+    net_by, pct_by, comp, lead = [], [], {}, {}
+    for d in dates:
+        df = cached_daily("ths_concept_flow", d, lambda d=d: _fetch_concept_flow(pro, d))
+        nm_net, nm_pct = {}, {}
+        if df is not None and not df.empty:
+            for _, r in df.iterrows():
+                nm = str(r.get("name", "") or "")
+                if not nm or _is_junk_concept(nm) or _is_non_theme(nm):     # 剔垃圾 + 非题材归类池
+                    continue
+                nm_net[nm] = _num(r.get("net_amount"))
+                nm_pct[nm] = _num(r.get("pct_change"))
+                cn = _num(r.get("company_num"))
+                if cn is not None:
+                    comp[nm] = int(cn)
+                if r.get("lead_stock"):
+                    lead[nm] = str(r["lead_stock"])
+        net_by.append(nm_net)
+        pct_by.append(nm_pct)
+
+    # 概念流通市值(渗透率分母·end日·成分circ_mv合计)：宽 map 覆盖大概念·回退窄 map
+    mmap = _concept_member_codes_wide(provider) or concept_members_map(provider)
+    db = provider.get_daily_basic(dates[-1])
+    circ = (pd.to_numeric(db.set_index("ts_code")["circ_mv"], errors="coerce") / 1e4
+            if db is not None else pd.Series(dtype=float))
+    concept_circ = {nm: float(circ.reindex(codes).dropna().sum()) for nm, codes in mmap.items()}
+
+    names = set().union(*[set(m) for m in net_by]) if net_by else set()
+    rows = []
+    for nm in names:
+        if comp.get(nm, 0) < 5:
+            continue
+        nets = [m.get(nm) for m in net_by]
+        if sum(1 for x in nets if x is not None) < max(5, int(window * 0.5)):
+            continue
+        pcts = [m.get(nm) for m in pct_by]
+        met = _series_metrics(nets, pcts)                          # 复用行业多窗口指标(cum3/5/10·delta1d/3d·consec…)
+        cc = concept_circ.get(nm)
+        c5 = _num(met.get("cum5"))
+        pen5 = (round(c5 / cc * 100, 3)
+                if cc and math.isfinite(cc) and cc > 0 and c5 is not None else None)  # 渗透率%(相对强度)
+        met.update({
+            "concept": nm, "n": comp.get(nm, 0), "lead": lead.get(nm, ""),
+            "circ": round(cc, 0) if cc and math.isfinite(cc) and cc > 0 else None,
+            "pen5": pen5,
+        })
+        rows.append(met)
+    df_out = pd.DataFrame(rows)
+    if df_out.empty:
+        return {"date": date, "window": len(dates), "rows": []}
+    df_out = df_out.sort_values("cum5", ascending=False).reset_index(drop=True)
+    df_out["rank"] = df_out.index + 1
+    return {
+        "date": date, "window": len(dates),
+        "dates": [f"{d[4:6]}-{d[6:]}" for d in dates],
+        "rows": df_out.to_dict("records"),
+        "note": ("同花顺概念净流入(DDE·非龙虎榜真钱)。**渗透率%=近5日净流入/概念流通市值**(相对强度·抓小盘子猛灌)。"
+                 "⚠️概念成分重叠·流通市值重复计数·渗透率近似。红=流入 绿=流出。"),
+    }

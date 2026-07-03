@@ -611,6 +611,53 @@ async def api_industry_persistent_detail(date: str = "", industry: str = "", _us
         return {"ok": False, "error": str(e)}
 
 
+@app.get("/api/concept/persistent")
+async def api_concept_persistent(date: str = "", window: int = 10, _user: str = Depends(require_auth)):
+    """概念「资金持续流入榜」：近 window 日同花顺概念净流入 + 渗透率(相对强度) + 多窗口变化。"""
+    try:
+        from app.strategy.concept_flow import build_concept_persistent_flow
+        d = date or _last_trade_date()
+        window = max(3, min(int(window), 20))
+        return {"ok": True, "data": build_concept_persistent_flow(d, window=window)}
+    except Exception as e:
+        logger.exception("概念持续流入榜失败")
+        return {"ok": False, "error": str(e)}
+
+
+@app.get("/api/concept/persistent-detail")
+async def api_concept_persistent_detail(date: str = "", concept: str = "", _user: str = Depends(require_auth)):
+    """展开某概念 → 成分股资金持续流入（复用因子表 consec_inflow/流入天数·估算）。"""
+    if not concept:
+        return {"ok": False, "error": "缺少 concept 参数"}
+    try:
+        from app.data.composite_provider import CompositeProvider
+        from app.factors.theme_wide import concept_members_map
+        from app.strategy.concept_flow import _concept_member_codes_wide
+        from app.strategy.screener import build_factor_table
+        d = date or _last_trade_date()
+        prov = CompositeProvider()
+        mmap = _concept_member_codes_wide(prov) or concept_members_map(prov)
+        codes = {str(c)[:6] for c in (mmap.get(concept) or [])}
+        if not codes:
+            return {"ok": True, "concept": concept, "rows": []}
+        ft = build_factor_table(d)
+        sub = ft[ft["ts_code"].astype(str).str[:6].isin(codes)].copy()
+        if sub.empty:
+            return {"ok": True, "concept": concept, "rows": []}
+        sort_cols = [c for c in ("consec_inflow", "inflow_days_10", "main_net_3d") if c in sub.columns]
+        if sort_cols:
+            sub = sub.sort_values(sort_cols, ascending=False)
+        want = ["ts_code", "name", "consec_inflow", "inflow_days_10",
+                "main_net_3d", "main_net_amount", "pct_chg", "close"]
+        cols = [c for c in want if c in sub.columns]
+        rows = sub[sub.get("consec_inflow", 0) > 0].head(15)[cols].to_dict("records") \
+            if "consec_inflow" in sub.columns else sub.head(15)[cols].to_dict("records")
+        return {"ok": True, "concept": concept, "rows": rows}
+    except Exception as e:
+        logger.exception("概念持续流入个股失败")
+        return {"ok": False, "error": str(e)}
+
+
 @app.get("/api/industry/detail")
 async def api_industry_detail(date: str = "", industry: str = "", _user: str = Depends(require_auth)):
     """单个行业的环境/宏观/微观详情（资金定性+公告+题材+LLM驱动点评，按需+缓存）。"""
