@@ -20,7 +20,7 @@ import logging
 
 import numpy as np
 
-from app.strategy.sector_diagnosis import STATES, state_at
+from app.strategy.sector_diagnosis import CONFIG, STATES, state_at
 from app.strategy.sector_metrics import build_features
 
 logger = logging.getLogger(__name__)
@@ -31,13 +31,16 @@ PREV_GAP = 3                            # 宽度"前值"回看(判高位破位)
 
 
 def evaluate(end: str, start: str = "20240924", level: str = "L2", denom: str = "pen",
-             min_members: int = 5, n_boot: int = 1000, seed: int = 42, feats: dict | None = None) -> dict:
+             min_members: int = 5, n_boot: int = 1000, seed: int = 42, feats: dict | None = None,
+             cfg: dict | None = None) -> dict:
     """回测 [start,end] 各板块每日状态的 T+1入场·持有N日前向收益（真时点·bootstrap CI）。
 
     denom: 喂状态机的资金分母 'pen'(渗透率·慢稳) 或 'press'(压力占比·快敏)。加速度恒用 pen。
     feats: 预构建特征(build_features 输出)·供 pen/press 复用同一次构建·省算力；None 则内部构建。
+    cfg: 状态机阈值(默认CONFIG)·传提纯变体(如 washout_need_accel)重跑对比。
     """
     rng = np.random.default_rng(seed)
+    cfg = cfg or CONFIG
     feats = feats or build_features(end, start, level=level)
     dates, sectors = feats["dates"], feats["sectors"]
     nd = len(dates)
@@ -59,7 +62,7 @@ def evaluate(end: str, start: str = "20240924", level: str = "L2", denom: str = 
         for i in sig_range:
             if _fwd(pct, i, 5) is None:
                 continue
-            st = state_at(s, i, denom)
+            st = state_at(s, i, denom, cfg=cfg)
             counts[st] += 1
             if prev_state is not None and st != prev_state:
                 flips += 1

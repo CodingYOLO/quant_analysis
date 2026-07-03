@@ -32,6 +32,7 @@ CONFIG = {
     "ret5_up": 2.0,          # 近5日板块涨幅"价涨"阈值(%)
     "ret5_flat": 2.0,        # 近5日板块涨幅"价平/没涨"上限(%)——暗流用
     "f3d_pos": 0.5,          # F3d"资金持续为正"阈值(标准化)
+    "washout_need_accel": True,  # 洗盘谷底提纯：额外要求资金加速度已转正(经924双期验证·质量更高·仍仅参考)
 }
 
 _MA_WINDOWS = (5, 10, 20, 60)
@@ -71,7 +72,9 @@ def classify_state(m: dict, cfg: dict = CONFIG) -> str:
         return "高位回调"
 
     # 4) 洗盘谷底：MA5 宽度极低 + 资金流出减速（F1d 由深负收窄回升）
-    if ma5 <= cfg["ma5_low"] and f1d_prev is not None and f1d > f1d_prev and f1d_prev < 0:
+    #    提纯选项 washout_need_accel：额外要求资金加速度已转正(pen_accel>0)·把"少亏"提纯为"真反弹"(待回测标定)
+    if ma5 <= cfg["ma5_low"] and f1d_prev is not None and f1d > f1d_prev and f1d_prev < 0 \
+            and (not cfg.get("washout_need_accel") or accel > 0):
         return "洗盘谷底"
 
     # 5) 健康上行：宽度高位 + 价涨 + 资金仍进
@@ -85,10 +88,10 @@ STATES = ("顶背离", "暗流", "高位回调", "洗盘谷底", "健康上行",
 
 
 # ── 从特征序列取当日状态（canonical·回测与面板共用同一逻辑，确保展示=已验证）──────────
-def state_at(s: dict, i: int, denom: str = "pen", prev_gap: int = 3) -> str:
+def state_at(s: dict, i: int, denom: str = "pen", prev_gap: int = 3, cfg: dict = CONFIG) -> str:
     """sector_metrics.build_features 的单板块序列 s 第 i 天 → 状态。
 
-    denom 喂水平/趋势（{denom}_z / {denom}_f3d）；**加速度恒用 pen_accel（稳定分母）**。
+    denom 喂水平/趋势（{denom}_z / {denom}_f3d）；**加速度恒用 pen_accel（稳定分母）**。cfg 可传提纯变体。
     """
     def at(key, idx):
         arr = s.get(key, [])
@@ -101,7 +104,7 @@ def state_at(s: dict, i: int, denom: str = "pen", prev_gap: int = 3) -> str:
         "accel": at("pen_accel", i),
         "ret5": _ret5(s.get("pct", []), i),
     }
-    return classify_state(m)
+    return classify_state(m, cfg)
 
 
 # ── 回测验证结论（post-924 L2 · 924前后双期交叉 · 95%CI）→ 决定可信度分层与展示 ─────────
@@ -112,9 +115,9 @@ STATE_VERDICT = {
               "pre": "924前 超额CI[-0.31,-0.08] 仍显著负·方向一致",
               "caveat": "跨regime稳健·但小edge→只作避雷/择时辅助·非alpha来源"},
     "洗盘谷底": {"tier": "reference", "dir": "weak_pos", "label": "超跌·仅参考", "sub": "比基准少亏·非买点",
-               "post": "T+5胜49.2%·超额CI[0.01,0.23]显著·但绝对均值仍-0.37%",
-               "pre": "924前 超额CI[0.26,0.44] 仍显著正·方向一致",
-               "caveat": "非买点(绝对收益仍负)·需配合资金加速度转正才可能升级·绝不重仓"},
+               "post": "提纯版(加资金加速度转正)T+5胜50.7%·超额CI[0.12,0.37]显著·但绝对均值仍-0.25%",
+               "pre": "924前 超额CI[0.27,0.46] 仍显著正·方向一致(非过拟合)",
+               "caveat": "已加pen_accel>0提纯·质量更高但绝对收益仍负→仍非买点·绝不重仓·只作超跌关注"},
     "暗流": {"tier": "descriptive", "dir": "none", "label": "资金逆价流入", "sub": "未过回测·仅描述",
             "post": "pen 超额CI跨0·触发少", "pre": "方向不一致",
             "caveat": "需换 press 分母 + 点火前置条件重测(待做)"},
@@ -143,7 +146,7 @@ def build_diagnosis(end: str, provider: CompositeProvider | None = None, level: 
     from app.strategy.sector_attribution import _margin, build_flow_map
     from app.strategy.sector_metrics import build_features
     provider = provider or CompositeProvider()
-    cache = _cache_path("sector_diagnosis", f"{end}_{level}_v9").with_suffix(".json")  # v9: 吴川式F1d/F5d/序列/暗流
+    cache = _cache_path("sector_diagnosis", f"{end}_{level}_v10").with_suffix(".json")  # v10: 洗盘谷底提纯(pen_accel>0)
     if cache.exists() and not force:
         try:
             return json.loads(cache.read_text("utf-8"))
