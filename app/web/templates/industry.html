@@ -16,6 +16,13 @@
 #tbl { width:100%; font-size:13px; }
 #tbl td { white-space:nowrap; }
 #tbl td.lead { white-space:normal; color:#b8c2e8; font-size:12px; }
+/* 资金持续流入榜表：列多·防板块名/表头被挤成竖排·加大字号·横向可滚 */
+#ptbl { width:100%; font-size:14px; border-collapse:collapse; }
+#ptbl thead th { font-size:12.5px; color:#9ca3af; padding:10px 12px; white-space:nowrap; text-align:right; }
+#ptbl thead th:first-child, #ptbl thead th:nth-child(2) { text-align:left; }
+#ptbl td { white-space:nowrap; padding:9px 12px; text-align:right; }
+#ptbl td:nth-child(2) { text-align:left; min-width:112px; font-weight:600; color:#e8ecff; }
+.sttbl td, .sttbl th { white-space:nowrap; }
 @media(max-width:900px){ .kpi-row{grid-template-columns:repeat(2,1fr)} }
 /* 行展开详情面板 */
 tr.datarow { cursor:pointer; }
@@ -290,19 +297,29 @@ async function togglePersistDetail(tr){
     if(!j.ok){ td.innerHTML='<div style="padding:8px 12px;color:#f87171">❌ '+j.error+'</div>'; return; }
     const rs=j.rows||[];
     if(!rs.length){ td.innerHTML='<div style="padding:8px 12px;color:#9ca3af;font-size:12px">该板块暂无「连续净流入」的个股（估算口径）</div>'; return; }
-    const cell=(v)=>{ if(v==null) return '<td style="text-align:center" class="neu">·</td>'; const c=v>0?'up':(v<0?'down':''); const sg=v>0?'+':''; return '<td style="text-align:center" class="'+c+'">'+sg+v+'</td>'; };
-    let hh='<div style="padding:8px 12px"><b style="color:#cdd6f4;font-size:12px">'+ind+' · 板块内持续流入个股（估算·按连续净流入天数排序）</b>'
-      +'<table style="width:100%;margin-top:6px;font-size:12px"><thead><tr style="color:#9ca3af"><th style="text-align:left">代码</th><th style="text-align:left">名称</th><th>连续流入天</th><th>近10流入天</th><th>主力3日(亿)</th><th>今日主力(亿)</th><th>涨跌%</th></tr></thead><tbody>';
-    rs.forEach(r=>{
-      const c6=String(r.ts_code||'').slice(0,6);
-      hh+='<tr><td><a href="/stock?code='+c6+'" style="color:#7c9ef8">'+c6+'</a></td><td>'+(r.name||'')+'</td>'
-        +'<td style="text-align:center">'+(r.consec_inflow==null?'·':r.consec_inflow)+'</td>'
-        +'<td style="text-align:center">'+(r.inflow_days_10==null?'·':r.inflow_days_10)+'</td>'
-        +cell(r.main_net_3d)+cell(r.main_net_amount)+cell(r.pct_chg)+'</tr>';
-    });
-    hh+='</tbody></table><div class="neu" style="font-size:10.5px;margin-top:4px">口径=估算(超大单+大单)·非龙虎榜真机构；点代码到个股360印证资金/龙虎榜</div></div>';
-    td.innerHTML=hh;
+    td._rs=rs; td._sort={key:'consec_inflow',asc:false};   // 存成分股·默认按连续流入天
+    renderStockRows(td, ind);
   }catch(e){ td.innerHTML='<div style="padding:8px 12px;color:#f87171">❌ '+e+'</div>'; }
+}
+
+// 成分股表·可点列头排序(连续流入天/近10流入天/主力3日/今日主力/涨跌%)
+function renderStockRows(td, ind){
+  const rs=td._rs, sk=td._sort.key, asc=td._sort.asc;
+  const sorted=rs.slice().sort((a,b)=>{let x=a[sk],y=b[sk];x=typeof x==='number'?x:-1e12;y=typeof y==='number'?y:-1e12;return asc?x-y:y-x;});
+  const cell=(v)=>{ if(v==null) return '<td style="text-align:center" class="neu">·</td>'; const c=v>0?'up':(v<0?'down':''); const sg=v>0?'+':''; return '<td style="text-align:center" class="'+c+'">'+sg+v+'</td>'; };
+  const ar=k=>sk===k?(asc?' ▲':' ▼'):'';
+  const th=(k,l)=>'<th class="stsort" data-k="'+k+'" style="cursor:pointer;text-align:center;padding:6px 8px">'+l+'<span style="color:#7c9ef8">'+ar(k)+'</span></th>';
+  let hh='<div style="padding:10px 14px"><b style="color:#cdd6f4;font-size:13px">'+ind+' · 板块内持续流入个股（估算·点列头排序）</b>'
+    +'<table class="sttbl" style="width:100%;margin-top:8px;font-size:13px"><thead><tr style="color:#9ca3af"><th style="text-align:left;padding:6px 8px">代码</th><th style="text-align:left;padding:6px 8px">名称</th>'
+    +th('consec_inflow','连续流入天')+th('inflow_days_10','近10流入天')+th('main_net_3d','主力3日(亿)')+th('main_net_amount','今日主力(亿)')+th('pct_chg','涨跌%')+'</tr></thead><tbody>';
+  sorted.forEach(r=>{ const c6=String(r.ts_code||'').slice(0,6);
+    hh+='<tr><td style="padding:5px 8px"><a href="/stock?code='+c6+'" style="color:#7c9ef8">'+c6+'</a></td><td style="padding:5px 8px">'+(r.name||'')+'</td>'
+      +'<td style="text-align:center">'+(r.consec_inflow==null?'·':r.consec_inflow)+'</td>'
+      +'<td style="text-align:center">'+(r.inflow_days_10==null?'·':r.inflow_days_10)+'</td>'
+      +cell(r.main_net_3d)+cell(r.main_net_amount)+cell(r.pct_chg)+'</tr>'; });
+  hh+='</tbody></table><div class="neu" style="font-size:11px;margin-top:4px">口径=估算(超大单+大单)·非龙虎榜真机构；点代码到个股360印证</div></div>';
+  td.innerHTML=hh;
+  td.querySelectorAll('.stsort').forEach(h=>h.addEventListener('click',()=>{const k=h.dataset.k; if(td._sort.key===k)td._sort.asc=!td._sort.asc; else{td._sort.key=k;td._sort.asc=false;} renderStockRows(td, ind);}));
 }
 
 load();
