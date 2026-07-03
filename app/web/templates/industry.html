@@ -241,9 +241,11 @@ async function loadPersist(){
   }catch(e){ L.textContent='❌ '+e; }
 }
 
-const PCOLS=[['rank','#'],['industry','板块'],['cum5','近5日累计(亿)'],['cum10','近10日累计(亿)'],
-  ['consec_days','连续流入天'],['days_in','流入天数'],['today_net','今日(亿)'],['ret5','板块5日涨%'],['ambush','形态']];
-const PSIGNED=new Set(['cum5','cum10','today_net','ret5']);
+const PCOLS=[['rank','#'],['industry','板块'],
+  ['today_net','今日(亿)'],['delta1d','1日变化'],['cum3','近3日累计(亿)'],['delta3d','3日变化'],
+  ['cum5','近5日累计(亿)'],['cum10','近10日累计(亿)'],
+  ['consec_days','连续流入天'],['days_in','流入天数'],['ret5','板块5日涨%'],['ambush','形态']];
+const PSIGNED=new Set(['today_net','delta1d','cum3','delta3d','cum5','cum10','ret5']);
 const PTEXT=new Set(['industry','ambush']);
 function renderPersist(){
   let data=pRows.slice();

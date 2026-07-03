@@ -23,8 +23,8 @@ from app.nodes.quick_report import _board_limit_pct, _recent_trade_dates
 
 logger = logging.getLogger(__name__)
 
-_PERSIST_COLS = ["industry", "cum5", "cum10", "consec_days", "days_in", "n_days",
-                 "today_net", "today_pct", "ret5", "ambush", "rank"]
+_PERSIST_COLS = ["industry", "cum3", "cum5", "cum10", "delta1d", "delta3d",
+                 "consec_days", "days_in", "n_days", "today_net", "today_pct", "ret5", "ambush", "rank"]
 
 
 def _industry_agg(date: str, provider, code2name, code2ind) -> pd.DataFrame:
@@ -174,15 +174,23 @@ def _series_metrics(nets: list, pcts: list) -> dict:
             consec += 1
         else:
             break
+    cum3 = round(sum(v for v in nets[-3:] if v is not None), 2)                 # 近3日累计
     cum5 = round(sum(v for v in nets[-5:] if v is not None), 2)
+    prev3 = round(sum(v for v in nets[-6:-3] if v is not None), 2)              # 前3日(第6~4日)累计
+    today_net = nets[-1] if nets else None
+    y_net = nets[-2] if len(nets) >= 2 else None
+    # 1日变化=今日−昨日净流入(资金加速/减速)；3日变化=近3日−前3日累计(动能转变)
+    delta1d = (round(today_net - y_net, 2) if today_net is not None and y_net is not None else None)
+    delta3d = round(cum3 - prev3, 2)
     ret5 = _compound_pct([p for p in pcts[-5:] if p is not None])
     return {
-        "cum5": cum5,
+        "cum3": cum3, "cum5": cum5,
         "cum10": round(sum(v for v in nets if v is not None), 2),
+        "delta1d": delta1d, "delta3d": delta3d,
         "consec_days": consec,
         "days_in": sum(1 for v in nets if v is not None and v > 0),
         "n_days": len(nets),
-        "today_net": (round(nets[-1], 2) if nets[-1] is not None else None),
+        "today_net": (round(today_net, 2) if today_net is not None else None),
         "today_pct": pcts[-1] if pcts else None,
         "ret5": ret5,
         "ambush": bool(consec >= 2 and cum5 > 0 and ret5 is not None and ret5 < 3.0),
@@ -210,7 +218,7 @@ def build_industry_persistent_flow(date: str, force: bool = False, window: int =
     if not dates:
         raise ValueError(f"{date} 无法取到交易日序列")
 
-    path = _cache_path("industry_persist", f"{date}_w{window}")
+    path = _cache_path("industry_persist_v2", f"{date}_w{window}")   # v2: 加近3日累计+1日/3日变化
     if path.exists() and not force:
         df = pd.read_parquet(path)
     else:
