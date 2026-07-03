@@ -24,6 +24,8 @@
   .hmname { font-size:11px; color:#c2c8de; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .hmcell { height:16px; border-radius:2px; }
   .hmtag { font-size:10px; white-space:nowrap; }
+  .hbrow { display:flex; align-items:center; gap:12px; padding:7px 10px; border-bottom:1px solid #1a1d2e; font-size:12px; flex-wrap:wrap; }
+  .hbrank { color:#6b7280; width:16px; font-weight:700; text-align:right; }
   .sigcard { border:1px solid #6b2a2a; border-left:4px solid #f6465d; border-radius:10px; padding:12px 14px; margin-bottom:10px; background:#17111490; }
   .avoid { background:#f6465d; color:#fff; font-size:12px; font-weight:700; padding:3px 9px; border-radius:6px; white-space:nowrap; }
   .refcard { border:1px solid #5a4018; border-left:4px solid #f0a020; border-radius:10px; padding:10px 12px; margin-bottom:8px; background:#0f1117; }
@@ -51,11 +53,17 @@
   </div>
 </div>
 
+<!-- 🔥 今日升温榜（含概念·按升温速度排序·热点在哪一眼看到） -->
+<div class="card" style="border-left:3px solid #f0a020">
+  <h3 style="margin:0 0 6px">🔥 今日升温榜 <span class="neu" style="font-size:12px">按升温速度(资金强度加速)·行业+概念 · <b>热点在哪一眼看到</b> · 描述性·非信号</span></h3>
+  <div id="dloading" class="neu" style="font-size:13px;padding:14px">⏳ 计算全市场(含概念题材)资金流动…（首次约20-40秒）</div>
+  <div id="heatboard"></div>
+</div>
+
+<!-- 💰 资金层·资金强度趋势（热力条主视觉·含概念题材） -->
 <div class="card" style="border-left:3px solid #5dd5c4">
-  <h3 style="margin:0 0 6px">💰 资金层 · 资金流向与升温 <span class="neu" style="font-size:12px">嗅钱往哪流·哪个板块在升温 · <b>描述性·非信号·真时点渗透率</b></span></h3>
-  <div class="neu" style="font-size:11.5px;margin-bottom:2px">① 轮动全局：横=近5日资金边际(流出←→流入)·纵=1日加速度(退潮↓升温↑)·气泡=体量 · <b style="color:#f6465d">右上=正在加速流入(热点形成)</b>·左下=退潮</div>
-  <div id="scatter" style="height:440px"></div>
-  <div class="neu" style="font-size:11.5px;margin:12px 0 2px">② 资金强度趋势(近5天·左旧右新·<b style="color:#f6465d">红=流入</b>/<b style="color:#2ebd85">绿=流出</b>·深浅=强度)：连续红=升温·由绿转红=刚拐头·红渐浅=衰竭</div>
+  <h3 style="margin:0 0 4px">💰 资金层 · 资金强度趋势（含概念题材） <span class="neu" style="font-size:12px">嗅钱往哪流·谁在升温 · 描述性·非信号</span></h3>
+  <div class="neu" style="font-size:11.5px;margin-bottom:5px">近5天·左旧右新·<b style="color:#f6465d">红=流入</b>/<b style="color:#2ebd85">绿=流出</b>·深浅=强度 · 连红=升温 / 绿转红=拐头 / 红渐浅=衰竭 · <b>按升温速度排序·行业(业)+概念(题)</b></div>
   <div id="heatmap"></div>
   <div class="collapse-head" style="margin-top:10px" onclick="var e=document.getElementById('flowtable');e.style.display=e.style.display==='none'?'block':'none'">▸ 大类/市值 渗透率明细表（静态·点展开）</div>
   <div id="flowtable" style="display:none;margin-top:8px">
@@ -65,27 +73,21 @@
   </div>
 </div>
 
-<div class="card" style="border-left:3px solid #f6465d">
-  <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:6px">
-    <h3 style="margin:0">📐 形态层 · 板块状态诊断 <span class="neu" id="dcount" style="font-size:12px"></span></h3>
-    <input id="dsearch" placeholder="🔍 搜板块名（如 半导体）" style="margin-left:auto">
-  </div>
-  <div style="font-size:11.5px;color:#9aa0b4;background:#0f1117;border:1px solid #22263a;border-radius:8px;padding:7px 11px;margin-bottom:10px;line-height:1.6">
-    ℹ️ <b>两层是不同维度·可同时成立</b>：上方💰<b>资金层</b>=大类·<b>近5-15日</b>资金边际（描述）；这里📐<b>形态层</b>=二级·<b>当日</b>技术形态（回测信号）。
-    例：医药大类"近5日真转流入"（一周资金回流）与二级"顶背离"（已涨高·当日资金减速→回调）<b>不矛盾</b>——钱一周回流 ≠ 涨高的板块不会先回调。
-    每张卡已并列该板块<b>自己的</b>「资金·近5日」「当日强度」「1日加速度」，就地对账、不用跨模块。
-  </div>
-  <div id="dloading" class="neu" style="font-size:13px;padding:14px">⏳ 计算当日各板块状态…（首次约20-30秒）</div>
-  <div id="dsearchres"></div>
-  <div id="dgroups">
-    <div id="dsig"></div><div id="dref"></div><div id="ddesc"></div>
+<!-- 📐 形态层·顶背离避雷（回测·辅助·默认收起） -->
+<div class="card" style="border-left:3px solid #6b2a2a">
+  <h3 style="margin:0;cursor:pointer" onclick="var e=document.getElementById('formbody');e.style.display=e.style.display==='none'?'block':'none'">📐 形态层 · 顶背离避雷（回测·辅助） <span class="neu" id="dcount" style="font-size:12px"></span> <span style="color:#7c9ef8;font-size:12px;font-weight:400">· ▸ 点击展开/收起</span></h3>
+  <div id="formbody" style="display:none;margin-top:10px">
+    <div style="margin-bottom:8px"><input id="dsearch" placeholder="🔍 搜板块名（如 半导体）"></div>
+    <div style="font-size:11.5px;color:#9aa0b4;background:#0f1117;border:1px solid #22263a;border-radius:8px;padding:7px 11px;margin-bottom:10px;line-height:1.6">
+      ℹ️ 形态层=二级·<b>当日</b>技术形态(回测信号)·与上方资金层(流向/升温·描述)不同维度·可同时成立。仅『顶背离』经双期验证(避雷·<b>非买点</b>)·其余仅描述。
+    </div>
+    <div id="dsearchres"></div>
+    <div id="dgroups"><div id="dsig"></div><div id="dref"></div><div id="ddesc"></div></div>
   </div>
 </div>
 
-<script src="/static/echarts.min.js"></script>
 <script>
 let ALL = [];
-const MACRO_COLOR = { 科技:'#7c9ef8', 高端制造:'#f0a020', 医药:'#4ade80', 消费:'#f6465d', 周期:'#c084fc', 金融地产:'#5dd5c4', 公用:'#9ca3af', 其他:'#6b7280' };
 const fmt = (v, s) => v == null ? '<span class="flat">·</span>'
   : '<span class="' + (v > 0 ? 'up' : (v < 0 ? 'down' : 'flat')) + '">' + (s && v > 0 ? '+' : '') + v + '</span>';
 const arrowCol = a => (a === '↑' || a === '↗') ? '#f6465d' : ((a === '↓' || a === '↘') ? '#2ebd85' : '#9ca3af');
@@ -126,47 +128,46 @@ function renderFlow(fm) {
   document.getElementById('capbars').innerHTML = ftableHead() + C.map(([n, v]) => macroRow(n, v, maxC)).join('');
 }
 
-// ① 资金流向散点图（轮动全局·右上=加速流入热点）
-let _scatterChart = null;
-function renderScatter(rows) {
-  const data = rows.filter(r => r.pen5 != null && r.pen_accel != null && r.circ);
-  if (!data.length || typeof echarts === 'undefined') return;
-  _scatterChart = echarts.init(document.getElementById('scatter'));
-  const macros = [...new Set(data.map(r => r.macro))];
-  const series = macros.map(mac => ({
-    name: mac, type: 'scatter',
-    symbolSize: d => Math.max(7, Math.min(46, Math.sqrt(d[2] || 1) / 7)),   // 气泡=√体量
-    itemStyle: { color: MACRO_COLOR[mac] || '#888', opacity: 0.72, borderColor: '#0f1117', borderWidth: 1 },
-    data: data.filter(r => r.macro === mac).map(r => ({ value: [r.pen5, r.pen_accel, r.circ], name: r.sector })),
-  }));
-  series.push({ type: 'scatter', data: [], markLine: {   // 象限分隔线 x=0 / y=0
-    silent: true, symbol: 'none', label: { show: false },
-    lineStyle: { color: '#4b5163', type: 'dashed' }, data: [{ xAxis: 0 }, { yAxis: 0 }] } });
-  _scatterChart.setOption({
-    backgroundColor: 'transparent',
-    tooltip: { formatter: p => '<b>' + p.data.name + '</b><br>近5日渗透 ' + p.value[0] + '%<br>1日加速 ' + p.value[1] + '<br>体量 ' + Math.round(p.value[2]) + '亿' },
-    legend: { data: macros, textStyle: { color: '#9aa0b4', fontSize: 11 }, top: 0, type: 'scroll' },
-    grid: { left: 52, right: 22, top: 34, bottom: 46 },
-    xAxis: { name: '近5日资金边际 · 流出←→流入', nameLocation: 'middle', nameGap: 28, nameTextStyle: { color: '#9aa0b4', fontSize: 11 }, axisLabel: { color: '#787e92', fontSize: 10 }, axisLine: { lineStyle: { color: '#3a3f5c' } }, splitLine: { lineStyle: { color: '#15182a' } } },
-    yAxis: { name: '1日加速 退潮↓升温↑', nameTextStyle: { color: '#9aa0b4', fontSize: 11 }, axisLabel: { color: '#787e92', fontSize: 10 }, axisLine: { lineStyle: { color: '#3a3f5c' } }, splitLine: { lineStyle: { color: '#15182a' } } },
-    series,
-  });
+// 升温速度 = 平滑资金强度序列的最后一步变化(行业/概念统一可比·正=升温)
+function heatOf(r) {
+  const s = (r.penz_seq || []).filter(x => x != null);
+  return s.length >= 2 ? +(s[s.length - 1] - s[s.length - 2]).toFixed(2) : -99;
 }
-
-// ② 资金强度热力条（近5天·红=流入绿=流出·深=强）
-function heatColor(v) {
+function heatColor(v) {                                   // 红=流入·绿=流出·深浅=强度
   if (v == null) return '#161a29';
-  const mag = Math.min(1, Math.abs(v) / 2.5);
+  const mag = Math.min(1, Math.abs(v) / 3);
   return v > 0 ? 'rgba(246,70,93,' + (0.2 + mag * 0.8).toFixed(2) + ')' : 'rgba(46,189,133,' + (0.2 + mag * 0.8).toFixed(2) + ')';
 }
-function renderHeatmap(rows) {
-  const data = rows.filter(r => r.penz_seq && r.penz_seq.some(x => x != null));
-  data.sort((a, b) => (b.pen_accel == null ? -99 : b.pen_accel) - (a.pen_accel == null ? -99 : a.pen_accel));  // 升温在上
-  const top = data.slice(0, 26);
-  let h = '<div class="hmrow hmhead"><span style="text-align:left">板块</span><span>5日前</span><span>4日</span><span>3日</span><span>昨</span><span>今</span><span></span></div>';
-  h += top.map(r => {
+const kindBadge = k => k === '概念'
+  ? '<span class="tierbadge" style="background:#2a1a3a;color:#c084fc">题材</span>'
+  : '<span class="tierbadge" style="background:#12271b;color:#5dd5c4">行业</span>';
+
+// 🔥 今日升温榜（行业+概念·按升温速度·Top10）
+function renderHeatboard(fr) {
+  const data = fr.filter(r => r.penz_seq && r.penz_seq.some(x => x != null))
+    .map(r => ({ ...r, heat: heatOf(r) })).sort((a, b) => b.heat - a.heat).slice(0, 10);
+  document.getElementById('heatboard').innerHTML = data.map((r, idx) => {
+    const now = (r.penz_seq || []).filter(x => x != null).slice(-1)[0];
+    const cells = r.penz_seq.map(v => '<span class="hmcell" style="width:16px;background:' + heatColor(v) + '"></span>').join(' ');
+    return '<div class="hbrow"><span class="hbrank">' + (idx + 1) + '</span>' + kindBadge(r.kind)
+      + '<b style="font-size:14px;min-width:120px">' + r.sector + '</b>'
+      + '<span style="color:#f0a020;font-weight:600">升温 ' + (r.heat > 0 ? '+' : '') + r.heat + '</span>'
+      + '<span class="kv">今日强度 ' + (now == null ? '·' : fmt(now)) + '</span>'
+      + '<span class="kv">近5日 ' + fmt(r.net5, true) + '亿</span>'
+      + '<span style="display:flex;gap:2px;margin-left:auto">' + cells + '</span>'
+      + '<span class="hmtag">' + seqTrend(r.penz_seq) + '</span></div>';
+  }).join('');
+}
+
+// 💰 资金强度热力条（行业+概念·按升温速度排序·Top40）
+function renderHeatmap(fr) {
+  const data = fr.filter(r => r.penz_seq && r.penz_seq.some(x => x != null))
+    .map(r => ({ ...r, heat: heatOf(r) })).sort((a, b) => b.heat - a.heat).slice(0, 40);
+  let h = '<div class="hmrow hmhead"><span style="text-align:left">板块</span><span>5日前</span><span>4日</span><span>3日</span><span>昨</span><span>今</span><span>趋势</span></div>';
+  h += data.map(r => {
     const cells = r.penz_seq.map(v => '<span class="hmcell" style="background:' + heatColor(v) + '" title="' + (v == null ? '·' : v) + '"></span>').join('');
-    return '<div class="hmrow"><span class="hmname" title="' + r.sector + '">' + r.sector + '</span>' + cells + '<span class="hmtag">' + seqTrend(r.penz_seq) + '</span></div>';
+    const tag = r.kind === '概念' ? '<span style="color:#c084fc">题</span>' : '<span style="color:#5dd5c4">业</span>';
+    return '<div class="hmrow"><span class="hmname" title="' + r.sector + '">' + tag + ' ' + r.sector + '</span>' + cells + '<span class="hmtag">' + seqTrend(r.penz_seq) + '</span></div>';
   }).join('');
   document.getElementById('heatmap').innerHTML = h;
 }
@@ -258,10 +259,9 @@ async function load() {
     ALL = d.sectors;
     VERDICT = d.verdict || {};
     document.getElementById('ddate').textContent = '· 数据日 ' + d.date + ' · 全市场 ' + d.n_total + ' 个板块';
-    renderScatter(ALL);
-    renderHeatmap(ALL);
+    renderHeatboard(d.flow_rows || []);
+    renderHeatmap(d.flow_rows || []);
     renderFlow(d.flow_map);
-    window.addEventListener('resize', () => { if (_scatterChart) _scatterChart.resize(); });
     document.getElementById('dloading').style.display = 'none';
     const c = t => ALL.filter(r => r.tier === t).length;
     document.getElementById('dcount').textContent = '· 信号 ' + c('signal') + ' · 参考 ' + c('reference') + ' · 描述 ' + c('descriptive');

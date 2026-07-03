@@ -120,3 +120,76 @@ def build_concept_dashboard(date: str) -> dict:
         "total_net": round(float(net.sum()), 2),
     }
     return {"date": date, "kpi": kpi, "rows": rows}
+
+
+# ── 概念板块·多日资金流动特征（供板块诊断"资金层"嗅题材热点·纯描述非信号）──────────────
+def _cross_z_map(m: dict) -> dict:
+    """某日概念净额的横截面稳健 z-score（中位/MAD）·让概念强度可比。<5→全None。"""
+    import numpy as np
+    vals = [v for v in m.values() if v is not None]
+    if len(vals) < 5:
+        return {k: None for k in m}
+    a = np.array(vals, dtype=float)
+    med = float(np.median(a))
+    mad = float(np.median(np.abs(a - med))) * 1.4826 or (float(a.std()) or 1.0)
+    # 裁剪 ±4：概念数量多、离群极端·防个别概念 z 爆表主导升温榜(与行业可比)
+    return {k: (round(max(-4.0, min(4.0, (v - med) / mad)), 2) if v is not None else None)
+            for k, v in m.items()}
+
+
+def build_concept_flow_features(end: str, window: int = 14, provider=None, min_company: int = 5) -> list[dict]:
+    """概念板块近 window 日资金流动特征（同花顺 moneyflow_cnt_ths 官方净额·亿）。
+
+    纯描述·**嗅当下题材热点**（机器人/CPO/减速器等·不在申万L2里）·非回测信号（不受成分漂移限制）。
+    返回与行业统一 schema 的 flow 行：{sector,kind='概念',net5,penz_seq,pen_accel,flow_margin,ret5,n}。
+    """
+    from app.data.cache import cached_daily
+    from app.factors.theme_wide import _is_junk_concept
+    from app.strategy.sector_attribution import _compound_pct, _margin
+    from app.strategy.sector_diagnosis import _smooth_seq
+    provider = provider or CompositeProvider()
+    pro = provider._ts._api
+    dates = _recent_trade_dates(provider, end, window)
+    if not dates:
+        return []
+
+    net_by, pct_by, comp = [], [], {}
+    for d in dates:
+        df = cached_daily("ths_concept_flow", d, lambda d=d: _fetch_concept_flow(pro, d))  # 按日缓存
+        nmap, pmap = {}, {}
+        if df is not None and not df.empty:
+            for _, r in df.iterrows():
+                nm = str(r.get("name", "") or "")
+                if not nm or nm == "nan" or _is_junk_concept(nm):
+                    continue
+                na, pc, cn = r.get("net_amount"), r.get("pct_change"), r.get("company_num")
+                nmap[nm] = float(na) if pd.notna(na) else None
+                pmap[nm] = float(pc) if pd.notna(pc) else None
+                if pd.notna(cn):
+                    comp[nm] = int(cn)
+        net_by.append(nmap)
+        pct_by.append(pmap)
+
+    z_by = [_cross_z_map(m) for m in net_by]
+    names = set().union(*[set(m) for m in net_by]) if net_by else set()
+    need = max(5, int(window * 0.5))
+    rows = []
+    for nm in names:
+        if comp.get(nm, 0) < min_company:                          # 剔太小的概念(成分<min)
+            continue
+        nets = [m.get(nm) for m in net_by]
+        if sum(1 for x in nets if x is not None) < need:            # 数据太少跳过
+            continue
+        zfull = [m.get(nm) for m in z_by]
+        accel = (round(zfull[-1] - zfull[-2], 2)
+                 if zfull[-1] is not None and zfull[-2] is not None else None)
+        pcts = [m.get(nm) for m in pct_by]
+        rows.append({
+            "sector": nm, "kind": "概念",
+            "net5": round(sum(x for x in nets[-5:] if x is not None), 1),
+            "penz_seq": _smooth_seq(zfull, 3, 5), "pen_accel": accel,
+            "flow_margin": _margin(nets),
+            "ret5": _compound_pct([p for p in pcts[-5:] if p is not None]),
+            "n": comp.get(nm, 0),
+        })
+    return rows

@@ -143,7 +143,7 @@ def build_diagnosis(end: str, provider: CompositeProvider | None = None, level: 
     from app.strategy.sector_attribution import _margin, build_flow_map
     from app.strategy.sector_metrics import build_features
     provider = provider or CompositeProvider()
-    cache = _cache_path("sector_diagnosis", f"{end}_{level}_v7").with_suffix(".json")  # v7: 散点+热力(体量/渗透/大类)
+    cache = _cache_path("sector_diagnosis", f"{end}_{level}_v8").with_suffix(".json")  # v8: 概念资金并入flow_rows
     if cache.exists() and not force:
         try:
             return json.loads(cache.read_text("utf-8"))
@@ -186,10 +186,22 @@ def build_diagnosis(end: str, provider: CompositeProvider | None = None, level: 
     # 精选活跃：信号态优先，其余按活跃度(|近5日涨幅| + |资金z|)降序
     rows.sort(key=lambda r: (_TIER_ORDER.get(r["tier"], 3),
                              -(abs(r["ret5"] or 0) + abs((r["pen_z"] or 0) * 1.5))))
+
+    # 资金层统一流动行(行业L2 + 概念)：供"嗅热点"的热力条/升温榜·纯描述含概念题材
+    flow_rows = [{"sector": r["sector"], "kind": "行业", "net5": r["net5"], "penz_seq": r["penz_seq"],
+                  "pen_accel": r["pen_accel"], "flow_margin": r["flow_margin"],
+                  "ret5": r["ret5"], "n": r["n"]} for r in rows]
+    try:
+        from app.strategy.concept_flow import build_concept_flow_features
+        flow_rows += build_concept_flow_features(end, provider=provider)   # 概念题材(机器人/CPO…)
+    except Exception as e:
+        logger.warning("[诊断] 概念资金流接入失败(降级为仅行业): %s", e)
+
     result = {
         "end": end, "date": fdates[-1], "level": level, "n_total": len(rows),
         "flow_map": build_flow_map(end, window=15, provider=provider),
         "sectors": rows[:top] if top else rows,
+        "flow_rows": flow_rows,
         "verdict": STATE_VERDICT,
         "note": ("T日盘后出诊断·供 T+1 参考（资金为盘后数据·杜绝当日盘中用）。现象描述·非买卖建议。"
                  "仅『顶背离』经924前后双期回测(避雷用·非买点)·『洗盘谷底』仅参考·其余未过验证仅描述。"),

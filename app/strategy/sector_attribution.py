@@ -116,11 +116,16 @@ def _grp_metrics(g: dict) -> dict:
 
 
 def _margin(series: list) -> dict:
-    """边际：区分'真转流入(一阶导·近5实际净流入)'与'流出收窄(二阶导·仍净流出但放缓)'。strong=真拐点。"""
-    if len(series) < 8:
+    """边际：区分'真转流入(一阶导·近5实际净流入)'与'流出收窄(二阶导·仍净流出但放缓)'。strong=真拐点。
+
+    None-safe：概念板块某日可能缺数据(None)·只对非空求和/求均(行业net无None·行为不变)。
+    """
+    last5 = [x for x in series[-5:] if x is not None]
+    allv = [x for x in series if x is not None]
+    if len(allv) < 8 or not last5:
         return {"arrow": "→", "text": "", "strong": False}
-    cum5, cum_all = sum(series[-5:]), sum(series)
-    avg5, avg_all = cum5 / 5, cum_all / len(series)
+    cum5, cum_all = sum(last5), sum(allv)
+    avg5, avg_all = cum5 / len(last5), cum_all / len(allv)
     if cum_all < 0 and cum5 > 0:                                            # 一阶导转正=真转流入(最醒目)
         return {"arrow": "↑", "text": "真转流入(一阶转正)", "strong": True}
     if cum_all < 0:                                                         # 仍净流出：只是二阶导变化
