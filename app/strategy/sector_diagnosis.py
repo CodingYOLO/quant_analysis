@@ -143,7 +143,7 @@ def build_diagnosis(end: str, provider: CompositeProvider | None = None, level: 
     from app.strategy.sector_attribution import _margin, build_flow_map
     from app.strategy.sector_metrics import build_features
     provider = provider or CompositeProvider()
-    cache = _cache_path("sector_diagnosis", f"{end}_{level}_v6").with_suffix(".json")  # v6: 强度序列3日平滑
+    cache = _cache_path("sector_diagnosis", f"{end}_{level}_v7").with_suffix(".json")  # v7: 散点+热力(体量/渗透/大类)
     if cache.exists() and not force:
         try:
             return json.loads(cache.read_text("utf-8"))
@@ -156,6 +156,7 @@ def build_diagnosis(end: str, provider: CompositeProvider | None = None, level: 
     if not fdates:
         raise ValueError(f"{end} 无诊断数据")
     i = len(fdates) - 1
+    l2_macro = _l2_to_macro(provider) if level == "L2" else {}    # L2→大类(散点着色分组用)
 
     rows = []
     for nm, s in sectors.items():
@@ -177,6 +178,9 @@ def build_diagnosis(end: str, provider: CompositeProvider | None = None, level: 
             "net_today": _last(s, "net", i),                # 当日净流入(亿)
             "net5": round(sum(v for v in (s.get("net") or [])[-5:] if v is not None), 1),  # 近5日累计(同大类窗口)
             "flow_margin": _margin(s.get("net") or []),     # 该板块自身近5日资金边际(就地对账·同大类口径)
+            "pen5": _pen5(s, i),                            # 近5日渗透率%(散点X轴·跨体量可比)
+            "circ": _last(s, "circ", i),                    # 流通市值(亿·散点气泡大小=板块体量)
+            "macro": l2_macro.get(nm, "其他"),              # 所属大类(散点着色)
             "ret5": _ret5(s.get("pct", []), i), "n": _last(s, "n", i),
         })
     # 精选活跃：信号态优先，其余按活跃度(|近5日涨幅| + |资金z|)降序
@@ -201,6 +205,28 @@ def build_diagnosis(end: str, provider: CompositeProvider | None = None, level: 
 def _last(s: dict, key: str, i: int):
     arr = s.get(key, [])
     return arr[i] if 0 <= i < len(arr) else None
+
+
+def _pen5(s: dict, i: int):
+    """近5日渗透率% = 近5日累计净流入 / 当前流通市值 ×100（散点X轴·跨体量可比）。"""
+    net5 = sum(v for v in (s.get("net") or [])[-5:] if v is not None)
+    circ = _last(s, "circ", i)
+    return round(net5 / circ * 100, 3) if circ else None
+
+
+def _l2_to_macro(provider) -> dict:
+    """申万二级 → 大类映射（散点着色分组用·取每个L2最常见的L1父级）。"""
+    from app.strategy.sector_attribution import _L1_TO_MACRO
+    from app.strategy.sw_membership import load_history
+    hist = load_history(provider)
+    if hist.empty or "l2_name" not in hist.columns or "l1_name" not in hist.columns:
+        return {}
+    pairs = hist.dropna(subset=["l2_name", "l1_name"])
+    out = {}
+    for l2, g in pairs.groupby("l2_name"):
+        l1 = g["l1_name"].mode()
+        out[str(l2)] = _L1_TO_MACRO.get(str(l1.iloc[0]) if len(l1) else "", "其他")
+    return out
 
 
 def _smooth_seq(seq: list, k: int = 3, n: int = 5) -> list:
