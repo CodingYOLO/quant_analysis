@@ -141,6 +141,79 @@ def build_sector_mtf(end: str, kind: str = "industry", provider: CompositeProvid
     return out
 
 
+def _is_up(r: dict) -> bool:
+    return bool(r.get("monthly_dir") and any(k in r["monthly_dir"] for k in ("主升浪", "向上", "健康")))
+
+
+def _is_dip(r: dict) -> bool:
+    """低吸猎场：月线向上 + 周线回踩 + 无见顶 + 未过度偏离(≤35%)。与前端 isDip 一致。"""
+    return bool(_is_up(r) and "回踩" in (r.get("weekly_rhythm") or "")
+                and (r.get("top_count") or 0) == 0
+                and (r.get("dev_ma10") is None or r["dev_ma10"] <= 35))
+
+
+def _mtf_lines(rows: list[dict], n: int = 14) -> str:
+    out = []
+    for r in rows[:n]:
+        rh = (r.get("weekly_rhythm") or "").split("·")[0]
+        out.append(f"- {r['sector']}（偏离10月线{r.get('dev_ma10')}%·{rh}·见顶{r.get('top_count', 0)}/3）")
+    return "\n".join(out) or "（无）"
+
+
+def build_sector_mtf_ai(end: str, provider: CompositeProvider | None = None, force: bool = False) -> dict:
+    """板块大周期格局 AI 研判（读行业+概念大周期榜·LLM综合·日缓存·非买卖建议）。"""
+    import json
+
+    from app.config import get_settings
+    cdir = get_settings().cache_dir / "sector_mtf"
+    cdir.mkdir(parents=True, exist_ok=True)
+    cache = cdir / f"ai_{end}.json"
+    if cache.exists() and not force:
+        try:
+            return json.loads(cache.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+
+    prov = provider or CompositeProvider()
+    ind = build_sector_mtf(end, "industry", prov).get("rows", [])
+    con = build_sector_mtf(end, "concept", prov).get("rows", [])
+    ind_up = [r for r in ind if _is_up(r)]
+    con_up = [r for r in con if _is_up(r)]
+    top = sorted([r for r in ind + con if (r.get("top_count") or 0) >= 2], key=lambda r: -(r.get("top_count") or 0))
+    dip = [r for r in ind + con if _is_dip(r)]
+    data = (f"【行业·月线主升浪/向上（{len(ind_up)}个·偏离大=高位）】\n{_mtf_lines(ind_up)}\n\n"
+            f"【概念·月线主升浪/向上（{len(con_up)}个）】\n{_mtf_lines(con_up)}\n\n"
+            f"【月线见顶预警（三条件≥2共振）】\n{_mtf_lines(top, 10)}\n\n"
+            f"【低吸猎场（月线向上+周线回踩+无见顶+未过度偏离）】\n{_mtf_lines(dip, 12)}")
+
+    prompt = ("你是A股策略研究员，做**板块大周期结构研判**(客观·非荐股·非投资建议)。下方是全市场板块的月线/周线结构"
+              "(行业=申万二级指数·概念=同花顺概念指数·偏离10月线大=强势但高位)。请用 160-260 字总结当前**大周期格局**：\n"
+              "① 主线方向——哪些板块/产业链在月线主升浪(大周期向上)，是集中在某条链(如半导体)还是分散；\n"
+              "② 低吸猎场——月线向上但周线回踩的板块(顺大势逆小势的低吸窗口)，无则如实说明；\n"
+              "③ 见顶预警——月线见顶三条件共振的板块，需警惕；\n"
+              "④ 一句操作节奏——顺大势逆小势(主升浪偏离大的控仓·回踩的低吸·见顶的回避)。\n"
+              "**只依据下方数据·不编造板块名/数字**；这是结构描述与节奏研判、不是买卖建议、不预测涨跌。\n\n" + data)
+    try:
+        from app.llm.client import LLMClient
+        from app.llm.stance import ANALYST_STANCE
+        raw = LLMClient().chat([{"role": "user", "content": ANALYST_STANCE + "\n\n" + prompt}],
+                               task_type="pro", temperature=0.3, max_tokens=1500)
+    except Exception as e:
+        logger.warning("[大周期研判] LLM 失败: %s", e)
+        raw = ""
+    out = {
+        "ok": bool(raw), "end": end, "summary": (raw or "").strip(),
+        "counts": {"ind_up": len(ind_up), "con_up": len(con_up), "top": len(top), "dip": len(dip)},
+        "disclaimer": "AI 基于板块月线/周线结构数据综合·结构描述与节奏研判·非买卖建议·不预测涨跌。",
+    }
+    if out["ok"]:
+        try:
+            cache.write_text(json.dumps(out, ensure_ascii=False), encoding="utf-8")
+        except Exception:
+            pass
+    return out
+
+
 def sector_mtf_kline(kind: str, name: str, end: str, provider: CompositeProvider | None = None) -> dict:
     """单板块的 月线/周线 K线 payload（点开展开用）。"""
     prov = provider or CompositeProvider()

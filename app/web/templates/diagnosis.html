@@ -69,6 +69,7 @@
       <button id="mtf-con" style="background:#12141c;color:#9ca3af;border:none;padding:5px 13px;font-size:12px;cursor:pointer">概念</button>
     </span>
   </div>
+  <div id="mtf-ai" class="loading" style="font-size:12.5px;color:#dfe6ff;background:#12141f;border:1px solid #2a2f4d;border-radius:8px;padding:10px 12px;margin:8px 0;line-height:1.75">🧭 AI 大周期研判生成中…（首日约15秒·之后当日秒开）</div>
   <div id="mtfnote" class="neu" style="font-size:11.5px;margin:6px 0"></div>
   <div id="mtfloading" class="neu" style="font-size:12px;padding:8px 0">⏳ 加载板块月线/周线…（首次约30-60秒）</div>
   <div style="overflow-x:auto"><table id="mtftbl" style="width:100%;font-size:13px;border-collapse:collapse"></table></div>
@@ -417,6 +418,23 @@ async function toggleMTF(tr) {
     if (j.mtf) td.querySelector('#mtfsum').textContent = j.mtf.summary || '';
   } catch (e) { td.querySelector('#mtfk').innerHTML = '❌ ' + e; }
 }
+function mtfMd(t) {
+  return (t || '').replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/\*\*(.+?)\*\*/g, '<b style="color:#f0a020">$1</b>')
+    .replace(/\n{2,}/g, '<br>').replace(/\n/g, '<br>');
+}
+async function loadMTFAi() {
+  const el = document.getElementById('mtf-ai');
+  try {
+    const j = await (await fetch('/api/diagnosis/sector-mtf-ai')).json();
+    if (!j.ok || !j.data || !j.data.summary) { el.style.display = 'none'; return; }
+    el.className = '';
+    el.innerHTML = '<div style="font-weight:600;color:#f6c343;margin-bottom:4px">🧭 大周期格局 · AI研判</div>'
+      + mtfMd(j.data.summary)
+      + '<div class="neu" style="font-size:10.5px;margin-top:6px">⚠️ ' + (j.data.disclaimer || '') + '</div>';
+  } catch (e) { el.style.display = 'none'; }
+}
+loadMTFAi();
 document.getElementById('mtf-ind').addEventListener('click', () => loadMTF('industry'));
 document.getElementById('mtf-con').addEventListener('click', () => loadMTF('concept'));
 document.getElementById('mtf-dip').addEventListener('click', () => {

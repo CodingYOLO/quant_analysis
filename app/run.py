@@ -664,9 +664,10 @@ def run_warmup(base_date: str) -> None:
         console.print(f"[yellow]⚠️ 板块诊断预热失败: {e}[/yellow]")
     # 1.65) 板块大周期方向榜(月线/周线·行业+概念·日缓存·诊断页顶部秒显示)
     try:
-        from app.strategy.sector_mtf import build_sector_mtf
+        from app.strategy.sector_mtf import build_sector_mtf, build_sector_mtf_ai
         build_sector_mtf(latest, kind="industry", provider=prov, force=True)
         build_sector_mtf(latest, kind="concept", provider=prov, force=True)
+        build_sector_mtf_ai(latest, provider=prov, force=True)          # 大周期格局 AI 研判(夜间预算一次LLM)
         console.print(f"[green]✅ 板块大周期榜预热 {latest}[/green]")
     except Exception as e:
         console.print(f"[yellow]⚠️ 板块大周期榜预热失败: {e}[/yellow]")
