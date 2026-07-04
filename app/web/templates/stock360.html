@@ -117,7 +117,14 @@ table.mini td { padding:6px 8px; border-bottom:1px solid #1e2138; }
   </div>
   <!-- 七大分区 -->
   <div class="sec"><h2>🏢 公司是干什么的 <span class="neu2" style="font-size:11px">（主营·主要产品·行业地位·护城河）</span></h2><div id="v-company" class="loading">⏳ 加载公司画像…</div></div>
-  <div class="sec"><h2>📈 K线 + 股性</h2><div id="v-kline" style="height:300px"></div><div id="v-prof" class="loading">⏳ 加载股性…</div></div>
+  <div class="sec"><h2>📈 K线 + 股性 + 多周期 <span class="neu2" style="font-size:11px">（月线定方向·周线定节奏·日线找买点）</span></h2>
+    <div id="v-mtf" class="loading" style="margin-bottom:8px">⏳ 多周期研判…</div>
+    <div style="margin-bottom:6px">
+      <button class="tfbtn" data-tf="d" style="background:#3358e0;color:#fff;border:none;border-radius:5px;padding:4px 12px;font-size:12px;cursor:pointer;margin-right:4px">日线·买点</button>
+      <button class="tfbtn" data-tf="w" style="background:#23264a;color:#9ca3af;border:none;border-radius:5px;padding:4px 12px;font-size:12px;cursor:pointer;margin-right:4px">周线·节奏</button>
+      <button class="tfbtn" data-tf="m" style="background:#23264a;color:#9ca3af;border:none;border-radius:5px;padding:4px 12px;font-size:12px;cursor:pointer">月线·方向</button>
+    </div>
+    <div id="v-kline" style="height:300px"></div><div id="v-prof" class="loading">⏳ 加载股性…</div></div>
   <div class="sec"><h2>🎯 关键位 · 入局区间 <span class="neu2" style="font-size:11px">（支撑/压力自算·每档带依据·仅标位置不构成买卖建议）</span></h2><div id="v-levels" class="loading">⏳ 计算关键位…</div></div>
   <div class="sec"><h2>💰 资金（主力估算 + 龙虎榜机构真钱 + 大盘北向）</h2><div id="v-fund" class="loading">⏳ 加载资金…</div></div>
   <div class="sec"><h2>🏛️ 龙虎榜复盘（近6月·历史规律）</h2><div id="v-lhb" class="loading">⏳ 复盘龙虎榜…</div></div>
@@ -194,13 +201,39 @@ async function loadProfile(code,facts,store){
 function renderProfile(d,facts){
   if(!d||!d.ok){ $('v-prof').textContent='—'; return; }
   if(d.name){ _lastName=d.name; setReportTitle(); }
-  if(d.kline && window.AKline){ try{ _kc=AKline.render('v-kline', d.kline); }catch(e){} }
+  // 多周期：存日/周/月三套K线 + 切换 + 月线定方向/周线定节奏研判
+  window._kl={d:d.kline, w:d.kline_w, m:d.kline_m};
+  const drawTF=(tf)=>{ const kl=(window._kl||{})[tf]; if(kl && window.AKline){ try{ _kc=AKline.render('v-kline', kl); }catch(e){} } };
+  drawTF('d');
+  document.querySelectorAll('.tfbtn').forEach(b=>b.addEventListener('click',()=>{
+    document.querySelectorAll('.tfbtn').forEach(x=>{ x.style.background='#23264a'; x.style.color='#9ca3af'; });
+    b.style.background='#3358e0'; b.style.color='#fff'; drawTF(b.dataset.tf);
+  }));
+  renderMTF(d.mtf);
   const tags=(d.tags||[]).concat((d.chips&&d.chips.tags)||[]);
   const kd=(d.kline&&d.kline.dates&&d.kline.dates.length)?d.kline.dates[d.kline.dates.length-1]:'';
   const tagHtml=tags.map(t=>'<span class="tag '+(t.level||'')+'">'+esc(t.text)+'</span>').join('') || '<span class="neu2">暂无股性标签</span>';
   $('v-prof').className=''; $('v-prof').innerHTML=dt('K线截至 <b>'+fmtD(kd)+'</b> · 日线/筹码盘后更新(非实时)')+tagHtml;
   facts['股性']=tags.map(t=>t.text).join('；');
   renderLevels(d.levels, facts);
+}
+
+// 多周期研判面板：月线定方向(+见顶三条件) · 周线定节奏 · 顺大势逆小势
+function renderMTF(mtf){
+  const el=$('v-mtf'); if(!el) return;
+  if(!mtf || !mtf.summary){ el.style.display='none'; return; }
+  el.className=''; el.style.display='block';
+  const mo=mtf.monthly||{}, wk=mtf.weekly||{};
+  const dir=mo.dir||'—';
+  const dc = /主升浪|向上|健康/.test(dir) ? '#f6465d' : (/见顶|走坏|破位/.test(dir) ? '#2ebd85' : '#f0a020');
+  let tops='';
+  if(mo.top_signals){ tops=Object.entries(mo.top_signals).map(([k,v])=>
+    '<span style="font-size:11px;color:'+(v?'#f0a020':'#6b7280')+';margin-right:10px">'+(v?'⚠️':'○')+esc(k)+'</span>').join(''); }
+  el.innerHTML='<div style="background:#161929;border:1px solid #242842;border-radius:8px;padding:10px 12px;font-size:12.5px;line-height:1.75">'
+    +'<div><b style="color:'+dc+'">🧭 月线定方向：'+esc(dir)+'</b>'+(mo.close!=null?' <span class="neu2">(收'+mo.close+' / 10月线'+mo.ma10+')</span>':'')+'</div>'
+    +'<div style="margin:3px 0"><b style="color:#7c9ef8">周线定节奏：</b>'+esc(wk.rhythm||'—')+'</div>'
+    +(tops?'<div style="margin:3px 0"><span class="neu2">月线见顶三条件('+(mo.top_count||0)+'/3共振)：</span>'+tops+'</div>':'')
+    +'<div class="neu2" style="font-size:11px;margin-top:6px;border-top:1px solid #23263e;padding-top:6px">'+esc(mtf.summary)+'</div></div>';
 }
 
 // —— 🎯 关键位：压力(上)→现价→支撑(下) 价格阶梯，入局区间高亮 ——

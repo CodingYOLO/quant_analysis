@@ -41,6 +41,9 @@ def build_stock_profile(ts_code: str, name: str = "",
         "tags": _tags(metrics),
         "hints": _form_hints(k),
         "kline": _kline_payload(k.tail(120)),
+        "kline_w": _kline_payload(_resample_ohlc(k, "W-FRI").tail(120)),   # 周线(约2年)
+        "kline_m": _kline_payload(_resample_ohlc(k, "ME").tail(48)),       # 月线(约4年·够10月线)
+        "mtf": _mtf_analysis(k),                                          # 多周期判定(月线定方向·周线定节奏)
         "chips": chips,
         "levels": build_key_levels(k, chips),
     }
@@ -238,13 +241,91 @@ def _form_hints(k: pd.DataFrame) -> list[str]:
 # ── K线数据（供前端 ECharts 画蜡烛图）───────────────────────────────────────
 def _kline_payload(k: pd.DataFrame) -> dict:
     close = k["close"].astype(float)
+
+    def _ma(n: int) -> list:
+        return [round(x, 2) if pd.notna(x) else None for x in close.rolling(n).mean()]
+
     return {
         "dates": k["trade_date"].astype(str).tolist(),
         # ECharts 蜡烛图顺序：[open, close, low, high]
         "candle": [[round(float(o), 2), round(float(c), 2), round(float(l), 2), round(float(h), 2)]
                    for o, c, l, h in zip(k["open"], k["close"], k["low"], k["high"])],
         "vol": [int(v) for v in k["vol"]],
-        "ma5": [round(x, 2) if pd.notna(x) else None for x in close.rolling(5).mean()],
-        "ma20": [round(x, 2) if pd.notna(x) else None for x in close.rolling(20).mean()],
-        "ma60": [round(x, 2) if pd.notna(x) else None for x in close.rolling(60).mean()],
+        "ma5": _ma(5), "ma10": _ma(10), "ma20": _ma(20), "ma60": _ma(60),
     }
+
+
+# ── 多周期（周线/月线）：大周期决定方向·小周期决定节奏 ─────────────────────────────
+def _resample_ohlc(k: pd.DataFrame, rule: str) -> pd.DataFrame:
+    """日K → 周(W-FRI)/月(ME) OHLCV。open=区间首·high=区间高·low=区间低·close=区间末·vol=区间和。"""
+    df = k.copy()
+    df["_dt"] = pd.to_datetime(df["trade_date"].astype(str), format="%Y%m%d")
+    agg = (df.set_index("_dt")
+             .resample(rule)
+             .agg({"open": "first", "high": "max", "low": "min", "close": "last", "vol": "sum"})
+             .dropna(subset=["close"]).reset_index())
+    agg["trade_date"] = agg["_dt"].dt.strftime("%Y%m%d")
+    return agg
+
+
+def _monthly_vol_stall(m: pd.DataFrame) -> bool:
+    """月线「放巨量不涨」近似：最近一根月K量为近12月最大，且当月涨幅乏力(<3%)——冲高滞涨(顶部特征之一)。"""
+    if len(m) < 12:
+        return False
+    v = pd.to_numeric(m["vol"], errors="coerce")
+    c = pd.to_numeric(m["close"], errors="coerce")
+    last_vol_max = float(v.iloc[-1]) >= float(v.tail(12).max()) * 0.98
+    mret = (float(c.iloc[-1]) / float(c.iloc[-2]) - 1) * 100 if len(c) >= 2 and c.iloc[-2] else 0.0
+    return bool(last_vol_max and mret < 3.0)
+
+
+def _mtf_analysis(k: pd.DataFrame) -> dict:
+    """多周期趋势判定（纯描述·非买卖建议）：月线定方向(+见顶三条件) · 周线定节奏 · synthesis。
+
+    对标博主框架：大周期决定方向、小周期决定节奏；月线主升浪未破前，日线回踩=低吸机会而非清仓。
+    """
+    from app.factors.core import macd as _macd
+    out: dict = {}
+    m = _resample_ohlc(k, "ME")
+    mc = pd.to_numeric(m["close"], errors="coerce")
+    if len(mc) >= 12:
+        ma10 = mc.rolling(10).mean()
+        ma10_now, ma10_ref = float(ma10.iloc[-1]), float(ma10.iloc[-4])   # 10月线 vs 3月前(判拐头)
+        close_now = float(mc.iloc[-1])
+        ma10_up, above = ma10_now > ma10_ref, close_now > ma10_now
+        md = _macd(mc)
+        dif, dea = md["dif"], md["dea"]
+        macd_dead = bool(len(dif) >= 2 and dif.iloc[-1] < dea.iloc[-1] and dif.iloc[-2] >= dea.iloc[-2])
+        tops = {"10月线拐头下+跌破": bool((not ma10_up) and (not above)),
+                "月线MACD死叉": macd_dead,
+                "放巨量不涨": _monthly_vol_stall(m)}
+        ntop = sum(tops.values())
+        if above and ma10_up:
+            direction = "主升浪·月线强势向上" if close_now > ma10_now * 1.08 else "月线向上·趋势健康"
+        elif ntop >= 2:
+            direction = "⚠️月线见顶预警(三条件≥2共振)"
+        elif (not above) and (not ma10_up):
+            direction = "月线走坏·中期趋势破位"
+        else:
+            direction = "月线震荡·方向待定"
+        out["monthly"] = {"dir": direction, "close": round(close_now, 2), "ma10": round(ma10_now, 2),
+                          "above_ma10": above, "ma10_up": ma10_up, "top_signals": tops, "top_count": ntop,
+                          "bars": int(len(mc))}
+    w = _resample_ohlc(k, "W-FRI")
+    wc = pd.to_numeric(w["close"], errors="coerce")
+    if len(wc) >= 8:
+        ma5w = wc.rolling(5).mean()
+        dev = (float(wc.iloc[-1]) / float(ma5w.iloc[-1]) - 1) * 100 if pd.notna(ma5w.iloc[-1]) and ma5w.iloc[-1] else 0.0
+        if dev > 8:
+            rhythm = "周线加速·偏离均值(短期波段高位·宜控仓/兑现部分)"
+        elif dev < -5:
+            rhythm = "周线回踩·靠近均值(月线向上时=低吸窗口)"
+        else:
+            rhythm = "周线均衡·节奏平稳"
+        out["weekly"] = {"rhythm": rhythm, "dev_ma5w": round(dev, 1)}
+    md = out.get("monthly", {}).get("dir", "—")
+    wr = out.get("weekly", {}).get("rhythm", "—")
+    out["summary"] = (f"月线定方向：{md} ｜ 周线定节奏：{wr} ｜ 日线找买点(见下方股性/K线)。"
+                      "顺大势逆小势——月线未走坏，日线回踩是低吸而非清仓；月线见顶三条件共振才是真离场信号。")
+    out["disclaimer"] = "多周期为盘后结构描述·非买卖建议；月线见顶三条件为近似观察(10月线拐头跌破/月MACD死叉/放量滞涨)。"
+    return out

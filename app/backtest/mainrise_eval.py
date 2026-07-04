@@ -75,12 +75,12 @@ def evaluate_mainrise(end: str, window: int = 30, min_circ_yi: float = 100.0) ->
                 _push(by_crit[c]["命中" if hit else "未命中"], fwd)
 
     base_agg = {f"t{h}": _agg(base[h]) for h in _HZ}
-    base_mean = {h: (base_agg[f"t{h}"]["mean"] or 0.0) for h in _HZ}
+    base_mean = {h: (base_agg[f"t{h}"]["avg"] or 0.0) for h in _HZ}
 
     def _excess(b):
         agg = {f"t{h}": _agg(b[h]) for h in _HZ}
         for h in _HZ:
-            m = agg[f"t{h}"]["mean"]
+            m = agg[f"t{h}"]["avg"]
             agg[f"t{h}"]["excess"] = round(m - base_mean[h], 2) if m is not None else None
         return agg
 
