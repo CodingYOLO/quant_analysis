@@ -55,6 +55,7 @@ FACTOR_GROUPS = [
             {"key": "turnover_ge3", "label": "换手率≥3%", "col": "turnover_rate", "op": "ge", "val": 3},
             {"key": "turnover_lt1", "label": "换手率<1%(低)", "col": "turnover_rate", "op": "lt", "val": 1},
             {"key": "vol_ratio_ge15", "label": "量比≥1.5", "col": "volume_ratio", "op": "ge", "val": 1.5},
+            {"key": "vol20_ge2", "label": "量比≥2(vs20日均量·主升浪放量)", "col": "vol_ratio_20", "op": "ge", "val": 2},
             {"key": "amount_ge1", "label": "成交额≥1亿", "col": "amount_100m", "op": "ge", "val": 1},
         ],
     },
@@ -73,6 +74,7 @@ FACTOR_GROUPS = [
             {"key": "ma_bull_full", "label": "均线多头排列(5>10>20>60)", "col": "ma_bull_full", "op": "true"},
             {"key": "ma250_up", "label": "年线向上(牛熊确认)", "col": "ma250_up", "op": "true"},
             {"key": "ma20_up", "label": "MA20拐头向上", "col": "ma20_up", "op": "true"},
+            {"key": "ma60_up", "label": "MA60拐头向上(中期趋势确立·主升浪)", "col": "ma60_up", "op": "true"},
             {"key": "ema_bull", "label": "EMA14>EMA26(多头)", "col": "ema_bull", "op": "true"},
             {"key": "rps50_ge70", "label": "RPS50≥70", "col": "rps50", "op": "ge", "val": 70},
             {"key": "rps120_ge70", "label": "RPS120≥70", "col": "rps120", "op": "ge", "val": 70},
@@ -277,7 +279,7 @@ DISPLAY_COLS = [
 # ──────────────────────────────────────────────
 
 # 因子表结构版本：新增因子列时 +1，使旧缓存自动失效重算（避免读到缺列的旧表）
-_FACTOR_TABLE_VERSION = "v19"  # v19: 威科夫补箱体(near_high/box_age/false_breakout)；v18 威科夫量价；v17 人气反转
+_FACTOR_TABLE_VERSION = "v20"  # v20: 主升浪(ma60_up/vol_ratio_20/长平台突破)；v19 威科夫箱体；v18 威科夫量价
 
 
 def _factor_cache_path(date: str) -> Path:
@@ -415,7 +417,7 @@ def _add_technical_factors(df: pd.DataFrame, date: str, provider) -> pd.DataFram
             return None
         w_now, w_prev = close_m.tail(n), close_m.iloc[-(n + k):-k]
         return (w_now.mean() > w_prev.mean()) & (w_now.count() >= n) & (w_prev.count() >= n)
-    for col, n, k in (("ma20_up", 20, 3), ("ma250_up", 250, 5)):
+    for col, n, k in (("ma20_up", 20, 3), ("ma60_up", 60, 5), ("ma250_up", 250, 5)):
         up = _slope_up(n, k)
         df[col] = df["ts_code"].map(up.to_dict()).fillna(False) if up is not None else False
 
@@ -452,7 +454,7 @@ def _add_technical_factors(df: pd.DataFrame, date: str, provider) -> pd.DataFram
     # MACD/KDJ金叉 / RSI / VWAP / EMA多头 / 影线 / TD九转 / K线形态（逐股一次性算）
     from app.nodes.quick_report import _board_limit_pct
     name_map = dict(zip(df["ts_code"], df.get("name", pd.Series("", index=df.index)).fillna("")))
-    macd_gold, rsi14, vwap_dev, vol_ratio = {}, {}, {}, {}
+    macd_gold, rsi14, vwap_dev, vol_ratio, vol_ratio20 = {}, {}, {}, {}, {}
     kdj_gold, ema_bull, td9, long_up, long_dn = {}, {}, {}, {}, {}
     limit60, maxboard, consecnow = {}, {}, {}      # 近60日涨停天数 / 近120日最高连板 / 截至昨收当前连板
     pat_hits: dict[str, dict[str, bool]] = {}
@@ -478,6 +480,8 @@ def _add_technical_factors(df: pd.DataFrame, date: str, provider) -> pd.DataFram
             if len(v) >= 6:
                 # 量比 = 今日量 / 近5日均量（自算，因 daily_basic.volume_ratio 当日常缺失）
                 vol_ratio[ts] = F.volume_ratio(v, n=5)
+            if len(v) >= 21:
+                vol_ratio20[ts] = F.volume_ratio(v, n=20)      # 主升浪口径：今日量/20日均量(博主"放量2倍")
             if len(v) >= 20:
                 vwap_dev[ts] = F.vwap_position(s.tail(20), v.tail(20), 20) * 100
             pat_hits[ts] = _detect_patterns(ts, close_m, open_m, high_m, low_m, vol_m)
@@ -500,6 +504,7 @@ def _add_technical_factors(df: pd.DataFrame, date: str, provider) -> pd.DataFram
     df["rsi14"] = df["ts_code"].map(rsi14)
     df["vwap_dev"] = df["ts_code"].map(vwap_dev)
     df["volume_ratio"] = df["ts_code"].map(vol_ratio)
+    df["vol_ratio_20"] = df["ts_code"].map(vol_ratio20)      # 20日量比(主升浪放量口径)
     df["kdj_gold"] = df["ts_code"].map(kdj_gold).fillna(False)
     df["ema_bull"] = df["ts_code"].map(ema_bull).fillna(False)
     df["td_buy9"] = df["ts_code"].map(td9).fillna(False)

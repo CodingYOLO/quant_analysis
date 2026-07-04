@@ -54,9 +54,10 @@ class MABullStack:
 class PlatformBreakout:
     """平台突破：今日收盘突破前 N 日箱体上沿，且突破前箱体窄幅震荡（波幅 < 阈值）+ 放量。"""
 
-    def __init__(self, n: int = 15, amp_max: float = 0.12, vol_mult: float = 1.3):
+    def __init__(self, n: int = 15, amp_max: float = 0.12, vol_mult: float = 1.3,
+                 key: str = "platform_breakout", label: str = "平台突破"):
         self.n, self.amp_max, self.vol_mult = n, amp_max, vol_mult
-        self.key, self.label, self.min_bars = "platform_breakout", "平台突破", n + 6
+        self.key, self.label, self.min_bars = key, label, n + 6
 
     def detect(self, o: pd.DataFrame) -> bool:
         close, high, low, vol = o["close"], o["high"], o["low"], o["vol"]
@@ -89,6 +90,8 @@ for _p in (
     ShrinkPullbackMA20(),
     MABullStack(),
     PlatformBreakout(),
+    PlatformBreakout(n=40, amp_max=0.20, vol_mult=1.5,          # 主升浪：长底(≈2月)窄幅整理后放量突破
+                     key="platform_breakout_long", label="长平台突破(≈2月长底·放量)"),
     VolPriceSurge(),
 ):
     register(_p)
