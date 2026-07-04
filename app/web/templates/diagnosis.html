@@ -428,18 +428,20 @@ async function loadSectorLeaders(nm, td) {
     if (!j.ok) { box.innerHTML = '<span class="neu" style="font-size:11px">龙头股：' + (j.msg || '取数失败') + '</span>'; return; }
     const rs = j.rows || [];
     if (!rs.length) { box.innerHTML = '<span class="neu" style="font-size:11px">该板块暂无领涨抗跌数据</span>'; return; }
-    let h = '<div style="font-weight:600;color:#f6c343;font-size:12px;margin-bottom:4px">🐲 领涨抗跌龙头股 <span class="neu" style="font-weight:400">（vs大盘·近60日超额·涨时跑赢+跌时抗跌·动态·点名到个股360）</span></div>'
-      + '<table style="width:100%;font-size:12px;border-collapse:collapse"><thead><tr style="color:#9ca3af;font-size:11px"><th style="text-align:left;padding:3px 6px">名称</th><th style="padding:3px 6px">领涨抗跌分</th><th style="padding:3px 6px">涨时跑赢%</th><th style="padding:3px 6px">跌时跑赢%(抗跌)</th><th style="padding:3px 6px">RPS120</th><th style="padding:3px 6px">今涨跌</th></tr></thead><tbody>';
+    let h = '<div style="font-weight:600;color:#f6c343;font-size:12px;margin-bottom:4px">🐲 领涨抗跌龙头股 <span class="neu" style="font-weight:400">（vs大盘·超额·按近期分排·近期+中期都强=真持续龙头·点名到个股360）</span></div>'
+      + '<table style="width:100%;font-size:12px;border-collapse:collapse"><thead><tr style="color:#9ca3af;font-size:11px"><th style="text-align:left;padding:3px 6px">名称</th><th style="padding:3px 6px">近期分(20日)</th><th style="padding:3px 6px">中期分(55日)</th><th style="padding:3px 6px">涨时跑赢%</th><th style="padding:3px 6px">跌时跑赢%(抗跌)</th><th style="padding:3px 6px">RPS</th><th style="padding:3px 6px">今</th></tr></thead><tbody>';
     rs.forEach(r => {
       const c6 = String(r.ts_code || '').slice(0, 6);
-      h += '<tr style="border-bottom:1px solid #1a1d2e"><td style="padding:4px 6px"><a href="/stock?code=' + c6 + '" target="_blank" style="color:#7c9ef8">' + (r.name || '') + '</a></td>'
+      const durable = (r.lead_resist != null && r.lead_resist_mid != null && r.lead_resist >= 10 && r.lead_resist_mid >= 15);
+      h += '<tr style="border-bottom:1px solid #1a1d2e"><td style="padding:4px 6px">' + (durable ? '🐲' : '') + '<a href="/stock?code=' + c6 + '" target="_blank" style="color:#7c9ef8">' + (r.name || '') + '</a></td>'
         + '<td style="text-align:center;font-weight:600;color:#f0a020">' + (r.lead_resist == null ? '·' : r.lead_resist) + '</td>'
+        + '<td style="text-align:center;color:#c2c8de">' + (r.lead_resist_mid == null ? '·' : r.lead_resist_mid) + '</td>'
         + '<td style="text-align:center">' + fmtSigned(r.up_excess) + '</td>'
         + '<td style="text-align:center">' + fmtSigned(r.down_excess) + '</td>'
         + '<td style="text-align:center">' + (r.rps120 == null ? '·' : Math.round(r.rps120)) + '</td>'
         + '<td style="text-align:center">' + fmtSigned(r.pct_chg, '%') + '</td></tr>';
     });
-    box.innerHTML = h + '</tbody></table><div class="neu" style="font-size:10.5px;margin-top:3px">涨时跑赢=大盘涨的日子累计跑赢大盘几个点；跌时跑赢>0=大盘跌时它跌更少甚至逆涨(抗跌)。近60日滚动·盘后日更·仅结构描述非荐股。</div>';
+    box.innerHTML = h + '</tbody></table><div class="neu" style="font-size:10.5px;margin-top:3px">近期分=近20日(现在领涨抗跌·跟着市场变)；中期分=近55日(持续性)。🐲=近期+中期都强(真持续龙头)；只近期强=新晋/可能脉冲。跌时跑赢>0=大盘跌时抗跌/逆涨。盘后日更·非荐股。</div>';
   } catch (e) { box.innerHTML = '<span class="neu" style="font-size:11px">龙头股加载失败</span>'; }
 }
 function mtfMd(t) {

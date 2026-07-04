@@ -622,7 +622,7 @@ async def api_sector_leaders(date: str = "", kind: str = "industry", name: str =
         if sub.empty:
             return {"ok": True, "name": name, "rows": []}
         sub = sub.sort_values("lead_resist", ascending=False)
-        want = ["ts_code", "name", "lead_resist", "up_excess", "down_excess", "rps120", "pct_chg", "circ_mv_100m"]
+        want = ["ts_code", "name", "lead_resist", "lead_resist_mid", "up_excess", "down_excess", "rps120", "pct_chg", "circ_mv_100m"]
         cols = [c for c in want if c in sub.columns]
         return {"ok": True, "name": name, "kind": kind, "rows": sub.head(8)[cols].to_dict("records")}
     except Exception as e:
