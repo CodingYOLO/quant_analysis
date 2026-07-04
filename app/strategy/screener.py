@@ -80,9 +80,9 @@ FACTOR_GROUPS = [
             {"key": "rps120_ge70", "label": "RPS120≥70", "col": "rps120", "op": "ge", "val": 70},
             {"key": "rps_ge80", "label": "RPS综合≥80", "col": "rps_combo", "op": "ge", "val": 80},
             {"key": "sector_strong", "label": "板块走强(行业RPS中位≥55)", "col": "sector_strong", "op": "true"},
-            {"key": "lead_resist_strong", "label": "🐲领涨抗跌·龙头(vs大盘·分≥100)", "col": "lead_resist", "op": "ge", "val": 100},
-            {"key": "up_capture_hi", "label": "领涨·涨得更多(up_capture≥120)", "col": "up_capture", "op": "ge", "val": 120},
-            {"key": "down_resist", "label": "抗跌(大盘跌时·down_capture≤50)", "col": "down_capture", "op": "le", "val": 50},
+            {"key": "lead_resist_strong", "label": "🐲领涨抗跌·龙头(vs大盘·超额分≥20)", "col": "lead_resist", "op": "ge", "val": 20},
+            {"key": "up_excess_hi", "label": "领涨·涨时跑赢大盘≥15点", "col": "up_excess", "op": "ge", "val": 15},
+            {"key": "down_resist", "label": "抗跌·跌时跑赢大盘(逆涨/少亏≥0)", "col": "down_excess", "op": "ge", "val": 0},
         ],
     },
     {
@@ -229,7 +229,7 @@ CUSTOM_FIELDS = [
     {"col": "amount_100m", "label": "成交额(亿)"}, {"col": "amplitude", "label": "振幅%"},
     {"col": "pct_chg", "label": "当日涨跌%"}, {"col": "rps50", "label": "RPS50"},
     {"col": "rps120", "label": "RPS120"}, {"col": "rps_combo", "label": "RPS综合"},
-    {"col": "lead_resist", "label": "🐲领涨抗跌分(vs大盘)"}, {"col": "up_capture", "label": "领涨力up_capture"}, {"col": "down_capture", "label": "抗跌·down_capture"},
+    {"col": "lead_resist", "label": "🐲领涨抗跌分(vs大盘)"}, {"col": "up_excess", "label": "涨时跑赢%"}, {"col": "down_excess", "label": "跌时跑赢%(抗跌)"},
     {"col": "rsi14", "label": "RSI"}, {"col": "vwap_dev", "label": "VWAP偏离%"},
     {"col": "main_net_amount", "label": "主力净流入(亿)"}, {"col": "elg_net", "label": "超大单(亿)"},
     {"col": "comment_score", "label": "千评得分"}, {"col": "institution_pct", "label": "机构参与度%"},
@@ -270,7 +270,7 @@ DISPLAY_COLS = [
     ("main_net_amount", "主力净流入(亿)"), ("main_net_3d", "主力3日(亿)"), ("elg_net", "超大单(亿)"),
     ("inflow_days_10", "💰流入天数(近10)"), ("consec_inflow", "连续流入天"), ("sector_inflow_days", "板块流入天"),
     ("rps50", "RPS50"), ("rps120", "RPS120"), ("rsi14", "RSI"),
-    ("lead_resist", "🐲领涨抗跌分"), ("up_capture", "领涨力"), ("down_capture", "抗跌(越低越抗跌)"),
+    ("lead_resist", "🐲领涨抗跌分"), ("up_excess", "涨时跑赢%"), ("down_excess", "跌时跑赢%(抗跌)"),
     ("vwap_dev", "VWAP偏离%"), ("comment_score", "千评分"), ("popularity_rank", "人气排名"),
     ("act_recover", "🔥人气回升位"), ("act_trough", "活跃度谷值"), ("inst_net_yi", "🏛️龙虎榜真钱(亿)"),
     ("reso_n", "🎯确定性"), ("entry_pos", "入局位置"),
@@ -284,7 +284,7 @@ DISPLAY_COLS = [
 # ──────────────────────────────────────────────
 
 # 因子表结构版本：新增因子列时 +1，使旧缓存自动失效重算（避免读到缺列的旧表）
-_FACTOR_TABLE_VERSION = "v21"  # v21: 领涨抗跌力(up_capture/down_capture/lead_resist vs大盘·动态龙头)；v20 主升浪；v19 威科夫箱体
+_FACTOR_TABLE_VERSION = "v22"  # v22: 领涨抗跌改超额分解(up_excess/down_excess·稳·无小分母爆表)；v21 capture比值(弃)；v20 主升浪
 
 
 def _factor_cache_path(date: str) -> Path:
@@ -392,12 +392,12 @@ def _merge_base(daily, daily_basic, money_flow, stock_basic, comment) -> pd.Data
 
 
 def _capture_vs_market(close_m, provider, date: str, win: int = 60) -> tuple[dict, dict, dict]:
-    """近 win 日 vs 上证 的 **领涨抗跌力**（Up/Down Capture）——动态龙头识别。
+    """近 win 日 vs 上证 的 **领涨抗跌力**（超额收益分解·比 capture 比值更稳·无小分母爆表）。
 
-    up_capture：大盘涨的日子·个股涨幅/大盘涨幅×100（>100=涨得更多=领涨）。
-    down_capture：大盘跌的日子·个股跌幅/大盘跌幅×100（<100=跌得更少=抗跌；<0=逆势涨）。
-    lead_resist（领涨抗跌分）= up_capture − down_capture（越高=涨得多且跌得少=真龙头）。
-    返回 ({ts:up},{ts:down},{ts:lead})。
+    up_excess（涨时超额·百分点）：大盘涨的日子·个股累计涨幅 − 大盘累计涨幅（>0=涨得更多=领涨）。
+    down_excess（跌时超额·百分点）：大盘跌的日子·个股累计 − 大盘累计（>0=跌得更少甚至逆涨=抗跌）。
+    lead_resist（领涨抗跌分）= up_excess + down_excess（越高=涨时跑赢+跌时抗跌=真龙头）。
+    需窗口内上/下行日各≥8天(否则不可靠→跳过)。返回 ({ts:up_ex},{ts:down_ex},{ts:lead})。
     """
     try:
         dstr = close_m.index.astype(str)                       # 面板日期·已是 YYYYMMDD·升序
@@ -411,17 +411,19 @@ def _capture_vs_market(close_m, provider, date: str, win: int = 60) -> tuple[dic
         sret = close_m.pct_change(); sret.index = dstr          # 个股日收益·同一 str 索引
         mret_w, sret_w = mret.tail(win), sret.tail(win)
         up, dn = (mret_w > 0).values, (mret_w < 0).values
-        msu, msd = float(mret_w[up].sum()), float(mret_w[dn].sum())
-        up_cap = (sret_w[up].sum() / msu * 100) if msu else pd.Series(dtype=float)
-        dn_cap = (sret_w[dn].sum() / msd * 100) if msd else pd.Series(dtype=float)
+        if int(up.sum()) < 8 or int(dn.sum()) < 8:              # 上/下行日太少·不可靠
+            return {}, {}, {}
+        m_up, m_dn = float(mret_w[up].sum()), float(mret_w[dn].sum())
+        up_ex = (sret_w[up].sum() - m_up) * 100                 # 涨时超额(跑赢百分点)
+        dn_ex = (sret_w[dn].sum() - m_dn) * 100                 # 跌时超额(>0=抗跌/逆涨)
 
         def _clean(s):
-            return {k: round(float(v), 0) for k, v in s.items() if pd.notna(v) and abs(v) < 1e4}
-        u, d = _clean(up_cap), _clean(dn_cap)
-        lead = {k: round(u[k] - d[k], 0) for k in u if k in d}
+            return {k: round(float(v), 1) for k, v in s.items() if pd.notna(v) and abs(v) < 500}
+        u, d = _clean(up_ex), _clean(dn_ex)
+        lead = {k: round(u[k] + d[k], 1) for k in u if k in d}
         return u, d, lead
     except Exception as e:
-        logger.debug("[领涨抗跌] capture 计算失败: %s", e)
+        logger.debug("[领涨抗跌] 超额分解计算失败: %s", e)
         return {}, {}, {}
 
 
@@ -490,10 +492,10 @@ def _add_technical_factors(df: pd.DataFrame, date: str, provider) -> pd.DataFram
     df["rps120"] = df["ts_code"].map(rps120.to_dict()) if not rps120.empty else np.nan
     df["rps_combo"] = df[["rps50", "rps120"]].mean(axis=1)
 
-    # 领涨抗跌力(vs 上证·近60日)——动态龙头：涨时涨更多(up_capture>100)+跌时抗跌(down_capture<100·<0逆涨)
+    # 领涨抗跌力(vs 上证·近60日·超额分解)——动态龙头：涨时跑赢(up_excess>0)+跌时抗跌(down_excess>0=少亏/逆涨)
     _uc, _dc, _lead = _capture_vs_market(close_m, provider, date, win=60)
-    df["up_capture"] = df["ts_code"].map(_uc)
-    df["down_capture"] = df["ts_code"].map(_dc)
+    df["up_excess"] = df["ts_code"].map(_uc)
+    df["down_excess"] = df["ts_code"].map(_dc)
     df["lead_resist"] = df["ts_code"].map(_lead)
 
     # MACD/KDJ金叉 / RSI / VWAP / EMA多头 / 影线 / TD九转 / K线形态（逐股一次性算）
