@@ -593,6 +593,43 @@ async def api_sector_mtf_kline(date: str = "", kind: str = "industry", name: str
         return {"ok": False, "msg": str(e)}
 
 
+@app.get("/api/diagnosis/sector-leaders")
+async def api_sector_leaders(date: str = "", kind: str = "industry", name: str = "",
+                             _user: str = Depends(require_auth)):
+    """板块领涨抗跌龙头股：板块成分按「领涨抗跌分(vs大盘·涨得多+跌得少)」排序·动态龙头。"""
+    if not name:
+        return {"ok": False, "msg": "缺少 name 参数"}
+    try:
+        import pandas as pd
+        from fastapi.concurrency import run_in_threadpool
+
+        from app.strategy.screener import build_factor_table
+        d = date or _last_trade_date()
+        df = await run_in_threadpool(build_factor_table, d)
+        if kind == "concept":
+            from app.data.composite_provider import CompositeProvider
+            from app.factors.theme_wide import concept_members_map
+            from app.strategy.concept_flow import _concept_member_codes_wide
+            prov = CompositeProvider()
+            mmap = _concept_member_codes_wide(prov) or concept_members_map(prov)
+            codes = {str(c)[:6] for c in (mmap.get(name) or [])}
+            sub = df[df["ts_code"].astype(str).str[:6].isin(codes)] if codes else df.iloc[0:0]
+        else:
+            sub = df[df["industry"].astype(str) == name]
+            if sub.empty:
+                sub = df[df["industry"].astype(str).str.contains(name, na=False, regex=False)]
+        sub = sub[pd.to_numeric(sub.get("lead_resist"), errors="coerce").notna()]
+        if sub.empty:
+            return {"ok": True, "name": name, "rows": []}
+        sub = sub.sort_values("lead_resist", ascending=False)
+        want = ["ts_code", "name", "lead_resist", "up_capture", "down_capture", "rps120", "pct_chg", "circ_mv_100m"]
+        cols = [c for c in want if c in sub.columns]
+        return {"ok": True, "name": name, "kind": kind, "rows": sub.head(8)[cols].to_dict("records")}
+    except Exception as e:
+        logger.exception("板块龙头股失败")
+        return {"ok": False, "msg": str(e)}
+
+
 @app.get("/api/diagnosis/sector-mtf-ai")
 async def api_sector_mtf_ai(date: str = "", force: bool = False, _user: str = Depends(require_auth)):
     """板块大周期格局 AI 研判（读行业+概念大周期榜·LLM综合·日缓存·非买卖建议）。"""
