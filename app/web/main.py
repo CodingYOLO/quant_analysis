@@ -560,6 +560,39 @@ async def api_diagnosis(date: str = "", level: str = "L2", _user: str = Depends(
         return {"ok": False, "error": str(e)}
 
 
+@app.get("/api/diagnosis/sector-mtf")
+async def api_sector_mtf(date: str = "", kind: str = "industry", _user: str = Depends(require_auth)):
+    """板块大周期方向榜：行业(申万二级)/概念(同花顺) 的月线定方向+周线定节奏（盘后·日缓存）。"""
+    try:
+        from fastapi.concurrency import run_in_threadpool
+
+        from app.strategy.sector_mtf import build_sector_mtf
+        d = date or _last_trade_date()
+        k = "concept" if kind == "concept" else "industry"
+        return {"ok": True, "data": await run_in_threadpool(build_sector_mtf, d, k)}
+    except Exception as e:
+        logger.exception("板块大周期榜失败")
+        return {"ok": False, "error": str(e)}
+
+
+@app.get("/api/diagnosis/sector-mtf-kline")
+async def api_sector_mtf_kline(date: str = "", kind: str = "industry", name: str = "",
+                               _user: str = Depends(require_auth)):
+    """单板块 月线/周线 K线 + 多周期判定（点开展开用）。"""
+    if not name:
+        return {"ok": False, "msg": "缺少 name 参数"}
+    try:
+        from fastapi.concurrency import run_in_threadpool
+
+        from app.strategy.sector_mtf import sector_mtf_kline
+        d = date or _last_trade_date()
+        k = "concept" if kind == "concept" else "industry"
+        return await run_in_threadpool(sector_mtf_kline, k, name, d)
+    except Exception as e:
+        logger.exception("板块大周期K线失败")
+        return {"ok": False, "msg": str(e)}
+
+
 @app.get("/api/industry")
 async def api_industry(date: str = "", _user: str = Depends(require_auth)):
     """行业资金流仪表盘数据。"""

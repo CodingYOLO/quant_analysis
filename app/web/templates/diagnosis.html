@@ -59,6 +59,20 @@
 <div id="datewarn" style="font-size:12.5px;color:#fbbf24;background:#2a2410;border:1px solid #4a3d15;border-radius:8px;padding:9px 13px;margin-bottom:14px;line-height:1.6"></div>
 <div id="dloading" class="neu" style="font-size:13px;padding:14px 4px">⏳ 计算全市场(含概念题材)资金流动…（首次约20-40秒）</div>
 
+<!-- 📅 大周期方向榜（月线定方向·周线定节奏·先定方向再看下方资金） -->
+<div class="card" style="border-left:3px solid #f0a020">
+  <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+    <h3 style="margin:0">📅 大周期方向榜 <span class="neu" style="font-size:12px">月线定方向·周线定节奏·<b style="color:#f0a020">先定方向再看下方资金</b> · 描述非荐股</span></h3>
+    <span style="margin-left:auto;display:inline-flex;border:1px solid #2d3052;border-radius:8px;overflow:hidden">
+      <button id="mtf-ind" style="background:#3358e0;color:#fff;border:none;padding:5px 13px;font-size:12px;cursor:pointer">行业(二级)</button>
+      <button id="mtf-con" style="background:#12141c;color:#9ca3af;border:none;padding:5px 13px;font-size:12px;cursor:pointer">概念</button>
+    </span>
+  </div>
+  <div id="mtfnote" class="neu" style="font-size:11.5px;margin:6px 0"></div>
+  <div id="mtfloading" class="neu" style="font-size:12px;padding:8px 0">⏳ 加载板块月线/周线…（首次约30-60秒）</div>
+  <div style="overflow-x:auto"><table id="mtftbl" style="width:100%;font-size:13px;border-collapse:collapse"></table></div>
+</div>
+
 <!-- 🌊 暗流榜（核心·明天潜伏候选：资金进 + 价没涨） -->
 <div class="card" style="border-left:3px solid #5dd5c4">
   <h3 style="margin:0 0 4px">🌊 暗流榜 · 资金进+价还没涨（潜伏候选） <span class="neu" style="font-size:12px">"有人在买·价还没涨"·<b style="color:#5dd5c4">明天重点看这里</b> · 描述非荐股</span></h3>
@@ -100,6 +114,8 @@
   </div>
 </div>
 
+<script src="/static/echarts.min.js"></script>
+<script src="/static/kline.js"></script>
 <script>
 let ALL = [];
 const fmt = (v, s) => v == null ? '<span class="flat">·</span>'
@@ -324,5 +340,66 @@ async function load() {
   } catch (e) { document.getElementById('dloading').textContent = '❌ ' + e; }
 }
 load();
+
+// ── 📅 大周期方向榜（月线定方向·周线定节奏·点开看月/周K线）─────────────────────────
+let MTF_KIND = 'industry', MTF_ROWS = [];
+async function loadMTF(kind) {
+  MTF_KIND = kind;
+  const bi = document.getElementById('mtf-ind'), bc = document.getElementById('mtf-con');
+  bi.style.background = kind === 'industry' ? '#3358e0' : '#12141c'; bi.style.color = kind === 'industry' ? '#fff' : '#9ca3af';
+  bc.style.background = kind === 'concept' ? '#3358e0' : '#12141c'; bc.style.color = kind === 'concept' ? '#fff' : '#9ca3af';
+  const L = document.getElementById('mtfloading'); L.style.display = 'block'; document.getElementById('mtftbl').innerHTML = '';
+  try {
+    const j = await (await fetch('/api/diagnosis/sector-mtf?kind=' + kind)).json();
+    if (!j.ok) { L.textContent = '❌ ' + j.error; return; }
+    MTF_ROWS = j.data.rows || []; document.getElementById('mtfnote').textContent = '💡 ' + j.data.note;
+    L.style.display = 'none'; renderMTFBoard();
+  } catch (e) { L.textContent = '❌ ' + e; }
+}
+function mtfDir(d) {
+  const c = /主升浪|向上|健康/.test(d) ? '#f6465d' : (/见顶|走坏|破位/.test(d) ? '#2ebd85' : '#f0a020');
+  return '<span style="color:' + c + ';font-weight:600">' + d + '</span>';
+}
+function renderMTFBoard() {
+  let h = '<thead><tr style="color:#9ca3af;font-size:11.5px"><th style="text-align:left;padding:6px 8px">板块</th><th style="text-align:left;padding:6px 8px">月线方向</th><th style="padding:6px 8px">见顶</th><th style="text-align:left;padding:6px 8px">周线节奏</th><th style="padding:6px 8px">偏离10月线</th></tr></thead><tbody>';
+  MTF_ROWS.slice(0, 120).forEach(r => {
+    const top = r.top_count >= 2 ? '<b style="color:#f0a020">' + r.top_count + '/3</b>' : ((r.top_count || 0) + '/3');
+    h += '<tr class="mtfrow" data-name="' + encodeURIComponent(r.sector) + '" style="cursor:pointer;border-bottom:1px solid #1a1d2e">'
+      + '<td style="padding:7px 8px;font-weight:600;color:#e8ecff"><span style="color:#5d7cff">▸</span> ' + r.sector + '</td>'
+      + '<td style="padding:7px 8px">' + mtfDir(r.monthly_dir || '—') + '</td>'
+      + '<td style="text-align:center">' + top + '</td>'
+      + '<td style="padding:7px 8px;font-size:12px;color:#c2c8de">' + (r.weekly_rhythm || '—') + '</td>'
+      + '<td style="text-align:center">' + fmtSigned(r.dev_ma10, '%') + '</td></tr>';
+  });
+  const t = document.getElementById('mtftbl'); t.innerHTML = h + '</tbody>';
+  t.querySelectorAll('tr.mtfrow').forEach(tr => tr.addEventListener('click', () => toggleMTF(tr)));
+}
+async function toggleMTF(tr) {
+  const nm = decodeURIComponent(tr.dataset.name), nxt = tr.nextElementSibling;
+  if (nxt && nxt.classList.contains('mtfexp')) { nxt.remove(); return; }
+  document.querySelectorAll('tr.mtfexp').forEach(e => e.remove());
+  const er = document.createElement('tr'); er.className = 'mtfexp';
+  const td = document.createElement('td'); td.colSpan = 5;
+  td.innerHTML = '<div style="padding:8px;background:#0f1117"><div style="margin-bottom:6px">'
+    + '<button class="mtftf" data-tf="m" style="background:#3358e0;color:#fff;border:none;border-radius:5px;padding:3px 11px;font-size:11px;cursor:pointer;margin-right:4px">月线·方向</button>'
+    + '<button class="mtftf" data-tf="w" style="background:#23264a;color:#9ca3af;border:none;border-radius:5px;padding:3px 11px;font-size:11px;cursor:pointer">周线·节奏</button></div>'
+    + '<div id="mtfk" style="height:270px;max-width:900px"></div><div id="mtfsum" class="neu" style="font-size:11.5px;margin-top:5px;line-height:1.6"></div></div>';
+  er.appendChild(td); tr.after(er);
+  try {
+    const j = await (await fetch('/api/diagnosis/sector-mtf-kline?kind=' + MTF_KIND + '&name=' + encodeURIComponent(nm))).json();
+    if (!j.ok) { td.querySelector('#mtfk').innerHTML = '❌ ' + (j.msg || ''); return; }
+    window._mtfk = { m: j.kline_m, w: j.kline_w };
+    const draw = tf => { const kl = (window._mtfk || {})[tf]; if (kl && window.AKline) { try { AKline.render('mtfk', kl); } catch (e) {} } };
+    draw('m');
+    td.querySelectorAll('.mtftf').forEach(b => b.addEventListener('click', () => {
+      td.querySelectorAll('.mtftf').forEach(x => { x.style.background = '#23264a'; x.style.color = '#9ca3af'; });
+      b.style.background = '#3358e0'; b.style.color = '#fff'; draw(b.dataset.tf);
+    }));
+    if (j.mtf) td.querySelector('#mtfsum').textContent = j.mtf.summary || '';
+  } catch (e) { td.querySelector('#mtfk').innerHTML = '❌ ' + e; }
+}
+document.getElementById('mtf-ind').addEventListener('click', () => loadMTF('industry'));
+document.getElementById('mtf-con').addEventListener('click', () => loadMTF('concept'));
+loadMTF('industry');
 </script>
 {% endblock %}
