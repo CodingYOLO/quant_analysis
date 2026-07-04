@@ -63,7 +63,8 @@
 <div class="card" style="border-left:3px solid #f0a020">
   <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
     <h3 style="margin:0">📅 大周期方向榜 <span class="neu" style="font-size:12px">月线定方向·周线定节奏·<b style="color:#f0a020">先定方向再看下方资金</b> · 描述非荐股</span></h3>
-    <span style="margin-left:auto;display:inline-flex;border:1px solid #2d3052;border-radius:8px;overflow:hidden">
+    <button id="mtf-dip" title="月线向上(大势)+周线回踩(逆小势)+无见顶+未过度偏离=顺大势逆小势的低吸猎场" style="margin-left:auto;background:#12141c;color:#f6c343;border:1px solid #5a4018;border-radius:8px;padding:5px 13px;font-size:12px;cursor:pointer">🎯 低吸猎场</button>
+    <span style="display:inline-flex;border:1px solid #2d3052;border-radius:8px;overflow:hidden">
       <button id="mtf-ind" style="background:#3358e0;color:#fff;border:none;padding:5px 13px;font-size:12px;cursor:pointer">行业(二级)</button>
       <button id="mtf-con" style="background:#12141c;color:#9ca3af;border:none;padding:5px 13px;font-size:12px;cursor:pointer">概念</button>
     </span>
@@ -342,7 +343,7 @@ async function load() {
 load();
 
 // ── 📅 大周期方向榜（月线定方向·周线定节奏·点开看月/周K线）─────────────────────────
-let MTF_KIND = 'industry', MTF_ROWS = [];
+let MTF_KIND = 'industry', MTF_ROWS = [], MTF_NOTE = '';
 async function loadMTF(kind) {
   MTF_KIND = kind;
   const bi = document.getElementById('mtf-ind'), bc = document.getElementById('mtf-con');
@@ -352,7 +353,7 @@ async function loadMTF(kind) {
   try {
     const j = await (await fetch('/api/diagnosis/sector-mtf?kind=' + kind)).json();
     if (!j.ok) { L.textContent = '❌ ' + j.error; return; }
-    MTF_ROWS = j.data.rows || []; document.getElementById('mtfnote').textContent = '💡 ' + j.data.note;
+    MTF_ROWS = j.data.rows || []; MTF_NOTE = j.data.note || '';
     L.style.display = 'none'; renderMTFBoard();
   } catch (e) { L.textContent = '❌ ' + e; }
 }
@@ -360,18 +361,36 @@ function mtfDir(d) {
   const c = /主升浪|向上|健康/.test(d) ? '#f6465d' : (/见顶|走坏|破位/.test(d) ? '#2ebd85' : '#f0a020');
   return '<span style="color:' + c + ';font-weight:600">' + d + '</span>';
 }
+// 🎯 低吸猎场：月线向上(大势) + 周线回踩(逆小势) + 无见顶 + 月线未过度偏离(≤35%·防接亢奋主升浪飞刀)
+function isDip(r) {
+  const up = /主升浪|向上|健康/.test(r.monthly_dir || '');
+  const pull = /回踩/.test(r.weekly_rhythm || '');
+  const safe = (r.top_count || 0) === 0 && (r.dev_ma10 == null || r.dev_ma10 <= 35);
+  return up && pull && safe;
+}
+let MTF_DIP = false;
 function renderMTFBoard() {
+  const rows = MTF_DIP ? MTF_ROWS.filter(isDip) : MTF_ROWS;
+  document.getElementById('mtfnote').textContent = MTF_DIP
+    ? '🎯 低吸猎场：月线向上(大势) + 周线回踩到均值(逆小势) + 无见顶 + 月线未过度偏离——顺大势逆小势的低吸窗口·非买卖建议。共 ' + rows.length + ' 个'
+    : '💡 ' + (MTF_NOTE || '');
+  const t = document.getElementById('mtftbl');
+  if (!rows.length) {
+    t.innerHTML = '<tbody><tr><td style="padding:14px;color:#9ca3af;font-size:12px">今日无符合的板块——多数主升浪板块目前周线在加速/高位(不是回踩低吸点)，宁缺毋滥。可切「概念」或关闭低吸猎场看全部。</td></tr></tbody>';
+    return;
+  }
   let h = '<thead><tr style="color:#9ca3af;font-size:11.5px"><th style="text-align:left;padding:6px 8px">板块</th><th style="text-align:left;padding:6px 8px">月线方向</th><th style="padding:6px 8px">见顶</th><th style="text-align:left;padding:6px 8px">周线节奏</th><th style="padding:6px 8px">偏离10月线</th></tr></thead><tbody>';
-  MTF_ROWS.slice(0, 120).forEach(r => {
+  rows.slice(0, 120).forEach(r => {
     const top = r.top_count >= 2 ? '<b style="color:#f0a020">' + r.top_count + '/3</b>' : ((r.top_count || 0) + '/3');
+    const flag = MTF_DIP ? '🎯 ' : '';
     h += '<tr class="mtfrow" data-name="' + encodeURIComponent(r.sector) + '" style="cursor:pointer;border-bottom:1px solid #1a1d2e">'
-      + '<td style="padding:7px 8px;font-weight:600;color:#e8ecff"><span style="color:#5d7cff">▸</span> ' + r.sector + '</td>'
+      + '<td style="padding:7px 8px;font-weight:600;color:#e8ecff"><span style="color:#5d7cff">▸</span> ' + flag + r.sector + '</td>'
       + '<td style="padding:7px 8px">' + mtfDir(r.monthly_dir || '—') + '</td>'
       + '<td style="text-align:center">' + top + '</td>'
       + '<td style="padding:7px 8px;font-size:12px;color:#c2c8de">' + (r.weekly_rhythm || '—') + '</td>'
       + '<td style="text-align:center">' + fmtSigned(r.dev_ma10, '%') + '</td></tr>';
   });
-  const t = document.getElementById('mtftbl'); t.innerHTML = h + '</tbody>';
+  t.innerHTML = h + '</tbody>';
   t.querySelectorAll('tr.mtfrow').forEach(tr => tr.addEventListener('click', () => toggleMTF(tr)));
 }
 async function toggleMTF(tr) {
@@ -400,6 +419,12 @@ async function toggleMTF(tr) {
 }
 document.getElementById('mtf-ind').addEventListener('click', () => loadMTF('industry'));
 document.getElementById('mtf-con').addEventListener('click', () => loadMTF('concept'));
+document.getElementById('mtf-dip').addEventListener('click', () => {
+  MTF_DIP = !MTF_DIP;
+  const b = document.getElementById('mtf-dip');
+  b.style.background = MTF_DIP ? '#5a4018' : '#12141c'; b.style.color = MTF_DIP ? '#fff' : '#f6c343';
+  renderMTFBoard();
+});
 loadMTF('industry');
 </script>
 {% endblock %}
