@@ -84,6 +84,8 @@ FACTOR_GROUPS = [
             {"key": "lead_resist_durable", "label": "🐲持续龙头(中期55日·超额分≥15·近期+中期都强)", "col": "lead_resist_mid", "op": "ge", "val": 15},
             {"key": "up_excess_hi", "label": "领涨·近期涨时跑赢大盘≥8点", "col": "up_excess", "op": "ge", "val": 8},
             {"key": "down_resist", "label": "抗跌·跌时跑赢大盘(逆涨/少亏≥0)", "col": "down_excess", "op": "ge", "val": 0},
+            {"key": "rel5d_hi", "label": "⚡近5日跑赢大盘≥5点(启动敏感·刚领涨)", "col": "rel5d", "op": "ge", "val": 5},
+            {"key": "rel3d_hi", "label": "⚡近3日跑赢大盘≥3点(更敏感·刚启动)", "col": "rel3d", "op": "ge", "val": 3},
         ],
     },
     {
@@ -231,6 +233,7 @@ CUSTOM_FIELDS = [
     {"col": "pct_chg", "label": "当日涨跌%"}, {"col": "rps50", "label": "RPS50"},
     {"col": "rps120", "label": "RPS120"}, {"col": "rps_combo", "label": "RPS综合"},
     {"col": "lead_resist", "label": "🐲领涨抗跌分(近20日)"}, {"col": "lead_resist_mid", "label": "领涨抗跌分(中期55日)"}, {"col": "up_excess", "label": "涨时跑赢%"}, {"col": "down_excess", "label": "跌时跑赢%(抗跌)"},
+    {"col": "rel5d", "label": "⚡近5日跑赢大盘%(启动)"}, {"col": "rel3d", "label": "⚡近3日跑赢大盘%"}, {"col": "rel1d", "label": "近1日跑赢大盘%(噪音大)"},
     {"col": "rsi14", "label": "RSI"}, {"col": "vwap_dev", "label": "VWAP偏离%"},
     {"col": "main_net_amount", "label": "主力净流入(亿)"}, {"col": "elg_net", "label": "超大单(亿)"},
     {"col": "comment_score", "label": "千评得分"}, {"col": "institution_pct", "label": "机构参与度%"},
@@ -272,6 +275,7 @@ DISPLAY_COLS = [
     ("inflow_days_10", "💰流入天数(近10)"), ("consec_inflow", "连续流入天"), ("sector_inflow_days", "板块流入天"),
     ("rps50", "RPS50"), ("rps120", "RPS120"), ("rsi14", "RSI"),
     ("lead_resist", "🐲领涨抗跌分(近20日)"), ("lead_resist_mid", "领涨抗跌分(中期55日)"), ("up_excess", "涨时跑赢%"), ("down_excess", "跌时跑赢%(抗跌)"),
+    ("rel5d", "⚡近5日跑赢大盘%"), ("rel3d", "⚡近3日跑赢大盘%"), ("rel1d", "近1日跑赢大盘%"),
     ("vwap_dev", "VWAP偏离%"), ("comment_score", "千评分"), ("popularity_rank", "人气排名"),
     ("act_recover", "🔥人气回升位"), ("act_trough", "活跃度谷值"), ("inst_net_yi", "🏛️龙虎榜真钱(亿)"),
     ("reso_n", "🎯确定性"), ("entry_pos", "入局位置"),
@@ -285,7 +289,7 @@ DISPLAY_COLS = [
 # ──────────────────────────────────────────────
 
 # 因子表结构版本：新增因子列时 +1，使旧缓存自动失效重算（避免读到缺列的旧表）
-_FACTOR_TABLE_VERSION = "v23"  # v23: 领涨抗跌双窗口(近20日 lead_resist + 中期55日 lead_resist_mid·responsive+耐久)；v22 超额分解；v20 主升浪
+_FACTOR_TABLE_VERSION = "v24"  # v24: 加近期相对强度(rel1d/3d/5d 跑赢大盘·启动敏感信号)；v23 领涨抗跌双窗口；v22 超额分解
 
 
 def _factor_cache_path(date: str) -> Path:
@@ -430,8 +434,37 @@ def _capture_vs_market(close_m, provider, date: str, win: int = 20) -> tuple[dic
         return {}, {}, {}
 
 
+def _rel_strength(close_m, provider, date: str, wins=(1, 3, 5)) -> dict:
+    """近 win 日 vs 上证 的**累计相对收益**（跑赢大盘%·启动敏感信号·纯相对收益·无需拆涨跌日）。
+
+    捕捉"主升浪刚启动"：短窗口(1/3/5日)个股跑赢大盘越多=最近在带头领涨。1日噪音大(超跌反弹/游资一日游混入)·
+    宜配放量+站上均线看。与「领涨抗跌力(20/55日·需足够涨跌日测抗跌)」互补——那是质量·这是时机。
+    返回 {win: {ts: rel%}}。
+    """
+    try:
+        dstr = close_m.index.astype(str)
+        idx = provider.get_index_daily_range("000001.SH", str(dstr[0]), date)
+        if idx is None or idx.empty:
+            return {}
+        idx = idx.sort_values("trade_date")
+        iclose = pd.Series(pd.to_numeric(idx["close"], errors="coerce").values,
+                           index=idx["trade_date"].astype(str)).reindex(dstr)
+        out: dict = {}
+        for w in wins:
+            if len(close_m) < w + 1 or pd.isna(iclose.iloc[-(w + 1)]) or iclose.iloc[-(w + 1)] == 0:
+                continue
+            sret = close_m.iloc[-1] / close_m.iloc[-(w + 1)] - 1          # 个股近w日收益
+            mret = float(iclose.iloc[-1] / iclose.iloc[-(w + 1)] - 1)     # 大盘近w日收益
+            rel = (sret - mret) * 100
+            out[w] = {k: round(float(v), 1) for k, v in rel.items() if pd.notna(v) and abs(v) < 200}
+        return out
+    except Exception as e:
+        logger.debug("[相对强度] 计算失败: %s", e)
+        return {}
+
+
 def _add_technical_factors(df: pd.DataFrame, date: str, provider) -> pd.DataFrame:
-    """基于历史价格矩阵计算 MA站上/RPS/MACD金叉/RSI/VWAP偏离 + 领涨抗跌力(vs大盘)。"""
+    """基于历史价格矩阵计算 MA站上/RPS/MACD金叉/RSI/VWAP偏离 + 领涨抗跌力 + 近期相对强度(vs大盘)。"""
     # 取 265 个交易日：覆盖年线MA250(+斜率)。原 130 日导致 MA144/MA250 永远不足数据→恒 False
     close_m, open_m, high_m, low_m, vol_m = load_price_matrix(date, provider, n_days=265)
 
@@ -502,6 +535,11 @@ def _add_technical_factors(df: pd.DataFrame, date: str, provider) -> pd.DataFram
     df["lead_resist"] = df["ts_code"].map(_lead)
     _, _, _lead_mid = _capture_vs_market(close_m, provider, date, win=55)     # 中期·约2.5月·耐久性
     df["lead_resist_mid"] = df["ts_code"].map(_lead_mid)
+    # 近期相对强度(跑赢大盘·1/3/5日·启动敏感·捕捉主升浪刚启动)——与领涨抗跌互补(那是质量·这是时机)
+    _rel = _rel_strength(close_m, provider, date, wins=(1, 3, 5))
+    df["rel1d"] = df["ts_code"].map(_rel.get(1, {}))
+    df["rel3d"] = df["ts_code"].map(_rel.get(3, {}))
+    df["rel5d"] = df["ts_code"].map(_rel.get(5, {}))
 
     # MACD/KDJ金叉 / RSI / VWAP / EMA多头 / 影线 / TD九转 / K线形态（逐股一次性算）
     from app.nodes.quick_report import _board_limit_pct
