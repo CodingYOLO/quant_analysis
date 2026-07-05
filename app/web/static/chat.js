@@ -70,13 +70,27 @@ window.AChat = (function () {
       document.head.appendChild(s);
     });
   }
+  function _legacyCopy(text) {                  // HTTP(非安全上下文)下 navigator.clipboard 不可用的兜底
+    const ta = document.createElement("textarea");
+    ta.value = text || "";
+    ta.style.cssText = "position:fixed;left:-9999px;top:0;opacity:0";
+    document.body.appendChild(ta);
+    ta.focus(); ta.select();
+    let ok = false;
+    try { ok = document.execCommand("copy"); } catch (e) { ok = false; }
+    document.body.removeChild(ta);
+    return ok;
+  }
   async function copyText(text) {
-    try {
-      await navigator.clipboard.writeText(text || "");
-      toast("✅ 已复制文字，可粘贴分享");
-    } catch (e) {
-      toast("复制失败：请手动选中复制", false);
-    }
+    try {                                       // 安全上下文(HTTPS/localhost)优先用现代 API
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(text || "");
+        toast("✅ 已复制文字，可粘贴分享");
+        return;
+      }
+    } catch (e) { /* 落到兜底 */ }
+    if (_legacyCopy(text)) toast("✅ 已复制文字，可粘贴分享");
+    else toast("复制失败：请长按/选中手动复制", false);
   }
   async function copyImage(bubble, btn) {
     const old = btn.innerHTML;
@@ -87,17 +101,25 @@ window.AChat = (function () {
       const h2c = await ensureH2C();
       // 克隆整条 .aic-msg(保留 .aic-msg.ai .bubble 样式上下文) 到离屏容器：
       // 脱离 .cpg-msgs 滚动容器(overflow:auto)→ 完整高度全渲染·不被视口截断；并剔除工具条不进图。
-      const w = Math.max(bubble.offsetWidth || 640, 360);
+      // 用**限定固定宽度**(非气泡原宽)：气泡原宽可能被宽表格撑到很宽·导致文字段落摊开/右侧大片空白。
+      const w = Math.min(Math.max(bubble.offsetWidth || 640, 380), 760);
       const clone = (bubble.parentNode || bubble).cloneNode(true);
       const tools = clone.querySelector(".aic-tools");
       if (tools) tools.remove();
       const bub = clone.querySelector(".bubble") || clone;
       bub.style.maxWidth = "none";
-      bub.style.boxSizing = "border-box";     // 宽含内边距·与屏幕上气泡宽度一致(文字重排不走样)
+      bub.style.boxSizing = "border-box";
+      bub.style.display = "block";            // 定宽块级·避免 inline-block 被内部宽内容撑开
       bub.style.width = w + "px";
       clone.style.margin = "0";
+      // 约束表格不撑破容器(表格首选宽度会把离屏容器 shrink-fit 撑宽→整体错乱)
+      clone.querySelectorAll("table").forEach(function (tb) {
+        tb.style.width = "100%"; tb.style.maxWidth = "100%"; tb.style.tableLayout = "fixed";
+      });
+      clone.querySelectorAll("td,th").forEach(function (c) { c.style.wordBreak = "break-word"; });
       wrap = document.createElement("div");
-      wrap.style.cssText = "position:fixed;left:-99999px;top:0;z-index:-1;background:#0d0f16;padding:16px;";
+      wrap.style.cssText = "position:fixed;left:-99999px;top:0;z-index:-1;background:#0d0f16;" +
+        "padding:16px;box-sizing:border-box;width:" + (w + 32) + "px;";   // 显式定宽·杜绝 shrink-fit 被撑宽
       wrap.appendChild(clone);
       document.body.appendChild(wrap);
       const canvas = await h2c(wrap, {
