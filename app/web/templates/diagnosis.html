@@ -404,6 +404,8 @@ async function toggleMTF(tr) {
     + '<button class="mtftf" data-tf="m" style="background:#3358e0;color:#fff;border:none;border-radius:5px;padding:3px 11px;font-size:11px;cursor:pointer;margin-right:4px">月线·方向</button>'
     + '<button class="mtftf" data-tf="w" style="background:#23264a;color:#9ca3af;border:none;border-radius:5px;padding:3px 11px;font-size:11px;cursor:pointer">周线·节奏</button></div>'
     + '<div id="mtfk" style="height:270px;max-width:900px"></div><div id="mtfsum" class="neu" style="font-size:11.5px;margin-top:5px;line-height:1.6"></div>'
+    + '<div style="margin-top:10px;font-weight:600;color:#f6c343;font-size:12px">💰 资金流向（近20日·每日净流入柱🔴进🟢出 + 累计金线 + 板块价蓝线）</div>'
+    + '<div id="mtffund" style="height:230px;max-width:900px"></div>'
     + '<div id="mtflead" style="margin-top:10px"><span class="neu" style="font-size:11.5px">⏳ 找该板块领涨抗跌龙头股…</span></div></div>';
   er.appendChild(td); tr.after(er);
   try {
@@ -417,8 +419,34 @@ async function toggleMTF(tr) {
       b.style.background = '#3358e0'; b.style.color = '#fff'; draw(b.dataset.tf);
     }));
     if (j.mtf) td.querySelector('#mtfsum').textContent = j.mtf.summary || '';
+    loadFundChart(nm, td);
     loadSectorLeaders(nm, td);
   } catch (e) { td.querySelector('#mtfk').innerHTML = '❌ ' + e; }
+}
+// 💰 资金流向图：每日净流入柱(红进绿出) + 累计净流入(金线) + 板块价(蓝线·右轴)·清晰图例+悬浮
+async function loadFundChart(nm, td) {
+  const el = td.querySelector('#mtffund'); if (!el || !window.echarts) return;
+  try {
+    const j = await (await fetch('/api/diagnosis/sector-fund-series?kind=' + MTF_KIND + '&name=' + encodeURIComponent(nm))).json();
+    if (!j.ok || !j.dates) { el.innerHTML = '<span class="neu" style="font-size:11px">资金时序取数失败</span>'; return; }
+    const ch = echarts.init(el);
+    ch.setOption({
+      backgroundColor: 'transparent',
+      legend: { data: ['每日净流入(亿)', '累计净流入(亿)', '板块涨幅%'], textStyle: { color: '#9ca3af', fontSize: 11 }, top: 0 },
+      grid: { left: 52, right: 52, top: 26, bottom: 24 },
+      tooltip: { trigger: 'axis', axisPointer: { type: 'cross' } },
+      xAxis: { type: 'category', data: j.dates, axisLabel: { color: '#8890a0', fontSize: 10 }, axisLine: { lineStyle: { color: '#2d3350' } } },
+      yAxis: [
+        { type: 'value', name: '资金(亿)', nameTextStyle: { color: '#8890a0', fontSize: 10 }, axisLabel: { color: '#8890a0', fontSize: 10 }, splitLine: { lineStyle: { color: '#1a1d2e' } } },
+        { type: 'value', name: '涨幅%', nameTextStyle: { color: '#7c9ef8', fontSize: 10 }, position: 'right', axisLabel: { color: '#7c9ef8', fontSize: 10 }, splitLine: { show: false } }
+      ],
+      series: [
+        { name: '每日净流入(亿)', type: 'bar', yAxisIndex: 0, data: (j.net || []).map(v => ({ value: v, itemStyle: { color: v == null ? '#555' : (v >= 0 ? '#f6465d' : '#2ebd85') } })) },
+        { name: '累计净流入(亿)', type: 'line', yAxisIndex: 0, data: j.cum, smooth: true, symbol: 'none', lineStyle: { color: '#f0c674', width: 2 }, itemStyle: { color: '#f0c674' } },
+        { name: '板块涨幅%', type: 'line', yAxisIndex: 1, data: j.price, smooth: true, symbol: 'none', lineStyle: { color: '#7c9ef8', width: 2, type: 'dashed' }, itemStyle: { color: '#7c9ef8' } }
+      ]
+    });
+  } catch (e) { el.innerHTML = '<span class="neu" style="font-size:11px">资金图加载失败</span>'; }
 }
 // 板块领涨抗跌龙头股（vs大盘·涨得多+跌得少·动态龙头）
 async function loadSectorLeaders(nm, td) {

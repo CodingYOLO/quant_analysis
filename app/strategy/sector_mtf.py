@@ -141,6 +141,86 @@ def build_sector_mtf(end: str, kind: str = "industry", provider: CompositeProvid
     return out
 
 
+def sector_fund_series(kind: str, name: str, end: str, days: int = 20,
+                       provider: CompositeProvider | None = None) -> dict:
+    """板块近 days 日**资金流向时序**：每日净流入(亿) + 累计净流入 + 板块指数涨幅%(对照资金vs价)。日缓存。
+
+    行业=按申万二级聚合个股主力净流入(估算·`_industry_agg`)；概念=同花顺概念净额(`moneyflow_cnt_ths`)。供资金可视化。
+    """
+    import json
+    import re
+
+    import pandas as pd
+
+    from app.config import get_settings
+    from app.nodes.quick_report import _recent_trade_dates
+    cdir = get_settings().cache_dir / "sector_mtf"
+    cdir.mkdir(parents=True, exist_ok=True)
+    safe = re.sub(r"[^\w一-鿿]+", "_", name)[:24]
+    cache = cdir / f"fund_{kind}_{safe}_{end}_{days}.json"
+    if cache.exists():
+        try:
+            return json.loads(cache.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+
+    prov = provider or CompositeProvider()
+    dates = _recent_trade_dates(prov, end, days)
+    net: list = []
+    if kind == "concept":
+        from app.data.cache import cached_daily
+        from app.strategy.concept_flow import _fetch_concept_flow
+        pro = prov._ts._api
+        for d in dates:
+            df = cached_daily("ths_concept_flow", d, lambda d=d: _fetch_concept_flow(pro, d))
+            v = None
+            if df is not None and not df.empty:
+                r = df[df["name"].astype(str) == name]
+                if not r.empty:
+                    x = pd.to_numeric(r.iloc[0].get("net_amount"), errors="coerce")
+                    v = round(float(x), 1) if pd.notna(x) else None
+            net.append(v)
+    else:
+        from app.strategy.industry_flow import _industry_agg
+        sb = prov.get_stock_basic()
+        c2n = dict(zip(sb["ts_code"], sb["name"]))
+        c2i = dict(zip(sb["ts_code"], sb["industry"])) if "industry" in sb.columns else {}
+        for d in dates:
+            agg = _industry_agg(d, prov, c2n, c2i)
+            v = None
+            if agg is not None and not agg.empty:
+                r = agg[agg["industry"].astype(str) == name]
+                if not r.empty:
+                    x = pd.to_numeric(r.iloc[0].get("main_flow"), errors="coerce")
+                    v = round(float(x), 1) if pd.notna(x) else None
+            net.append(v)
+
+    cum, c = [], 0.0                                            # 累计净流入(看是否持续进)
+    for v in net:
+        c += (v or 0.0)
+        cum.append(round(c, 1))
+    code_map = _sw_code_map(prov) if kind == "industry" else _concept_code_map(prov, end)
+    code = code_map.get(name)
+    price: list = [None] * len(dates)
+    if code:
+        k = _index_daily(prov, kind, code, end)
+        if k is not None and not k.empty:
+            kk = k.set_index(k["trade_date"].astype(str))["close"]
+            closes = [float(kk[d]) if d in kk.index else None for d in dates]
+            base = next((x for x in closes if x), None)
+            price = [round((x / base - 1) * 100, 2) if (x and base) else None for x in closes]
+
+    out = {"ok": True, "name": name, "kind": kind,
+           "dates": [f"{d[4:6]}-{d[6:]}" for d in dates],
+           "net": net, "cum": cum, "price": price,
+           "note": "每日净流入(柱·红进绿出) + 累计净流入(金线·看是否持续进) + 板块涨幅%(蓝线·对照资金vs价)。主力净流入=估算·非龙虎榜真钱。"}
+    try:
+        cache.write_text(json.dumps(out, ensure_ascii=False), encoding="utf-8")
+    except Exception:
+        pass
+    return out
+
+
 def _is_up(r: dict) -> bool:
     return bool(r.get("monthly_dir") and any(k in r["monthly_dir"] for k in ("主升浪", "向上", "健康")))
 

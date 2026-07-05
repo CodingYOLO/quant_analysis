@@ -630,6 +630,24 @@ async def api_sector_leaders(date: str = "", kind: str = "industry", name: str =
         return {"ok": False, "msg": str(e)}
 
 
+@app.get("/api/diagnosis/sector-fund-series")
+async def api_sector_fund_series(date: str = "", kind: str = "industry", name: str = "",
+                                 _user: str = Depends(require_auth)):
+    """板块近20日资金流向时序：每日净流入+累计+板块涨幅%（资金可视化·对照资金vs价）。"""
+    if not name:
+        return {"ok": False, "msg": "缺少 name 参数"}
+    try:
+        from fastapi.concurrency import run_in_threadpool
+
+        from app.strategy.sector_mtf import sector_fund_series
+        d = date or _last_trade_date()
+        k = "concept" if kind == "concept" else "industry"
+        return await run_in_threadpool(sector_fund_series, k, name, d, 20)
+    except Exception as e:
+        logger.exception("板块资金时序失败")
+        return {"ok": False, "msg": str(e)}
+
+
 @app.get("/api/diagnosis/sector-mtf-ai")
 async def api_sector_mtf_ai(date: str = "", force: bool = False, _user: str = Depends(require_auth)):
     """板块大周期格局 AI 研判（读行业+概念大周期榜·LLM综合·日缓存·非买卖建议）。"""
