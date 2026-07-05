@@ -82,9 +82,29 @@ window.AChat = (function () {
     const old = btn.innerHTML;
     btn.innerHTML = "⏳ 生成中…";
     btn.disabled = true;
+    let wrap = null;
     try {
       const h2c = await ensureH2C();
-      const canvas = await h2c(bubble, { backgroundColor: "#0d0f16", scale: 2, useCORS: true });
+      // 克隆整条 .aic-msg(保留 .aic-msg.ai .bubble 样式上下文) 到离屏容器：
+      // 脱离 .cpg-msgs 滚动容器(overflow:auto)→ 完整高度全渲染·不被视口截断；并剔除工具条不进图。
+      const w = Math.max(bubble.offsetWidth || 640, 360);
+      const clone = (bubble.parentNode || bubble).cloneNode(true);
+      const tools = clone.querySelector(".aic-tools");
+      if (tools) tools.remove();
+      const bub = clone.querySelector(".bubble") || clone;
+      bub.style.maxWidth = "none";
+      bub.style.boxSizing = "border-box";     // 宽含内边距·与屏幕上气泡宽度一致(文字重排不走样)
+      bub.style.width = w + "px";
+      clone.style.margin = "0";
+      wrap = document.createElement("div");
+      wrap.style.cssText = "position:fixed;left:-99999px;top:0;z-index:-1;background:#0d0f16;padding:16px;";
+      wrap.appendChild(clone);
+      document.body.appendChild(wrap);
+      const canvas = await h2c(wrap, {
+        backgroundColor: "#0d0f16", scale: 2, useCORS: true,
+        width: wrap.offsetWidth, height: wrap.offsetHeight,
+        windowHeight: wrap.scrollHeight,
+      });
       const blob = await new Promise(function (r) { canvas.toBlob(r, "image/png"); });
       let copied = false;
       try {
@@ -106,6 +126,7 @@ window.AChat = (function () {
     } catch (e) {
       toast("长图生成失败：" + (e.message || e), false);
     } finally {
+      if (wrap && wrap.parentNode) wrap.parentNode.removeChild(wrap);
       btn.innerHTML = old;
       btn.disabled = false;
     }
