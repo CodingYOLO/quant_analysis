@@ -677,6 +677,21 @@ async def api_theme_lifecycle(date: str = "", force: bool = False,
         return {"ok": False, "msg": str(e)}
 
 
+@app.get("/api/factor-efficacy")
+async def api_factor_efficacy(_user: str = Depends(require_auth)):
+    """因子盈利归因：每因子多期 Rank-IC/IC_IR/分层多空价差（哪些因子真有alpha·历史检验非预测）。
+
+    只读最新盘后预热缓存（重·不在请求内构建）；未预热→提示待预热。
+    """
+    try:
+        from app.backtest.factor_efficacy import load_latest_efficacy
+        data = load_latest_efficacy()
+        return data or {"ok": False, "msg": "因子盈利归因待盘后预热（较重·每周一重建）"}
+    except Exception as e:
+        logger.exception("因子盈利归因失败")
+        return {"ok": False, "msg": str(e)}
+
+
 @app.get("/api/industry")
 async def api_industry(date: str = "", _user: str = Depends(require_auth)):
     """行业资金流仪表盘数据。"""

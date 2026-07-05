@@ -685,6 +685,18 @@ def run_warmup(base_date: str) -> None:
         console.print(f"[green]✅ 主题生命周期预热 {latest}·{tl.get('meta', {}).get('n_graded', 0)}主题[/green]")
     except Exception as e:
         console.print(f"[yellow]⚠️ 主题生命周期预热失败: {e}[/yellow]")
+    # 1.68) 因子盈利归因(IC/分层·重≈回填~24张历史因子表·仅每周一重建·非重叠截面近1年)
+    try:
+        from datetime import datetime as _dt
+        from app.backtest.factor_efficacy import build_factor_efficacy, load_latest_efficacy
+        _is_mon = _dt.strptime(latest, "%Y%m%d").weekday() == 0
+        if _is_mon or load_latest_efficacy() is None:
+            fe = build_factor_efficacy(latest, provider=prov, force=True)
+            console.print(f"[green]✅ 因子盈利归因预热 {latest}·{fe.get('meta', {}).get('n_periods', 0)}期[/green]")
+        else:
+            console.print("[dim]· 因子盈利归因跳过(非周一·用现有缓存)[/dim]")
+    except Exception as e:
+        console.print(f"[yellow]⚠️ 因子盈利归因预热失败: {e}[/yellow]")
     # 1.7) 主线板块研判(资金+催化剂+政策·LLM综合·日缓存·板块/概念页顶部秒显示·夜间预算一次LLM)
     try:
         from app.strategy.mainline_analysis import build_mainline_analysis
