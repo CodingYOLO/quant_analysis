@@ -678,6 +678,13 @@ def run_warmup(base_date: str) -> None:
         console.print(f"[green]✅ 板块资金时序预热 {latest}·{nf}板块[/green]")
     except Exception as e:
         console.print(f"[yellow]⚠️ 板块资金时序预热失败: {e}[/yellow]")
+    # 1.67) 主题生命周期归因(点火后前瞻超额·一日游/持续型·复用大周期榜指数缓存·快)
+    try:
+        from app.backtest.theme_lifecycle import build_theme_lifecycle
+        tl = build_theme_lifecycle(latest, provider=prov, force=True)
+        console.print(f"[green]✅ 主题生命周期预热 {latest}·{tl.get('meta', {}).get('n_graded', 0)}主题[/green]")
+    except Exception as e:
+        console.print(f"[yellow]⚠️ 主题生命周期预热失败: {e}[/yellow]")
     # 1.7) 主线板块研判(资金+催化剂+政策·LLM综合·日缓存·板块/概念页顶部秒显示·夜间预算一次LLM)
     try:
         from app.strategy.mainline_analysis import build_mainline_analysis

@@ -75,6 +75,21 @@
   <div style="overflow-x:auto"><table id="mtftbl" style="width:100%;font-size:13px;border-collapse:collapse"></table></div>
 </div>
 
+<!-- 🔄 主题生命周期（点火后前瞻超额·一日游vs持续型·板块指数几年回测·历史结构非预测） -->
+<div class="card" style="border-left:3px solid #a78bfa">
+  <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+    <h3 style="margin:0">🔄 主题生命周期 · 点火后怎么走 <span class="neu" style="font-size:12px">一日游 vs 持续型 · 板块指数几年回测 · <b style="color:#a78bfa">追之前先看它是哪种</b> · 历史结构非预测</span></h3>
+    <input id="tl-search" placeholder="🔍 查主题（如 机器人）" style="margin-left:auto;background:#0f1117;color:#e8e8e8;border:1px solid #2d3052;border-radius:7px;padding:7px 11px;font-size:13px;width:190px">
+  </div>
+  <div id="tl-decay" class="neu" style="font-size:11.5px;margin:8px 0;line-height:1.6"></div>
+  <div id="tl-loading" class="neu" style="font-size:12px;padding:8px 0">⏳ 加载主题生命周期…（盘后日更）</div>
+  <div id="tl-searchres" style="margin-bottom:6px"></div>
+  <div id="tl-lists"></div>
+  <div class="collapse-head" style="margin-top:10px" onclick="var e=document.getElementById('tl-fullwrap');e.style.display=e.style.display==='none'?'block':'none';if(e.style.display==='block')renderTLFull()">▸ 全主题明细表（按持续性排·点展开）</div>
+  <div id="tl-fullwrap" style="display:none;margin-top:8px;overflow-x:auto"></div>
+  <div id="tl-disc" class="neu" style="font-size:10.5px;margin-top:8px;line-height:1.6"></div>
+</div>
+
 <!-- 🌊 暗流榜（核心·明天潜伏候选：资金进 + 价没涨） -->
 <div class="card" style="border-left:3px solid #5dd5c4">
   <h3 style="margin:0 0 4px">🌊 暗流榜 · 资金进+价还没涨（潜伏候选） <span class="neu" style="font-size:12px">"有人在买·价还没涨"·<b style="color:#5dd5c4">明天重点看这里</b> · 描述非荐股</span></h3>
@@ -499,6 +514,73 @@ function mtfMd(t) {
     .replace(/\*\*(.+?)\*\*/g, '<b style="color:#f0a020">$1</b>')
     .replace(/\n{2,}/g, '<br>').replace(/\n/g, '<br>');
 }
+// ── 🔄 主题生命周期（点火后前瞻超额·一日游vs持续型）─────────────────────────
+let TL_ROWS = [];
+const TL_META = { badge: { '持续型': ['#12271b', '#4ade80'], '一日游': ['#3b1a1a', '#f6465d'],
+                           '慢热型': ['#1a2b3b', '#7c9ef8'], '中性': ['#1a1d2e', '#9ca3af'] } };
+function tlNum(v) {                                          // 超额收益·红正绿负(与全站A股口径一致)
+  if (v === null || v === undefined) return '<span class="flat">–</span>';
+  const c = v > 0 ? 'up' : (v < 0 ? 'down' : 'flat');
+  return '<span class="' + c + '">' + (v > 0 ? '+' : '') + v + '</span>';
+}
+function tlBadge(label) {
+  const c = TL_META.badge[label] || TL_META.badge['中性'];
+  return '<span class="tierbadge" style="background:' + c[0] + ';color:' + c[1] + '">' + label + '</span>';
+}
+function tlTable(rows) {                                     // 统一表：主题|类型|事件|转正率|T+1/5/10/20超额
+  let h = '<table style="width:100%;font-size:12.5px;border-collapse:collapse">'
+    + '<thead><tr style="color:#6b7280;font-size:10.5px;text-align:right">'
+    + '<th style="text-align:left;padding:3px 6px">主题</th><th>类型</th><th>点火数</th><th>T5转正率</th>'
+    + '<th>T+1</th><th>T+5</th><th>T+10</th><th>T+20</th></tr></thead><tbody>';
+  for (const r of rows) {
+    const f = r.fwd || {};
+    h += '<tr style="border-bottom:1px solid #16192a;text-align:right">'
+      + '<td style="text-align:left;padding:4px 6px;color:#dfe6ff">' + r.theme
+      + ' <span class="neu" style="font-size:10px">' + (r.kind === 'concept' ? '概念' : '行业') + '</span></td>'
+      + '<td>' + tlBadge(r.label) + '</td>'
+      + '<td class="kv">' + r.n + '</td>'
+      + '<td class="kv">' + (r.hit5 === null ? '–' : r.hit5 + '%') + '</td>'
+      + '<td>' + tlNum(f.t1) + '</td><td>' + tlNum(f.t5) + '</td>'
+      + '<td>' + tlNum(f.t10) + '</td><td>' + tlNum(f.t20) + '</td></tr>';
+  }
+  return h + '</tbody></table>';
+}
+function renderTLFull() {
+  document.getElementById('tl-fullwrap').innerHTML = tlTable(TL_ROWS);
+}
+function renderTLSearch(q) {
+  const box = document.getElementById('tl-searchres');
+  q = (q || '').trim();
+  if (!q) { box.innerHTML = ''; return; }
+  const hit = TL_ROWS.filter(r => r.theme.includes(q));
+  box.innerHTML = hit.length
+    ? '<div style="border:1px solid #2d3052;border-radius:8px;padding:6px 8px;background:#0f1117">' + tlTable(hit) + '</div>'
+    : '<span class="neu" style="font-size:11.5px">未找到「' + q + '」（或该主题点火事件<门槛·样本不足）</span>';
+}
+async function loadThemeLifecycle() {
+  const L = document.getElementById('tl-loading');
+  try {
+    const j = await (await fetch('/api/diagnosis/theme-lifecycle')).json();
+    if (!j.ok || !j.rows || !j.rows.length) { L.textContent = '（暂无主题生命周期数据·待盘后预热）'; return; }
+    L.style.display = 'none';
+    TL_ROWS = j.rows;
+    const d = j.decay_all || {};
+    document.getElementById('tl-decay').innerHTML =
+      '📉 <b style="color:#c2c8de">全体点火后alpha衰减(中位超额)</b>：T+1 ' + tlNum(d.t1) + ' → T+3 ' + tlNum(d.t3)
+      + ' → T+5 ' + tlNum(d.t5) + ' → T+10 ' + tlNum(d.t10) + ' → T+20 ' + tlNum(d.t20)
+      + ' <span class="neu">（超额=板块−上证·多数主题点火后动量延续·但一日游反向）</span>';
+    const sustain = TL_ROWS.filter(r => r.label === '持续型').slice(0, 8);
+    const oneday = TL_ROWS.filter(r => r.label === '一日游')
+      .sort((a, b) => (a.fwd.t5 ?? 9) - (b.fwd.t5 ?? 9)).slice(0, 8);
+    document.getElementById('tl-lists').innerHTML =
+      '<div style="font-weight:600;color:#4ade80;font-size:12.5px;margin:10px 0 3px">🔥 持续型 · 点火后越走越强（可追·按T+10超额排）</div>' + tlTable(sustain)
+      + '<div style="font-weight:600;color:#f6465d;font-size:12.5px;margin:14px 0 3px">⚠️ 一日游 · 点火冲高就还回去（别追·按T+5超额排）</div>' + tlTable(oneday);
+    document.getElementById('tl-disc').innerHTML = '⚠️ ' + (j.meta && j.meta.disclaimer || '')
+      + ' 共' + (j.meta && j.meta.n_graded) + '个主题有效·' + (j.insufficient ? j.insufficient.length : 0) + '个样本不足(多为新题材)。非买卖建议。';
+  } catch (e) { L.textContent = '（主题生命周期加载失败）'; }
+}
+document.getElementById('tl-search').addEventListener('input', e => renderTLSearch(e.target.value));
+
 async function loadMTFAi() {
   const el = document.getElementById('mtf-ai');
   try {
@@ -511,6 +593,7 @@ async function loadMTFAi() {
   } catch (e) { el.style.display = 'none'; }
 }
 loadMTFAi();
+loadThemeLifecycle();
 document.getElementById('mtf-ind').addEventListener('click', () => loadMTF('industry'));
 document.getElementById('mtf-con').addEventListener('click', () => loadMTF('concept'));
 document.getElementById('mtf-dip').addEventListener('click', () => {

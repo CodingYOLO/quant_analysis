@@ -662,6 +662,21 @@ async def api_sector_mtf_ai(date: str = "", force: bool = False, _user: str = De
         return {"ok": False, "error": str(e)}
 
 
+@app.get("/api/diagnosis/theme-lifecycle")
+async def api_theme_lifecycle(date: str = "", force: bool = False,
+                              _user: str = Depends(require_auth)):
+    """主题生命周期归因：板块点火后各期累计超额收益·一日游/持续型标签（历史结构·非预测）。"""
+    try:
+        from fastapi.concurrency import run_in_threadpool
+
+        from app.backtest.theme_lifecycle import build_theme_lifecycle
+        d = date or _last_trade_date()
+        return await run_in_threadpool(build_theme_lifecycle, d, None, bool(force))
+    except Exception as e:
+        logger.exception("主题生命周期归因失败")
+        return {"ok": False, "msg": str(e)}
+
+
 @app.get("/api/industry")
 async def api_industry(date: str = "", _user: str = Depends(require_auth)):
     """行业资金流仪表盘数据。"""
