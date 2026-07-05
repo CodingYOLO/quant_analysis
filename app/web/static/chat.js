@@ -42,6 +42,89 @@ window.AChat = (function () {
     "例：「中际旭创基本面和风险」「我的持仓有啥要注意的」「CPO板块最近资金怎么样」<br>" +
     '<span style="color:#6b7280">仅供研究 · 不预测涨跌 · 不构成投资建议</span></div>';
 
+  // ── 复制工具：复制文字 / 复制长图（html2canvas 懒加载·全站 AI 消息共用）────────
+  let _toastT;
+  function toast(msg, ok) {
+    let t = document.getElementById("aic-toast");
+    if (!t) {
+      t = document.createElement("div");
+      t.id = "aic-toast";
+      t.style.cssText = "position:fixed;left:50%;bottom:40px;transform:translateX(-50%);z-index:99999;" +
+        "background:#1a1d2e;color:#e8e8e8;border:1px solid #3d4270;border-radius:8px;padding:9px 16px;" +
+        "font-size:13px;box-shadow:0 6px 22px rgba(0,0,0,.5);opacity:0;transition:opacity .2s;pointer-events:none";
+      document.body.appendChild(t);
+    }
+    t.textContent = msg;
+    t.style.borderColor = ok === false ? "#6b2a2a" : "#3d4270";
+    t.style.opacity = "1";
+    clearTimeout(_toastT);
+    _toastT = setTimeout(function () { t.style.opacity = "0"; }, 2000);
+  }
+  function ensureH2C() {
+    if (window.html2canvas) return Promise.resolve(window.html2canvas);
+    return new Promise(function (res, rej) {
+      const s = document.createElement("script");
+      s.src = "/static/html2canvas.min.js";
+      s.onload = function () { res(window.html2canvas); };
+      s.onerror = function () { rej(new Error("html2canvas 加载失败")); };
+      document.head.appendChild(s);
+    });
+  }
+  async function copyText(text) {
+    try {
+      await navigator.clipboard.writeText(text || "");
+      toast("✅ 已复制文字，可粘贴分享");
+    } catch (e) {
+      toast("复制失败：请手动选中复制", false);
+    }
+  }
+  async function copyImage(bubble, btn) {
+    const old = btn.innerHTML;
+    btn.innerHTML = "⏳ 生成中…";
+    btn.disabled = true;
+    try {
+      const h2c = await ensureH2C();
+      const canvas = await h2c(bubble, { backgroundColor: "#0d0f16", scale: 2, useCORS: true });
+      const blob = await new Promise(function (r) { canvas.toBlob(r, "image/png"); });
+      let copied = false;
+      try {
+        if (navigator.clipboard && window.ClipboardItem) {
+          await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+          copied = true;
+        }
+      } catch (e) { copied = false; }
+      if (copied) {
+        toast("✅ 长图已复制，可直接粘贴分享");
+      } else {                                    // 回退：下载 PNG（浏览器不支持复制图片时）
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = "AI投研长图.png";
+        a.click();
+        setTimeout(function () { URL.revokeObjectURL(a.href); }, 3000);
+        toast("✅ 已保存长图到下载（本浏览器不支持直接复制图片）");
+      }
+    } catch (e) {
+      toast("长图生成失败：" + (e.message || e), false);
+    } finally {
+      btn.innerHTML = old;
+      btn.disabled = false;
+    }
+  }
+  function addTools(bubble, rawText) {
+    const host = bubble && bubble.parentNode;      // .aic-msg（工具条放气泡外·不进长图）
+    if (!host || host.querySelector(".aic-tools")) return;
+    const bar = document.createElement("div");
+    bar.className = "aic-tools";
+    const b1 = document.createElement("button");
+    b1.type = "button"; b1.innerHTML = "📋 复制文字";
+    b1.onclick = function () { copyText(rawText); };
+    const b2 = document.createElement("button");
+    b2.type = "button"; b2.innerHTML = "🖼 复制长图";
+    b2.onclick = function () { copyImage(bubble, b2); };
+    bar.appendChild(b1); bar.appendChild(b2);
+    host.appendChild(bar);
+  }
+
   function create(cfg) {
     const $ = (id) => document.getElementById(id);
     const elMsgs = () => $(cfg.msgs);
@@ -74,9 +157,12 @@ window.AChat = (function () {
     }
     function showMsgs(list) {
       elMsgs().innerHTML = list && list.length ? "" : TIP;
-      (list || []).forEach((m) =>
-        addMsg(m.role === "user" ? "user" : "ai", m.role === "user" ? esc(m.content) : '<div class="aic-md">' + md(m.content) + "</div>")
-      );
+      (list || []).forEach((m) => {
+        const isUser = m.role === "user";
+        const bubble = addMsg(isUser ? "user" : "ai",
+          isUser ? esc(m.content) : '<div class="aic-md">' + md(m.content) + "</div>");
+        if (!isUser && m.content) addTools(bubble, m.content);   // AI 消息加 复制文字/长图
+      });
     }
 
     async function loadSessions() {
@@ -142,7 +228,10 @@ window.AChat = (function () {
           }
         }
       }
-      if (answer) bubble.innerHTML = '<div class="aic-md">' + md(answer) + "</div>";
+      if (answer) {
+        bubble.innerHTML = '<div class="aic-md">' + md(answer) + "</div>";
+        addTools(bubble, answer);               // 答完加 复制文字/长图
+      }
       return answer;
     }
 
