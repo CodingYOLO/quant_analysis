@@ -195,12 +195,16 @@ def sector_fund_series(kind: str, name: str, end: str, days: int = 20,
                     v = round(float(x), 1) if pd.notna(x) else None
             net.append(v)
 
-    return _fund_payload(kind, name, end, dates, net, prov)
+    return _fund_payload(kind, name, end, dates, net, prov, days)
 
 
 def _fund_payload(kind: str, name: str, end: str, dates: list, net: list,
-                  prov: CompositeProvider) -> dict:
-    """由每日净流入序列 → 累计 + 板块指数价%(归一) → 前端 payload·并写 JSON 日缓存。"""
+                  prov: CompositeProvider, days: int) -> dict:
+    """由每日净流入序列 → 累计 + 板块指数价%(归一) → 前端 payload·并写 JSON 日缓存。
+
+    缓存文件名用**请求窗口 days**(非 len(dates)·实际交易日可能不足)·与 `sector_fund_series`
+    的缓存读取键严格一致·否则暖机写的文件端点读不到。
+    """
     import json
     import re
 
@@ -229,7 +233,7 @@ def _fund_payload(kind: str, name: str, end: str, dates: list, net: list,
         cdir = get_settings().cache_dir / "sector_mtf"
         cdir.mkdir(parents=True, exist_ok=True)
         safe = re.sub(r"[^\w一-鿿]+", "_", name)[:24]
-        (cdir / f"fund_{kind}_{safe}_{end}_{len(dates)}.json").write_text(
+        (cdir / f"fund_{kind}_{safe}_{end}_{days}.json").write_text(
             json.dumps(out, ensure_ascii=False), encoding="utf-8")
     except Exception:
         pass
@@ -261,7 +265,7 @@ def precompute_sector_fund(end: str, provider: CompositeProvider | None = None, 
                           if agg is not None and not agg.empty else {})
         for name in set().union(*[set(m) for m in net_by]) if net_by else set():
             net = [round(float(m[name]), 1) if (name in m and pd.notna(m[name])) else None for m in net_by]
-            _fund_payload("industry", name, end, dates, net, prov)
+            _fund_payload("industry", name, end, dates, net, prov, days)
             n += 1
     except Exception as e:
         logger.warning("[资金时序暖机] 行业失败: %s", e)
@@ -279,7 +283,7 @@ def precompute_sector_fund(end: str, provider: CompositeProvider | None = None, 
             net_by.append(m)
         for name in set().union(*[set(m) for m in net_by]) if net_by else set():
             net = [round(float(m[name]), 1) if (name in m and pd.notna(m[name])) else None for m in net_by]
-            _fund_payload("concept", name, end, dates, net, prov)
+            _fund_payload("concept", name, end, dates, net, prov, days)
             n += 1
     except Exception as e:
         logger.warning("[资金时序暖机] 概念失败: %s", e)
