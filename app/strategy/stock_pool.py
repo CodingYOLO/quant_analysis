@@ -77,6 +77,8 @@ def build_stock_pool(trade_date: str, provider: CompositeProvider | None = None,
     _load_risk_extras(records, trade_date, provider)
     # 真钱印证：近5日龙虎榜机构净买（A股仅存的个股级真机构钱）→ 供重点分加分
     _load_inst_real_money(records, trade_date, provider)
+    # 因子归因补充：从已缓存因子表补 ROE/资金持续/游资接力（稳健因子入评分 + 游资标短打）
+    _enrich_from_factor_table(records, trade_date)
     # 重点分(强度−风险+真钱) + 星标本池最强 Top5（始终标，供观察名单）
     _compute_focus_scores(records, market_label)
     # 质量门槛收紧：只留重点分≥阈值的强票（宁缺毋滥·对标吴川的精选感）
@@ -207,7 +209,7 @@ def _factor_score_norm(r) -> float:
 
 
 # ── 重点分（0-100·风险调整）+ 星标 Top5 ──────────────────────────────────────
-# 强度分(0-100)：强度RPS30 + 主力资金25 + 板块热度15 + 多路交叉15 + 量价10 + 均线5
+# 强度分(0-100·因子归因校准)：RPS20 + 主力资金30 + 板块热度12 + 多路交叉12 + 量价8 + 资金持续8 + ROE质量5 + 均线5
 # 风险扣分(0-_RISK_MAX)：乖离过热 + 近期追高 + 逼近历史高位 → 只罚极端过热(主升强者恒强保留)
 # 重点分 = 强度分 − 风险扣分。避免把"加速赶顶"的高位票排第一。
 _STAR_TOPN = 5
@@ -385,8 +387,41 @@ def _recent_block_discount(provider: CompositeProvider, end_date: str, n: int = 
     return {ts: round(s[0] / s[1], 2) for ts, s in agg.items() if s[1] > 0}
 
 
+def _enrich_from_factor_table(records: list[dict], trade_date: str) -> None:
+    """best-effort：从**已缓存**因子表补 roe/consec_inflow/youzi_relay_days（不触发构建·无缓存跳过）。
+
+    因子归因(近1年T+10 IC)显示：ROE/资金持续=🟢稳健正alpha·游资接力=🔴稳健负(波段避雷)。
+    日更流水线/暖机当日已建因子表→通常命中缓存；缺则各字段留默认(评分优雅降级)。
+    """
+    try:
+        import pandas as pd
+        from app.strategy.screener import _factor_cache_path
+        p = _factor_cache_path(trade_date)
+        if not p.exists():
+            logger.debug("[选股池] 因子表未缓存 %s·跳过ROE/资金持续补充", trade_date)
+            return
+        ft = pd.read_parquet(p)
+        cols = [c for c in ("roe", "consec_inflow", "youzi_relay_days") if c in ft.columns]
+        m = ft.set_index("ts_code")[cols]
+        for r in records:
+            if r["ts_code"] in m.index:
+                row = m.loc[r["ts_code"]]
+                if "roe" in cols and pd.notna(row["roe"]):
+                    r["roe"] = float(row["roe"])
+                if "consec_inflow" in cols and pd.notna(row["consec_inflow"]):
+                    r["consec_inflow"] = int(row["consec_inflow"])
+                if "youzi_relay_days" in cols and pd.notna(row["youzi_relay_days"]):
+                    r["youzi_relay_days"] = int(row["youzi_relay_days"])
+    except Exception as e:
+        logger.debug("[选股池] 因子表补充失败(跳过·不影响): %s", e)
+
+
 def _compute_focus_scores(records: list[dict], market_label: str = "震荡") -> None:
-    """就地计算重点分(强度分 − 风险扣分 + 龙虎榜机构真钱加分)并星标本池最强 Top5。"""
+    """就地计算重点分(强度分 − 风险扣分 + 龙虎榜机构真钱加分)并星标本池最强 Top5。
+
+    权重（因子归因校准·2026-07）：把过重的 RPS(🟡弱/看regime) 30→20，让给稳健正alpha——
+    主力资金 25→30、新增 资金持续8 + ROE质量5；游资接力票标🎲短打(🔴波段避雷)。
+    """
     if not records:
         return
     flows = sorted(r["main_flow_3d"] for r in records)
@@ -400,8 +435,15 @@ def _compute_focus_scores(records: list[dict], market_label: str = "震荡") -> 
         rps = min(max(r["rps50"], 0), 100) / 100
         cross = min(len([s for s in r["strategies"] if s != "theme_pick"]), 4) / 4
         heat = min(max(r["theme_heat"], 0), 100) / 100
-        strength = (rps * 30 + flow_pct(r["main_flow_3d"]) * 25 + heat * 15
-                    + cross * 15 + _vol_health(r["vol_ratio"]) * 10 + _ma_score(r) * 5)
+        persist = min(max(r.get("consec_inflow", 0), 0), 5) / 5           # 资金持续(🟢稳健)
+        roe_q = min(max(r.get("roe", 0.0) or 0.0, 0.0), 8.0) / 8.0        # ROE质量(🟢稳健)
+        strength = (rps * 20 + flow_pct(r["main_flow_3d"]) * 30 + heat * 12
+                    + cross * 12 + _vol_health(r["vol_ratio"]) * 8
+                    + persist * 8 + roe_q * 5 + _ma_score(r) * 5)
+        if r.get("youzi_relay_days", 0) >= 3:                             # 🎲游资接力=T+1打板属性·非波段
+            fl = r.setdefault("risk_flags", [])
+            if not any("短打" in str(x) for x in fl):
+                fl.append("🎲短打·游资接力(T+1打板属性·非波段·归因显示波段跑输)")
         r["risk_penalty"] = _risk_penalty(r)
         r["inst_bonus"] = _inst_bonus(r, market_label)                        # 龙虎榜机构真钱加分
         r["focus_score"] = round(min(max(strength - r["risk_penalty"] + r["inst_bonus"], 0.0), 100.0), 1)

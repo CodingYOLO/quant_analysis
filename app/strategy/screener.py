@@ -185,6 +185,7 @@ FACTOR_GROUPS = [
             {"key": "reso_sector", "label": "①板块强势(自上而下·行业RPS中位≥55)", "col": "sector_strong", "op": "true"},
             {"key": "reso_money", "label": "②龙虎榜机构真钱净买>0(唯一真机构钱)", "col": "inst_net_yi", "op": "gt", "val": 0},
             {"key": "reso_roe8", "label": "③基本面·ROE≥8%", "col": "roe", "op": "ge", "val": 8},
+            {"key": "roe_ge5", "label": "③基本面·ROE≥5%(质量·🟢IC验证稳健正)", "col": "roe", "op": "ge", "val": 5},
             {"key": "reso_grow", "label": "③基本面·净利同比>0(增长)", "col": "netprofit_yoy", "op": "gt", "val": 0},
         ],
     },
@@ -223,6 +224,46 @@ FACTOR_GROUPS = [
         ],
     },
 ]
+
+# ── 因子有效性成色（来自 factor_efficacy 归因·近1年26期T+10 Rank-IC）───────────
+# 标注每个底层因子(col)的历史成色·让选股时看得到"哪个因子真有alpha"。
+# 🟢=稳健正(IC与分层价差同号·两半段不翻·单调)  🟡=弱/看regime(IC近零略负·会翻号)  🔴=稳健负(高值10天维度跑输)。
+# 口径：高因子值 → 未来收益方向。仅标口径清晰的因子（歧义的如换手区间/低换手不标·避免误导）。
+_FACTOR_IC_TIER = {
+    "comment_score": ("🟢", "千评·IC+0.07(最强·两半段稳·单调)"),
+    "roe": ("🟢", "ROE·IC+0.06(质量·IR0.88最稳)"),
+    "main_net_3d": ("🟢", "主力近3日·IC+0.05(资金·稳)"),
+    "consec_inflow": ("🟢", "连续净流入·IC+0.03(资金持续·稳)"),
+    "inflow_days_10": ("🟢", "流入天数·IC+0.02(资金持续·稳)"),
+    "main_net_amount": ("🟢", "主力净流入·弱正·稳"),
+    "accum_score": ("🟢", "吸筹分·分层单调·弱正稳"),
+    "inst_net_yi": ("🟢", "龙虎榜真钱·弱正·稳"),
+    "rps120": ("🟡", "RPS120·IC近零略负·前后半段翻号·趋势市才灵·别单靠"),
+    "rps50": ("🟡", "RPS50·动量·弱/看regime·别单靠"),
+    "rps_combo": ("🟡", "RPS综合·动量·看regime"),
+    "lead_resist": ("🟡", "领涨抗跌·T+10弱负·更适合当'现状描述'非预测"),
+    "lead_resist_mid": ("🟡", "领涨抗跌中期·T+10弱负"),
+    "ret20": ("🟡", "近20日涨幅·动量·弱/看regime"),
+    "ret5": ("🟡", "近5日涨幅·动量·弱"),
+    "ma20_slope": ("🟡", "MA20斜率·动量·弱负"),
+    "rel5d": ("🟡", "近5日跑赢·弱负"),
+    "rel3d": ("🟡", "近3日跑赢·弱"),
+    "up_excess": ("🟡", "涨时跑赢·弱"),
+    "youzi_relay_days": ("🔴", "游资接力·IC-0.07(超稳负)·T+10跑输·打板是T+1工具非波段"),
+}
+
+
+def factor_groups_annotated() -> list:
+    """FACTOR_GROUPS 的注解副本：每个因子按其 col 附 tier(成色emoji)+tier_tip(说明)。供选股页展示。"""
+    import copy
+    groups = copy.deepcopy(FACTOR_GROUPS)
+    for g in groups:
+        for f in g.get("factors", []):
+            t = _FACTOR_IC_TIER.get(f.get("col"))
+            if t:
+                f["tier"], f["tier_tip"] = t[0], t[1]
+    return groups
+
 
 # 自定义条件可选字段（任意数值列 + 操作符 + 值），供前端「自定义条件」下拉
 CUSTOM_FIELDS = [
@@ -269,7 +310,7 @@ DISPLAY_COLS = [
     ("limit_ups_60d", "60日涨停"), ("max_consec_limit", "最高连板"),
     ("youzi_relay_days", "🔥游资接力日"),
     ("forecast_type", "业绩预告"), ("forecast_chg", "预告净利%"),
-    ("debt_to_assets", "负债率%"), ("netprofit_yoy", "净利同比%"),
+    ("debt_to_assets", "负债率%"), ("netprofit_yoy", "净利同比%"), ("roe", "🟢ROE%"),
     ("turnover_rate", "换手%"), ("volume_ratio", "量比"), ("circ_mv_100m", "流通市值(亿)"),
     ("main_net_amount", "主力净流入(亿)"), ("main_net_3d", "主力3日(亿)"), ("elg_net", "超大单(亿)"),
     ("inflow_days_10", "💰流入天数(近10)"), ("consec_inflow", "连续流入天"), ("sector_inflow_days", "板块流入天"),

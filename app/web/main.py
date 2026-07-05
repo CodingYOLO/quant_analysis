@@ -2016,13 +2016,13 @@ async def cognition_page(request: Request, _user: str = Depends(require_auth)):
 @app.get("/screener", response_class=HTMLResponse)
 async def screener_page(request: Request, _user: str = Depends(require_auth)):
     """量化因子选股页面。"""
-    from app.strategy.screener import FACTOR_GROUPS, CUSTOM_FIELDS
+    from app.strategy.screener import factor_groups_annotated, CUSTOM_FIELDS
     default_date = _last_trade_date()
     # 转成 input[type=date] 需要的 YYYY-MM-DD
     iso_date = f"{default_date[:4]}-{default_date[4:6]}-{default_date[6:]}"
     return templates.TemplateResponse(
         request=request, name="screener.html",
-        context={"factor_groups": FACTOR_GROUPS, "custom_fields": CUSTOM_FIELDS,
+        context={"factor_groups": factor_groups_annotated(), "custom_fields": CUSTOM_FIELDS,
                  "default_date": iso_date},
     )
 

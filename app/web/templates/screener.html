@@ -103,6 +103,7 @@
     <button class="quickbtn" id="preset-flow" style="border-color:#1a5a52;color:#5dd5c4">🌊 资金暗流·吸筹埋伏（资金进+价没涨）</button>
     <button class="quickbtn" id="preset-wyckoff" style="border-color:#5a4a2a;color:#d4b483">🎼 威科夫·吸筹蓄势（OBV上行+收窄+无背离）</button>
     <button class="quickbtn" id="preset-mainrise" style="border-color:#6b3a1a;color:#fb923c">🚀 强势主升浪·趋势确立（回测优选·MA60向上+RSI强+资金+板块·追趋势非追突破）</button>
+    <button class="quickbtn" id="preset-qualfund" style="border-color:#1f5a3a;color:#4ade80">💎 质量资金共振（因子归因验证·稳健正alpha：ROE+资金持续+千评）</button>
     <span class="neu" style="font-size:11.5px;line-height:1.6;width:100%">
       <b style="color:#4ade80">慢牛吸筹</b>：温和放量＋量价配合＋缓涨＋没大涨，挑"主力悄悄吸"的票（按🐌吸筹分排序）。
       <b style="color:#f87171">🔥妖股启动</b>：<b>连板基因(近60日涨停≥2)</b>＋<b>启动迹象(放量)</b>，且<b>🛡已排雷</b>(剔ST/负净资产/高负债)，按60日涨停数排序。<b>不限市值/价格</b>(实测连板多为中大盘题材龙头);想专挑小盘/低价妖,手动勾「小流通≤50亿」「低价≤15」即可。
@@ -112,6 +113,7 @@
       <b style="color:#f6c343">🎯多维共振·高确定性</b>：<b>板块强+龙虎榜真钱</b>打底+站MA20+排雷；结果看 <b>🎯确定性 N/4</b> 那列（4个正交维度：板块/真钱/回踩到位/基本面·<b>鼠标悬浮看解释</b>），<b>挑4/4的最确定</b>。共振高≠无风险(拥挤)，位置"到位"才可低吸、"远"就别追。
       <b style="color:#5dd5c4">🌊资金暗流·吸筹埋伏</b>：<b>主力连续净流入(估算)+5日滞涨(价没被推动)</b>+站MA20没破+排雷，按连续流入天数排序——对标吴川"资金进+价没涨"的板块暗流，落到个股：<b>钱在进、价还没动</b>的吸筹窗口。⚠️主力资金是<b>估算非龙虎榜真钱</b>，是<b>现象描述非买入信号</b>；也可能是资金在出货/无效流入，到个股360看龙虎榜真钱印证。
       <b style="color:#d4b483">🎼威科夫·吸筹蓄势</b>：<b>OBV上行(价平量增·吸筹签名)+蓄势收窄+无顶背离+无双顶破位</b>+站MA20+排雷——威科夫量价结构：<b>横有多长竖有多高</b>，找"缩量收窄、量能在悄悄进"的蓄势票。⚠️仅OHLCV可算·<b>涨停量能已剔除(防一字板失真)</b>·量价是<b>现象描述非买卖信号</b>；结果表看 <b>🎼威科夫阶段/OBV斜率/背离</b> 三列，想早埋点手动勾"阶段=Spring"、想稳健勾"阶段=SOS突破"。
+      <b style="color:#4ade80">💎质量资金共振</b>：<b>ROE≥5(质量)+主力连续净流入≥3天+主力近3日净流入>0(资金持续)+站MA20+排雷</b>，按<b>千评得分</b>排序。这几个因子是<b>因子归因(近1年26期IC检验)里唯一"两半段都稳、分层单调"的稳健正alpha</b>——钱在持续进+基本面好+有关注度。⚠️它们的历史IC也只有0.02-0.07(能用非印钞)，<b>是"历史上排序更靠谱"非"保证涨"</b>；且是<b>均值回归市</b>的结论，趋势牛市里动量会更强。仍需风控+止损。
       ⚠️ 全部<b>只是筛选器，不预测涨跌、不输出胜率</b>；<b>超跌≠会涨(可能接飞刀)</b>，低吸要等<b>缩量企稳/站回短均线</b>再动；命中后到 <a href="/stock" style="color:#7c9ef8">🎯个股360</a> 看资金/龙虎榜印证，严格控仓位+止损。
     </span>
   </div>
@@ -122,12 +124,16 @@
     <div id="sector-panel" style="display:none;margin-top:10px"></div>
   </div>
 
+  <div style="font-size:11px;color:#9aa0b4;margin-bottom:6px;line-height:1.6">
+    因子成色（<a href="#fe-card" onclick="document.getElementById('fe-body').style.display='block';loadFactorEfficacy()" style="color:#7c9ef8">因子归因·近1年IC检验</a>）：
+    <b style="color:#4ade80">🟢稳健正alpha</b>（钱在持续进/质量/关注度）· <b style="color:#f0a020">🟡弱·看regime</b>（动量类·别单靠）· <b style="color:#f6465d">🔴稳健负</b>（波段维度追了跑输）· 无标=未检验。鼠标悬浮看IC。
+  </div>
   <div class="factor-cols">
     {% for g in factor_groups %}
     <div class="fgroup">
       <div class="fgroup-title">{{ g.group }}</div>
       {% for f in g.factors %}
-      <span class="fbtn" data-key="{{ f.key }}">{{ f.label }}</span>
+      <span class="fbtn" data-key="{{ f.key }}"{% if f.tier %} title="{{ f.tier_tip }}"{% endif %}>{% if f.tier %}{{ f.tier }} {% endif %}{{ f.label }}</span>
       {% endfor %}
     </div>
     {% endfor %}
@@ -342,6 +348,9 @@ document.getElementById('preset-wyckoff').addEventListener('click', () =>
 // 注：回测显示"平台突破那一下"单独是输家(弱势市突破即套)，故不作硬过滤；追趋势不追突破价格。可自行加"平台突破/长平台突破"因子作确认。
 document.getElementById('preset-mainrise').addEventListener('click', () =>
   applyPreset(['ma60_up', 'rsi_strong', 'consec_inflow3', 'sector_strong', 'above_ma20', 'risk_not_st'], 'rps120'));
+// 💎 质量资金共振：因子归因验证的稳健正alpha(ROE质量+资金持续+近3日力度+趋势健康)·按千评(最强IC)排
+document.getElementById('preset-qualfund').addEventListener('click', () =>
+  applyPreset(['roe_ge5', 'consec_inflow3', 'accum_fund3d', 'above_ma20', 'risk_not_st'], 'comment_score'));
 
 // 🗺️ 板块强弱榜：先选板块层(读因子表聚合·各行业强弱+龙头)
 let _sectorLoaded = false;
