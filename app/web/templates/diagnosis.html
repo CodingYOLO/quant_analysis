@@ -404,8 +404,10 @@ async function toggleMTF(tr) {
     + '<button class="mtftf" data-tf="m" style="background:#3358e0;color:#fff;border:none;border-radius:5px;padding:3px 11px;font-size:11px;cursor:pointer;margin-right:4px">月线·方向</button>'
     + '<button class="mtftf" data-tf="w" style="background:#23264a;color:#9ca3af;border:none;border-radius:5px;padding:3px 11px;font-size:11px;cursor:pointer">周线·节奏</button></div>'
     + '<div id="mtfk" style="height:270px;max-width:900px"></div><div id="mtfsum" class="neu" style="font-size:11.5px;margin-top:5px;line-height:1.6"></div>'
-    + '<div style="margin-top:10px;font-weight:600;color:#f6c343;font-size:12px">💰 资金流向（近20日·每日净流入柱🔴进🟢出 + 累计金线 + 板块价蓝线）</div>'
-    + '<div id="mtffund" style="height:230px;max-width:900px"></div>'
+    + '<div style="margin-top:10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span style="font-weight:600;color:#f6c343;font-size:12px">📊 板块时序</span>'
+    + '<button class="mtfm" data-m="fund" style="background:#3358e0;color:#fff;border:none;border-radius:5px;padding:3px 11px;font-size:11px;cursor:pointer">💰资金流向</button>'
+    + '<button class="mtfm" data-m="breadth" style="background:#23264a;color:#9ca3af;border:none;border-radius:5px;padding:3px 11px;font-size:11px;cursor:pointer">📐广度趋势(站上MA%)</button></div>'
+    + '<div id="mtffund" style="height:230px;max-width:900px"></div><div id="mtffnote" class="neu" style="font-size:10.5px;margin-top:2px"></div>'
     + '<div id="mtflead" style="margin-top:10px"><span class="neu" style="font-size:11.5px">⏳ 找该板块领涨抗跌龙头股…</span></div></div>';
   er.appendChild(td); tr.after(er);
   try {
@@ -423,13 +425,43 @@ async function toggleMTF(tr) {
     loadSectorLeaders(nm, td);
   } catch (e) { td.querySelector('#mtfk').innerHTML = '❌ ' + e; }
 }
-// 💰 资金流向图：每日净流入柱(红进绿出) + 累计净流入(金线) + 板块价(蓝线·右轴)·清晰图例+悬浮
-async function loadFundChart(nm, td) {
-  const el = td.querySelector('#mtffund'); if (!el || !window.echarts) return;
+// 📊 板块时序：可切换 资金流向 / 广度趋势——每个用自己合适的轴(绝不混·避免吴川那种crush)
+function loadFundChart(nm, td) {
+  td._sm = nm;
+  td.querySelectorAll('.mtfm').forEach(b => b.addEventListener('click', () => {
+    td.querySelectorAll('.mtfm').forEach(x => { x.style.background = '#23264a'; x.style.color = '#9ca3af'; });
+    b.style.background = '#3358e0'; b.style.color = '#fff'; drawSectorMetric(b.dataset.m, td);
+  }));
+  drawSectorMetric('fund', td);
+}
+async function drawSectorMetric(view, td) {
+  const el = td.querySelector('#mtffund'), note = td.querySelector('#mtffnote'), nm = td._sm;
+  if (!el || !window.echarts) return;
+  el.innerHTML = ''; if (window._smc) { try { window._smc.dispose(); } catch (e) {} }
+  const ch = echarts.init(el); window._smc = ch;
   try {
+    if (view === 'breadth') {
+      const j = await (await fetch('/api/sector/breadth?type=' + MTF_KIND + '&name=' + encodeURIComponent(nm) + '&days=30')).json();
+      const cv = (j && j.curve) || [];
+      if (!cv.length) { el.innerHTML = '<span class="neu" style="font-size:11px">广度数据不足</span>'; return; }
+      note.textContent = '站上MA5/MA20的成分股占比%——上升=普涨/结构转好·下降=分化/走弱。0~100%单轴·干净。';
+      ch.setOption({
+        backgroundColor: 'transparent',
+        legend: { data: ['站上MA5%', '站上MA20%'], textStyle: { color: '#9ca3af', fontSize: 11 }, top: 0 },
+        grid: { left: 44, right: 20, top: 26, bottom: 24 },
+        tooltip: { trigger: 'axis', axisPointer: { type: 'cross' } },
+        xAxis: { type: 'category', data: cv.map(p => String(p.date).slice(5)), axisLabel: { color: '#8890a0', fontSize: 10 }, axisLine: { lineStyle: { color: '#2d3350' } } },
+        yAxis: { type: 'value', min: 0, max: 100, name: '%', axisLabel: { color: '#8890a0', fontSize: 10, formatter: '{value}%' }, splitLine: { lineStyle: { color: '#1a1d2e' } } },
+        series: [
+          { name: '站上MA5%', type: 'line', data: cv.map(p => p.ma5 == null ? null : Math.round(p.ma5)), smooth: true, symbol: 'none', lineStyle: { color: '#f0c674', width: 2 }, itemStyle: { color: '#f0c674' } },
+          { name: '站上MA20%', type: 'line', data: cv.map(p => p.ma20 == null ? null : Math.round(p.ma20)), smooth: true, symbol: 'none', lineStyle: { color: '#7c9ef8', width: 2 }, itemStyle: { color: '#7c9ef8' } }
+        ]
+      });
+      return;
+    }
     const j = await (await fetch('/api/diagnosis/sector-fund-series?kind=' + MTF_KIND + '&name=' + encodeURIComponent(nm))).json();
     if (!j.ok || !j.dates) { el.innerHTML = '<span class="neu" style="font-size:11px">资金时序取数失败</span>'; return; }
-    const ch = echarts.init(el);
+    note.textContent = '每日净流入柱🔴进🟢出 + 累计金线(看是否持续进) + 板块价蓝虚线(右轴·对照资金vs价·钱进价没涨=暗流·价涨钱撤=顶背离)。主力净流入=估算。';
     ch.setOption({
       backgroundColor: 'transparent',
       legend: { data: ['每日净流入(亿)', '累计净流入(亿)', '板块涨幅%'], textStyle: { color: '#9ca3af', fontSize: 11 }, top: 0 },
@@ -446,7 +478,7 @@ async function loadFundChart(nm, td) {
         { name: '板块涨幅%', type: 'line', yAxisIndex: 1, data: j.price, smooth: true, symbol: 'none', lineStyle: { color: '#7c9ef8', width: 2, type: 'dashed' }, itemStyle: { color: '#7c9ef8' } }
       ]
     });
-  } catch (e) { el.innerHTML = '<span class="neu" style="font-size:11px">资金图加载失败</span>'; }
+  } catch (e) { el.innerHTML = '<span class="neu" style="font-size:11px">图加载失败：' + e + '</span>'; }
 }
 // 板块领涨抗跌龙头股（vs大盘·涨得多+跌得少·动态龙头）
 async function loadSectorLeaders(nm, td) {
