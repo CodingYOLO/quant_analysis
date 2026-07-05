@@ -67,7 +67,7 @@ def precompute_board_breadth(trade_date: str, provider=None) -> int:
     """
     from app.data.composite_provider import CompositeProvider
     from app.factors.breadth_qfq import build_qfq_panel
-    from app.factors.theme_wide import concept_members_map
+    from app.factors.theme_wide import concept_members_map, concept_members_map_wide
 
     provider = provider or CompositeProvider()
     panel = build_qfq_panel(trade_date, provider, lookback=145)
@@ -78,6 +78,11 @@ def precompute_board_breadth(trade_date: str, provider=None) -> int:
     out: dict[str, dict] = {}
     _fill(out, "industry", _industry_members(provider), panel)
     _fill(out, "concept", concept_members_map(provider), panel)
+    # 补大概念(>300成分·窄口径丢的热点大主题·如人形机器人)·面板已含全码·仅多几次向量化
+    try:
+        _fill(out, "concept", concept_members_map_wide(provider), panel)
+    except Exception as e:
+        logger.warning("[板块广度预算] 大概念补充失败: %s", e)
     _cache_dir().joinpath(f"{trade_date}.json").write_text(
         json.dumps(out, ensure_ascii=False), encoding="utf-8")
     logger.info("[板块广度预算] %s 写入 %d 个板块", trade_date, len(out))

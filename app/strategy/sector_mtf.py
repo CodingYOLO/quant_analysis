@@ -195,6 +195,18 @@ def sector_fund_series(kind: str, name: str, end: str, days: int = 20,
                     v = round(float(x), 1) if pd.notna(x) else None
             net.append(v)
 
+    return _fund_payload(kind, name, end, dates, net, prov)
+
+
+def _fund_payload(kind: str, name: str, end: str, dates: list, net: list,
+                  prov: CompositeProvider) -> dict:
+    """由每日净流入序列 → 累计 + 板块指数价%(归一) → 前端 payload·并写 JSON 日缓存。"""
+    import json
+    import re
+
+    import pandas as pd
+
+    from app.config import get_settings
     cum, c = [], 0.0                                            # 累计净流入(看是否持续进)
     for v in net:
         c += (v or 0.0)
@@ -209,16 +221,69 @@ def sector_fund_series(kind: str, name: str, end: str, days: int = 20,
             closes = [float(kk[d]) if d in kk.index else None for d in dates]
             base = next((x for x in closes if x), None)
             price = [round((x / base - 1) * 100, 2) if (x and base) else None for x in closes]
-
     out = {"ok": True, "name": name, "kind": kind,
            "dates": [f"{d[4:6]}-{d[6:]}" for d in dates],
            "net": net, "cum": cum, "price": price,
            "note": "每日净流入(柱·红进绿出) + 累计净流入(金线·看是否持续进) + 板块涨幅%(蓝线·对照资金vs价)。主力净流入=估算·非龙虎榜真钱。"}
     try:
-        cache.write_text(json.dumps(out, ensure_ascii=False), encoding="utf-8")
+        cdir = get_settings().cache_dir / "sector_mtf"
+        cdir.mkdir(parents=True, exist_ok=True)
+        safe = re.sub(r"[^\w一-鿿]+", "_", name)[:24]
+        (cdir / f"fund_{kind}_{safe}_{end}_{len(dates)}.json").write_text(
+            json.dumps(out, ensure_ascii=False), encoding="utf-8")
     except Exception:
         pass
     return out
+
+
+def precompute_sector_fund(end: str, provider: CompositeProvider | None = None, days: int = 20) -> int:
+    """盘后暖机：一次性预算**所有板块**的资金时序并写缓存(点开秒回)。
+
+    高效：每日聚合只做一次(所有行业共享·所有概念共享)·再逐板块拼装·避免每板块重跑全市场聚合。
+    """
+    import pandas as pd
+
+    from app.nodes.quick_report import _recent_trade_dates
+    prov = provider or CompositeProvider()
+    dates = _recent_trade_dates(prov, end, days)
+    n = 0
+    # 行业：逐日 _industry_agg 一次 → {行业: net}，再逐行业拼
+    try:
+        from app.strategy.industry_flow import _industry_agg
+        sb = prov.get_stock_basic()
+        c2n = dict(zip(sb["ts_code"], sb["name"]))
+        c2i = dict(zip(sb["ts_code"], sb["industry"])) if "industry" in sb.columns else {}
+        net_by = []
+        for d in dates:
+            agg = _industry_agg(d, prov, c2n, c2i)
+            net_by.append(dict(zip(agg["industry"].astype(str),
+                                   pd.to_numeric(agg["main_flow"], errors="coerce")))
+                          if agg is not None and not agg.empty else {})
+        for name in set().union(*[set(m) for m in net_by]) if net_by else set():
+            net = [round(float(m[name]), 1) if (name in m and pd.notna(m[name])) else None for m in net_by]
+            _fund_payload("industry", name, end, dates, net, prov)
+            n += 1
+    except Exception as e:
+        logger.warning("[资金时序暖机] 行业失败: %s", e)
+    # 概念：逐日 ths_concept_flow 一次 → {概念: net}，再逐概念拼
+    try:
+        from app.data.cache import cached_daily
+        from app.strategy.concept_flow import _fetch_concept_flow
+        pro = prov._ts._api
+        net_by = []
+        for d in dates:
+            df = cached_daily("ths_concept_flow", d, lambda d=d: _fetch_concept_flow(pro, d))
+            m = {}
+            if df is not None and not df.empty:
+                m = dict(zip(df["name"].astype(str), pd.to_numeric(df["net_amount"], errors="coerce")))
+            net_by.append(m)
+        for name in set().union(*[set(m) for m in net_by]) if net_by else set():
+            net = [round(float(m[name]), 1) if (name in m and pd.notna(m[name])) else None for m in net_by]
+            _fund_payload("concept", name, end, dates, net, prov)
+            n += 1
+    except Exception as e:
+        logger.warning("[资金时序暖机] 概念失败: %s", e)
+    return n
 
 
 def _is_up(r: dict) -> bool:

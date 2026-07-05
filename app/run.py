@@ -671,6 +671,13 @@ def run_warmup(base_date: str) -> None:
         console.print(f"[green]✅ 板块大周期榜预热 {latest}[/green]")
     except Exception as e:
         console.print(f"[yellow]⚠️ 板块大周期榜预热失败: {e}[/yellow]")
+    # 1.66) 板块资金时序(每板块20日净流入/累计/价·点开秒回·每日聚合只算一次·全板块共享)
+    try:
+        from app.strategy.sector_mtf import precompute_sector_fund
+        nf = precompute_sector_fund(latest, provider=prov)
+        console.print(f"[green]✅ 板块资金时序预热 {latest}·{nf}板块[/green]")
+    except Exception as e:
+        console.print(f"[yellow]⚠️ 板块资金时序预热失败: {e}[/yellow]")
     # 1.7) 主线板块研判(资金+催化剂+政策·LLM综合·日缓存·板块/概念页顶部秒显示·夜间预算一次LLM)
     try:
         from app.strategy.mainline_analysis import build_mainline_analysis

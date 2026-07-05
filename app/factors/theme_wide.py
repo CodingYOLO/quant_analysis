@@ -266,6 +266,8 @@ from app.data.cache import cached_daily
 
 # 概念成分过滤：剔除过宽(>300,如国企改革)与过窄(<5)，聚焦真题材
 _CONCEPT_MIN, _CONCEPT_MAX = 5, 300
+# 大概念补充上限：热点大主题(人形机器人~456)成分>300被窄口径丢·仅供板块广度覆盖到(900)
+_CONCEPT_WIDE_MAX = 900
 # 概念垃圾黑名单：剔除"非题材"概念（指数成份/交易机制/持股状态/交易状态），
 # 它们不是可炒作的催化主题，留着会污染热点/低吸判断。命中任一关键词即剔除。
 _CONCEPT_DENY = (
@@ -340,6 +342,22 @@ def concept_members_map(provider: CompositeProvider) -> dict[str, list[str]]:
     return _load_concept_members(provider)
 
 
+def concept_members_map_wide(provider: CompositeProvider) -> dict[str, list[str]]:
+    """大概念补充口径：{概念名: [成分]}·成分数(300, 900]·周缓存。
+
+    窄口径(≤300)会丢掉人形机器人(~456)这类热点大主题·仅供**板块广度暖机**补齐
+    (面板已含全市场码·补成分只是多几次向量化·不进因子/雷达默认口径)。
+    """
+    iso = _dt.date.today().isocalendar()
+    week_key = f"{iso[0]}W{iso[1]:02d}"
+    df = cached_daily(name="ths_concept_members_wide", date_key=week_key,
+                      fetch_fn=lambda: _fetch_concept_members(provider, lo=_CONCEPT_MAX + 1,
+                                                              hi=_CONCEPT_WIDE_MAX))
+    if df is None or df.empty:
+        return {}
+    return {name: g["member_code"].tolist() for name, g in df.groupby("concept_name")}
+
+
 def _load_concept_members(provider: CompositeProvider) -> dict[str, list[str]]:
     """
     {概念名: [成分 ts_code]}，按 ISO 周缓存（成分变动慢）。
@@ -354,8 +372,9 @@ def _load_concept_members(provider: CompositeProvider) -> dict[str, list[str]]:
     return {name: g["member_code"].tolist() for name, g in df.groupby("concept_name")}
 
 
-def _fetch_concept_members(provider: CompositeProvider) -> "pd.DataFrame":
-    """拉取同花顺概念成分（长表 concept_name/member_code），过滤过宽/过窄概念。"""
+def _fetch_concept_members(provider: CompositeProvider,
+                           lo: int = _CONCEPT_MIN, hi: int = _CONCEPT_MAX) -> "pd.DataFrame":
+    """拉取同花顺概念成分（长表 concept_name/member_code），按 [lo, hi] 成分数过滤 + 去噪名单。"""
     pro = provider._ts._api
     try:
         idx = pro.ths_index(type="N")
@@ -367,7 +386,7 @@ def _fetch_concept_members(provider: CompositeProvider) -> "pd.DataFrame":
 
     idx = idx.copy()
     idx["count"] = pd.to_numeric(idx.get("count"), errors="coerce")
-    idx = idx[(idx["count"] >= _CONCEPT_MIN) & (idx["count"] <= _CONCEPT_MAX)]
+    idx = idx[(idx["count"] >= lo) & (idx["count"] <= hi)]
     # 剔除非题材垃圾概念（指数成份/交易机制/持股状态等），聚焦可炒作主题
     idx = idx[~idx["name"].astype(str).apply(_is_junk_concept)]
 
