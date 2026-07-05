@@ -442,7 +442,8 @@ def get_pending_selections(
             FROM selection_records s
             LEFT JOIN performance_records p ON p.selection_id = s.id
             WHERE s.is_backtest = ?
-              AND s.entry_price > 0
+            -- 不可加 entry_price>0 过滤：新记录 entry_price=0，正是靠 backfill_forward
+            -- 的 Step A 用 T+1 开盘价回填；在此排除会造成"永远进不了回填"的死锁。
             GROUP BY s.id
             HAVING (
                 SELECT COUNT(*) FROM performance_records
