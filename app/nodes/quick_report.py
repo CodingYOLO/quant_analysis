@@ -1523,13 +1523,15 @@ def build_news_digest(mode: str = "daily", ref_date: str | None = None) -> tuple
     news_df = _fetch_news(today, 0, 23)             # 隔夜/全天电报（财联社周末也更新）
     research_text = _fetch_research_reports(ref)    # 研报（参考最近交易日）
     web_news = _fetch_digest_web(mode)
+    unlock_text = _fetch_upcoming_unlocks(today, ref)   # 未来解禁·结构化真实公告(杜绝LLM臆造解禁)
 
     label = "下周前瞻" if mode == "preview" else "消息面"
     if news_df.empty and not research_text and not web_news:
         body = (f"## ⚠️ {label}暂无内容\n\n> 三路信息源（财联社/研报/联网检索）均无新内容，"
                 f"本系统拒绝在无真实来源时生成分析。")
     else:
-        body = _generate_digest_analysis(mode, label, now_str, news_df, research_text, web_news, ref)
+        body = _generate_digest_analysis(mode, label, now_str, news_df, research_text,
+                                         web_news, ref, unlock_text)
         body += "\n" + _web_source_block(web_news)
 
     title = f"A股{label}（非交易日）"
@@ -1575,18 +1577,93 @@ def _digest_news_text(news_df: pd.DataFrame) -> str:
     return "\n".join(lines)
 
 
+def _latest_close_map(provider, date: str) -> dict:
+    """{ts_code: 最新收盘价}（用于估算解禁市值）。失败→空。"""
+    try:
+        d = provider.get_daily(date)
+        if d is not None and not d.empty and "close" in d.columns:
+            return dict(zip(d["ts_code"].astype(str),
+                            pd.to_numeric(d["close"], errors="coerce")))
+    except Exception as e:
+        logger.debug("[前瞻] 最新价获取失败: %s", e)
+    return {}
+
+
+def _upcoming_unlock_text(provider, start: str, end: str, price_date: str,
+                          top_n: int = 12) -> str:
+    """未来限售解禁（Tushare share_float·结构化真实公告）→喂 LLM 文本块·按解禁市值排。
+
+    解禁是**可核查的结构化事实**（非网页舆情）；提供此块并要求 LLM 只据此写解禁·杜绝臆造
+    （如"某股下周天量解禁"这类幻觉）。空→''。
+    """
+    # 逐日精确查 float_date（避开区间查撞 Tushare 6000 行上限被截断的坑·大解禁日会占满额度）
+    pro = provider._ts._api
+    d0 = datetime.datetime.strptime(start, "%Y%m%d")
+    d1 = datetime.datetime.strptime(end, "%Y%m%d")
+    frames = []
+    cur = d0
+    while cur <= d1:
+        try:
+            x = pro.share_float(float_date=cur.strftime("%Y%m%d"))
+            if x is not None and not x.empty:
+                frames.append(x)
+        except Exception as e:
+            logger.debug("[前瞻] 解禁单日查询失败 %s: %s", cur, e)
+        cur += datetime.timedelta(days=1)
+    if not frames:
+        return ""
+    df = pd.concat(frames, ignore_index=True)
+    df["float_share"] = pd.to_numeric(df["float_share"], errors="coerce")
+    g = (df.groupby("ts_code")
+           .agg(float_share=("float_share", "sum"), float_ratio=("float_ratio", "max"),
+                float_date=("float_date", "min")).reset_index())
+    sb = provider.get_stock_basic()
+    nm = dict(zip(sb["ts_code"].astype(str), sb["name"].astype(str)))
+    close = _latest_close_map(provider, price_date)
+    g["mv_yi"] = g["ts_code"].map(lambda t: close.get(t, 0.0)) * g["float_share"] / 1e8
+    g = g[g["float_share"] > 0].sort_values("mv_yi", ascending=False).head(top_n)
+    if g.empty:
+        return ""
+    lines = []
+    for _, r in g.iterrows():
+        ts, d = str(r["ts_code"]), str(r["float_date"])
+        mv = float(r["mv_yi"] or 0)
+        mv_s = f"约{mv:.0f}亿元" if mv >= 1 else "市值待估"
+        lines.append(f"- {nm.get(ts, ts)}({ts[:6]}) {d[4:6]}-{d[6:]}解禁 "
+                     f"{r['float_share'] / 1e8:.2f}亿股·占总股本{r['float_ratio']}%·{mv_s}")
+    return (f"未来解禁窗口 {start[4:6]}-{start[6:]}~{end[4:6]}-{end[6:]}（Tushare真实公告·"
+            f"按解禁市值排·**此为解禁的唯一事实来源**）：\n" + "\n".join(lines))
+
+
+def _fetch_upcoming_unlocks(today: str, ref: str, days: int = 10) -> str:
+    """未来 days 天真实限售解禁文本块（结构化·喂 LLM 替代网页臆造）。失败/无→''。"""
+    try:
+        from app.data.composite_provider import CompositeProvider
+        end = (datetime.datetime.strptime(today, "%Y%m%d")
+               + datetime.timedelta(days=days)).strftime("%Y%m%d")
+        return _upcoming_unlock_text(CompositeProvider(), today, end, ref)
+    except Exception as e:
+        logger.debug("[前瞻] 解禁块获取失败: %s", e)
+        return ""
+
+
 def _generate_digest_analysis(mode: str, label: str, now_str: str, news_df: pd.DataFrame,
-                              research_text: str, web_news: list[dict], ref: str) -> str:
+                              research_text: str, web_news: list[dict], ref: str,
+                              unlock_text: str = "") -> str:
     """DeepSeek 综合消息面报告（铁律：只用提供信息、标来源、按时效过滤）。"""
     from app.llm.client import LLMClient
     llm = LLMClient()
     prompt = _build_digest_prompt(mode, label, now_str, _digest_news_text(news_df),
-                                  research_text, _format_web_news(web_news), ref)
+                                  research_text, _format_web_news(web_news), ref, unlock_text)
     messages = [
         {"role": "system", "content": (
             "你是专业A股策略分析师。当前是【非交易日】，无实时行情，聚焦消息面。\n"
             "【铁律】只分析用户提供的信息，严禁编造或引用未出现的内容；每条结论末尾标注来源和时间"
             "（[财联社 时间]/[博查·站点 日期]/[研报]）。分析落地到具体板块与代表性个股（附6位代码）。\n"
+            "【结构化事实铁律·最重要】解禁/减持/限售/大宗/回购/业绩预告 的**具体日期、股数、比例、金额**"
+            "只能引用下方【未来解禁】等结构化数据块；**联网检索/新闻正文里出现的此类数字一律不得作为事实写入**"
+            "（可定性提及但须标'待核实'）。严禁为未出现在结构化数据中的个股编造解禁/减持事件——"
+            "宁可不写，也不许臆造。\n"
             "【时效】只用最近消息；过期预告/旧政策须注明日期，不得当作新动向。")},
         {"role": "user", "content": prompt},
     ]
@@ -1594,22 +1671,25 @@ def _generate_digest_analysis(mode: str, label: str, now_str: str, news_df: pd.D
 
 
 def _build_digest_prompt(mode: str, label: str, now_str: str, news_text: str,
-                         research_text: str, web_text: str, ref: str) -> str:
+                         research_text: str, web_text: str, ref: str,
+                         unlock_text: str = "") -> str:
     if mode == "preview":
         ask = ("请写一份【下周前瞻】，分模块：\n"
-               "1. 📅 下周重要日程（经济数据/会议/解禁/财报窗口·有具体日期才写）\n"
+               "1. 📅 下周重要日程（经济数据/会议/财报窗口·有具体日期才写）\n"
                "2. 🚀 潜在机会（题材/政策受益方向 + 代表个股6位代码 + 逻辑）\n"
-               "3. ⚠️ 风险提示（解禁/减持/监管/外围）\n"
-               "4. 🎯 重点跟踪（3-5只个股 + 跟踪理由）")
+               "3. ⚠️ 风险提示（解禁**只据下方【未来解禁】结构化数据**·减持/监管/外围）\n"
+               "4. 🎯 重点跟踪（3-5只个股 + 跟踪理由·解禁类理由必须来自【未来解禁】块·"
+               "不得用网页/新闻里的解禁说法）")
     else:
         ask = ("请写一份【非交易日消息面复盘 + 前瞻】，分模块：\n"
                "1. 📰 关键新闻/政策动向（对A股的影响）\n"
                "2. 📑 研报精选观点（行业/个股）\n"
                "3. 🚀 潜在机会（题材方向 + 代表个股6位代码）\n"
-               "4. ⚠️ 风险提示（利空/解禁/监管）\n"
+               "4. ⚠️ 风险提示（利空/解禁**只据下方【未来解禁】结构化数据**/监管）\n"
                "5. 🌍 外围市场（美股/商品/汇率·对A股含义）")
     return (f"当前时间：{now_str}（非交易日）。参考交易日：{ref}。\n\n{ask}\n\n"
-            f"要求：每条结论标来源+时间；无具体来源不要编造。\n\n"
+            f"要求：每条结论标来源+时间；无具体来源不要编造。解禁必须与【未来解禁】块个股/日期/金额完全一致。\n\n"
+            f"【未来解禁·结构化真实公告】\n{unlock_text or '（下周无重要解禁·则不要写任何解禁内容）'}\n\n"
             f"【财联社电报】\n{news_text or '（无）'}\n\n"
             f"【研报】\n{research_text or '（无）'}\n\n"
             f"【联网检索】\n{web_text or '（无）'}\n")
