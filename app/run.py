@@ -501,7 +501,18 @@ def build_wide_cmd(trade_date: str) -> None:
     # 预算各板块广度时序（复用全市场面板）→ 前端切板块秒开
     from app.factors.board_breadth import precompute_board_breadth
     nb = precompute_board_breadth(td)
-    console.print(f"[green]✅ 板块广度预算：{nb} 个 → data_cache/board_breadth/[/green]\n")
+    console.print(f"[green]✅ 板块广度预算：{nb} 个 → data_cache/board_breadth/[/green]")
+    # 资金持续流入榜(行业+概念·前端3窗口 近5/10/20 全暖)·数据入库后(~17:40)就算好·
+    # 傍晚点开秒显示·不必等 19:25 暖机(暖机会读此缓存·幂等)
+    try:
+        from app.strategy.industry_flow import build_industry_persistent_flow
+        from app.strategy.concept_flow import build_concept_persistent_flow
+        for _w in (5, 10, 20):
+            build_industry_persistent_flow(td, window=_w)
+            build_concept_persistent_flow(td, window=_w)
+        console.print(f"[green]✅ 资金持续流入榜预热：行业+概念 · 窗口5/10/20[/green]\n")
+    except Exception as e:
+        console.print(f"[yellow]⚠️ 持续流入榜预热失败(19:25暖机会补): {e}[/yellow]\n")
 
 
 @cli.command("pool-eval")
@@ -641,18 +652,20 @@ def run_warmup(base_date: str) -> None:
         console.print(f"[green]✅ 因子表预热 {latest}[/green]")
     except Exception as e:
         console.print(f"[yellow]⚠️ 因子表预热失败: {e}[/yellow]")
-    # 1.5) 行业资金持续流入榜(近10日累计·按日缓存·晚上打开秒显示)
+    # 1.5) 行业资金持续流入榜(前端3窗口 近5/10/20日都暖·任意窗口点开秒显示)
     try:
         from app.strategy.industry_flow import build_industry_persistent_flow
-        build_industry_persistent_flow(latest, window=10)
-        console.print(f"[green]✅ 行业持续流入榜预热 {latest}[/green]")
+        for _w in (5, 10, 20):
+            build_industry_persistent_flow(latest, window=_w)
+        console.print(f"[green]✅ 行业持续流入榜预热 {latest}·窗口5/10/20[/green]")
     except Exception as e:
         console.print(f"[yellow]⚠️ 持续流入榜预热失败: {e}[/yellow]")
-    # 1.55) 概念资金持续流入榜(渗透率+多窗口·宽成分周缓存首建~30s·避免用户次周首访等待)
+    # 1.55) 概念资金持续流入榜(渗透率+多窗口·宽成分周缓存首建~30s·3窗口都暖)
     try:
         from app.strategy.concept_flow import build_concept_persistent_flow
-        build_concept_persistent_flow(latest, window=10, provider=prov)
-        console.print(f"[green]✅ 概念持续流入榜预热 {latest}[/green]")
+        for _w in (5, 10, 20):
+            build_concept_persistent_flow(latest, window=_w, provider=prov)
+        console.print(f"[green]✅ 概念持续流入榜预热 {latest}·窗口5/10/20[/green]")
     except Exception as e:
         console.print(f"[yellow]⚠️ 概念持续流入榜预热失败: {e}[/yellow]")
     # 1.6) 板块诊断面板(状态机+回测分层+大类资金地图·按日缓存·打开秒显示)
