@@ -183,6 +183,7 @@ def init_db() -> None:
                 take_profit_2 REAL,
                 rps50         REAL,
                 main_flow_3d  REAL,
+                main_flow_1d  REAL,
                 change_7d     REAL,
                 turnover      REAL,
                 vol_ratio     REAL,
@@ -525,7 +526,7 @@ def get_all_with_performance(
 _POOL_COLS = [
     "run_date", "ts_code", "name", "theme", "theme_heat", "sources", "strategies",
     "strategy_label", "phase", "confidence", "position_pct", "buy_low", "buy_high",
-    "stop_loss", "take_profit_1", "take_profit_2", "rps50", "main_flow_3d", "change_7d",
+    "stop_loss", "take_profit_1", "take_profit_2", "rps50", "main_flow_3d", "main_flow_1d", "change_7d",
     "turnover", "vol_ratio", "pct_chg", "circ_mv_yi", "close", "is_focus", "risk_flags", "reason",
     # 2026-06-20 新增：均线结构 + 重点分(风险调整) + 星标 + 风险/位置(乖离/距高点/风险扣分)
     "above_ma20", "above_ma60", "slope_up", "focus_score", "star",
@@ -544,6 +545,7 @@ _POOL_NEW_COLS = [
     ("above_ma5", "INTEGER"), ("above_ma10", "INTEGER"), ("ma_bull_short", "INTEGER"),
     ("winner_rate", "REAL"), ("block_discount", "REAL"),
     ("inst_net_yi", "REAL"), ("inst_buy_days", "INTEGER"), ("inst_bonus", "REAL"),
+    ("main_flow_1d", "REAL"),   # 今日单日主力(与3日累计对照·对上东财今日)
 ]
 _POOL_JSON = {"sources", "strategies", "risk_flags"}
 

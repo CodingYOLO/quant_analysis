@@ -183,7 +183,8 @@ def _assemble(ts, r, strategies: list[str], hot: dict, market_label: str) -> dic
         "position_pct": 0.0,   # 风控后填
         "buy_low": r["buy_low"], "buy_high": r["buy_high"],
         "stop_loss": r["stop_loss"], "take_profit_1": r["take_profit_1"], "take_profit_2": r["take_profit_2"],
-        "rps50": r["rps50"], "main_flow_3d": r["main_flow_3d"], "change_7d": r["change_7d"],
+        "rps50": r["rps50"], "main_flow_3d": r["main_flow_3d"],
+        "main_flow_1d": r.get("main_flow_1d", 0.0), "change_7d": r["change_7d"],
         "turnover": r["turnover"], "vol_ratio": r["vol_ratio"], "pct_chg": r["pct_chg"],
         "circ_mv_yi": r["circ_mv_yi"], "close": r["close"],
         # 均线结构（短线口径·含MA5/10·供前端一眼看清 + 重点分）

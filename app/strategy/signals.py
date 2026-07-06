@@ -89,7 +89,8 @@ def build_signal_table(
 
     # ---- 全市场辅助：RPS / 主力3日 / 换手排名 ----
     rps = calc_rps(close_m, 50)                                   # Series by ts_code
-    main_flow_3d = _main_flow_3d(provider, trade_date)            # {ts_code: 亿}
+    main_flow_3d = _main_flow_3d(provider, trade_date)            # {ts_code: 亿}·近3日累计
+    main_flow_1d = _main_flow_1d(provider, trade_date)            # {ts_code: 亿}·今日单日(对上东财今日)
     d["_tr_rank"] = d["turnover"].rank(ascending=False, method="min")
     turnover_rank = dict(zip(d["ts_code"], d["_tr_rank"]))
 
@@ -113,6 +114,7 @@ def build_signal_table(
             "pct_chg": round(float(r.pct_chg), 2), "turnover": round(float(r.turnover or 0), 2),
             "amount_yi": round(float(r.amount_yi), 2), "circ_mv_yi": round(float(r.circ_mv_yi), 1),
             "main_flow_3d": round(main_flow_3d.get(ts, 0.0), 2),
+            "main_flow_1d": round(main_flow_1d.get(ts, 0.0), 2),
             "rps50": round(float(rps.get(ts, 0.0)), 1),
             "turnover_rank": int(turnover_rank.get(ts, 99999)),
             "popular": turnover_rank.get(ts, 99999) <= _POP_RANK_MAX,
@@ -203,3 +205,14 @@ def _main_flow_3d(provider: CompositeProvider, trade_date: str) -> dict:
             if pd.notna(v):
                 out[ts] = out.get(ts, 0.0) + float(v) / 1e4   # 万元→亿
     return out
+
+
+def _main_flow_1d(provider: CompositeProvider, trade_date: str) -> dict:
+    """当日单日主力净流入（亿），{ts_code: 亿}·超大单+大单(东财口径)。供"今日 vs 3日"对照。"""
+    from app.data.moneyflow import main_net_wan
+    try:
+        mf = provider.get_money_flow(trade_date)
+    except Exception:
+        return {}
+    net = main_net_wan(mf) / 1e4                                # 万元→亿
+    return {str(ts): round(float(v), 2) for ts, v in net.items() if pd.notna(v)}

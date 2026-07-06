@@ -142,7 +142,7 @@ document.getElementById('reload').addEventListener('click', load);
 document.getElementById('date').addEventListener('change', load);
 ['search','fsource','fstrat','fboard','sortby'].forEach(id=>document.getElementById(id).addEventListener('input', render));
 
-const COLS=[['⭐'],['代码'],['名称'],['🔥板块'],['重点分'],['💰资金(主力/机构真钱)'],['📈均线'],['📊量价'],['策略'],['买点价'],['T+5']];
+const COLS=[['⭐'],['代码'],['名称'],['🔥板块'],['重点分'],['💰资金 今/3日主力(估算)'],['📈均线'],['📊量价'],['策略'],['买点价'],['T+5']];
 
 // 一眼看清的小标签
 function starCell(r){
@@ -161,9 +161,10 @@ function ftBadge(t){
   else if(t.level==='weak'){ cls='ft-weak'; }
   return '<br><span class="ft '+cls+'" title="'+tip+'">'+txt+'</span>';
 }
-function flowCell(r){ const v=r.main_flow_3d;
-  const num=(v===null||v===undefined) ? '<span class="miss">—</span>'
-    : '<span class="'+(v>=0?'up':'down')+'">'+(v>=0?'+':'')+v+'亿</span>';
+function flowCell(r){   // 今日 / 3日累计 双显·今日可直接对上东财今日·3日=资金持续性
+  const one=(x,lbl)=> (x===null||x===undefined) ? '<span class="miss">'+lbl+'—</span>'
+    : '<span class="'+(x>=0?'up':'down')+'">'+lbl+(x>=0?'+':'')+x+'</span>';
+  const num = one(r.main_flow_1d,'今') + '<span class="neu2"> / </span>' + one(r.main_flow_3d,'3日') + '<span class="neu2">亿</span>';
   return num + ftBadge(r.fund_triangle); }
 function maCell(r){   // 短线口径：MA5/10/20 结构一眼看清
   if(r.above_ma5&&r.above_ma10&&r.above_ma20&&r.above_ma60&&r.ma_bull_short) return '<span class="up">完整多头</span>';
@@ -423,7 +424,7 @@ function detail(r){
       +(r.block_discount!=null&&r.block_discount<-1?' ｜ 🔻大宗折价 <span class="down">'+r.block_discount+'%</span>(出货)':'')
       +'<br>';
   }
-  h+='<b>量化因子</b>：RPS50 '+r.rps50+' ｜ 3日主力 '+r.main_flow_3d+'亿 ｜ 均线 '+ma+' ｜ 7日涨幅 '+r.change_7d+'% ｜ 换手 '+r.turnover+'% ｜ 量比 '+r.vol_ratio+' ｜ 当日 '+r.pct_chg+'% ｜ 市值 '+r.circ_mv_yi+'亿<br>';
+  h+='<b>量化因子</b>：RPS50 '+r.rps50+' ｜ 今日主力 '+(r.main_flow_1d==null?'—':r.main_flow_1d+'亿')+' ｜ 3日主力 '+r.main_flow_3d+'亿 ｜ 均线 '+ma+' ｜ 7日涨幅 '+r.change_7d+'% ｜ 换手 '+r.turnover+'% ｜ 量比 '+r.vol_ratio+' ｜ 当日 '+r.pct_chg+'% ｜ 市值 '+r.circ_mv_yi+'亿<br>';
   if(r.fund_triangle){ const t=r.fund_triangle;
     h+='<b>💰 资金三角</b>：主力估算 <span class="'+(t.main_flow_yi>=0?'up':'down')+'">'+(t.main_flow_yi>=0?'+':'')+t.main_flow_yi+'亿</span>(代理)'
       +' ｜ 龙虎榜机构 '+(t.on_lhb?('<b>'+(t.inst_net_yi>=0?'+':'')+t.inst_net_yi+'亿</b>(真钱)'):'<span class="neu2">无足迹</span>')
@@ -453,8 +454,9 @@ function _poolCell(ci, r){
     case 2: { const b=boardOf(r.ts_code); return {t:(r.name||'')+(b!=='主板'?' ['+b+']':''), c:'#e8e8e8'}; }
     case 3: { const heat=r.theme_heat?(' '+Math.round(r.theme_heat)):''; return {t:(r.theme||'未归类')+heat, c:'#cdd6f4'}; }
     case 4: { const s=r.focus_score||0; return {t:s.toFixed(0), c: s>=70?_RED:(s>=50?'#f0a020':_GREY)}; }
-    case 5: { const v=r.main_flow_3d;
-      let t=(v==null)?'—':((v>=0?'+':'')+v+'亿'), c=(v==null)?_MISS:(v>=0?_RED:_GREEN);
+    case 5: { const v1=r.main_flow_1d, v3=r.main_flow_3d;
+      const f=(x)=>(x==null)?'—':((x>=0?'+':'')+x);
+      let t='今'+f(v1)+'/3日'+f(v3)+'亿', c=(v1==null)?_MISS:(v1>=0?_RED:_GREEN);  // 按今日方向着色·退潮一眼看清
       const ft=r.fund_triangle;
       if(ft){ let lbl=ft.label;
         if(ft.level==='strong') lbl='💎'+lbl+(ft.inst_net_yi?' 机构+'+ft.inst_net_yi+'亿':'');
