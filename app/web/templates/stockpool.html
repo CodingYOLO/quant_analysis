@@ -413,7 +413,7 @@ function detail(r){
   const risk=r.risk_penalty||0, ib=r.inst_bonus||0, strength=(r.focus_score||0)+risk-ib;
   const ibTxt=ib>0?(' + <span class="up">真钱'+ib.toFixed(0)+'</span>'):(ib<0?(' − <span class="down">机构卖'+Math.abs(ib).toFixed(0)+'</span>'):'');
   h+='<b>重点分 '+(r.focus_score||0).toFixed(0)+'</b> = 强度 '+strength.toFixed(0)+' − 风险 '+risk.toFixed(0)+ibTxt
-    +' <span class="neu2" style="font-size:11px">(强度=RPS30+主力估算25+板块15+多路15+量价10+均线5；风险=过热/追高/高位/破位；真钱=龙虎榜机构净买·弱市×1.5)</span>'
+    +' <span class="neu2" style="font-size:11px">(强度=千评12+ROE12(🟢跨制度稳健alpha)+RPS20+主力15(⚪IC≈0·降为过滤)+板块12+多路12+量价8+持续4+均线5；风险=过热/追高/高位/破位；真钱=龙虎榜机构净买·弱市×1.5)</span>'
     +(r.star?(r.is_focus?' ｜ <span class="star">⭐重点·风控通过</span>':' ｜ <span class="amber">⭐重点·弱市/风控未过→观察非买入</span>'):'')+'<br>';
   if(risk>0){
     const bc=r.bias20>=15?'down':(r.bias20>=8?'amber':'neu2');

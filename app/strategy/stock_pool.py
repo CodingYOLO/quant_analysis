@@ -391,7 +391,8 @@ def _recent_block_discount(provider: CompositeProvider, end_date: str, n: int = 
 def _enrich_from_factor_table(records: list[dict], trade_date: str) -> None:
     """best-effort：从**已缓存**因子表补 roe/consec_inflow/youzi_relay_days（不触发构建·无缓存跳过）。
 
-    因子归因(近1年T+10 IC)显示：ROE/资金持续=🟢稳健正alpha·游资接力=🔴稳健负(波段避雷)。
+    因子归因(近1年T+10 IC·正确口径elg+lg+pre-924制度对照)：ROE/千评=🟢跨制度稳健正alpha(+0.06)·
+    游资接力=🔴稳健负(波段避雷)·主力资金/资金持续=⚪两制度都弱(IC≈0·当过滤非alpha)。
     日更流水线/暖机当日已建因子表→通常命中缓存；缺则各字段留默认(评分优雅降级)。
     """
     try:
@@ -399,10 +400,10 @@ def _enrich_from_factor_table(records: list[dict], trade_date: str) -> None:
         from app.strategy.screener import _factor_cache_path
         p = _factor_cache_path(trade_date)
         if not p.exists():
-            logger.debug("[选股池] 因子表未缓存 %s·跳过ROE/资金持续补充", trade_date)
+            logger.debug("[选股池] 因子表未缓存 %s·跳过ROE/千评/资金持续补充", trade_date)
             return
         ft = pd.read_parquet(p)
-        cols = [c for c in ("roe", "consec_inflow", "youzi_relay_days") if c in ft.columns]
+        cols = [c for c in ("roe", "consec_inflow", "youzi_relay_days", "comment_score") if c in ft.columns]
         m = ft.set_index("ts_code")[cols]
         for r in records:
             if r["ts_code"] in m.index:
@@ -413,6 +414,8 @@ def _enrich_from_factor_table(records: list[dict], trade_date: str) -> None:
                     r["consec_inflow"] = int(row["consec_inflow"])
                 if "youzi_relay_days" in cols and pd.notna(row["youzi_relay_days"]):
                     r["youzi_relay_days"] = int(row["youzi_relay_days"])
+                if "comment_score" in cols and pd.notna(row["comment_score"]):
+                    r["comment_score"] = float(row["comment_score"])
     except Exception as e:
         logger.debug("[选股池] 因子表补充失败(跳过·不影响): %s", e)
 
@@ -420,8 +423,10 @@ def _enrich_from_factor_table(records: list[dict], trade_date: str) -> None:
 def _compute_focus_scores(records: list[dict], market_label: str = "震荡") -> None:
     """就地计算重点分(强度分 − 风险扣分 + 龙虎榜机构真钱加分)并星标本池最强 Top5。
 
-    权重（因子归因校准·2026-07）：把过重的 RPS(🟡弱/看regime) 30→20，让给稳健正alpha——
-    主力资金 25→30、新增 资金持续8 + ROE质量5；游资接力票标🎲短打(🔴波段避雷)。
+    权重（因子归因再校准·2026-07·正确口径elg+lg + pre-924制度对照）：
+      RPS20 · 主力资金15(⚪IC≈0·由30降·当过滤非alpha·仍尊重资金优先) · 千评12(🟢+0.06·新增·跨制度稳)
+      · ROE12(🟢+0.06·由5升) · 板块热度12 · 多路交叉12 · 量价8 · 资金持续4(⚪IC≈0·由8降·旧标签是错口径)
+      · 均线5。合计100。游资接力票标🎲短打(🔴波段避雷)。
     """
     if not records:
         return
@@ -436,11 +441,12 @@ def _compute_focus_scores(records: list[dict], market_label: str = "震荡") -> 
         rps = min(max(r["rps50"], 0), 100) / 100
         cross = min(len([s for s in r["strategies"] if s != "theme_pick"]), 4) / 4
         heat = min(max(r["theme_heat"], 0), 100) / 100
-        persist = min(max(r.get("consec_inflow", 0), 0), 5) / 5           # 资金持续(🟢稳健)
-        roe_q = min(max(r.get("roe", 0.0) or 0.0, 0.0), 8.0) / 8.0        # ROE质量(🟢稳健)
-        strength = (rps * 20 + flow_pct(r["main_flow_3d"]) * 30 + heat * 12
+        persist = min(max(r.get("consec_inflow", 0), 0), 5) / 5           # 资金持续(⚪IC≈0·正确口径)
+        roe_q = min(max(r.get("roe", 0.0) or 0.0, 0.0), 8.0) / 8.0        # ROE质量(🟢跨制度稳+0.06)
+        comment_q = min(max((r.get("comment_score", 0.0) or 0.0) - 40, 0.0), 50.0) / 50.0  # 千评(🟢跨制度稳+0.06)
+        strength = (rps * 20 + flow_pct(r["main_flow_3d"]) * 15 + heat * 12
                     + cross * 12 + _vol_health(r["vol_ratio"]) * 8
-                    + persist * 8 + roe_q * 5 + _ma_score(r) * 5)
+                    + persist * 4 + roe_q * 12 + comment_q * 12 + _ma_score(r) * 5)
         if r.get("youzi_relay_days", 0) >= 3:                             # 🎲游资接力=T+1打板属性·非波段
             fl = r.setdefault("risk_flags", [])
             if not any("短打" in str(x) for x in fl):
