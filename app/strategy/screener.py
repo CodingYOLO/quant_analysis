@@ -330,7 +330,7 @@ DISPLAY_COLS = [
 # ──────────────────────────────────────────────
 
 # 因子表结构版本：新增因子列时 +1，使旧缓存自动失效重算（避免读到缺列的旧表）
-_FACTOR_TABLE_VERSION = "v24"  # v24: 加近期相对强度(rel1d/3d/5d 跑赢大盘·启动敏感信号)；v23 领涨抗跌双窗口；v22 超额分解
+_FACTOR_TABLE_VERSION = "v25"  # v25: 加VOL.2形态(跳空突破缺口/均线粘合/二次金叉/阴线反包)；v24 rel1d/3d/5d；v23 领涨抗跌双窗口
 
 
 def _factor_cache_path(date: str) -> Path:
