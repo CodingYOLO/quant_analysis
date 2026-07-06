@@ -443,8 +443,8 @@ def build_board() -> dict:
     base["fund_ranking"] = fr
     from app.strategy.realtime_fund import sector_flow_delta
     full = sector_flow_delta(sector_board(df, imap), sector_net_ago(5.0))   # 板块榜 + 近5min资金变化Δ/加速
-    base["sectors"] = full[:15]                            # 资金涌入榜(机会)
-    base["sectors_out"] = [s for s in reversed(full) if s["net_yi"] < 0][:12]   # 资金撤离(风险·放开数量)
+    base["sectors"] = full[:20]                            # 资金涌入榜(机会·竞速榜板块口径也用)
+    base["sectors_out"] = [s for s in reversed(full) if s["net_yi"] < 0][:15]   # 资金撤离(风险)
     records = df.to_dict("records")                       # 转一次·多块复用
     base["battle"] = _battle_block(records, base["session"])   # 竞价·开盘作战台(开盘半小时·自选/持仓)
     base.update(_radar_block(df, imap))
@@ -512,7 +512,7 @@ def _concept_block(records: list[dict]) -> list[dict]:
     """概念/题材级资金榜（同花顺概念 × 全推·去重叠）。竞速榜"题材"细分维度用。"""
     from app.strategy.realtime_fund import concept_flow_ranking
     try:
-        return concept_flow_ranking(records, concept_map())
+        return concept_flow_ranking(records, concept_map(), top=20)   # 竞速榜题材口径·放宽到20
     except Exception as e:
         logger.warning("[实时枢纽] 概念资金榜失败：%s", e)
         return []
@@ -544,7 +544,7 @@ def _radar_block(df, imap: dict) -> dict:
 def _velocity_block(imap: dict | None = None) -> list[dict]:
     """急拉榜：现价 vs 约5分钟前。名称+板块从快照/映射补（个股涨速竞速也用）。"""
     from app.strategy.realtime_fund import velocity_events
-    ev = velocity_events(_SNAP.prices(), past_prices(5.0), min_move=1.5)[:15]
+    ev = velocity_events(_SNAP.prices(), past_prices(5.0), min_move=1.5)[:20]   # 急拉/个股涨速竞速·放宽到20
     for e in ev:
         q = _SNAP.get(e["ts_code"])
         e["name"] = (q or {}).get("name", e["ts_code"])
@@ -555,7 +555,7 @@ def _velocity_block(imap: dict | None = None) -> list[dict]:
 def _vol_surge_block(df, imap: dict) -> list[dict]:
     """异常放量榜（量比飙升·补板块标注）。"""
     from app.strategy.realtime_fund import volume_surge
-    vs = volume_surge(df)
+    vs = volume_surge(df, top=15)                          # 异常放量榜·12→15
     for v in vs:
         v["industry"] = imap.get(v["ts_code"], "")
     return vs

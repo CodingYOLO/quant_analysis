@@ -156,7 +156,7 @@ function renderBreadth(b, trend){
 }
 // 🏁 实时排名(动态竞速条)：题材/行业 × 资金/涨幅·条长∝值·排名变化平滑滑动重排
 let _raceMode='fund', _raceGran='concept', _lastBoard=null;   // gran: 'concept'(题材) | 'industry'(行业)
-const _raceEls={}; const RACE_N=12, RACE_H=30;
+const _raceEls={}; const RACE_N=20, RACE_H=30;
 function _raceData(d){
   if(_raceGran==='stock'){                              // 个股：资金=主动净买竞速(带板块+涨幅) / 涨速=5分钟涨速
     if(_raceMode==='fund')
