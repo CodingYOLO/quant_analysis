@@ -692,6 +692,36 @@ async def api_factor_efficacy(_user: str = Depends(require_auth)):
         return {"ok": False, "msg": str(e)}
 
 
+@app.get("/limitup", response_class=HTMLResponse)
+async def limitup_page(request: Request, _user: str = Depends(require_auth)):
+    """每日涨停复盘：板块涨停梯队 + 连板梯队情绪 + 涨停原因全景 + 龙虎榜游资/机构（盘后EOD·非买卖建议）。"""
+    return templates.TemplateResponse(request=request, name="limitup.html",
+                                      context={"page": "limitup"})
+
+
+@app.get("/api/limitup")
+async def api_limitup(date: str = "", force: bool = False,
+                      _user: str = Depends(require_auth)):
+    """每日涨停复盘数据（盘后EOD·JSON日缓存·秒开）。当日盘后未入库时自动回退上一交易日。"""
+    try:
+        from fastapi.concurrency import run_in_threadpool
+
+        from app.strategy.limitup_review import build_limitup_review
+        d = date or _last_trade_date()
+        res = await run_in_threadpool(build_limitup_review, d, bool(force), None)
+        if not res.get("ok") and not date:                 # 当日尚未settled→回退上一交易日
+            from app.nodes.quick_report import _recent_trade_dates
+            from app.data.composite_provider import CompositeProvider
+            ds = await run_in_threadpool(_recent_trade_dates, CompositeProvider(), d, 2)
+            prev = ds[-2] if len(ds) >= 2 else None
+            if prev and prev != d:
+                res = await run_in_threadpool(build_limitup_review, prev, bool(force), None)
+        return res
+    except Exception as e:
+        logger.exception("涨停复盘失败")
+        return {"ok": False, "msg": str(e)}
+
+
 @app.get("/api/industry")
 async def api_industry(date: str = "", _user: str = Depends(require_auth)):
     """行业资金流仪表盘数据。"""

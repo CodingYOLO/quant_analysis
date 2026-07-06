@@ -510,9 +510,16 @@ def build_wide_cmd(trade_date: str) -> None:
         for _w in (5, 10, 20):
             build_industry_persistent_flow(td, window=_w)
             build_concept_persistent_flow(td, window=_w)
-        console.print(f"[green]✅ 资金持续流入榜预热：行业+概念 · 窗口5/10/20[/green]\n")
+        console.print(f"[green]✅ 资金持续流入榜预热：行业+概念 · 窗口5/10/20[/green]")
     except Exception as e:
-        console.print(f"[yellow]⚠️ 持续流入榜预热失败(19:25暖机会补): {e}[/yellow]\n")
+        console.print(f"[yellow]⚠️ 持续流入榜预热失败(19:25暖机会补): {e}[/yellow]")
+    # 每日涨停复盘(数据入库后即可算·傍晚点 /limitup 秒开·19:25暖机幂等再确认)
+    try:
+        from app.strategy.limitup_review import build_limitup_review
+        lr = build_limitup_review(td, force=True)
+        console.print(f"[green]✅ 涨停复盘预热：{len(lr.get('stocks', []))}涨停 → data_cache/limitup_review/[/green]\n")
+    except Exception as e:
+        console.print(f"[yellow]⚠️ 涨停复盘预热失败(19:25暖机会补): {e}[/yellow]\n")
 
 
 @cli.command("pool-eval")
@@ -710,6 +717,13 @@ def run_warmup(base_date: str) -> None:
             console.print("[dim]· 因子盈利归因跳过(非周一·用现有缓存)[/dim]")
     except Exception as e:
         console.print(f"[yellow]⚠️ 因子盈利归因预热失败: {e}[/yellow]")
+    # 1.69) 每日涨停复盘(板块梯队/连板情绪/涨停原因全景/龙虎榜游资机构·JSON日缓存·/limitup 页秒开)
+    try:
+        from app.strategy.limitup_review import build_limitup_review
+        lr = build_limitup_review(latest, force=True, provider=prov)
+        console.print(f"[green]✅ 涨停复盘预热 {latest}·{len(lr.get('stocks', []))}涨停[/green]")
+    except Exception as e:
+        console.print(f"[yellow]⚠️ 涨停复盘预热失败: {e}[/yellow]")
     # 1.7) 主线板块研判(资金+催化剂+政策·LLM综合·日缓存·板块/概念页顶部秒显示·夜间预算一次LLM)
     try:
         from app.strategy.mainline_analysis import build_mainline_analysis

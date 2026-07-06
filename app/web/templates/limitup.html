@@ -1,0 +1,217 @@
+{% extends "base.html" %}
+{% block title %}涨停复盘 — A股Agent{% endblock %}
+
+{% block extra_style %}
+.lu-bar { display:flex; align-items:center; gap:10px; margin-bottom:14px; flex-wrap:wrap; }
+.lu-date { background:#0f1117; color:#e8e8e8; border:1px solid #2d3052; border-radius:6px; padding:7px 10px; font-size:13px; }
+.lu-btn { background:linear-gradient(135deg,#3358e0,#5d7cff); color:#fff; border:none; padding:8px 18px; border-radius:6px; font-size:13px; font-weight:600; cursor:pointer; }
+.kpi-row { display:grid; grid-template-columns:repeat(6,1fr); gap:12px; margin-bottom:18px; }
+.kpi { background:#161929; border:1px solid #242842; border-radius:10px; padding:14px 12px; text-align:center; }
+.kpi .label { font-size:12px; color:#9ca3af; margin-bottom:6px; }
+.kpi .big { font-size:26px; font-weight:700; line-height:1.1; }
+.kpi .sub { font-size:11px; color:#9ca3af; margin-top:5px; }
+.card { background:#161929; border:1px solid #242842; border-radius:10px; padding:16px 18px; margin-bottom:18px; }
+.card h3 { font-size:15px; color:#c9d2f8; font-weight:600; margin-bottom:4px; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.card .hint { font-size:11px; color:#8b93a7; font-weight:400; }
+.up { color:#f6465d; } .down { color:#2ebd85; } .amber { color:#f0a020; } .neu { color:#9ca3af; }
+/* 板块梯队 */
+.sec-row { display:grid; grid-template-columns:120px 46px 1fr; align-items:center; gap:10px; padding:6px 0; border-bottom:1px solid #1e2138; }
+.sec-name { font-size:13.5px; font-weight:600; color:#e8e8e8; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.sec-bar-wrap { display:flex; align-items:center; gap:8px; }
+.sec-bar { height:16px; background:linear-gradient(90deg,#c0392b,#f6465d); border-radius:3px; min-width:2px; }
+.sec-cnt { font-size:15px; font-weight:700; color:#f6465d; text-align:right; }
+.drg { display:inline-block; font-size:11.5px; padding:1px 7px; border-radius:10px; background:#1f1620; color:#f6465d; margin-right:5px; }
+.drg b { color:#f0a020; font-size:10px; margin-left:2px; }
+/* 连板梯队 */
+.lad { display:grid; grid-template-columns:78px 1fr; gap:10px; padding:8px 0; border-bottom:1px solid #1e2138; align-items:center; }
+.lad-tier { font-size:13px; font-weight:700; text-align:center; padding:5px 0; border-radius:6px; }
+.t5 { background:#3b0d10; color:#ff5b6e; } .t4 { background:#37141a; color:#f6465d; }
+.t3 { background:#2a1620; color:#f77; } .t2 { background:#221a25; color:#f0a020; } .t1 { background:#1a1d2e; color:#9ca3af; }
+.core-tag { display:inline-block; font-size:12.5px; padding:2px 9px; border-radius:12px; background:#101528; border:1px solid #253; color:#e8e8e8; margin:3px 5px 3px 0; }
+.core-tag i { color:#8b93a7; font-style:normal; font-size:11px; margin-left:3px; }
+/* 全景 */
+details.sec { border:1px solid #242842; border-radius:8px; margin-bottom:8px; background:#12141f; }
+details.sec > summary { cursor:pointer; padding:9px 14px; font-size:13.5px; font-weight:600; color:#c9d2f8; list-style:none; display:flex; align-items:center; gap:10px; }
+details.sec > summary::-webkit-details-marker { display:none; }
+details.sec > summary .cnt { color:#f6465d; }
+.zt-tbl { width:100%; border-collapse:collapse; font-size:12.5px; }
+.zt-tbl th { color:#8b93a7; font-weight:500; text-align:left; padding:5px 8px; border-bottom:1px solid #242842; font-size:11.5px; }
+.zt-tbl td { padding:5px 8px; border-bottom:1px solid #1a1d2e; }
+.lb-badge { display:inline-block; min-width:30px; text-align:center; padding:1px 6px; border-radius:9px; font-size:11px; font-weight:700; }
+.reason { color:#8fb3ff; }
+/* 龙虎榜三栏 */
+.lhb-grid { display:grid; grid-template-columns:1.2fr 1fr 1fr; gap:14px; }
+.lhb-col h4 { font-size:13.5px; color:#c9d2f8; margin-bottom:8px; display:flex; align-items:center; gap:6px; }
+.lhb-tbl { width:100%; border-collapse:collapse; font-size:12px; }
+.lhb-tbl td { padding:4px 6px; border-bottom:1px solid #1a1d2e; }
+.hm-name { color:#f0a020; font-size:11px; }
+@media (max-width:900px){ .kpi-row{grid-template-columns:repeat(3,1fr)} .lhb-grid{grid-template-columns:1fr} .sec-row{grid-template-columns:96px 40px 1fr} }
+{% endblock %}
+
+{% block content %}
+<div class="lu-bar">
+  <span style="font-size:20px;font-weight:700">🚀 每日涨停复盘</span>
+  <input type="date" id="lu-date" class="lu-date">
+  <button id="lu-load" class="lu-btn">🔄 加载</button>
+  <span id="lu-tip" class="neu" style="font-size:12px">盘后EOD·看清热点/情绪周期/资金动向 · 非买卖建议</span>
+</div>
+
+<div id="lu-loading" class="neu" style="font-size:14px;padding:20px">⏳ 正在加载涨停复盘…</div>
+<div id="lu-empty" class="neu" style="display:none;font-size:14px;padding:20px"></div>
+
+<div id="lu-body" style="display:none">
+  <!-- 情绪 KPI -->
+  <div class="kpi-row" id="kpi"></div>
+
+  <!-- ① 板块涨停梯队 -->
+  <div class="card">
+    <h3>📊 板块涨停梯队 <span class="hint">按涨停数排 · 看今天资金主攻哪个板块 · 龙头梯队(连板高→成交额)</span></h3>
+    <div id="sectors" style="margin-top:8px"></div>
+  </div>
+
+  <!-- ② 连板梯队 + 情绪 -->
+  <div class="card">
+    <h3>🔥 连板梯队 <span class="hint">情绪周期高度 · 每档核心取成交额前3 · 高标看是否有资金接力</span></h3>
+    <div id="ladder" style="margin-top:8px"></div>
+  </div>
+
+  <!-- ④ 龙虎榜资金动向 -->
+  <div class="card">
+    <h3>🏛️ 龙虎榜资金动向 <span class="hint">真钱流向 · 游资=官方名录识别 · 机构=专用席位 · 北向=股通专用 · 红买绿卖</span></h3>
+    <div class="lhb-grid" id="lhb" style="margin-top:10px"></div>
+  </div>
+
+  <!-- ③ 涨停股全景 -->
+  <div class="card">
+    <h3>📋 涨停股全景 <span class="hint">按板块展开 · 每只含首封时间/连板/成交额/涨停原因(开盘啦官方)</span></h3>
+    <div id="reason-pending" style="display:none;font-size:12px;color:#f0a020;background:#241d10;border:1px solid #4a3a15;border-radius:6px;padding:8px 12px;margin-top:8px">
+      ⏳ 开盘啦题材数据当晚settle较晚(约21点后)·涨停原因暂待更新·其余(板块梯队/连板/情绪/龙虎榜)已就绪·稍后刷新即显示。
+    </div>
+    <div id="stocks" style="margin-top:8px"></div>
+  </div>
+
+  <div id="lu-note" class="neu" style="font-size:11px;padding:4px 2px 16px"></div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const fmtWan = v => { const a=Math.abs(v); return a>=10000 ? (v/10000).toFixed(2)+'亿' : Math.round(v)+'万'; };
+const cls = v => v>0 ? 'up' : (v<0 ? 'down' : 'neu');
+const sign = v => (v>0?'+':'') + v;
+
+function renderKpi(s){
+  const items = [
+    {l:'涨停家数', v:s.zt_count ?? '--', c:'up', sub:'含连板 '+(s.lianban_count??0)+' 只'},
+    {l:'连板家数', v:s.lianban_count ?? '--', c:'amber', sub:'≥2板 高度梯队'},
+    {l:'破板率', v:(s.break_rate!=null? s.break_rate+'%':'--'), c:(s.break_rate>=45?'down':(s.break_rate>=30?'amber':'up')),
+      sub:'炸板 '+(s.zhaban??0)+' 只 · 越高越退潮'},
+    {l:'昨涨停今表现', v:(s.y_zt_perf!=null? sign(s.y_zt_perf)+'%':'--'), c:cls(s.y_zt_perf), sub:'昨涨停股今日均涨跌·赚钱效应'},
+    {l:'昨连板今表现', v:(s.y_lb_perf!=null? sign(s.y_lb_perf)+'%':'--'), c:cls(s.y_lb_perf), sub:'高标接力/退潮'},
+    {l:'大幅回撤', v:(s.big_retrace ?? '--'), c:(s.big_retrace>=25?'down':'neu'), sub:'昨涨停今跌>3% 家数'},
+  ];
+  $('kpi').innerHTML = items.map(i=>`<div class="kpi"><div class="label">${i.l}</div>
+    <div class="big ${i.c}">${i.v}</div><div class="sub">${i.sub}</div></div>`).join('');
+}
+
+function renderSectors(list){
+  if(!list||!list.length){ $('sectors').innerHTML='<div class="neu">无数据</div>'; return; }
+  const max = list[0].count || 1;
+  $('sectors').innerHTML = list.map(s=>{
+    const drg = s.dragons.map(d=>`<span class="drg">${d.name}<b>${d.lb}板</b></span>`).join('');
+    const w = Math.max(4, Math.round(s.count/max*100));
+    return `<div class="sec-row">
+      <div class="sec-name" title="${s.sector}">${s.sector}</div>
+      <div class="sec-cnt">${s.count}</div>
+      <div class="sec-bar-wrap"><div class="sec-bar" style="width:${w}%"></div><div>${drg}</div></div>
+    </div>`;
+  }).join('');
+}
+
+function renderLadder(list){
+  if(!list||!list.length){ $('ladder').innerHTML='<div class="neu">无连板</div>'; return; }
+  $('ladder').innerHTML = list.map(t=>{
+    const core = t.core.map(c=>`<span class="core-tag">${c.name}<i>${c.amount_yi}亿</i></span>`).join('');
+    return `<div class="lad">
+      <div class="lad-tier t${t.lb}">${t.tier}<br><span style="font-size:10px;opacity:.7">${t.n}只</span></div>
+      <div>${core}</div>
+    </div>`;
+  }).join('');
+}
+
+function lbColor(lb){ return lb>=4?'#3b0d10':(lb>=3?'#2a1620':(lb>=2?'#221a25':'#1a1d2e')); }
+function lbFg(lb){ return lb>=4?'#ff5b6e':(lb>=2?'#f0a020':'#9ca3af'); }
+
+function renderStocks(list){
+  if(!list||!list.length){ $('stocks').innerHTML='<div class="neu">无数据</div>'; return; }
+  // 按板块分组
+  const g = {};
+  list.forEach(s=>{ (g[s.industry]=g[s.industry]||[]).push(s); });
+  const order = Object.keys(g).sort((a,b)=>g[b].length-g[a].length);
+  $('stocks').innerHTML = order.map((ind,idx)=>{
+    const rows = g[ind].map(s=>`<tr>
+      <td><span class="lb-badge" style="background:${lbColor(s.limit_times)};color:${lbFg(s.limit_times)}">${s.limit_times}板</span></td>
+      <td style="font-weight:600">${s.name}</td>
+      <td class="neu">${s.first_time||'—'}</td>
+      <td>${s.amount_yi}亿</td>
+      <td class="reason">${s.reason||s.theme||'<span class="neu">题材待更新</span>'}</td>
+    </tr>`).join('');
+    return `<details class="sec" ${idx<2?'open':''}>
+      <summary>${ind} <span class="cnt">${g[ind].length}只涨停</span></summary>
+      <div style="padding:2px 10px 10px">
+        <table class="zt-tbl"><thead><tr><th>连板</th><th>名称</th><th>首封</th><th>成交额</th><th>涨停原因</th></tr></thead>
+        <tbody>${rows}</tbody></table>
+      </div>
+    </details>`;
+  }).join('');
+}
+
+function renderLhb(lhb){
+  const hot = (lhb.hot||[]).map(h=>`<tr>
+    <td><span class="hm-name">${h.hm}</span></td>
+    <td style="font-weight:600">${h.name}</td>
+    <td class="${cls(h.net_wan)}" style="text-align:right">${(h.net_wan>0?'+':'')}${fmtWan(h.net_wan)}</td>
+  </tr>`).join('') || '<tr><td class="neu">无识别游资</td></tr>';
+  const inst = (lhb.inst||[]).map(i=>`<tr>
+    <td style="font-weight:600">${i.name}</td>
+    <td class="${cls(i.net_yi)}" style="text-align:right">${sign(i.net_yi)}亿</td>
+  </tr>`).join('') || '<tr><td class="neu">无机构席位</td></tr>';
+  const north = (lhb.north||[]).map(i=>`<tr>
+    <td style="font-weight:600">${i.name}</td>
+    <td class="${cls(i.net_yi)}" style="text-align:right">${sign(i.net_yi)}亿</td>
+  </tr>`).join('') || '<tr><td class="neu">无北向</td></tr>';
+  $('lhb').innerHTML = `
+    <div class="lhb-col"><h4>🎯 游资动向 <span class="hint">官方名录识别·净买卖</span></h4>
+      <table class="lhb-tbl">${hot}</table></div>
+    <div class="lhb-col"><h4>🏛️ 机构专用席 <span class="hint">真机构钱</span></h4>
+      <table class="lhb-tbl">${inst}</table></div>
+    <div class="lhb-col"><h4>🌏 北向(股通) <span class="hint">外资</span></h4>
+      <table class="lhb-tbl">${north}</table></div>`;
+}
+
+async function load(){
+  const d = $('lu-date').value.replace(/-/g,'');
+  $('lu-loading').style.display='block'; $('lu-body').style.display='none'; $('lu-empty').style.display='none';
+  try{
+    const r = await fetch('/api/limitup'+(d?('?date='+d):''));
+    const j = await r.json();
+    $('lu-loading').style.display='none';
+    if(!j.ok){ $('lu-empty').style.display='block'; $('lu-empty').textContent = j.msg||'当日无涨停复盘数据'; return; }
+    $('lu-date').value = j.date.slice(0,4)+'-'+j.date.slice(4,6)+'-'+j.date.slice(6,8);
+    $('lu-tip').textContent = '数据日 '+j.date+' · 盘后EOD · 非买卖建议';
+    renderKpi(j.sentiment||{});
+    renderSectors(j.sectors||[]);
+    renderLadder(j.ladder||[]);
+    renderLhb(j.lhb||{});
+    $('reason-pending').style.display = j.reason_pending ? 'block' : 'none';
+    renderStocks(j.stocks||[]);
+    $('lu-note').textContent = '数据说明：'+(j.note||'');
+    $('lu-body').style.display='block';
+  }catch(e){
+    $('lu-loading').style.display='none'; $('lu-empty').style.display='block';
+    $('lu-empty').textContent = '加载失败：'+e;
+  }
+}
+$('lu-load').addEventListener('click', load);
+load();
+</script>
+{% endblock %}
