@@ -42,6 +42,21 @@
 {% block content %}
 <div class="rt-status" id="rtStatus"><span class="rt-dot rt-off"></span> 连接中…</div>
 
+<!-- 🌐 大盘指数一览 + K线(日/周/月·实时) -->
+<div class="card" id="rtIndexCard" style="border-left:3px solid #7c9ef8">
+  <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><h2 style="margin:0">🌐 大盘指数</h2><span class="rt-tag">实时报价 + 日/周/月K线 · 上证/科创50/创业板/沪深300…</span></div>
+  <div id="rtIndexStrip" style="display:flex;gap:8px;flex-wrap:wrap;margin:10px 0"></div>
+  <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:6px">
+    <span id="rtIdxSel" style="display:inline-flex;gap:4px;flex-wrap:wrap"></span>
+    <span style="margin-left:auto;display:inline-flex;border:1px solid #2d3052;border-radius:7px;overflow:hidden">
+      <button class="idx-fbtn" data-f="D" style="background:#3358e0;color:#fff;border:none;padding:4px 12px;font-size:12px;cursor:pointer">日K</button>
+      <button class="idx-fbtn" data-f="W" style="background:#12141c;color:#9ca3af;border:none;padding:4px 12px;font-size:12px;cursor:pointer">周K</button>
+      <button class="idx-fbtn" data-f="M" style="background:#12141c;color:#9ca3af;border:none;padding:4px 12px;font-size:12px;cursor:pointer">月K</button>
+    </span>
+  </div>
+  <div id="rtIndexKline" style="height:340px;max-width:1000px"></div>
+</div>
+
 <div class="card" id="rtBriefCard" style="display:none;border-left:3px solid #7c9ef8;border-radius:0;">
   <div style="font-size:12px;color:#9ca3af;margin-bottom:4px;">📌 此刻该干啥（综合情绪/广度/资金）</div>
   <div id="rtBrief" style="font-size:16px;font-weight:500;line-height:1.6;"></div>
@@ -147,11 +162,40 @@
 {% endblock %}
 
 {% block extra_script %}
+<script src="/static/echarts.min.js"></script>
+<script src="/static/kline.js"></script>
 <script>
 const $=id=>document.getElementById(id);
 const cls=v=> v>0?'pos':(v<0?'neg':'neu');
 const sgn=v=> (v>0?'+':'')+v;
 const lead=r=>`<span class="rt-lead"><b>${r.leader||'-'}</b></span>`;
+
+// 🌐 大盘指数一览 + K线(日/周/月)
+let _idxCode='000001.SH', _idxFreq='D', _idxSelBuilt=false;
+function renderIndex(d){
+  const idx=d.indices||[];
+  if(!idx.length) return;
+  $('rtIndexStrip').innerHTML=idx.map(q=>{const c=cls(q.pct_chg);
+    return `<div style="min-width:104px;padding:6px 10px;border:1px solid #22263a;border-radius:8px;background:#0f1117">
+      <div style="font-size:12px;color:#c2c8de">${q.name}</div>
+      <div style="font-size:16px;font-weight:600" class="${c}">${q.price}</div>
+      <div class="${c}" style="font-size:11.5px">${sgn(q.pct_chg)}% · ${sgn(q.chg)}</div></div>`;}).join('');
+  if(!_idxSelBuilt){ buildIdxSel(idx); _idxSelBuilt=true; loadIndexKline(); }
+}
+function buildIdxSel(idx){
+  $('rtIdxSel').innerHTML=idx.map(q=>`<button class="idx-cbtn" data-c="${q.code}" style="border:1px solid #2d3052;border-radius:6px;padding:3px 9px;font-size:11.5px;cursor:pointer;background:${q.code===_idxCode?'#3358e0':'#12141c'};color:${q.code===_idxCode?'#fff':'#9ca3af'}">${q.name}</button>`).join('');
+  $('rtIdxSel').querySelectorAll('.idx-cbtn').forEach(b=>b.onclick=()=>{ _idxCode=b.dataset.c; refreshIdxSel(); loadIndexKline(); });
+}
+function refreshIdxSel(){ $('rtIdxSel').querySelectorAll('.idx-cbtn').forEach(b=>{const on=b.dataset.c===_idxCode; b.style.background=on?'#3358e0':'#12141c'; b.style.color=on?'#fff':'#9ca3af';}); }
+async function loadIndexKline(){
+  try{ const k=await (await fetch(`/api/index-kline?code=${_idxCode}&freq=${_idxFreq}`)).json();
+    if(k&&k.candle&&window.AKline) AKline.render('rtIndexKline', k);
+  }catch(e){}
+}
+document.querySelectorAll('.idx-fbtn').forEach(b=>b.onclick=()=>{ _idxFreq=b.dataset.f;
+  document.querySelectorAll('.idx-fbtn').forEach(x=>{const on=x.dataset.f===_idxFreq;x.style.background=on?'#3358e0':'#12141c';x.style.color=on?'#fff':'#9ca3af';});
+  loadIndexKline(); });
+setInterval(loadIndexKline, 30000);   // 盘中每30s刷新K线最新一根(实时)
 
 function renderBreadth(b, trend){
   if(!b||!b.total){ $('rtBreadth').innerHTML='<div class="rt-empty">暂无数据</div>'; return; }
@@ -400,7 +444,7 @@ async function tick(){
     const d=await (await fetch('/api/realtime/board')).json();
     if(!d.ok){ $('rtStatus').textContent='加载失败：'+(d.msg||''); return; }
     _lastBoard=d;
-    renderStatus(d); renderBattle(d); renderOpenBoard(d); renderAuction(d); renderPulse(d.pulse); renderRace(d); renderBrief(d.brief); renderBreadth(d.breadth, d.breadth_trend); renderSenti(d.sentiment); renderSectors(d.sectors); renderThemes(d.themes);
+    renderStatus(d); renderIndex(d); renderBattle(d); renderOpenBoard(d); renderAuction(d); renderPulse(d.pulse); renderRace(d); renderBrief(d.brief); renderBreadth(d.breadth, d.breadth_trend); renderSenti(d.sentiment); renderSectors(d.sectors); renderThemes(d.themes);
     renderTail(d.tail); renderSecOut(d.sectors_out); renderFlash(d.flash);
     renderFund(d.fund_ranking); renderVolSurge(d.vol_surge); renderSurge(d.surge); renderWatch(d.watch);
   }catch(e){ $('rtStatus').textContent='网络错误：'+e; }

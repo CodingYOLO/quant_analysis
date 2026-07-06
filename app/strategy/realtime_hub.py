@@ -302,6 +302,25 @@ def _prev_amount_map() -> dict:
     return _PREV_AMT
 
 
+_IDX_CACHE: dict = {"data": None, "ts": 0.0}
+_IDX_TTL = 5.0                              # 指数报价5s缓存(新浪·独立于L1·指数变化慢·减轻外部压力)
+
+
+def _index_quotes_cached() -> list:
+    """关键指数实时报价(5s缓存·走新浪·独立于L1全推·休市也回最近报价)。"""
+    c = _IDX_CACHE
+    if c["data"] is not None and time.time() - c["ts"] < _IDX_TTL:
+        return c["data"]
+    try:
+        from app.strategy.index_board import index_quotes
+        c["data"] = index_quotes()
+        c["ts"] = time.time()
+    except Exception as e:
+        logger.warning("[指数] 报价缓存失败: %s", e)
+        c["data"] = c["data"] or []
+    return c["data"]
+
+
 def _is_battle_window(session: str, now: float | None = None) -> bool:
     """竞价·开盘作战台生效窗：集合竞价全时段 + 连续竞价开盘半小时(至10:30缓冲)。"""
     if session in _AUCTION_SESSIONS:
@@ -437,6 +456,7 @@ def build_board() -> dict:
     base = {"ok": True, "live": is_live(), "session": market_session(),
             "as_of": _as_of_str(), "count": int(len(df))}
     base["watch"] = _watch_block()                        # 自选/持仓·休市也回(空快照时为[])
+    base["indices"] = _index_quotes_cached()              # 大盘指数一览(新浪·独立于L1·休市也回)
     if df.empty:
         base.update({"msg": "全推未连接（休市或未开盘），开盘自动接入"})
         return base

@@ -1787,6 +1787,21 @@ async def api_realtime_board(_user: str = Depends(require_auth)):
         return {"ok": False, "msg": str(e)}
 
 
+@app.get("/api/index-kline")
+async def api_index_kline(code: str = "000001.SH", freq: str = "D",
+                          _user: str = Depends(require_auth)):
+    """大盘指数 K 线（freq: D日/W周/M月·历史日线 + 当日实时最新一根）。"""
+    try:
+        from fastapi.concurrency import run_in_threadpool
+
+        from app.strategy.index_board import index_kline
+        f = freq if freq in ("D", "W", "M") else "D"
+        return await run_in_threadpool(index_kline, code, f)
+    except Exception as e:
+        logger.exception("指数K线失败")
+        return {"ok": False, "msg": str(e)}
+
+
 @app.get("/api/realtime/raw")
 async def api_realtime_raw(codes: str = "", _user: str = Depends(require_auth)):
     """调试：返回指定代码的原始全推快照字段（last/open/high/low/bid_px/ask_px/vol/amount…）。
