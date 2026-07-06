@@ -482,6 +482,26 @@ def activity_rank_cmd(days: int) -> None:
     console.print(f"[green]✅ {r['days_ok']}/{r['days_requested']} 日 · {r['rows']} 行 · 区间 {r['range']}[/green]\n")
 
 
+@cli.command("flow-monitor")
+@click.option("--date", "trade_date", default="last", help="交易日，默认最近交易日")
+def flow_monitor_cmd(trade_date: str) -> None:
+    """资金口径哨兵：elg+lg(canonical) vs 东财dc 一致性 + 各源完整性·异常推Bark（21:00 cron·dc结算偏晚）。"""
+    from app.data.flow_monitor import run_flow_monitor
+    from app.notify.notifier import push_bark
+
+    td = _resolve_date(trade_date)
+    r = run_flow_monitor(td)
+    m = r["metrics"]
+    console.print(f"\n[bold cyan]🛡️ 资金口径哨兵[/bold cyan]  {td}")
+    console.print(f"  elg+lg vs 东财dc: 相关={m['corr']} 方向一致={m['dir_agree']} | 行数 mf={m['mf_rows']} dc={m['dc_rows']}")
+    if r["alerts"]:
+        body = "\n".join(r["alerts"])
+        console.print(f"[red]{body}[/red]\n")
+        push_bark("⚠️资金口径/完整性异常", body, group="数据质量", level="timeSensitive")
+    else:
+        console.print("[green]✅ 一致性/完整性正常[/green]\n")
+
+
 @cli.command("wide")
 @click.option("--date", "trade_date", default="last", show_default=True,
               help="交易日：YYYYMMDD / last（默认最近交易日）")

@@ -109,9 +109,15 @@ def _verdict(mic: float, ir: float) -> str:
 
 # ── 主构建（盘后·日缓存·回填历史因子表·较重）────────────────────────────────
 def build_factor_efficacy(end: str, provider: CompositeProvider | None = None,
-                          force: bool = False) -> dict:
-    """全因子·多期IC/分层归因·JSON日缓存。回填 STEP 间隔的历史因子表(顺带填缓存)。"""
-    cdir = get_settings().cache_dir / "factor_efficacy"
+                          force: bool = False, *, n_periods: int = N_PERIODS_MAX,
+                          lookback: int = PANEL_LOOKBACK, out_dir=None) -> dict:
+    """全因子·多期IC/分层归因·JSON日缓存。回填 STEP 间隔的历史因子表(顺带填缓存)。
+
+    n_periods/lookback/out_dir 供研究用（如 pre-924 制度对照·写独立目录不污染生产缓存）；
+    默认=生产口径（26期≈1年·写 factor_efficacy/）。
+    """
+    from pathlib import Path
+    cdir = Path(out_dir) if out_dir else (get_settings().cache_dir / "factor_efficacy")
     cdir.mkdir(parents=True, exist_ok=True)
     cache = cdir / f"{end}.json"
     if cache.exists() and not force:
@@ -123,12 +129,12 @@ def build_factor_efficacy(end: str, provider: CompositeProvider | None = None,
     from app.factors.breadth_qfq import build_qfq_panel
     from app.strategy.screener import build_factor_table
     prov = provider or CompositeProvider()
-    panel = build_qfq_panel(end, prov, lookback=PANEL_LOOKBACK)
+    panel = build_qfq_panel(end, prov, lookback=lookback)
     if panel is None or panel.empty or panel.shape[1] < STEP * 3:
         return {"ok": False, "msg": "复权面板不足", "rows": []}
 
     cols = list(panel.columns)
-    reb_idx = _rebalance_cols(len(cols), STEP, max(HORIZONS), N_PERIODS_MAX)
+    reb_idx = _rebalance_cols(len(cols), STEP, max(HORIZONS), n_periods)
     # {factor: {h: {"ic": [...], "spread": [...]}}}
     acc: dict = {c: {h: {"ic": [], "spread": []} for h in HORIZONS} for c, _ in STUDY_FACTORS}
     used = 0
