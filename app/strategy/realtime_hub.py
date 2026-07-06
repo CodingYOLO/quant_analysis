@@ -269,6 +269,64 @@ def watch_meta() -> dict:
     return meta
 
 
+_PREV_AMT: dict = {}
+_PREV_AMT_DATE = ""
+
+
+def _prev_amount_map() -> dict:
+    """{ts_code: 昨日全天成交额(元)}（竞价量占昨量比用·按交易日缓存）。
+
+    Tushare daily amount 单位=**千元**（实测：平安银行888789千元≈8.9亿·与vol×close吻合）→ ×1000 转元，
+    与全推快照 amount(元) 同尺度。
+    """
+    global _PREV_AMT, _PREV_AMT_DATE
+    today = time.strftime("%Y%m%d")
+    if _PREV_AMT_DATE == today and _PREV_AMT:
+        return _PREV_AMT
+    try:
+        import pandas as pd
+        from app.data.composite_provider import CompositeProvider
+        from app.nodes.quick_report import _recent_trade_dates
+        prov = CompositeProvider()
+        ds = _recent_trade_dates(prov, today, 2)                      # [昨, 今] 或 [昨]
+        prev = ds[-2] if (len(ds) >= 2 and ds[-1] == today) else (ds[-1] if ds else None)
+        if not prev:
+            return {}
+        d = prov.get_daily(prev)
+        amt = pd.to_numeric(d["amount"], errors="coerce") * 1000.0    # 千元 → 元
+        _PREV_AMT = dict(zip(d["ts_code"].astype(str), amt))
+        _PREV_AMT_DATE = today
+    except Exception as e:
+        logger.warning("[作战台] 昨日成交额加载失败: %s", e)
+        _PREV_AMT = {}
+    return _PREV_AMT
+
+
+def _is_battle_window(session: str, now: float | None = None) -> bool:
+    """竞价·开盘作战台生效窗：集合竞价全时段 + 连续竞价开盘半小时(至10:30缓冲)。"""
+    if session in _AUCTION_SESSIONS:
+        return True
+    if session == "continuous":
+        hm = time.strftime("%H%M", time.localtime(now)) if now else time.strftime("%H%M")
+        return hm <= "1030"
+    return False
+
+
+def _battle_block(records: list[dict], session: str) -> list[dict]:
+    """竞价·开盘作战台（自选/持仓·9:15-10:30高密度窗）。非窗口/无自选 → []。"""
+    if not _is_battle_window(session):
+        return []
+    watch = watch_meta()
+    if not watch:
+        return []
+    try:
+        from app.strategy.realtime_fund import auction_open_cards
+        return auction_open_cards(watch, records, _prev_amount_map(), session)
+    except Exception as e:
+        logger.warning("[作战台] 构建失败: %s", e)
+        return []
+
+
 def record_tail_baseline(rows: list[dict]) -> None:
     """进入尾盘首次记录 14:30 基准（幂等·按交易日自动重置）。"""
     global _TAIL_BASE, _TAIL_DATE
@@ -388,6 +446,7 @@ def build_board() -> dict:
     base["sectors"] = full[:15]                            # 资金涌入榜(机会)
     base["sectors_out"] = [s for s in reversed(full) if s["net_yi"] < 0][:12]   # 资金撤离(风险·放开数量)
     records = df.to_dict("records")                       # 转一次·多块复用
+    base["battle"] = _battle_block(records, base["session"])   # 竞价·开盘作战台(开盘半小时·自选/持仓)
     base.update(_radar_block(df, imap))
     base["sentiment"] = _sentiment_block(records, tm)     # 情绪温度计(连板梯队/晋级率/炸板率)
     base["themes"] = _theme_block(records)
@@ -418,6 +477,7 @@ def _auction_board(base: dict, df, imap: dict) -> dict:
         "movers": auction_movers(records, imap, top=10),              # 高开/低开排行
         "sentiment": auction_sentiment(records),                      # 全市场竞价情绪
     }
+    base["battle"] = _battle_block(records, base["session"])          # 竞价·开盘作战台(自选/持仓聚焦)
     base["concepts"] = _concept_block(records)                        # 概念级(竞价档·avg_pct=竞价涨幅)
     base.update(_radar_block(df, imap))                               # breadth(涨跌家数/竞价涨停·价格口径有效)
     return base

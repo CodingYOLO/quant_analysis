@@ -345,6 +345,96 @@ def auction_movers(rows: list[dict], imap: dict, *, top: int = 10) -> dict:
 
 
 # ─────────────────────────────────────────────────────────────────
+# 竞价·开盘作战台（自选/持仓·9:15-10:00 最高信息密度 35 分钟）——纯函数·可测
+# 借鉴《A股实战研判手册·进阶篇》：高开分档 + 竞价量占昨量 + 9:20分水岭 + 开盘承接 + 爆量破位风险。
+# 阈值为专家先验(非我们数据回测)：只作"看什么"的框架 + 现状/风险描述，非买卖信号。
+# ─────────────────────────────────────────────────────────────────
+def _gap_tier(gap: float | None) -> tuple[str, str]:
+    """高开幅度分档 → (档位, 一句话应对)。gap=高开%(相对昨收)。"""
+    if gap is None:
+        return ("", "")
+    if gap > 7:
+        return ("爆量档", "两极·秒板才留/10min跌破开盘价97%即离场·无中间")
+    if gap > 5:
+        return ("加速档", "需板块共振+消息配合·孤立高开谨慎")
+    if gap > 2:
+        return ("顺势档", "开盘10min站稳开盘价上方=日内偏强")
+    if gap >= -0.5:
+        return ("平开", "无信息量·按常规")
+    if gap >= -4:
+        return ("低开", "10min放量翻红站稳=洗盘/挖坑·反是观察点")
+    return ("大幅低开", "承接测试·全天收回昨收上方=承接强")
+
+
+def _open_support(open_p, high, last) -> tuple[str, str]:
+    """开盘承接强度(9:30后)：守不守开盘价 + 距日内高回落。"""
+    op, hi, la = _ff(open_p), _ff(high), _ff(last)
+    if not (op and la):
+        return ("", "")
+    if la < op:
+        return ("破位下行", "跌破开盘价·承接弱·观望")
+    if hi and la >= hi * 0.998:
+        return ("强承接·贴高", "守开盘价且贴日内高·早盘表态强")
+    pb = (hi - la) / hi * 100 if hi else 0.0
+    if pb < 1.5:
+        return ("强承接", "守开盘价·回落有限")
+    if pb < 4:
+        return ("震荡消化", "守开盘价但冲高有回落")
+    return ("冲高回落", "冲高后明显回落·警惕拉高出货")
+
+
+def auction_open_cards(watch: dict, rows: list[dict], prev_amount: dict,
+                       session: str) -> list[dict]:
+    """竞价·开盘作战台卡片（自选/持仓）：高开分档 + 竞价量占昨量% + 委比 + 9:20分水岭 +
+    开盘承接强度 + 爆量破位/破止损风险。持仓优先·再按高开幅度降序。纯函数·可测。
+
+    Args:
+        watch: {ts_code:{name,is_holding,stop_loss}}  rows: 全推快照  prev_amount:{ts:昨全天成交额(元)}
+        session: market_session() —— auction/auction_lock/pre_open/continuous
+    """
+    is_auc = session in ("auction", "auction_lock", "pre_open")
+    by = {r.get("ts_code"): r for r in rows}
+    out: list[dict] = []
+    for code, meta in watch.items():
+        q = by.get(code)
+        if not q:
+            continue
+        prev, price, open_p = _ff(q.get("prev_close")), _ff(q.get("price")), _ff(q.get("open"))
+        pct = _ff(q.get("pct_chg"))
+        # 高开%：竞价用竞价涨跌(vs昨收)；开盘后用固定开盘价 vs 昨收
+        gap = pct if (is_auc or not open_p or not prev) else round((open_p / prev - 1) * 100, 2)
+        tier, tier_note = _gap_tier(gap)
+        pa = _ff(prev_amount.get(code))
+        avr = round(_ff(q.get("amount")) / pa * 100, 1) if pa else None      # 竞价额/今额 占昨全天%
+        lu = _ff(q.get("limit_up"))
+        seal = bool(lu and price and price >= lu - 0.001)
+        card = {
+            "ts_code": code, "name": meta.get("name") or q.get("name", ""),
+            "tag": "持仓" if meta.get("is_holding") else "自选",
+            "phase": "竞价" if is_auc else "开盘",
+            "gap": gap, "tier": tier, "tier_note": tier_note,
+            "auc_vol_ratio": avr, "entrust": entrust_ratio(q.get("bid_vol"), q.get("ask_vol")),
+            "seal": seal, "price": price, "cur_pct": round(pct, 2),
+        }
+        if is_auc:
+            card["divide"] = ("真实竞价·委比可信" if session == "auction_lock"
+                              else "试探期·可撤单诱多多·9:20后才算数" if session == "auction"
+                              else "竞价过渡")
+        else:
+            card["support"], card["support_note"] = _open_support(open_p, q.get("high"), price)
+            card["vs_open"] = round((price / open_p - 1) * 100, 2) if open_p else None
+            stop = _ff(meta.get("stop_loss"))
+            if gap and gap > 7 and not seal and open_p and price and price < open_p * 0.97:
+                card["risk"] = "⚠️爆量高开破开盘价97%·出货预备(核按钮式)·按纪律"
+            elif stop and price and price <= stop:
+                card["risk"] = "🛑已破止损·按预案"
+        out.append(card)
+    out.sort(key=lambda c: (c["tag"] == "持仓", c.get("gap") if c.get("gap") is not None else -99),
+             reverse=True)
+    return out
+
+
+# ─────────────────────────────────────────────────────────────────
 # 盘中"变化"追踪：板块资金加速/轮动 + 大盘趋势 + 定时市场快照 + 重大变化（纯函数·可测）
 # 阈值为经验值，待真盘校准（诚实铁律）。
 # ─────────────────────────────────────────────────────────────────

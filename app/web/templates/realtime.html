@@ -53,6 +53,13 @@
   <div id="rtPulse" style="font-size:14.5px;line-height:1.7;"></div>
 </div>
 
+<!-- ⚔️ 竞价·开盘作战台(自选/持仓·9:15-10:30 最高信息密度窗) -->
+<div class="card" id="rtBattleCard" style="display:none;border:1px solid #f0a020">
+  <h2>⚔️ 竞价·开盘作战台 · 自选/持仓<span class="rt-tag" id="rtBattlePhase">最高信息密度35分钟 · 高开分档+竞价量+承接 · 描述非荐股</span></h2>
+  <div style="overflow-x:auto"><table><thead><tr><th>股票</th><th>高开·档位</th><th>竞量比/委比</th><th>状态·承接</th><th>提示</th></tr></thead>
+  <tbody id="rtBattle"></tbody></table></div>
+</div>
+
 <!-- 集合竞价(9:15-9:30) 全市场·价格+盘口口径·仅竞价时段显示 -->
 <div class="card" id="rtAucCard" style="display:none;border:1px solid #3358e0">
   <h2>🔔 集合竞价 · 全市场<span class="rt-tag" id="rtAucPhase">竞价方向第一手·委比=资金承接/抛压</span></h2>
@@ -330,6 +337,32 @@ function renderWatch(rows){
       <td class="neu">${r.vol_ratio}</td><td>${op>=50?'<span class=pos>主动买</span>':'<span class=neg>主动卖</span>'} ${op}%</td>
       <td><span class="badge ${bd[r.label]||'badge-blue'}">${r.label}</span> <span class="neu" style="font-size:11px">${r.reason}</span></td></tr>`;}).join('');
 }
+// ⚔️ 竞价·开盘作战台(自选/持仓·9:15-10:30)
+const TIER_COLOR={'爆量档':'#f6465d','加速档':'#f0a020','顺势档':'#4ade80','平开':'#9ca3af','低开':'#7c9ef8','大幅低开':'#7c9ef8'};
+function renderBattle(d){
+  const rows=d.battle||[], card=$('rtBattleCard');
+  if(!rows.length){ card.style.display='none'; return; }
+  card.style.display='';
+  $('rtBattlePhase').textContent = rows[0].phase==='竞价'
+    ? '集合竞价 · 9:20后不可撤单委比才算数 · 描述非荐股'
+    : '开盘半小时 · 看守不守开盘价+承接强度 · 描述非荐股';
+  $('rtBattle').innerHTML=rows.map(r=>{
+    const tag=r.tag==='持仓'?'<span class="badge badge-blue" style="font-size:10px">持仓</span>'
+                            :'<span class="badge" style="font-size:10px;background:#262a3e;color:#9ca3af">自选</span>';
+    const tc=TIER_COLOR[r.tier]||'#9ca3af';
+    const gapCell=r.gap==null?'—':`<b class="${cls(r.gap)}">${sgn(r.gap)}%</b> <span class="badge" style="font-size:10px;background:${tc}22;color:${tc}">${r.tier||''}</span>${r.seal?' <span class="badge badge-red" style="font-size:9px">一字</span>':''}`;
+    const entTxt=r.entrust?`<span class="${cls(r.entrust)}">委${sgn(r.entrust)}(${r.entrust>0?'承接':'抛压'})</span>`:'';
+    const volTxt=r.auc_vol_ratio!=null?`量${r.auc_vol_ratio}%昨`:'';
+    const volCell=[volTxt,entTxt].filter(Boolean).join(' · ')||'—';
+    let stateCell;
+    if(r.phase==='竞价'){ stateCell=`<span class="neu" style="font-size:12px">${r.divide||''}</span>`; }
+    else{ const sc=(r.support||'').indexOf('破位')>=0?'neg':((r.support||'').indexOf('强')>=0?'pos':'neu');
+      stateCell=`<span class="${sc}">${r.support||'—'}</span>${r.vs_open!=null?` <span class="neu" style="font-size:11px">vs开${sgn(r.vs_open)}%</span>`:''}`; }
+    const note=r.risk?`<span class="neg" style="font-size:11.5px">${r.risk}</span>`
+                     :`<span class="neu" style="font-size:11px">${r.tier_note||r.support_note||''}</span>`;
+    return `<tr><td>${r.name}${tag}</td><td>${gapCell}</td><td style="font-size:12px">${volCell}</td><td>${stateCell}</td><td>${note}</td></tr>`;
+  }).join('');
+}
 const SESS={auction:'🔔 集合竞价·可撤单',auction_lock:'🔒 集合竞价·不可撤单',pre_open:'🔔 集合竞价·过渡',continuous:'全推实时',closed:'全推实时'};
 function renderStatus(d){
   const src=(d.status||{}).source||'', sess=d.session||'closed'; let dot,txt;
@@ -345,7 +378,7 @@ async function tick(){
     const d=await (await fetch('/api/realtime/board')).json();
     if(!d.ok){ $('rtStatus').textContent='加载失败：'+(d.msg||''); return; }
     _lastBoard=d;
-    renderStatus(d); renderAuction(d); renderPulse(d.pulse); renderRace(d); renderBrief(d.brief); renderBreadth(d.breadth, d.breadth_trend); renderSenti(d.sentiment); renderSectors(d.sectors); renderThemes(d.themes);
+    renderStatus(d); renderBattle(d); renderAuction(d); renderPulse(d.pulse); renderRace(d); renderBrief(d.brief); renderBreadth(d.breadth, d.breadth_trend); renderSenti(d.sentiment); renderSectors(d.sectors); renderThemes(d.themes);
     renderTail(d.tail); renderSecOut(d.sectors_out); renderFlash(d.flash);
     renderFund(d.fund_ranking); renderVolSurge(d.vol_surge); renderSurge(d.surge); renderWatch(d.watch);
   }catch(e){ $('rtStatus').textContent='网络错误：'+e; }
