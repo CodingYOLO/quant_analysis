@@ -441,28 +441,36 @@ def _fetch_news(today: str, start_h: int, end_h: int) -> pd.DataFrame:
     return filtered
 
 
-def _board_limit_pct(ts_code: str, name: str) -> float:
+# 主板风险警示股(ST)涨跌幅由 5% 调整为 10% 的生效日（沪深北 2026-04-24 修订·2026-07-06 施行）
+_ST_LIMIT_RULE_DATE = "20260706"
+
+
+def _board_limit_pct(ts_code: str, name: str, trade_date: str | None = None) -> float:
     """
-    返回个股的涨跌停幅度（百分比），用于精确判断涨停/跌停。
-      - ST/*ST 股：5%
+    返回个股的涨跌停幅度（百分比），用于精确判断涨停/跌停。**板块判定优先于 ST**：
       - 北交所（.BJ）：30%
-      - 创业板(300/301)、科创板(688)：20%
-      - 主板（600/601/603/605/000/001/002/003）：10%
+      - 创业板(300/301)、科创板(688)：20%（其 ST 也随板 20%，不受 5%/10% 规则约束）
+      - 主板 ST/*ST：2026-07-06 起 10%（与主板一致），此前 5%
+      - 主板普通（600/601/603/605/000/001/002/003）：10%
+
+    trade_date=None → 按**现行规则**（主板 ST=10%）。跨 7/6 边界的历史回测须传 trade_date 以还原当时限幅。
     """
-    if "ST" in str(name).upper():
-        return 5.0
     if ts_code.endswith(".BJ"):
         return 30.0
     code = ts_code.split(".")[0]
     if code.startswith(("300", "301", "688")):
         return 20.0
+    if "ST" in str(name).upper():        # 主板 ST：7/6 起与主板同为 10%，此前 5%
+        return 5.0 if (trade_date is not None and trade_date < _ST_LIMIT_RULE_DATE) else 10.0
     return 10.0
 
 
-def _count_limit_moves(df_daily: pd.DataFrame, code2name: dict[str, str]) -> tuple[int, int]:
+def _count_limit_moves(df_daily: pd.DataFrame, code2name: dict[str, str],
+                       trade_date: str | None = None) -> tuple[int, int]:
     """
     板块感知地统计收盘涨停/跌停家数。
     判定：pct_chg 落在 [limit-0.3, limit+0.5] 区间内（排除新股无涨跌幅限制的极端值）。
+    trade_date 用于主板 ST 限幅按 7/6 规则切换（传入当日交易日即可）。
     """
     limit_up = limit_down = 0
     for _, r in df_daily.iterrows():
@@ -470,7 +478,7 @@ def _count_limit_moves(df_daily: pd.DataFrame, code2name: dict[str, str]) -> tup
         pct = r.get("pct_chg")
         if pd.isna(pct):
             continue
-        limit = _board_limit_pct(ts_code, code2name.get(ts_code, ""))
+        limit = _board_limit_pct(ts_code, code2name.get(ts_code, ""), trade_date)
         # 收盘涨停：接近正向涨停幅度（容差防四舍五入），且不超过太多（排除新股）
         if limit - 0.3 <= pct <= limit + 0.5:
             limit_up += 1
@@ -1054,7 +1062,7 @@ def _fetch_market_data(today: str) -> str:
             df_daily["amount"] = pd.to_numeric(df_daily["amount"], errors="coerce")
             pct = df_daily["pct_chg"]
 
-            limit_up, limit_down = _count_limit_moves(df_daily, code2name)
+            limit_up, limit_down = _count_limit_moves(df_daily, code2name, today)
             up_count   = int((pct > 0).sum())
             down_count = int((pct < 0).sum())
             flat_count = int((pct == 0).sum())

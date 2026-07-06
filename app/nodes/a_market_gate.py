@@ -49,12 +49,12 @@ def _calc_market_regime(trade_date: str, provider: CompositeProvider) -> MarketR
             reason=f"{trade_date} 无行情数据，可能为非交易日",
         )
 
-    # ---- 1. 涨跌停统计（板块感知：主板10%/创业板科创板20%/北交所30%/ST5%）----
+    # ---- 1. 涨跌停统计（板块感知：主板10%/创业板科创板20%/北交所30%/主板ST 7-6起10%）----
     try:
         from app.nodes.quick_report import _count_limit_moves
         sb = provider.get_stock_basic()
         code2name = dict(zip(sb["ts_code"], sb["name"])) if sb is not None and not sb.empty else {}
-        limit_up, limit_down = _count_limit_moves(daily, code2name)
+        limit_up, limit_down = _count_limit_moves(daily, code2name, trade_date)
     except Exception as e:
         logger.warning("[节点A] 板块感知涨跌停统计失败，回退阈值法: %s", e)
         limit_up = int((daily["pct_chg"] >= _LIMIT_UP_PCT).sum())
