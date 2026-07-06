@@ -182,11 +182,10 @@ def _load_moneyflow(provider, dates: list[str]) -> dict[str, pd.DataFrame]:
 
 
 def _net_map(mf: pd.DataFrame) -> dict[str, float]:
-    """ts_code → 当日主力净流入（万元）。沿用 sector_analyzer 的 net_mf_amount 口径。"""
-    if "net_mf_amount" not in mf.columns:
-        return {}
-    s = pd.to_numeric(mf["net_mf_amount"], errors="coerce")
-    return dict(zip(mf["ts_code"], s))
+    """ts_code → 当日主力净流入（万元）·超大单+大单(东财/同花顺口径·非 Tushare net_mf_amount)。"""
+    from app.data.moneyflow import main_net_wan
+    net = main_net_wan(mf)
+    return {ts: float(v) for ts, v in net.items() if pd.notna(v)}
 
 
 def _multi_period_money(codes, dates7, code2net_by_date) -> dict[str, float | None]:

@@ -104,12 +104,14 @@ def _append_market_summary(
     except Exception as e:
         logger.debug("获取北向资金失败: %s", e)
 
-    # 主力资金净流向（汇总 moneyflow 的 net_mf_amount）
+    # 主力资金净流向（超大单+大单净·东财口径·非 Tushare net_mf_amount）
     mf_text = "数据缺失"
     try:
+        from app.data.moneyflow import main_net_wan
         df_mf = provider.get_money_flow(trade_date)
-        if df_mf is not None and not df_mf.empty and "net_mf_amount" in df_mf.columns:
-            total_net = df_mf["net_mf_amount"].sum() / 10000  # 转亿元
+        _mn = main_net_wan(df_mf)
+        if not _mn.empty:
+            total_net = _mn.sum() / 10000  # 转亿元
             sign = "+" if total_net >= 0 else ""
             mf_text = f"{sign}{total_net:.0f}亿元 {'🔴流入' if total_net >= 0 else '🟢流出'}"
     except Exception as e:

@@ -199,14 +199,16 @@ def _calc_fund_flow_by_industry(
     industry_map: pd.DataFrame,
 ) -> dict[str, dict[str, float]]:
     """按行业聚合个股资金净流入，返回各行业 5日/3日 资金净流入（元）。"""
+    from app.data.moneyflow import has_main_flow_cols, main_net_wan
     frames = []
     for d in dates:
         try:
             mf = provider.get_money_flow(d)
-            if mf is None or mf.empty:
+            if not has_main_flow_cols(mf):
                 continue
-            mf["_date"] = d
-            frames.append(mf[["ts_code", "net_mf_amount", "_date"]])
+            frames.append(pd.DataFrame({"ts_code": mf["ts_code"].astype(str),
+                                        "_main_wan": main_net_wan(mf).to_numpy(),  # 主力净(万元)·超大单+大单
+                                        "_date": d}))
         except Exception as e:
             logger.debug("获取 %s 资金流失败: %s", d, e)
 
@@ -215,8 +217,8 @@ def _calc_fund_flow_by_industry(
 
     all_flow = pd.concat(frames, ignore_index=True)
     all_flow = all_flow.merge(industry_map, on="ts_code", how="left").dropna(subset=["industry"])
-    # net_mf_amount 单位万元 → 元
-    all_flow["net_yuan"] = all_flow["net_mf_amount"] * 1e4
+    # 主力净(超大单+大单·东财口径) 单位万元 → 元
+    all_flow["net_yuan"] = all_flow["_main_wan"] * 1e4
 
     dates_sorted = sorted(dates)
     result: dict[str, dict[str, float]] = {}
@@ -731,9 +733,10 @@ def _calc_concept_single(
     flow_5d = 0.0
     flow_3d = 0.0
     if money_flow_df is not None and not money_flow_df.empty:
+        from app.data.moneyflow import main_net_wan
         concept_flow = money_flow_df[money_flow_df["ts_code"].isin(code_set)]
         if not concept_flow.empty:
-            flow_5d = float(concept_flow["net_mf_amount"].sum() * 1e4)
+            flow_5d = float(main_net_wan(concept_flow).sum() * 1e4)  # 主力净(超大单+大单·东财口径)万元→元
             flow_3d = flow_5d  # 简化，单日作为3日代理
 
     # 人气集中度

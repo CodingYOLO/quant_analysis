@@ -335,7 +335,7 @@ DISPLAY_COLS = [
 # ──────────────────────────────────────────────
 
 # 因子表结构版本：新增因子列时 +1，使旧缓存自动失效重算（避免读到缺列的旧表）
-_FACTOR_TABLE_VERSION = "v25"  # v25: 加VOL.2形态(跳空突破缺口/均线粘合/二次金叉/阴线反包)；v24 rel1d/3d/5d；v23 领涨抗跌双窗口
+_FACTOR_TABLE_VERSION = "v26"  # v26: 主力资金口径修正(net_mf_amount→超大单+大单净·东财口径·修资金方向反了的bug)；v25 VOL.2形态；v24 rel1d/3d/5d
 
 
 def _factor_cache_path(date: str) -> Path:
@@ -789,6 +789,7 @@ def _add_fund_repeat_inflow(df: pd.DataFrame, date: str, provider, window: int =
     if not dates:
         return df
 
+    from app.data.moneyflow import main_net_wan
     day_nets: list[dict] = []                                      # 逐日 {ts_code: 净流入(亿)}
     for d in dates:
         m: dict = {}
@@ -796,11 +797,10 @@ def _add_fund_repeat_inflow(df: pd.DataFrame, date: str, provider, window: int =
             mf = provider.get_money_flow(d)
         except Exception:
             mf = None
-        if mf is not None and not mf.empty and "net_mf_amount" in mf.columns:
-            net = pd.to_numeric(mf["net_mf_amount"], errors="coerce")
-            for ts, v in zip(mf["ts_code"], net):
-                if pd.notna(v):
-                    m[ts] = float(v) / 1e4
+        net = main_net_wan(mf)                                      # 主力净(万元)·超大单+大单(东财口径)
+        for ts, v in net.items():
+            if pd.notna(v):
+                m[ts] = float(v) / 1e4
         day_nets.append(m)
 
     # 个股：净流入天数/连续 + 脉冲质量(真持续 vs 脉冲后退潮假流入)

@@ -121,11 +121,13 @@ def _breadth_panels(panel: pd.DataFrame, windows=_MA) -> tuple[dict, dict]:
 
 def _stock_features(provider, d: str) -> pd.DataFrame:
     """某日 per-stock: net(净流入亿)/circ(流通市值亿)/amt(成交额亿)/pct(涨跌%)·index=ts_code。"""
+    from app.data.moneyflow import main_net_wan
     idx = pd.Index([], name="ts_code")
     net = circ = amt = pct = pd.Series(dtype=float)
     mf = provider.get_money_flow(d)
-    if mf is not None and not mf.empty and "net_mf_amount" in mf.columns:
-        net = pd.to_numeric(mf.set_index("ts_code")["net_mf_amount"], errors="coerce") / 1e4  # 万→亿
+    _mn = main_net_wan(mf)                                         # 主力净(万元)·超大单+大单(东财口径)
+    if not _mn.empty:
+        net = _mn / 1e4                                           # 万→亿
     db = provider.get_daily_basic(d)
     if db is not None and not db.empty and "circ_mv" in db.columns:
         circ = pd.to_numeric(db.set_index("ts_code")["circ_mv"], errors="coerce") / 1e4        # 万→亿

@@ -903,12 +903,14 @@ def _sector_panorama(
     ind_up_ratio = grp["pct_chg"].apply(lambda s: (s > 0).mean())
     ind_count = grp.size()
 
-    # —— 行业今日主力资金 ——
+    # —— 行业今日主力资金（超大单+大单净·东财口径）——
+    from app.data.moneyflow import has_main_flow_cols, main_net_wan
     ind_mf_today = pd.Series(dtype=float)
-    if df_mf is not None and not df_mf.empty and "net_mf_amount" in df_mf.columns:
+    if has_main_flow_cols(df_mf):
         mf = df_mf.copy()
+        mf["_main"] = main_net_wan(mf).to_numpy()               # 主力净(万元)·超大单+大单
         mf["_ind"] = mf["ts_code"].map(code2ind)
-        ind_mf_today = mf.dropna(subset=["_ind"]).groupby("_ind")["net_mf_amount"].sum() / 10000
+        ind_mf_today = mf.dropna(subset=["_ind"]).groupby("_ind")["_main"].sum() / 10000
 
     # —— 行业近3日主力资金累计（衡量"潜力/趋势"）——
     ind_mf_3d = pd.Series(dtype=float)
@@ -917,13 +919,14 @@ def _sector_panorama(
         frames = []
         for d in recent_days:
             dmf = provider.get_money_flow(d)
-            if dmf is not None and not dmf.empty and "net_mf_amount" in dmf.columns:
-                tmp = dmf[["ts_code", "net_mf_amount"]].copy()
+            if has_main_flow_cols(dmf):
+                tmp = pd.DataFrame({"ts_code": dmf["ts_code"].astype(str),
+                                    "_main": main_net_wan(dmf).to_numpy()})
                 tmp["_ind"] = tmp["ts_code"].map(code2ind)
                 frames.append(tmp.dropna(subset=["_ind"]))
         if frames:
             allmf = pd.concat(frames, ignore_index=True)
-            ind_mf_3d = allmf.groupby("_ind")["net_mf_amount"].sum() / 10000
+            ind_mf_3d = allmf.groupby("_ind")["_main"].sum() / 10000
     except Exception as e:
         logger.debug("[盘后] 3日行业资金趋势计算失败: %s", e)
 
@@ -1126,11 +1129,13 @@ def _fetch_market_data(today: str) -> str:
 
     # ── 3. 主力资金 + 行业分布 ─────────────────────────────────────────
     try:
+        from app.data.moneyflow import has_main_flow_cols, main_net_wan
         df_mf = provider.get_money_flow(today)
 
-        if df_mf is not None and not df_mf.empty and "net_mf_amount" in df_mf.columns:
+        if has_main_flow_cols(df_mf):
             df_mf = df_mf.copy()
-            total_net = df_mf["net_mf_amount"].sum() / 10000  # 万元 → 亿元
+            df_mf["_main"] = main_net_wan(df_mf).to_numpy()   # 主力净(万元)·超大单+大单(东财口径)
+            total_net = df_mf["_main"].sum() / 10000  # 万元 → 亿元
             direction = "净流入🔴" if total_net >= 0 else "净流出🟢"
             sections.append(f"【全市场主力资金】{total_net:+.1f} 亿元 {direction}")
 
@@ -1143,7 +1148,7 @@ def _fetch_market_data(today: str) -> str:
                 top10_elg = df_mf.nlargest(10, "elg_net")
                 sections.append("【超大单净流入 Top10（主力真实意图）】")
                 for _, r in top10_elg.iterrows():
-                    net = r["net_mf_amount"] / 10000
+                    net = r["_main"] / 10000
                     ind = code2ind.get(r["ts_code"], "")
                     sections.append(
                         f"  {_label(r['ts_code'])}  超大单净流入{r['elg_net']:+.1f}亿  主力净{net:+.1f}亿  {ind}"

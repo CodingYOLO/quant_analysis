@@ -186,7 +186,8 @@ def _stock_signals(close, vol, open_, low, today_open, today_low, today_close) -
 
 
 def _main_flow_3d(provider: CompositeProvider, trade_date: str) -> dict:
-    """近 3 个交易日主力净流入合计（亿元），{ts_code: 亿}。"""
+    """近 3 个交易日主力净流入合计（亿元），{ts_code: 亿}·超大单+大单(东财/同花顺口径)。"""
+    from app.data.moneyflow import main_net_wan
     out: dict[str, float] = {}
     try:
         dates = _recent_trade_dates(provider, trade_date, 3)
@@ -197,10 +198,8 @@ def _main_flow_3d(provider: CompositeProvider, trade_date: str) -> dict:
             mf = provider.get_money_flow(d)
         except Exception:
             continue
-        if mf is None or mf.empty or "net_mf_amount" not in mf.columns:
-            continue
-        net = pd.to_numeric(mf["net_mf_amount"], errors="coerce")
-        for ts, v in zip(mf["ts_code"], net):
+        net = main_net_wan(mf)                                 # 主力净(万元)·超大单+大单
+        for ts, v in net.items():
             if pd.notna(v):
                 out[ts] = out.get(ts, 0.0) + float(v) / 1e4   # 万元→亿
     return out

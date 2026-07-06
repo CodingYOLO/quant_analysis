@@ -44,16 +44,15 @@ def _industry_agg(date: str, provider, code2name, code2ind) -> pd.DataFrame:
         for ts, p in zip(daily["ts_code"], daily["pct_chg"])
     ]
 
-    # 资金流（主力净流入 + 超大单）
+    # 资金流（主力净流入=超大单+大单·东财口径 + 超大单单列）·统一口径见 app/data/moneyflow.py
+    from app.data.moneyflow import has_main_flow_cols, main_net_wan
     mf = provider.get_money_flow(date)
     mf_map, elg_map = {}, {}
-    if mf is not None and not mf.empty and "net_mf_amount" in mf.columns:
+    if has_main_flow_cols(mf):
         mf = mf.copy()
-        mf["main"] = (
-            (mf["buy_elg_amount"] - mf["sell_elg_amount"]) +
-            (mf["buy_lg_amount"] - mf["sell_lg_amount"])
-        ) / 10000
-        mf["elg"] = (mf["buy_elg_amount"] - mf["sell_elg_amount"]) / 10000
+        mf["main"] = main_net_wan(mf).to_numpy() / 10000       # 主力净(亿)·超大单+大单
+        mf["elg"] = (pd.to_numeric(mf["buy_elg_amount"], errors="coerce")
+                     - pd.to_numeric(mf["sell_elg_amount"], errors="coerce")) / 10000
         daily = daily.merge(mf[["ts_code", "main", "elg"]], on="ts_code", how="left")
     else:
         daily["main"] = 0.0

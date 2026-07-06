@@ -349,22 +349,22 @@ def _build_universe(
     basic_cols = ["ts_code", "circ_mv", "total_mv", "turnover_rate", "volume_ratio", "pe_ttm", "pb"]
     db = daily_basic[basic_cols].copy() if daily_basic is not None and not daily_basic.empty else pd.DataFrame()
 
-    # 资金流：计算超大单+大单净流入
+    # 资金流：主力净流入 = 超大单+大单净（东财口径·不用 Tushare net_mf_amount·口径见 app/data/moneyflow.py）
     if money_flow is not None and not money_flow.empty:
-        mf = money_flow[["ts_code", "buy_elg_amount", "sell_elg_amount", "buy_lg_amount", "sell_lg_amount", "net_mf_amount"]].copy()
+        mf = money_flow[["ts_code", "buy_elg_amount", "sell_elg_amount", "buy_lg_amount", "sell_lg_amount"]].copy()
         mf["main_net_amount"] = (
             (mf["buy_elg_amount"] - mf["sell_elg_amount"]) +
             (mf["buy_lg_amount"] - mf["sell_lg_amount"])
         )
     else:
-        mf = pd.DataFrame(columns=["ts_code", "main_net_amount", "net_mf_amount"])
+        mf = pd.DataFrame(columns=["ts_code", "main_net_amount"])
 
     # 合并
     uni = daily[["ts_code", "open", "high", "low", "close", "pct_chg", "vol", "amount"]].copy()
     if not db.empty:
         uni = uni.merge(db, on="ts_code", how="left")
     if not mf.empty:
-        uni = uni.merge(mf[["ts_code", "main_net_amount", "net_mf_amount"]], on="ts_code", how="left")
+        uni = uni.merge(mf[["ts_code", "main_net_amount"]], on="ts_code", how="left")
 
     # 股票名称
     if stock_basic is not None and not stock_basic.empty:
