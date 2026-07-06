@@ -434,6 +434,44 @@ def auction_open_cards(watch: dict, rows: list[dict], prev_amount: dict,
     return out
 
 
+def open_strength_board(rows: list[dict], prev_amount: dict, imap: dict, *,
+                        top: int = 20, min_gap: float = 2.0) -> list[dict]:
+    """开盘高开·强承接榜（**全市场**个股·9:30后开盘半小时·快速发现今日高开且守住/承接强的机会）。
+
+    与自选作战台并存：这个扫全场发现机会。收 高开≥min_gap 的A股·剔ST·守开盘价优先→高开幅度排。
+    附 档位/承接强度/量比/竞量比/爆量避雷。**描述现状非荐股**（守 no-directional）。纯函数·可测。
+    """
+    out = []
+    for q in rows:
+        name = str(q.get("name", ""))
+        if "ST" in name.upper():                       # 剔风险警示(发现机会不看ST)
+            continue
+        prev, open_p, price = _ff(q.get("prev_close")), _ff(q.get("open")), _ff(q.get("price"))
+        if not (prev and open_p and price):
+            continue
+        gap = round((open_p / prev - 1) * 100, 2)
+        if gap < min_gap:                              # 只看高开票
+            continue
+        tier, _n = _gap_tier(gap)
+        sup, sup_note = _open_support(open_p, q.get("high"), price)
+        lu = _ff(q.get("limit_up"))
+        seal = bool(lu and price >= lu - 0.001)
+        pa = _ff(prev_amount.get(q.get("ts_code")))
+        out.append({
+            "name": name, "ts_code": q.get("ts_code", ""),
+            "gap": gap, "tier": tier, "cur_pct": round(_ff(q.get("pct_chg")), 2),
+            "support": sup, "support_note": sup_note,
+            "vs_open": round((price / open_p - 1) * 100, 2),
+            "vol_ratio": round(_ff(q.get("vol_ratio")), 2),
+            "auc_vol_ratio": round(_ff(q.get("amount")) / pa * 100, 1) if pa else None,
+            "hold": price >= open_p, "seal": seal,
+            "risk": "爆量破97%·出货预备" if (gap > 7 and not seal and price < open_p * 0.97) else "",
+            "industry": imap.get(q.get("ts_code"), ""),
+        })
+    out.sort(key=lambda c: (c["hold"], c["gap"]), reverse=True)     # 守开盘价优先→高开幅度
+    return out[:top]
+
+
 # ─────────────────────────────────────────────────────────────────
 # 盘中"变化"追踪：板块资金加速/轮动 + 大盘趋势 + 定时市场快照 + 重大变化（纯函数·可测）
 # 阈值为经验值，待真盘校准（诚实铁律）。

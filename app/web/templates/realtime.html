@@ -74,6 +74,13 @@
   </div>
 </div>
 
+<!-- 🔥 全市场·开盘高开强势榜(9:30-10:30·机会发现·剔ST·守开盘价优先) -->
+<div class="card" id="rtOpenCard" style="display:none;border:1px solid #f6465d">
+  <h2>🔥 全市场·开盘高开强势榜<span class="rt-tag">开盘半小时 · 高开且守住/承接强=日内偏强 · 扫全场发现机会 · 描述非荐股</span></h2>
+  <div style="overflow-x:auto"><table><thead><tr><th>股票</th><th>板块</th><th>高开·档位</th><th>现vs开</th><th>承接</th><th>量比/竞量</th></tr></thead>
+  <tbody id="rtOpenBoard"></tbody></table></div>
+</div>
+
 <div class="card"><h2>🌡️ 大盘温度</h2><div class="rt-metrics" id="rtBreadth"></div></div>
 
 <!-- 🏁 板块实时排名(动态竞速条·随数据伸缩+重排·集合竞价也用) -->
@@ -363,6 +370,21 @@ function renderBattle(d){
     return `<tr><td>${r.name}${tag}</td><td>${gapCell}</td><td style="font-size:12px">${volCell}</td><td>${stateCell}</td><td>${note}</td></tr>`;
   }).join('');
 }
+// 🔥 全市场·开盘高开强势榜(9:30-10:30·机会发现)
+function renderOpenBoard(d){
+  const rows=d.open_board||[], card=$('rtOpenCard');
+  if(!rows.length){ card.style.display='none'; return; }
+  card.style.display='';
+  $('rtOpenBoard').innerHTML=rows.map(r=>{
+    const tc=TIER_COLOR[r.tier]||'#9ca3af';
+    const ind=r.industry?`<span class="badge" style="font-size:9px;background:#232640;color:#9ca3af">${r.industry}</span>`:'';
+    const gapCell=`<b class="pos">+${r.gap}%</b> <span class="badge" style="font-size:10px;background:${tc}22;color:${tc}">${r.tier}</span>${r.seal?' <span class="badge badge-red" style="font-size:9px">一字</span>':''}`;
+    const sc=(r.support||'').indexOf('破位')>=0?'neg':((r.support||'').indexOf('强')>=0?'pos':'neu');
+    const supCell=r.risk?`<span class="neg" style="font-size:11.5px">⚠️${r.risk}</span>`:`<span class="${sc}">${r.support||'—'}</span>`;
+    const volCell=`量比${r.vol_ratio}`+(r.auc_vol_ratio!=null?` · ${r.auc_vol_ratio}%昨`:'');
+    return `<tr><td>${r.name}</td><td>${ind}</td><td>${gapCell}</td><td class="${cls(r.vs_open)}">${sgn(r.vs_open)}%</td><td>${supCell}</td><td style="font-size:12px">${volCell}</td></tr>`;
+  }).join('');
+}
 const SESS={auction:'🔔 集合竞价·可撤单',auction_lock:'🔒 集合竞价·不可撤单',pre_open:'🔔 集合竞价·过渡',continuous:'全推实时',closed:'全推实时'};
 function renderStatus(d){
   const src=(d.status||{}).source||'', sess=d.session||'closed'; let dot,txt;
@@ -378,7 +400,7 @@ async function tick(){
     const d=await (await fetch('/api/realtime/board')).json();
     if(!d.ok){ $('rtStatus').textContent='加载失败：'+(d.msg||''); return; }
     _lastBoard=d;
-    renderStatus(d); renderBattle(d); renderAuction(d); renderPulse(d.pulse); renderRace(d); renderBrief(d.brief); renderBreadth(d.breadth, d.breadth_trend); renderSenti(d.sentiment); renderSectors(d.sectors); renderThemes(d.themes);
+    renderStatus(d); renderBattle(d); renderOpenBoard(d); renderAuction(d); renderPulse(d.pulse); renderRace(d); renderBrief(d.brief); renderBreadth(d.breadth, d.breadth_trend); renderSenti(d.sentiment); renderSectors(d.sectors); renderThemes(d.themes);
     renderTail(d.tail); renderSecOut(d.sectors_out); renderFlash(d.flash);
     renderFund(d.fund_ranking); renderVolSurge(d.vol_surge); renderSurge(d.surge); renderWatch(d.watch);
   }catch(e){ $('rtStatus').textContent='网络错误：'+e; }

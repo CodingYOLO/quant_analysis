@@ -327,6 +327,18 @@ def _battle_block(records: list[dict], session: str) -> list[dict]:
         return []
 
 
+def _open_board_block(records: list[dict], session: str, imap: dict) -> list[dict]:
+    """开盘高开·强承接榜（**全市场**·仅连续竞价开盘半小时窗；竞价时全市场看'集合竞价'卡）。"""
+    if session != "continuous" or not _is_battle_window(session):
+        return []
+    try:
+        from app.strategy.realtime_fund import open_strength_board
+        return open_strength_board(records, _prev_amount_map(), imap, top=20)
+    except Exception as e:
+        logger.warning("[开盘榜] 构建失败: %s", e)
+        return []
+
+
 def record_tail_baseline(rows: list[dict]) -> None:
     """进入尾盘首次记录 14:30 基准（幂等·按交易日自动重置）。"""
     global _TAIL_BASE, _TAIL_DATE
@@ -447,6 +459,7 @@ def build_board() -> dict:
     base["sectors_out"] = [s for s in reversed(full) if s["net_yi"] < 0][:15]   # 资金撤离(风险)
     records = df.to_dict("records")                       # 转一次·多块复用
     base["battle"] = _battle_block(records, base["session"])   # 竞价·开盘作战台(开盘半小时·自选/持仓)
+    base["open_board"] = _open_board_block(records, base["session"], imap)  # 全市场开盘高开·强承接榜(机会发现)
     base.update(_radar_block(df, imap))
     base["sentiment"] = _sentiment_block(records, tm)     # 情绪温度计(连板梯队/晋级率/炸板率)
     base["themes"] = _theme_block(records)
