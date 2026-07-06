@@ -485,21 +485,30 @@ def activity_rank_cmd(days: int) -> None:
 @cli.command("flow-monitor")
 @click.option("--date", "trade_date", default="last", help="交易日，默认最近交易日")
 def flow_monitor_cmd(trade_date: str) -> None:
-    """资金口径哨兵：elg+lg(canonical) vs 东财dc 一致性 + 各源完整性·异常推Bark（21:00 cron·dc结算偏晚）。"""
+    """数据/市场哨兵：①资金口径 elg+lg vs 东财dc 一致+完整 ②市场制度 当日涨跌IC 动量/反转翻转·异常推Bark（21:00 cron）。"""
+    from app.backtest.regime_monitor import run_regime_monitor
     from app.data.flow_monitor import run_flow_monitor
     from app.notify.notifier import push_bark
 
     td = _resolve_date(trade_date)
+    # ① 资金口径哨兵
     r = run_flow_monitor(td)
     m = r["metrics"]
     console.print(f"\n[bold cyan]🛡️ 资金口径哨兵[/bold cyan]  {td}")
     console.print(f"  elg+lg vs 东财dc: 相关={m['corr']} 方向一致={m['dir_agree']} | 行数 mf={m['mf_rows']} dc={m['dc_rows']}")
-    if r["alerts"]:
-        body = "\n".join(r["alerts"])
+    # ② 市场制度哨兵（当日涨跌 IC 动量/反转）
+    rr = run_regime_monitor(td)
+    if rr.get("ok"):
+        reg = rr["regime"]
+        trade = f" | 年度可交易(非重叠{reg.get('n_trade')}) IC={reg.get('trade_ic'):+.3f}" if reg.get("trade_ic") is not None else ""
+        console.print(f"[bold cyan]🧭 市场制度哨兵[/bold cyan]  当日涨跌%→H{reg['horizon']}: 近期(重叠{reg['n']}) IC={reg['mean_ic']:+.3f} → {reg['label']}{trade}")
+    alerts = r["alerts"] + rr.get("alerts", [])
+    if alerts:
+        body = "\n".join(alerts)
         console.print(f"[red]{body}[/red]\n")
-        push_bark("⚠️资金口径/完整性异常", body, group="数据质量", level="timeSensitive")
+        push_bark("⚠️数据/制度异常", body, group="数据质量", level="timeSensitive")
     else:
-        console.print("[green]✅ 一致性/完整性正常[/green]\n")
+        console.print("[green]✅ 口径一致 · 完整性正常 · 制度未翻转[/green]\n")
 
 
 @cli.command("wide")
