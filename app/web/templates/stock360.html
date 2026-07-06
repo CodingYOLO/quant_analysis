@@ -127,6 +127,7 @@ table.mini td { padding:6px 8px; border-bottom:1px solid #1e2138; }
     <div id="v-kline" style="height:300px"></div><div id="v-prof" class="loading">⏳ 加载股性…</div></div>
   <div class="sec"><h2>🎯 关键位 · 入局区间 <span class="neu2" style="font-size:11px">（支撑/压力自算·每档带依据·仅标位置不构成买卖建议）</span></h2><div id="v-levels" class="loading">⏳ 计算关键位…</div></div>
   <div class="sec"><h2>💰 资金（主力估算 + 龙虎榜机构真钱 + 大盘北向）</h2><div id="v-fund" class="loading">⏳ 加载资金…</div></div>
+  <div class="sec"><h2>🔺 融资盘 / 杠杆拥挤度 <span class="neu2" style="font-size:11px">（杀融资盘=回调触发强平的放大器·T+1数据·看趋势非绝对值）</span></h2><div id="v-margin" class="loading">⏳ 加载融资盘…</div></div>
   <div class="sec"><h2>🏛️ 龙虎榜复盘（近6月·历史规律）</h2><div id="v-lhb" class="loading">⏳ 复盘龙虎榜…</div></div>
   <div class="sec"><h2>🔥 板块情况</h2><div id="v-sector" class="loading">⏳ 加载板块…</div></div>
   <div class="sec"><h2>⚠️ 监管 / 停牌 <span class="neu2" style="font-size:11px">（停牌=事实·连板异动=核查风险派生·监管函=博查带来源）</span></h2><div id="v-reg" class="loading">⏳ 查停牌/异动/监管函…</div></div>
@@ -173,7 +174,7 @@ function go(){
   const code=$('code').value.trim(); if(!code||busy) return;
   busy=true; $('go').disabled=true; _lastCode=code; _lastName=code; _lastSector='';
   $('hint').style.display='none'; $('result').style.display='block'; setReportTitle();
-  ['v-prof','v-fund','v-lhb','v-sector','v-reg','v-fin','v-research','v-scout','v-news'].forEach(id=>{ $(id).className='loading'; $(id).textContent='⏳ 加载中…'; });
+  ['v-prof','v-fund','v-margin','v-lhb','v-sector','v-reg','v-fin','v-research','v-scout','v-news'].forEach(id=>{ $(id).className='loading'; $(id).textContent='⏳ 加载中…'; });
   $('v-kline').innerHTML=''; _kc=null; $('export-bar').style.display='none';
   $('vd-body').className='loading'; $('vd-body').textContent='⏳ 正在汇总各区数据并生成综合判断…';
   $('v-company').className='loading'; $('v-company').textContent='⏳ 加载公司画像…';
@@ -182,7 +183,7 @@ function go(){
   const jobs=[
     loadProfile(code,facts,store), loadFundThenSector(code,facts,store), loadFin(code,facts,store),
     loadResearch(code,facts,store), loadScout(code,facts,store), loadNews(code,facts,store),
-    loadLhb(code,facts,store), loadReg(code,facts,store),
+    loadLhb(code,facts,store), loadReg(code,facts,store), loadMargin(code,facts,store),
   ];
   // 各区一加载完就放出导出按钮（不必等最慢的 AI 判断·判断随后补上）
   Promise.allSettled(jobs).then(()=>{ $('export-bar').style.display='flex';
@@ -360,6 +361,33 @@ function renderReg(d,facts){
   $('v-reg').innerHTML=h;
   if(d.suspended) facts['监管']='当前停牌中';
   else if(d.anomaly) facts['监管']=d.anomaly.text;
+}
+async function loadMargin(code,facts,store){
+  try{ const d=await (await fetch('/api/stock/margin?code='+encodeURIComponent(code))).json(); store.margin=d; renderMargin(d,facts); }
+  catch(e){ $('v-margin').className=''; $('v-margin').textContent='加载失败'; }
+}
+function renderMargin(d,facts){
+  const el=$('v-margin'); el.className='';
+  if(!d||!d.ok){ el.textContent='加载失败'; return; }
+  if(!d.is_target){ el.innerHTML='<span class="neu2">'+esc(d.note||'非两融标的·无融资盘')+'</span>'; if(facts)facts['融资盘']='非两融标的·无强平放大器'; return; }
+  const lv={'正常':['#1a1d2e','#9ca3af'],'偏高':['#3a2c12','#f0a020'],'拥挤':['#3b1a1a','#f6465d']}[d.level]||['#1a1d2e','#9ca3af'];
+  const rc=d.rzye_chg, pc=d.price_chg;
+  const rcS=rc==null?'—':((rc>0?'+':'')+rc+'%');
+  const pcS=pc==null?'—':('<span class="'+(pc>0?'up':(pc<0?'down':''))+'">'+(pc>0?'+':'')+pc+'%</span>');
+  let spark='';
+  if(d.series&&d.series.length>1){ const mx=Math.max(...d.series),mn=Math.min(...d.series);
+    spark='<div style="display:flex;align-items:flex-end;gap:2px;height:34px;margin-top:8px">'+d.series.map(v=>{const hh=mx>mn?((v-mn)/(mx-mn)*28+5):16;return '<div title="'+v+'亿" style="width:7px;height:'+hh+'px;background:#3d4270;border-radius:1px"></div>';}).join('')+'</div><div class="neu2" style="font-size:10px;margin-top:2px">近20日融资余额(亿) · '+mn+'~'+mx+'</div>';
+  }
+  let h=dt('数据日 <b>'+fmtD(d.date)+'</b> · 两融 T+1 披露(今天看到的是昨天余额)');
+  h+='<div style="margin:8px 0"><span style="background:'+lv[0]+';color:'+lv[1]+';padding:2px 9px;border-radius:6px;font-weight:600">拥挤度 '+d.crowd+'% · '+d.level+'</span>'
+    +'<span class="neu2" style="margin-left:10px">融资余额 <b>'+d.rzye_yi+'亿</b></span></div>';
+  h+='<div style="font-size:13px;line-height:1.95">近'+d.win+'日：融资余额 <b>'+rcS+'</b>（'+(rc==null?'—':(rc>0?'加杠杆':'去杠杆'))+'） · 股价 '+pcS
+    +'  ｜  融资买入占成交 <b>'+(d.buy_ratio!=null?d.buy_ratio+'%':'—')+'</b>'+(d.buy_ratio!=null&&d.buy_ratio>=15?' <span class="up">(杠杆是主买盘·退潮也是主卖)</span>':'')+'</div>';
+  if(d.warn){ const wc=d.warn.indexOf('🟢')>=0?['#12271b','#4ade80']:['#3a2c12','#f0a020'];
+    h+='<div style="margin-top:8px;padding:8px 12px;background:'+wc[0]+';color:'+wc[1]+';border-radius:8px;font-size:13px;line-height:1.65">'+esc(d.warn)+'</div>'; }
+  h+=spark+'<div class="neu2" style="font-size:10.5px;margin-top:8px">'+esc(d.disclaimer||'')+'</div>';
+  el.innerHTML=h;
+  if(facts) facts['融资盘']='拥挤度'+d.crowd+'%('+d.level+')·近'+d.win+'日余额'+(rc!=null?((rc>0?'+':'')+rc+'%'):'—')+'/价'+(pc!=null?pc+'%':'—')+(d.warn?('·'+d.warn.replace(/[⚠️🟢\s]/g,'').slice(0,22)):'');
 }
 async function loadFin(code,facts,store){
   try{ const d=await (await fetch('/api/stock/financials?code='+encodeURIComponent(code))).json(); store.fin=d; renderFin(d,facts); }

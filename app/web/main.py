@@ -2246,6 +2246,22 @@ async def api_stock_company(code: str = "", _user: str = Depends(require_auth)):
         return {"ok": False, "msg": str(e)}
 
 
+@app.get("/api/stock/margin")
+async def api_stock_margin(code: str = "", _user: str = Depends(require_auth)):
+    """融资盘/杠杆拥挤度：拥挤度(融资余额/流通市值)+趋势+价跌余额不降背离(T+1·描述非荐股)。"""
+    try:
+        from fastapi.concurrency import run_in_threadpool
+
+        from app.strategy.margin_watch import margin_profile
+        ts = _resolve_ts_code(code)
+        if not ts:
+            return {"ok": False, "msg": "无法识别股票"}
+        return {"ok": True, **await run_in_threadpool(margin_profile, ts)}
+    except Exception as e:
+        logger.exception("融资盘画像失败")
+        return {"ok": False, "msg": str(e)}
+
+
 @app.get("/api/stock/financials")
 async def api_stock_financials(code: str = "", _user: str = Depends(require_auth)):
     """财报跟踪：ROE/营收净利同比/负债率/毛利率 近几期趋势（Tushare）。"""
