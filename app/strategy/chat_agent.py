@@ -339,42 +339,52 @@ def _t_inst_board(args, provider) -> dict:
 
 
 def _live_market_overview() -> dict | None:
-    """盘中实时大盘：读进程内全推L1快照(上证/涨跌家数/涨停跌停/成交额量能/情绪/资金板块)。
+    """大盘实时：**大盘指数走 Sina 实时(独立于幕数据·一律实时·收盘持今日收盘值)**；
+    涨跌家数/涨停跌停/成交额量能/情绪/资金板块走幕数据全推L1快照。
 
-    修复"AI投研盘中用昨日收盘数据"的bug——交易时段大盘格局必须用实时快照·非 build_overview(EOD settled)。
+    修"收盘后/幕数据未连时仍报昨日"的bug——指数永远实时；广度类快照没就绪则明示暂缺·**绝不退回昨日冒充今日**。
     """
     try:
         from app.strategy.realtime_hub import build_board_cached, market_session
-        b = build_board_cached()
+        b = build_board_cached() or {}
     except Exception:
         return None
-    if not b or b.get("count", 0) < 500 or not b.get("indices"):
-        return None                                                # 快照未就绪→回退settled
+    idx = b.get("indices") or []                                   # Sina实时·即使快照空也在(board先填indices)
+    sh = next((x for x in idx if x.get("code") == "000001.SH"), {})
+    has_snap = b.get("count", 0) >= 500 and bool(b.get("breadth"))
+    if not sh.get("price") and not has_snap:
+        return None                                                # 指数和快照都没有→回退settled
     live_now = market_session() in ("continuous", "auction", "auction_lock", "pre_open")
-    kou = (f"⚡盘中实时·截至{b.get('as_of', '')}·幕数据沪深全推L1（**非昨日收盘**·勿说昨日）" if live_now
-           else f"📊今日收盘/最近成交快照·截至{b.get('as_of', '')}·幕数据全推L1（**今日盘面实时值·非上一交易日settled·勿说昨日**）")
-    sh = next((x for x in b["indices"] if x.get("code") == "000001.SH"), {})
-    br = b.get("breadth", {})
-    mv = b.get("market_volume") or {}
-    se = b.get("sentiment", {})
-    secs = b.get("sectors") or []
-    outs = b.get("sectors_out") or []
-    liang = (f"{mv.get('label', '')}·量比{mv.get('vol_ratio')}·预估全天{mv.get('proj_yi')}亿 vs 昨{mv.get('prev_yi')}亿"
-             if mv.get("today_yi") is not None else None)
-    return {
-        "数据口径": kou,
+    when = "⚡盘中实时" if live_now else "📊今日收盘/最近成交"
+    out = {
+        "数据口径": f"{when}·截至{b.get('as_of', '') or '实时'}·大盘指数=Sina实时·广度/成交/情绪=幕数据全推L1（**今日实时值·非昨日收盘·勿说昨日**）",
         "上证点位": sh.get("price"), "上证今日%": sh.get("pct_chg"),
-        "涨家数": br.get("up"), "跌家数": br.get("down"),
-        "涨停": br.get("limit_up"), "跌停": br.get("limit_down"),
-        "今日成交额(亿·实时累计)": mv.get("today_yi"), "量能": liang,
-        "情绪状态": se.get("state"), "炸板率%": se.get("bao_rate"),
-        "最高连板": se.get("top_board"), "晋级率%": se.get("promo_rate"), "封板数": se.get("sealed"),
-        "较30min前趋势": (b.get("breadth_trend") or {}).get("text"),
-        "资金涌入板块(实时)": [f"{s.get('industry')} +{s.get('net_yi')}亿({s.get('accel', '')}·龙头{s.get('leader', '')})" for s in secs[:5]],
-        "资金撤离板块(实时)": [f"{s.get('industry')} {s.get('net_yi')}亿" for s in outs[:5]],
-        "一句话": b.get("pulse"),
-        "说明": "盘中实时快照·成交额为当日累计(量比时段归一近似)·非预测不构成建议",
+        "各大指数": [f"{x.get('name')} {x.get('price')}({x.get('pct_chg')}%)" for x in idx[:7]],
     }
+    if has_snap:
+        br = b.get("breadth", {})
+        mv = b.get("market_volume") or {}
+        se = b.get("sentiment", {})
+        secs = b.get("sectors") or []
+        outs = b.get("sectors_out") or []
+        liang = (f"{mv.get('label', '')}·量比{mv.get('vol_ratio')}·预估全天{mv.get('proj_yi')}亿 vs 昨{mv.get('prev_yi')}亿"
+                 if mv.get("today_yi") is not None else None)
+        out.update({
+            "涨家数": br.get("up"), "跌家数": br.get("down"),
+            "涨停": br.get("limit_up"), "跌停": br.get("limit_down"),
+            "今日成交额(亿·实时累计)": mv.get("today_yi"), "量能": liang,
+            "情绪状态": se.get("state"), "炸板率%": se.get("bao_rate"),
+            "最高连板": se.get("top_board"), "晋级率%": se.get("promo_rate"), "封板数": se.get("sealed"),
+            "较30min前趋势": (b.get("breadth_trend") or {}).get("text"),
+            "资金涌入板块(实时)": [f"{s.get('industry')} +{s.get('net_yi')}亿({s.get('accel', '')}·龙头{s.get('leader', '')})" for s in secs[:5]],
+            "资金撤离板块(实时)": [f"{s.get('industry')} {s.get('net_yi')}亿" for s in outs[:5]],
+            "一句话": b.get("pulse"),
+        })
+    else:
+        out["涨跌家数/成交/情绪"] = ("⚠️幕数据全推暂未连接(盘后feed已停或刚重启)·**当前仅大盘指数为实时(Sina)**；"
+                             "涨跌家数/成交额/情绪稍后重试或用已结算EOD值(须明示是上一交易日·勿冒充今日)")
+    out["说明"] = "大盘指数Sina实时·广度类幕数据快照(成交额当日累计·量比时段归一近似)·非预测不构成建议"
+    return out
 
 
 def _t_market_overview(args, provider) -> dict:
