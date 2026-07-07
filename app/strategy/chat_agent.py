@@ -338,9 +338,54 @@ def _t_inst_board(args, provider) -> dict:
             "说明": "龙虎榜机构专用席位=真金白银·仅当日异动股·净买≠必涨·需结合基本面"}
 
 
+def _live_market_overview() -> dict | None:
+    """盘中实时大盘：读进程内全推L1快照(上证/涨跌家数/涨停跌停/成交额量能/情绪/资金板块)。
+
+    修复"AI投研盘中用昨日收盘数据"的bug——交易时段大盘格局必须用实时快照·非 build_overview(EOD settled)。
+    """
+    try:
+        from app.strategy.realtime_hub import build_board_cached
+        b = build_board_cached()
+    except Exception:
+        return None
+    if not b or b.get("count", 0) < 500 or not b.get("indices"):
+        return None                                                # 快照未就绪→回退settled
+    sh = next((x for x in b["indices"] if x.get("code") == "000001.SH"), {})
+    br = b.get("breadth", {})
+    mv = b.get("market_volume") or {}
+    se = b.get("sentiment", {})
+    secs = b.get("sectors") or []
+    outs = b.get("sectors_out") or []
+    liang = (f"{mv.get('label', '')}·量比{mv.get('vol_ratio')}·预估全天{mv.get('proj_yi')}亿 vs 昨{mv.get('prev_yi')}亿"
+             if mv.get("today_yi") is not None else None)
+    return {
+        "数据口径": f"⚡盘中实时·截至{b.get('as_of', '')}·幕数据沪深全推L1（**非昨日收盘**·勿说昨日）",
+        "上证点位": sh.get("price"), "上证今日%": sh.get("pct_chg"),
+        "涨家数": br.get("up"), "跌家数": br.get("down"),
+        "涨停": br.get("limit_up"), "跌停": br.get("limit_down"),
+        "今日成交额(亿·实时累计)": mv.get("today_yi"), "量能": liang,
+        "情绪状态": se.get("state"), "炸板率%": se.get("bao_rate"),
+        "最高连板": se.get("top_board"), "晋级率%": se.get("promo_rate"), "封板数": se.get("sealed"),
+        "较30min前趋势": (b.get("breadth_trend") or {}).get("text"),
+        "资金涌入板块(实时)": [f"{s.get('industry')} +{s.get('net_yi')}亿({s.get('accel', '')}·龙头{s.get('leader', '')})" for s in secs[:5]],
+        "资金撤离板块(实时)": [f"{s.get('industry')} {s.get('net_yi')}亿" for s in outs[:5]],
+        "一句话": b.get("pulse"),
+        "说明": "盘中实时快照·成交额为当日累计(量比时段归一近似)·非预测不构成建议",
+    }
+
+
 def _t_market_overview(args, provider) -> dict:
-    """大盘体检：当前状态/上证点位/成交量水位/广度/涨停跌停/情绪/近5日领涨跌板块。给"大盘格局/后市"判断打底。"""
+    """大盘体检：当前状态/上证点位/成交量水位/广度/涨停跌停/情绪/近5日领涨跌板块。给"大盘格局/后市"判断打底。
+
+    ⚡交易时段优先返回**实时快照**(实时上证/涨跌/成交/情绪)；休市/快照未就绪才用 build_overview(EOD settled)。
+    """
     from datetime import datetime
+
+    from app.strategy.realtime_hub import market_session
+    if market_session() in ("continuous", "auction", "auction_lock", "pre_open"):
+        live = _live_market_overview()
+        if live:
+            return live
 
     from app.strategy.market_overview import build_overview
     d = build_overview(datetime.now().strftime("%Y%m%d"), 20)
@@ -359,6 +404,7 @@ def _t_market_overview(args, provider) -> dict:
             sums.append((nm, round(sum(vals), 1)))
     sums.sort(key=lambda x: -x[1])
     return {
+        "数据口径": f"收盘EOD·数据日={d.get('end_date')}（**这是该交易日收盘数据·非盘中实时**·若问盘中请知悉为已settled值）",
         "交易日": d.get("end_date"), "状态": r.get("label"), "诊断": r.get("reason"),
         "上证点位": lv[-1] if lv else None, "上证今日%": day_pct,
         "成交额(万亿)": k.get("amount_wy"), "成交额较前日(亿)": k.get("amount_chg_yi"),
