@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+{% block title %}资金全正 — A股Agent{% endblock %}
+
+{% block extra_style %}
+.fa-bar { display:flex; align-items:center; gap:10px; margin-bottom:12px; flex-wrap:wrap; }
+.fa-btn { background:#0f1117; border:1px solid #2d3052; color:#9ca3af; border-radius:14px; padding:5px 14px; font-size:13px; cursor:pointer; transition:all .15s; }
+.fa-btn.active { background:#2742a8; color:#fff; border-color:#3358e0; }
+.fa-date { background:#0f1117; color:#e8e8e8; border:1px solid #2d3052; border-radius:6px; padding:6px 10px; font-size:13px; }
+.kpi-row { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:16px; }
+.kpi { background:#161929; border:1px solid #242842; border-radius:10px; padding:12px 14px; text-align:center; }
+.kpi .label { font-size:12px; color:#9ca3af; margin-bottom:5px; }
+.kpi .big { font-size:24px; font-weight:700; }
+.kpi .sub { font-size:11px; color:#8b93a7; margin-top:4px; }
+.card { background:#161929; border:1px solid #242842; border-radius:10px; padding:14px 16px; margin-bottom:16px; }
+.card h3 { font-size:15px; color:#c9d2f8; font-weight:600; margin-bottom:4px; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.hint { font-size:11px; color:#8b93a7; font-weight:400; }
+.up { color:#f6465d; } .down { color:#2ebd85; } .neu { color:#9ca3af; }
+.fa-tbl { width:100%; border-collapse:collapse; font-size:12.5px; }
+.fa-tbl th { color:#8b93a7; font-weight:500; text-align:right; padding:7px 8px; border-bottom:1px solid #242842; font-size:11.5px; white-space:nowrap; }
+.fa-tbl th.l, .fa-tbl td.l { text-align:left; }
+.fa-tbl td { padding:6px 8px; border-bottom:1px solid #1a1d2e; text-align:right; white-space:nowrap; }
+.fa-tbl tr.hit { background:#141a2a; }
+.dims { display:inline-block; min-width:34px; text-align:center; padding:1px 6px; border-radius:9px; font-weight:700; font-size:11px; }
+.st { display:inline-block; padding:1px 7px; border-radius:9px; font-size:11px; }
+.st-健康 { background:#3b1a1a; color:#f6465d; } .st-洗盘 { background:#241d10; color:#f0a020; }
+.st-撤退 { background:#16321f; color:#2ebd85; } .st-修复 { background:#10233a; color:#5d9bff; } .st-分歧 { background:#1a1d2e; color:#9ca3af; }
+.tier { display:inline-block; padding:1px 7px; border-radius:9px; font-size:11px; font-weight:600; }
+.tier-低吸 { background:#0d2b2b; color:#2dd4bf; } .tier-蓄势 { background:#241d10; color:#f0a020; }
+.tier-强势 { background:#3b1a1a; color:#f6465d; } .tier-过热 { background:#3b0d10; color:#ff5b6e; } .tier-破位 { background:#1a1d2e; color:#6b7280; }
+.wtag { display:inline-block; font-size:10px; background:#2742a8; color:#cdd6f4; padding:0 5px; border-radius:8px; margin-left:4px; }
+@media (max-width:900px){ .kpi-row{grid-template-columns:repeat(2,1fr)} .fa-tbl{font-size:11.5px} }
+{% endblock %}
+
+{% block content %}
+<div class="fa-bar">
+  <span style="font-size:20px;font-weight:700">🧲 多维资金全正 · 择时分档</span>
+  <span class="fa-btn active" data-k="industry">行业(申万二级)</span>
+  <span class="fa-btn" data-k="concept">概念(同花顺)</span>
+  <input type="date" id="fa-date" class="fa-date">
+  <button id="fa-load" class="fa-btn" style="background:linear-gradient(135deg,#3358e0,#5d7cff);color:#fff;border:none">🔄</button>
+  <span id="fa-tip" class="hint">资金给方向·乖离给时机 · 借鉴吴川 · 盘后EOD · 非买卖建议</span>
+</div>
+
+<div id="fa-loading" class="neu" style="font-size:14px;padding:20px">⏳ 正在加载资金全正…（首次约30秒）</div>
+<div id="fa-empty" class="neu" style="display:none;font-size:14px;padding:20px"></div>
+
+<div id="fa-body" style="display:none">
+  <div class="kpi-row" id="kpi"></div>
+
+  <div class="card" id="your-card" style="display:none">
+    <h3>👀 你的自选/持仓 → 板块多维状态 <span class="hint">你的票在不在"资金一致流入"的板块里</span></h3>
+    <div id="your-watch" style="margin-top:6px"></div>
+  </div>
+
+  <div class="card">
+    <h3>📊 板块多维资金全正表 <span class="hint">6窗口累计主力净流入(亿·红进绿出) · 全正维数 · 状态 · MA20乖离→档 · 龙头 · 按维数/60日排</span></h3>
+    <div style="overflow-x:auto;margin-top:8px">
+      <table class="fa-tbl"><thead><tr>
+        <th class="l">板块</th><th>60日</th><th>20日</th><th>10日</th><th>5日</th><th>3日</th><th>1日</th>
+        <th>维数</th><th class="l">状态</th><th class="l">乖离·档</th><th class="l">龙头</th>
+      </tr></thead><tbody id="fa-rows"></tbody></table>
+    </div>
+  </div>
+
+  <div id="fa-note" class="neu" style="font-size:11px;padding:2px 2px 16px"></div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+let _kind = 'industry';
+const cls = v => v>0?'up':(v<0?'down':'neu');
+const fmt = v => v==null?'—':((v>=0?'+':'')+v);
+const dimColor = d => d>=6?'#f6465d':(d>=5?'#f0a020':(d>=4?'#8fb3ff':'#6b7280'));
+
+function renderKpi(d){
+  const c = d.counts||{};
+  const items = [
+    {l:'六维全正', v:c.six ?? 0, sub:'60/20/10/5/3/1全正·一致流入'},
+    {l:'四维全正(中长)', v:c.four_mid ?? 0, sub:'60/20/10/5全正·中长线在'},
+    {l:'洗盘中', v:c.washout ?? 0, sub:'中长正+短期负·资金没走'},
+    {l:'撤退', v:c.retreat ?? 0, sub:'近5日在流出·避'},
+  ];
+  $('kpi').innerHTML = items.map(i=>`<div class="kpi"><div class="label">${i.l}</div>
+    <div class="big" style="color:#c9d2f8">${i.v}</div><div class="sub">${i.sub}</div></div>`).join('');
+}
+
+function renderYour(rows){
+  if(!rows||!rows.length){ $('your-card').style.display='none'; return; }
+  $('your-card').style.display='block';
+  $('your-watch').innerHTML = `<table class="fa-tbl"><thead><tr><th class="l">自选/持仓</th><th class="l">所属板块</th><th>维数</th><th class="l">状态</th><th class="l">档</th></tr></thead><tbody>`
+    + rows.map(r=>`<tr><td class="l" style="font-weight:600">${r.name}</td><td class="l">${r.board}</td>
+      <td><span class="dims" style="background:${dimColor(r.pos_dims)}22;color:${dimColor(r.pos_dims)}">${r.pos_dims}维</span></td>
+      <td class="l"><span class="st st-${r.state}">${r.state}</span></td>
+      <td class="l">${r.tier==='—'?'<span class=neu>—</span>':`<span class="tier tier-${r.tier}">${r.tier}</span>`}</td></tr>`).join('')
+    + `</tbody></table>`;
+}
+
+function renderRows(rows){
+  $('fa-rows').innerHTML = rows.map(r=>{
+    const c=r.cum||{};
+    const w = k => `<td class="${cls(c[k])}">${fmt(c[k])}</td>`;
+    const hit = (r.watch_hit&&r.watch_hit.length) ? `<span class="wtag">自选·${r.watch_hit.join('/')}</span>` : '';
+    const lead = r.leader ? `${r.leader}${r.leader_net_yi!=null?` <span class="neu" style="font-size:11px">${(r.leader_net_yi>=0?'+':'')+r.leader_net_yi}亿</span>`:''}` : '—';
+    return `<tr class="${r.watch_hit?'hit':''}">
+      <td class="l" style="font-weight:600">${r.board}${hit}</td>
+      ${w(60)}${w(20)}${w(10)}${w(5)}${w(3)}${w(1)}
+      <td><span class="dims" style="background:${dimColor(r.pos_dims)}22;color:${dimColor(r.pos_dims)}">${r.pos_dims}</span></td>
+      <td class="l"><span class="st st-${r.state}">${r.state}</span></td>
+      <td class="l">${r.bias!=null?`<span class="neu">${r.bias}%</span> <span class="tier tier-${r.tier}">${r.tier}</span>`:'—'}</td>
+      <td class="l">${lead}</td></tr>`;
+  }).join('');
+}
+
+async function load(){
+  const d = $('fa-date').value.replace(/-/g,'');
+  $('fa-loading').style.display='block'; $('fa-body').style.display='none'; $('fa-empty').style.display='none';
+  try{
+    const r = await fetch(`/api/fund-alignment?kind=${_kind}`+(d?`&date=${d}`:''));
+    const j = await r.json();
+    $('fa-loading').style.display='none';
+    if(!j.ok){ $('fa-empty').style.display='block'; $('fa-empty').textContent=j.msg||'暂无数据'; return; }
+    $('fa-date').value = j.date.slice(0,4)+'-'+j.date.slice(4,6)+'-'+j.date.slice(6,8);
+    $('fa-tip').textContent = `数据日 ${j.date} · ${_kind==='industry'?'申万二级':'同花顺概念'} · 资金给方向·乖离给时机 · 非买卖建议`;
+    renderKpi(j); renderYour(j.your_watch); renderRows(j.rows||[]);
+    $('fa-note').textContent = '说明：'+(j.note||'');
+    $('fa-body').style.display='block';
+  }catch(e){ $('fa-loading').style.display='none'; $('fa-empty').style.display='block'; $('fa-empty').textContent='加载失败：'+e; }
+}
+document.querySelectorAll('.fa-btn[data-k]').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('.fa-btn[data-k]').forEach(x=>x.classList.remove('active'));
+  b.classList.add('active'); _kind=b.dataset.k; load();
+});
+$('fa-load').addEventListener('click', load);
+load();
+</script>
+{% endblock %}

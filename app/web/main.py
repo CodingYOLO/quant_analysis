@@ -722,6 +722,68 @@ async def api_limitup(date: str = "", force: bool = False,
         return {"ok": False, "msg": str(e)}
 
 
+@app.get("/fundalign", response_class=HTMLResponse)
+async def fundalign_page(request: Request, _user: str = Depends(require_auth)):
+    """多维资金全正·择时分档：板块6窗口全正+洗盘/撤退+MA20乖离低吸/蓄势/强势/过热+龙头（借鉴吴川·盘后EOD·非买卖建议）。"""
+    return templates.TemplateResponse(request=request, name="fundalign.html",
+                                      context={"page": "fundalign"})
+
+
+def _annotate_fund_watchlist(res: dict, kind: str) -> None:
+    """给板块行标注命中的自选/持仓；行业口径再生成"你的自选→板块状态"对照。"""
+    try:
+        from app.data.composite_provider import CompositeProvider
+        from app.strategy.db import get_watchlist
+        wl = get_watchlist() or []
+        wl_codes = {str(w["ts_code"]): (w.get("name") or "") for w in wl if w.get("ts_code")}
+        if not wl_codes:
+            return
+        prov = CompositeProvider()
+        row_by = {r["board"]: r for r in res.get("rows", [])}
+        if kind == "industry":
+            sb = prov.get_stock_basic()
+            c2i = dict(zip(sb["ts_code"].astype(str), sb["industry"].astype(str)))
+            yours = []
+            for ts, nm in wl_codes.items():
+                b = c2i.get(ts)
+                r = row_by.get(b) if b else None
+                if r:
+                    r.setdefault("watch_hit", []).append(nm or ts[:6])
+                yours.append({"name": nm or ts[:6], "board": b or "—",
+                              "state": r["state"] if r else "未入榜(资金弱)", "tier": r["tier"] if r else "—",
+                              "pos_dims": r["pos_dims"] if r else 0})
+            res["your_watch"] = sorted(yours, key=lambda x: -x["pos_dims"])
+        else:                                                     # 概念：按成分命中标注板块行
+            from app.factors.theme_wide import concept_members_map
+            mmap = concept_members_map(prov)
+            for r in res.get("rows", []):
+                members = set(mmap.get(r["board"], []))
+                names = [wl_codes[ts] or ts[:6] for ts in wl_codes if ts in members]
+                if names:
+                    r["watch_hit"] = names
+    except Exception as e:
+        logger.debug("[资金全正] 自选映射失败(跳过): %s", e)
+
+
+@app.get("/api/fund-alignment")
+async def api_fund_alignment(kind: str = "industry", date: str = "", force: bool = False,
+                             _user: str = Depends(require_auth)):
+    """多维资金全正·择时分档（盘后EOD·JSON日缓存）。含自选/持仓命中的板块标注。"""
+    try:
+        from fastapi.concurrency import run_in_threadpool
+
+        from app.strategy.fund_alignment import build_fund_alignment
+        kind = "concept" if kind == "concept" else "industry"
+        d = date or _last_trade_date()
+        res = await run_in_threadpool(build_fund_alignment, d, kind, bool(force), None)
+        if res.get("ok"):
+            await run_in_threadpool(_annotate_fund_watchlist, res, kind)
+        return res
+    except Exception as e:
+        logger.exception("资金全正失败")
+        return {"ok": False, "msg": str(e)}
+
+
 @app.get("/api/industry")
 async def api_industry(date: str = "", _user: str = Depends(require_auth)):
     """行业资金流仪表盘数据。"""

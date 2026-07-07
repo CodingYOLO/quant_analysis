@@ -753,6 +753,14 @@ def run_warmup(base_date: str) -> None:
         console.print(f"[green]✅ 涨停复盘预热 {latest}·{len(lr.get('stocks', []))}涨停[/green]")
     except Exception as e:
         console.print(f"[yellow]⚠️ 涨停复盘预热失败: {e}[/yellow]")
+    # 1.695) 多维资金全正·择时分档(6窗口全正+洗盘/撤退+MA20乖离分档+龙头·行业+概念·/fundalign 页秒开)
+    try:
+        from app.strategy.fund_alignment import build_fund_alignment
+        for _k in ("industry", "concept"):
+            fa = build_fund_alignment(latest, kind=_k, force=True, provider=prov)
+            console.print(f"[green]✅ 资金全正预热 {latest}·{_k}·{len(fa.get('rows', []))}板块[/green]")
+    except Exception as e:
+        console.print(f"[yellow]⚠️ 资金全正预热失败: {e}[/yellow]")
     # 1.7) 主线板块研判(资金+催化剂+政策·LLM综合·日缓存·板块/概念页顶部秒显示·夜间预算一次LLM)
     try:
         from app.strategy.mainline_analysis import build_mainline_analysis
