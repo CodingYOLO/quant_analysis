@@ -344,12 +344,15 @@ def _live_market_overview() -> dict | None:
     修复"AI投研盘中用昨日收盘数据"的bug——交易时段大盘格局必须用实时快照·非 build_overview(EOD settled)。
     """
     try:
-        from app.strategy.realtime_hub import build_board_cached
+        from app.strategy.realtime_hub import build_board_cached, market_session
         b = build_board_cached()
     except Exception:
         return None
     if not b or b.get("count", 0) < 500 or not b.get("indices"):
         return None                                                # 快照未就绪→回退settled
+    live_now = market_session() in ("continuous", "auction", "auction_lock", "pre_open")
+    kou = (f"⚡盘中实时·截至{b.get('as_of', '')}·幕数据沪深全推L1（**非昨日收盘**·勿说昨日）" if live_now
+           else f"📊今日收盘/最近成交快照·截至{b.get('as_of', '')}·幕数据全推L1（**今日盘面实时值·非上一交易日settled·勿说昨日**）")
     sh = next((x for x in b["indices"] if x.get("code") == "000001.SH"), {})
     br = b.get("breadth", {})
     mv = b.get("market_volume") or {}
@@ -359,7 +362,7 @@ def _live_market_overview() -> dict | None:
     liang = (f"{mv.get('label', '')}·量比{mv.get('vol_ratio')}·预估全天{mv.get('proj_yi')}亿 vs 昨{mv.get('prev_yi')}亿"
              if mv.get("today_yi") is not None else None)
     return {
-        "数据口径": f"⚡盘中实时·截至{b.get('as_of', '')}·幕数据沪深全推L1（**非昨日收盘**·勿说昨日）",
+        "数据口径": kou,
         "上证点位": sh.get("price"), "上证今日%": sh.get("pct_chg"),
         "涨家数": br.get("up"), "跌家数": br.get("down"),
         "涨停": br.get("limit_up"), "跌停": br.get("limit_down"),
@@ -381,11 +384,11 @@ def _t_market_overview(args, provider) -> dict:
     """
     from datetime import datetime
 
-    from app.strategy.realtime_hub import market_session
-    if market_session() in ("continuous", "auction", "auction_lock", "pre_open"):
-        live = _live_market_overview()
-        if live:
-            return live
+    # 优先实时快照（盘中=秒级实时·收盘后=今日收盘/最近成交值·都比"上一 settled 交易日"新）；
+    # 快照未就绪（夜间无feed/长休市）才回退 settled EOD。修"收盘后仍报昨日"的bug。
+    live = _live_market_overview()
+    if live:
+        return live
 
     from app.strategy.market_overview import build_overview
     d = build_overview(datetime.now().strftime("%Y%m%d"), 20)
