@@ -481,6 +481,8 @@ def build_board() -> dict:
     base["battle"] = _battle_block(records, base["session"])   # 竞价·开盘作战台(开盘半小时·自选/持仓)
     base["open_board"] = _open_board_block(records, base["session"], imap)  # 全市场开盘高开·强承接榜(机会发现)
     base.update(_radar_block(df, imap))
+    from app.strategy.market_volume import market_volume_block
+    base["market_volume"] = market_volume_block(df, base["session"])   # 大盘量能(今日Σ成交额 vs 昨/5日·放量缩量)
     base["sentiment"] = _sentiment_block(records, tm)     # 情绪温度计(连板梯队/晋级率/炸板率)
     base["themes"] = _theme_block(records)
     base["concepts"] = _concept_block(records)            # 概念/题材级资金榜(竞速榜细分维度)

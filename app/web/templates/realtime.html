@@ -46,6 +46,7 @@
 <div class="card" id="rtIndexCard" style="border-left:3px solid #7c9ef8">
   <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><h2 style="margin:0">🌐 大盘指数</h2><span class="rt-tag">实时报价 + 日/周/月K线 · 上证/科创50/创业板/沪深300…</span></div>
   <div id="rtIndexStrip" style="display:flex;gap:8px;flex-wrap:wrap;margin:10px 0"></div>
+  <div id="rtMktVol" style="margin:2px 0 10px"></div>
   <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:6px">
     <span id="rtIdxSel" style="display:inline-flex;gap:4px;flex-wrap:wrap"></span>
     <span style="margin-left:auto;display:inline-flex;border:1px solid #2d3052;border-radius:7px;overflow:hidden">
@@ -181,6 +182,25 @@ function renderIndex(d){
       <div style="font-size:16px;font-weight:600" class="${c}">${q.price}</div>
       <div class="${c}" style="font-size:11.5px">${sgn(q.pct_chg)}% · ${sgn(q.chg)}</div></div>`;}).join('');
   if(!_idxSelBuilt){ buildIdxSel(idx); _idxSelBuilt=true; loadIndexKline(); }
+}
+function renderMarketVol(d){
+  const m=d.market_volume;
+  if(!m){ $('rtMktVol').innerHTML=''; return; }
+  const lc = m.label==='放量'?'pos':(m.label==='缩量'?'neg':'neu');
+  const vr = (m.vol_ratio!=null)? m.vol_ratio.toFixed(2):'—';
+  const approx = m.approx
+    ? '<span class="neu" title="盘中成交量呈U型(开盘/尾盘重)·时段归一为近似;满5交易日后自动切同时段精确口径" style="font-size:11px">≈近似</span>'
+    : '<span title="过去5日同时段对比·对齐东财量比口径" style="font-size:11px;color:#4ade80">精确</span>';
+  const projTxt = (m.live && m.prev_yi!=null)
+    ? `预估全天 <b>${m.proj_yi}亿</b> vs 昨 ${m.prev_yi}亿 <span class="${cls(m.proj_vs_prev)}">${sgn(m.proj_vs_prev)}%</span>`
+    : (m.prev_yi!=null ? `全天 <b>${m.today_yi}亿</b> vs 昨 ${m.prev_yi}亿` : '');
+  $('rtMktVol').innerHTML = `<div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;padding:8px 12px;border:1px solid #22263a;border-radius:8px;background:#0f1117;font-size:13px">
+    <span>📊 <b>大盘量能</b><span class="neu" style="font-size:11px"> 沪深两市</span></span>
+    <span>今日 <b>${m.today_yi}亿</b>${m.live?'<span class="neu" style="font-size:11px">(实时)</span>':''}</span>
+    <span>量比 <b class="${lc}">${vr}</b> <b class="${lc}">${m.label}</b> ${approx}</span>
+    <span class="neu">${projTxt}</span>
+    <span class="neu">近5日均 ${m.avg5_yi}亿</span>
+  </div>`;
 }
 function buildIdxSel(idx){
   $('rtIdxSel').innerHTML=idx.map(q=>`<button class="idx-cbtn" data-c="${q.code}" style="border:1px solid #2d3052;border-radius:6px;padding:3px 9px;font-size:11.5px;cursor:pointer;background:${q.code===_idxCode?'#3358e0':'#12141c'};color:${q.code===_idxCode?'#fff':'#9ca3af'}">${q.name}</button>`).join('');
@@ -444,7 +464,7 @@ async function tick(){
     const d=await (await fetch('/api/realtime/board')).json();
     if(!d.ok){ $('rtStatus').textContent='加载失败：'+(d.msg||''); return; }
     _lastBoard=d;
-    renderStatus(d); renderIndex(d); renderBattle(d); renderOpenBoard(d); renderAuction(d); renderPulse(d.pulse); renderRace(d); renderBrief(d.brief); renderBreadth(d.breadth, d.breadth_trend); renderSenti(d.sentiment); renderSectors(d.sectors); renderThemes(d.themes);
+    renderStatus(d); renderIndex(d); renderMarketVol(d); renderBattle(d); renderOpenBoard(d); renderAuction(d); renderPulse(d.pulse); renderRace(d); renderBrief(d.brief); renderBreadth(d.breadth, d.breadth_trend); renderSenti(d.sentiment); renderSectors(d.sectors); renderThemes(d.themes);
     renderTail(d.tail); renderSecOut(d.sectors_out); renderFlash(d.flash);
     renderFund(d.fund_ranking); renderVolSurge(d.vol_surge); renderSurge(d.surge); renderWatch(d.watch);
   }catch(e){ $('rtStatus').textContent='网络错误：'+e; }
