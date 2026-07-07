@@ -452,12 +452,16 @@ def _now_context() -> str:
         state = "今日交易日·午间休市"
     else:
         state = "今日交易日·已收盘(15:00后)"
-    last_td = last_trading_day(today) or today
-    last_fmt = f"{last_td[:4]}-{last_td[4:6]}-{last_td[6:]}" if len(last_td) == 8 else last_td
+    # 已结算(EOD)数据最近可用交易日：今日数据约18点才入库·盘中/收盘未settled→截至上一交易日
+    settled_td = last_trading_day(today) or today
+    if is_trading_day() and hm < "1800":
+        y = (now - datetime.timedelta(days=1)).strftime("%Y%m%d")
+        settled_td = last_trading_day(y) or settled_td
+    sfmt = f"{settled_td[:4]}-{settled_td[4:6]}-{settled_td[6:]}" if len(settled_td) == 8 else settled_td
     return (f"【当前时间】{now.strftime('%Y-%m-%d %H:%M')} 周{wd}（{state}）。"
-            f"最近交易日 {last_fmt}（行情/资金类数据若工具未返回更新，即截至该日）。"
-            f"凡涉及'现在/今天/最近/最新/目前/这周'，**一律以上述时间为准，绝不使用你训练知识里的旧日期**；"
-            f"不确定具体日期就用工具查或明说不确定。")
+            f"**默认按此刻取最新数据回答**：盘中→现价/涨跌/大盘格局(涨跌家数/涨停/成交额/情绪)一律用实时快照(此刻·非昨日收盘)；"
+            f"已结算类(龙虎榜/财务/资金流/EOD因子/千评)截至已入库交易日 {sfmt}。"
+            f"凡涉及'现在/今天/最近/最新/目前/这周'一律以上述为准·**绝不用训练知识里的旧日期**·不确定就用工具查或明说。")
 
 
 def run_chat(history: list[dict], provider: CompositeProvider | None = None, client=None,
