@@ -169,6 +169,12 @@
 const $=id=>document.getElementById(id);
 const cls=v=> v>0?'pos':(v<0?'neg':'neu');
 const sgn=v=> (v>0?'+':'')+v;
+// 主动买卖标签：op=外盘占比(主动买占比%)。显示"占优一方"的占比·避免"主动卖38%"实为买占比的误导·~50%判均衡
+function activeTag(op){
+  if(op>=52) return '<span class=pos>主动买</span> '+op+'%';
+  if(op<=48) return '<span class=neg>主动卖</span> '+(100-op)+'%';
+  return '<span class=neu>均衡</span> '+op+'%';
+}
 const lead=r=>`<span class="rt-lead"><b>${r.leader||'-'}</b></span>`;
 
 // 🌐 大盘指数一览 + K线(日/周/月)
@@ -390,7 +396,7 @@ function renderVolSurge(rows){
     const ind=r.industry?` <span class="badge" style="font-size:9px;background:#232640;color:#9ca3af">${r.industry}</span>`:'';
     return `<tr><td>${r.name}${ind}</td><td class="${cls(r.pct_chg)}">${sgn(r.pct_chg)}%</td>
       <td class="pos">${r.vol_ratio}</td>
-      <td>${op>=50?'<span class=pos>主动买</span>':'<span class=neg>主动卖</span>'} ${op}%</td></tr>`;}).join('');
+      <td>${activeTag(op)}</td></tr>`;}).join('');
 }
 function renderWatch(rows){
   if(!rows||!rows.length){ $('rtHold').innerHTML='<tr><td colspan="5" class="rt-empty">还没有自选（在「自选盯盘」加入后，盘中实时显示）</td></tr>'; return; }
@@ -405,7 +411,7 @@ function renderWatch(rows){
     }
     const op=Math.round(r.outer_ratio*100);
     return `<tr><td>${r.name}${tag}</td><td class="${cls(r.pct_chg)}">${sgn(r.pct_chg)}%</td>
-      <td class="neu">${r.vol_ratio}</td><td>${op>=50?'<span class=pos>主动买</span>':'<span class=neg>主动卖</span>'} ${op}%</td>
+      <td class="neu">${r.vol_ratio}</td><td>${activeTag(op)}</td>
       <td><span class="badge ${bd[r.label]||'badge-blue'}">${r.label}</span> <span class="neu" style="font-size:11px">${r.reason}</span></td></tr>`;}).join('');
 }
 // ⚔️ 竞价·开盘作战台(自选/持仓·9:15-10:30)
