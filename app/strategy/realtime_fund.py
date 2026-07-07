@@ -99,6 +99,8 @@ def volume_surge(df: pd.DataFrame, *, top: int = 12, min_vr: float = 3.0,
     d = _enrich(df)
     d["amt"] = pd.to_numeric(d.get("amount"), errors="coerce").fillna(0.0)
     d = d[(d["vol_ratio"] >= min_vr) & (d["amt"] >= min_amount)]
+    # 剔除 ST/*ST/退市股：近5日基线常≈0(停牌/一字)→量比分母趋零而虚高(如*ST东智量比69)·且非资金关注信号
+    d = d[~d["name"].astype(str).str.contains("ST|退", case=True, na=False, regex=True)]
     if d.empty:
         return []
     out = []
