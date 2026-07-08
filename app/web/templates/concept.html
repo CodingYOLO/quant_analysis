@@ -293,9 +293,8 @@ function renderPersist(){
 
 async function togglePersistDetail(tr){
   const nm=decodeURIComponent(tr.dataset.name), arrow=tr.querySelector('.exp'), next=tr.nextElementSibling;
-  if(next && next.classList.contains('detailrow')){ next.remove(); if(arrow)arrow.textContent='▸'; return; }
-  document.querySelectorAll('#ptbl tr.detailrow').forEach(e=>e.remove());
-  document.querySelectorAll('#ptbl .exp').forEach(e=>e.textContent='▸');
+  if(next && next.classList.contains('detailrow')){ next.remove(); if(arrow)arrow.textContent='▸'; return; }  // 收起自己
+  // 允许多个概念成分股同时展开(与日榜AI详情一致·点别的不再顶掉这边)
   if(arrow)arrow.textContent='▾';
   const dr=document.createElement('tr'); dr.className='detailrow';
   const td=document.createElement('td'); td.colSpan=document.querySelectorAll('#ptbl thead th').length;
