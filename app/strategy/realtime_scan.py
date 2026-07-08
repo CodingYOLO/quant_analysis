@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 _SCAN_INTERVAL = 30          # 秒
 _VEL_PUSH_MOVE = 3.0         # 急拉推送阈值（5分钟涨速%）
 _HEALTH_ALERT_AFTER = 180    # 盘中全推断流超此秒数 → Bark 告警
+_AUCTION_STALE_SEC = 120     # 集合竞价档放宽的全推新鲜度门（竞价更新稀疏·连续档 _STALE_SEC=15 会误挡竞价推送）
 _health: dict = {"alerted": False, "outage_start": 0.0}    # 心跳状态
 # 推送冷却（秒）：同一事件冷却内不重复；过冷却仍触发=再提醒；程度升级(事件key带档位)立即再推。
 _COOLDOWN_DEFAULT = 1500     # 25分钟
@@ -466,8 +467,16 @@ def scan_once(force: bool = False, push: bool = True) -> list[dict]:
     时段感知：集合竞价(9:15-9:30)只推自选/持仓竞价异动；连续竞价跑全市场信号。
     """
     sess = "continuous" if force else hub.market_session()
-    if not force and (sess == "closed" or not hub.is_live()):
-        return []
+    if not force:
+        if sess == "closed":
+            return []
+        # 集合竞价全推更新稀疏(参考价每十几~几十秒才变一次)·连续档 _STALE_SEC=15s 会误判 stale 把竞价推送挡掉·
+        # 竞价档放宽到 ~120s：只要快照有数据(≥500只)且非太旧就扫(用户明确要保留竞价推送)。连续档仍用严格 is_live()。
+        if sess in hub._AUCTION_SESSIONS:
+            if hub.snapshot().count() < 500 or hub.snapshot().fullpush_stale(_AUCTION_STALE_SEC):
+                return []
+        elif not hub.is_live():
+            return []
     _dedup_reset_if_new_day()
     from app.notify.notifier import push_bark
     now = time.time()
