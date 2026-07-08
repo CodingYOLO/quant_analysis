@@ -20,6 +20,14 @@
   .ml-reason { font-size: 12.5px; color: #9ca3af; margin-top: 8px; font-style: italic; }
   .up { color: #f6465d; } .down { color: #2ebd85; } .neu { color: #9ca3af; }
   .ml-lb { display: inline-block; background: #3a1a1a; color: #f6465d; border-radius: 4px; padding: 0 6px; font-size: 12px; font-weight: 700; margin: 0 3px; }
+  .ml-outlook { display: inline-block; font-size: 12px; font-weight: 700; padding: 1px 9px; border-radius: 10px; margin-left: 10px; vertical-align: 2px; }
+  .ol-strong { background: #3a1a1a; color: #f6465d; } .ol-mixed { background: #2f2a12; color: #f0a020; } .ol-fade { background: #12261d; color: #2ebd85; }
+  .ml-signals { font-size: 12px; color: #9ca3af; margin-top: 7px; line-height: 1.6; }
+  .ml-signals .pos { color: #e19b9b; margin-right: 6px; } .ml-signals .neg { color: #e5b567; margin-right: 6px; }
+  .ai-card { background: #141020; border: 1px solid #2d2350; border-radius: 12px; padding: 14px 16px; margin-bottom: 16px; }
+  .ai-card h3 { margin: 0 0 8px; font-size: 15px; color: #c4b5fd; }
+  .ai-body { font-size: 13.5px; color: #dbe2ee; line-height: 1.8; white-space: pre-wrap; }
+  .ai-disc { font-size: 11px; color: #6b7280; margin-top: 10px; line-height: 1.5; }
   .ml-merged { margin-top: 8px; font-size: 12px; }
   .ml-merged summary { cursor: pointer; color: #6b7280; }
   .ml-merged span { color: #8b93a7; }
@@ -37,6 +45,12 @@
     <span id="ml-cnt" class="neu" style="font-size:12px"></span>
   </div>
   <div class="ml-note" id="ml-note"></div>
+  <div class="ai-card" id="ai-outlook" style="display:none">
+    <h3>🤖 AI 明日展望 <span class="neu" style="font-size:11px;font-weight:400">· 延续性研判 · 非预测非荐股</span></h3>
+    <div class="ai-body" id="ai-body"></div>
+    <div class="ai-disc">基于今日各主线的资金/涨停/情绪结构 + 财联社·博查消息，由 LLM 做延续性定性研判；不构成买卖建议，市场有不确定性。按日缓存（首次约 20-30 秒）。</div>
+  </div>
+  <div id="ai-loading" class="ml-loading" style="display:none">🤖 生成 AI 明日展望中…（首次约 20-30 秒·之后秒开）</div>
   <div id="ml-cards"></div>
   <div id="ml-status"><div class="ml-loading">⏳ 识别今日主线中…</div></div>
 </div>
@@ -45,6 +59,27 @@
   const $ = (id) => document.getElementById(id);
   const sgn = (v) => (v > 0 ? '+' : '') + v;
   const cls = (v) => v > 0 ? 'up' : (v < 0 ? 'down' : 'neu');
+
+  function outlookBadge(o) {
+    if (!o) return '';
+    const m = { strong: 'ol-strong', mixed: 'ol-mixed', fade: 'ol-fade' }[o.level] || 'ol-mixed';
+    return `<span class="ml-outlook ${m}">明日 ${o.label}</span>`;
+  }
+  function signalsRow(o) {
+    if (!o) return '';
+    const p = (o.pos || []).map(x => `<span class="pos">✅ ${x}</span>`).join('');
+    const n = (o.neg || []).map(x => `<span class="neg">⚠️ ${x}</span>`).join('');
+    return (p || n) ? `<div class="ml-signals">${p}${n}</div>` : '';
+  }
+  async function loadOutlookAI() {
+    const date = ($('ml-date').value || '').replace(/-/g, '');
+    $('ai-loading').style.display = 'block'; $('ai-outlook').style.display = 'none';
+    try {
+      const j = await (await fetch('/api/mainline-ai?date=' + date)).json();
+      if (j.ok && j.data.outlook) { $('ai-body').textContent = j.data.outlook; $('ai-outlook').style.display = 'block'; }
+    } catch (e) { /* AI 失败不阻塞主线卡片 */ }
+    $('ai-loading').style.display = 'none';
+  }
 
   function dragonLine(L) {
     const c6 = String(L.code || '').slice(0, 6);
@@ -62,11 +97,12 @@
     const merged = (c.merged && c.merged.length)
       ? `<details class="ml-merged"><summary>含 ${c.merged.length} 个同题材概念</summary><span>${c.merged.join(' · ')}</span></details>` : '';
     return `<div class="ml-card">
-      <div class="ml-head"><div><span class="ml-rank">#${i}</span><span class="ml-name">${c.concept}</span></div>
+      <div class="ml-head"><div><span class="ml-rank">#${i}</span><span class="ml-name">${c.concept}</span>${outlookBadge(c.outlook)}</div>
         <div class="ml-score">${c.score}<small> 综合</small></div></div>
       <div class="ml-row"><span class="lbl">🔥 涨停梯队</span>${c.zt_count} 家涨停 · 最高 <b class="up">${c.max_lb}板</b> · <span class="neu">${c.ladder}</span></div>
       ${dragonLine(c.lead)}
       <div class="ml-row"><span class="lbl">💰 资金</span>${fund} · <span class="lbl">📈 涨幅</span><span class="${cls(pct)}">${pct == null ? '·' : sgn(pct) + '%'}</span></div>
+      ${signalsRow(c.outlook)}
       ${merged}
     </div>`;
   }
@@ -85,6 +121,7 @@
         ? d.lines.map((c, i) => card(c, i + 1)).join('')
         : '<div class="ml-loading">今日无涨停·弱势格局，无明确主线。</div>';
       $('ml-status').innerHTML = '';
+      if (d.lines.length) loadOutlookAI();   // 主线卡片先出·AI明日展望随后异步加载(慢·不阻塞)
     } catch (e) { $('ml-status').innerHTML = `<div class="ml-msg">❌ ${e}</div>`; }
   }
   loadMainline();

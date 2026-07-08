@@ -55,6 +55,7 @@ def build_mainline(date: str, provider: CompositeProvider | None = None, top: in
     lines = _dedupe_lines(lines)                   # 合并高度重叠的同题材概念（透明·记录被并入项）
     for c in lines:
         c.pop("_zt_codes", None)
+        c["outlook"] = _continuity_verdict(c)      # 明日延续性研判（客观信号·非预测）
     return {
         "date": date, "zt_total": len(zt), "lines": lines[:top],
         "note": ("主线强度=涨停梯队45%+资金35%+涨幅20%（涨停梯队为主）。资金=同花顺概念主力净流入(估算·非龙虎榜真钱)、"
@@ -85,6 +86,10 @@ def _build_line(concept: str, codes: list, zt_by_code: dict, flow_by_name: dict,
         "today_net": frow.get("today_net"),
         "cum3": frow.get("cum3"),
         "today_pct": frow.get("today_pct"),
+        "consec": frow.get("consec_days"),      # 连续净流入天(资金持续性)
+        "flow_delta": frow.get("delta1d"),      # 今日资金较昨变化(加速/减速)
+        "ambush": bool(frow.get("ambush")),     # 资金进但价没涨(埋伏蓄势)
+        "n_tiers": len({min(r["limit_times"], 9) for r in zt_in}),  # 连板梯队级数(厚度)
         "_zt_codes": {r["code"] for r in zt_in},
     }
 
@@ -172,3 +177,89 @@ def _concept_members(prov: CompositeProvider) -> dict:
     from app.factors.theme_wide import concept_members_map
     from app.strategy.concept_flow import _concept_member_codes_wide
     return _concept_member_codes_wide(prov) or concept_members_map(prov)
+
+
+# ── 明日延续性研判（客观信号·非预测/非胜率）─────────────────────────────────────
+# 游资情绪周期视角：资金持续+梯队健康+龙头封死+埋伏=延续特征；断层/透支/烂板=退潮特征。
+# 只描述"结构上更可能延续/退潮"·绝不输出胜率/必涨/买卖建议。
+def _continuity_verdict(c: dict) -> dict:
+    """单主线明日延续性研判 → {level, label, score, pos[], neg[]}。纯客观信号加减分。"""
+    pos: list = []
+    neg: list = []
+    score = 0
+    consec = c.get("consec") or 0
+    lead_open = c["lead"].get("open_times") or 0
+    if consec >= 3:
+        score += 2; pos.append(f"资金连续{consec}日净流入")
+    if (c.get("flow_delta") or 0) > 0:
+        score += 1; pos.append("今日资金较昨加速")
+    if c["max_lb"] >= 3 and c.get("n_tiers", 1) >= 3:
+        score += 2; pos.append(f"梯队健康(最高{c['max_lb']}板·{c['n_tiers']}级接力)")
+    if lead_open == 0:
+        score += 1; pos.append("龙头封死未开板")
+    if c.get("ambush"):
+        score += 1; pos.append("资金埋伏(进而涨幅未透支)")
+    if c["max_lb"] >= 4 and c["zt_count"] <= 2:
+        score -= 2; neg.append(f"一枝独秀(最高{c['max_lb']}板但仅{c['zt_count']}家·梯队断层)")
+    if (c.get("today_net") or 0) < 0 and (c.get("today_pct") or 0) >= 2:
+        score -= 2; neg.append("涨幅透支(概念大涨但主力净流出)")
+    if lead_open >= 3:
+        score -= 1; neg.append(f"龙头烂板(开板{lead_open}次)")
+    level = "strong" if score >= 4 else ("fade" if score <= 0 else "mixed")
+    label = {"strong": "强延续", "fade": "退潮风险", "mixed": "分歧待选手"}[level]
+    return {"level": level, "label": label, "score": score, "pos": pos, "neg": neg}
+
+
+# ── AI 明日展望（LLM 定性·接地财联社+博查·严禁编造·按日缓存）─────────────────────
+def build_ai_outlook(date: str, provider: CompositeProvider | None = None) -> dict:
+    """今日主线 + LLM 明日展望（延续/退潮定性研判·带消息催化·非预测非荐股）。按日缓存。"""
+    from app.strategy import detail_common as DC
+    path = DC.cache_path("mainline_outlook", date, "ai")
+    cached = DC.load_cache(path)
+    if cached is not None:
+        return cached
+    prov = provider or CompositeProvider()
+    main = build_mainline(date, prov, top=10)
+    lines = main["lines"]
+    if not lines:
+        data = {"date": date, "outlook": "今日无涨停·弱势格局——明日无明确主线可延续。", "lines": [], "cached": False}
+        DC.save_cache(path, data)
+        return data
+    headlines = DC.macro_headlines(prov, date)
+    keys = {c["concept"] for c in lines} | {c["lead"]["name"] for c in lines}
+    news = DC.relevant_news(headlines, keys)
+    data = {"date": date, "outlook": _llm_outlook(_outlook_context(lines), news),
+            "lines": lines, "cached": False}
+    DC.save_cache(path, data)
+    return data
+
+
+def _outlook_context(lines: list) -> str:
+    """把今日主线 + 延续信号压成 LLM 可读的结构化摘要。"""
+    rows = []
+    for i, c in enumerate(lines, 1):
+        o = c["outlook"]
+        sig = "；".join(o["pos"] + [f"⚠{x}" for x in o["neg"]]) or "无显著信号"
+        rows.append(f"{i}. {c['concept']}｜{o['label']}｜涨停{c['zt_count']}家最高{c['max_lb']}板"
+                    f"｜龙头{c['lead']['name']}({c['lead']['lb']}板,主力{c['lead']['net']:+.1f}亿)"
+                    f"｜今净流入{c.get('today_net')}亿｜信号:{sig}")
+    return "\n".join(rows)
+
+
+def _llm_outlook(context: str, news: list) -> str:
+    """调 LLM 出明日展望（严诚实框·禁胜率/荐股/编造）。失败回退纯客观提示。"""
+    from app.llm.client import LLMClient
+    news_txt = "\n".join(f"- {n}" for n in news[:12]) or "（今日无精筛到的相关消息）"
+    prompt = (
+        "你是A股短线情绪周期分析师。基于下方【今日主线+延续性客观信号】与【今日相关消息】，给出【明日展望】。\n"
+        "硬性要求：①只做延续性研判(哪些线结构上更可能延续、哪些更可能退潮/分歧，并说明依据情绪周期：启动/主升/分歧/退潮)；"
+        "②严禁输出胜率/成功率/『必涨』等确定性措辞，严禁荐股与买卖建议，严禁编造任何数据或消息(只能用给到的)；"
+        "③结构：〖明日或延续〗1-3条线+逻辑 / 〖警惕退潮或分歧〗+信号 / 〖关键催化看点〗(基于给定消息)；"
+        "④结尾一句风险提示。150-260字，中文，务实不废话。\n\n"
+        f"【今日主线+延续信号】\n{context}\n\n【今日相关消息】\n{news_txt}"
+    )
+    try:
+        return LLMClient().chat([{"role": "user", "content": prompt}], task_type="pro").strip()
+    except Exception as e:
+        logger.warning("[主线] LLM 明日展望失败: %s", e)
+        return "（AI 明日展望暂不可用，请参考各主线的客观延续性研判。）"

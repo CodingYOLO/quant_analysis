@@ -2118,6 +2118,19 @@ async def api_mainline(date: str = "", _user: str = Depends(require_auth)):
         return {"ok": False, "error": str(e)}
 
 
+@app.get("/api/mainline-ai")
+async def api_mainline_ai(date: str = "", _user: str = Depends(require_auth)):
+    """明日展望：LLM 延续性定性研判（接地财联社+博查·非预测非荐股·按日缓存）。首次约20-30秒。"""
+    from fastapi.concurrency import run_in_threadpool
+    try:
+        from app.strategy.mainline import build_ai_outlook
+        d = date or _last_trade_date()
+        return {"ok": True, "data": await run_in_threadpool(build_ai_outlook, d)}
+    except Exception as e:
+        logger.exception("明日展望失败")
+        return {"ok": False, "error": str(e)}
+
+
 @app.get("/insight", response_class=HTMLResponse)
 async def insight_page(request: Request, _user: str = Depends(require_auth)):
     """产业认知教练：数据接地的认知卡片 + 练习反馈 + 自由探讨。"""
