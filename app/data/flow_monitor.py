@@ -2,8 +2,8 @@
 
 - **一致性**：每日算 elg+lg vs moneyflow_dc 全市场相关系数 + 方向一致率，落滚动日志；
   用**滚动基线**(过去20日均值−2σ) + **绝对下限0.75**双阈值告警（固定阈值在极端行情日会误报）。
-- **完整性**：moneyflow / moneyflow_dc **各自与"自己昨日"**比行数（两源宇宙不同·dc含北交所≈5970 vs mf≈5194·
-  **禁跨源比**），掉 >1% 判数据不全/延迟。
+- **完整性**：moneyflow / moneyflow_dc **各自与"自己昨日"**比行数（**沪深口径·剔北交所.BJ**·对齐全系统口径·
+  dc沪深≈5649 vs mf≈5194·**禁跨源比**），掉 >1% 判数据不全/延迟。北证东财资金流偶发整批缺数不再误报。
 
 盘后 21:00 cron 跑（dc 当日结算偏晚·需等其补全）。异常推 Bark。
 """
@@ -45,8 +45,17 @@ def _load_log() -> list[dict]:
         return []
 
 
+def _hs_rows(df) -> int:
+    """沪深口径行数（剔北交所 .BJ）。全系统按沪深口径·北证东财资金流偶发缺数(整批 .BJ)不应误触发完整性告警。"""
+    if df is None or getattr(df, "empty", True):
+        return 0
+    if "ts_code" not in getattr(df, "columns", []):
+        return int(len(df))
+    return int((~df["ts_code"].astype(str).str.endswith(".BJ")).sum())
+
+
 def _compute(date: str, prov: CompositeProvider) -> dict:
-    """当日 elg+lg vs 东财dc 的相关/方向一致 + 两源行数。dc 缺失时相关置 None。"""
+    """当日 elg+lg vs 东财dc 的相关/方向一致 + 两源行数(沪深口径·剔北交所)。dc 缺失时相关置 None。"""
     mf = prov.get_money_flow(date)
     our = main_net_wan(mf) / 1e4                                   # 亿
     try:
@@ -54,8 +63,8 @@ def _compute(date: str, prov: CompositeProvider) -> dict:
     except Exception as e:
         logger.debug("[资金哨兵] dc 拉取失败: %s", e)
         dc = None
-    mf_rows = int(len(mf)) if mf is not None else 0
-    dc_rows = int(len(dc)) if dc is not None and not dc.empty else 0
+    mf_rows = _hs_rows(mf)                                         # 沪深口径(剔.BJ)·避免北证东财缺数误报
+    dc_rows = _hs_rows(dc)
     corr = dir_agree = None
     if dc is not None and not dc.empty and not our.empty:
         dcn = pd.to_numeric(dc.set_index("ts_code")["net_amount"], errors="coerce")
