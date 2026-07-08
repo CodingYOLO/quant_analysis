@@ -2099,6 +2099,25 @@ async def api_concept_detail(date: str = "", code: str = "", _user: str = Depend
         return {"ok": False, "error": str(e)}
 
 
+@app.get("/mainline", response_class=HTMLResponse)
+async def mainline_page(request: Request, _user: str = Depends(require_auth)):
+    """今日主线：涨停梯队+资金+涨幅综合识别今日最强题材线及龙头（客观描述·非荐股）。"""
+    return templates.TemplateResponse(request=request, name="mainline.html", context={"page": "mainline"})
+
+
+@app.get("/api/mainline")
+async def api_mainline(date: str = "", _user: str = Depends(require_auth)):
+    """今日主线榜：涨停梯队45%+资金35%+涨幅20%·去重同题材·每条挂龙头+涨停原因。"""
+    from fastapi.concurrency import run_in_threadpool
+    try:
+        from app.strategy.mainline import build_mainline
+        d = date or _last_trade_date()
+        return {"ok": True, "data": await run_in_threadpool(build_mainline, d)}
+    except Exception as e:
+        logger.exception("今日主线失败")
+        return {"ok": False, "error": str(e)}
+
+
 @app.get("/insight", response_class=HTMLResponse)
 async def insight_page(request: Request, _user: str = Depends(require_auth)):
     """产业认知教练：数据接地的认知卡片 + 练习反馈 + 自由探讨。"""

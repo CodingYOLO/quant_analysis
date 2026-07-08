@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block title %}今日主线 — A股Agent{% endblock %}
+
+{% block extra_style %}
+<style>
+  .ml-wrap { max-width: 1000px; margin: 0 auto; }
+  .ml-top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+  .ml-top input { padding: 8px 12px; font-size: 14px; background: #12141f; border: 1px solid #2d3052; border-radius: 8px; color: #fff; }
+  .ml-note { font-size: 12px; color: #fbbf24; background: #2a2410; border: 1px solid #4a3d15; border-radius: 8px; padding: 8px 12px; margin-bottom: 14px; line-height: 1.6; }
+  .ml-card { background: #12141f; border: 1px solid #1e2233; border-radius: 12px; padding: 14px 16px; margin-bottom: 12px; }
+  .ml-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+  .ml-rank { color: #6b7280; font-size: 13px; margin-right: 8px; }
+  .ml-name { font-size: 18px; font-weight: 700; color: #fff; }
+  .ml-score { font-size: 22px; font-weight: 800; color: #f0a020; white-space: nowrap; }
+  .ml-score small { font-size: 11px; color: #6b7280; font-weight: 400; }
+  .ml-row { font-size: 13.5px; color: #cbd5e1; margin-top: 9px; line-height: 1.5; }
+  .ml-row .lbl { color: #7c9ef8; margin-right: 4px; }
+  .ml-dragon { background: #171a29; border-radius: 8px; padding: 8px 12px; margin-top: 9px; font-size: 14px; }
+  .ml-dragon a { color: #7c9ef8; text-decoration: none; font-weight: 600; }
+  .ml-reason { font-size: 12.5px; color: #9ca3af; margin-top: 8px; font-style: italic; }
+  .up { color: #f6465d; } .down { color: #2ebd85; } .neu { color: #9ca3af; }
+  .ml-lb { display: inline-block; background: #3a1a1a; color: #f6465d; border-radius: 4px; padding: 0 6px; font-size: 12px; font-weight: 700; margin: 0 3px; }
+  .ml-merged { margin-top: 8px; font-size: 12px; }
+  .ml-merged summary { cursor: pointer; color: #6b7280; }
+  .ml-merged span { color: #8b93a7; }
+  .ml-loading, .ml-msg { color: #9ca3af; font-size: 14px; padding: 20px 0; }
+  .ml-msg { color: #f6465d; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="ml-wrap">
+  <div class="ml-top">
+    <h2 style="margin:0;font-size:20px">🎯 今日主线</h2>
+    <input id="ml-date" placeholder="YYYY-MM-DD（留空=最近交易日）" autocomplete="off">
+    <button onclick="loadMainline()" style="padding:8px 16px;background:#2d3052;color:#fff;border:none;border-radius:8px;cursor:pointer">刷新</button>
+    <span id="ml-cnt" class="neu" style="font-size:12px"></span>
+  </div>
+  <div class="ml-note" id="ml-note"></div>
+  <div id="ml-cards"></div>
+  <div id="ml-status"><div class="ml-loading">⏳ 识别今日主线中…</div></div>
+</div>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  const sgn = (v) => (v > 0 ? '+' : '') + v;
+  const cls = (v) => v > 0 ? 'up' : (v < 0 ? 'down' : 'neu');
+
+  function dragonLine(L) {
+    const c6 = String(L.code || '').slice(0, 6);
+    const seal = L.open_times > 0 ? ('开板' + L.open_times + '次') : '封住';
+    const netTxt = `<span class="${cls(L.net)}">主力${sgn(L.net)}亿</span>`;
+    const reason = L.reason ? `<div class="ml-reason">📰 涨停原因：${L.reason}</div>` : '';
+    return `<div class="ml-dragon">🐉 龙头 <a href="/stock?code=${c6}">${L.name}</a>(${c6})`
+      + `<span class="ml-lb">${L.lb}板</span>· ${seal} · ${netTxt} · 成交${L.amount_yi}亿${reason}</div>`;
+  }
+
+  function card(c, i) {
+    const net = c.today_net, cum3 = c.cum3, pct = c.today_pct;
+    const fund = `<span class="${cls(net)}">今日净流入 ${net == null ? '·' : sgn(net) + '亿'}</span>`
+      + `<span class="neu">（近3日 ${cum3 == null ? '·' : sgn(cum3) + '亿'}）</span>`;
+    const merged = (c.merged && c.merged.length)
+      ? `<details class="ml-merged"><summary>含 ${c.merged.length} 个同题材概念</summary><span>${c.merged.join(' · ')}</span></details>` : '';
+    return `<div class="ml-card">
+      <div class="ml-head"><div><span class="ml-rank">#${i}</span><span class="ml-name">${c.concept}</span></div>
+        <div class="ml-score">${c.score}<small> 综合</small></div></div>
+      <div class="ml-row"><span class="lbl">🔥 涨停梯队</span>${c.zt_count} 家涨停 · 最高 <b class="up">${c.max_lb}板</b> · <span class="neu">${c.ladder}</span></div>
+      ${dragonLine(c.lead)}
+      <div class="ml-row"><span class="lbl">💰 资金</span>${fund} · <span class="lbl">📈 涨幅</span><span class="${cls(pct)}">${pct == null ? '·' : sgn(pct) + '%'}</span></div>
+      ${merged}
+    </div>`;
+  }
+
+  async function loadMainline() {
+    $('ml-status').innerHTML = '<div class="ml-loading">⏳ 识别今日主线中…</div>';
+    $('ml-cards').innerHTML = ''; $('ml-note').textContent = '';
+    const date = ($('ml-date').value || '').replace(/-/g, '');
+    try {
+      const j = await (await fetch('/api/mainline?date=' + date)).json();
+      if (!j.ok) { $('ml-status').innerHTML = `<div class="ml-msg">❌ ${j.error}</div>`; return; }
+      const d = j.data;
+      $('ml-note').textContent = '💡 ' + d.note;
+      $('ml-cnt').textContent = `· ${d.date} · 全市场涨停 ${d.zt_total} 只 · 主线 ${d.lines.length} 条`;
+      $('ml-cards').innerHTML = d.lines.length
+        ? d.lines.map((c, i) => card(c, i + 1)).join('')
+        : '<div class="ml-loading">今日无涨停·弱势格局，无明确主线。</div>';
+      $('ml-status').innerHTML = '';
+    } catch (e) { $('ml-status').innerHTML = `<div class="ml-msg">❌ ${e}</div>`; }
+  }
+  loadMainline();
+</script>
+{% endblock %}
