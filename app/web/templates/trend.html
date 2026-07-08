@@ -33,6 +33,9 @@
   }
   .t-tabs button.on { background: #2d3052; color: #fff; border-color: #3a3f6a; }
   #t-kline { height: 440px; background: #0d0f18; border: 1px solid #1a1d2e; border-radius: 8px; }
+  .band-legend { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin: 8px 2px 0; font-size: 12px; color: #9ca3af; }
+  .band-legend i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 4px; vertical-align: -1px; }
+  .band-legend .bl-cap { color: #6b7280; }
   .t-title { font-size: 18px; color: #fff; margin: 2px 0 2px; }
   .t-sub { font-size: 13px; color: #6b7280; margin-bottom: 10px; }
   .card {
@@ -96,6 +99,7 @@
       <button data-tf="d">日K（找买点）</button>
     </div>
     <div id="t-kline"></div>
+    <div id="t-band-legend" class="band-legend" style="display:none"></div>
 
     <div class="card" id="t-cycle-card">
       <h3>📍 大周期定位（现价在上市以来区间的高度）</h3>
@@ -153,14 +157,48 @@
 <script src="/static/kline.js"></script>
 <script>
   const $ = (id) => document.getElementById(id);
-  let _tk = null;      // {d, w, m} 三周期K线
-  let _tf = 'm';       // 当前周期，默认月K（大周期研究以月线定方向为先）
+  let _tk = null;         // {d, w, m} 三周期K线
+  let _segments = null;   // 月K阶段分段（仅月K绘制色带）
+  let _tf = 'm';          // 当前周期，默认月K（大周期研究以月线定方向为先）
+
+  // 阶段色带配色：中性色·避开"红涨绿跌"歧义·按阶段温度取色（冷→暖→热→褪）
+  const BAND_FILL = {
+    '磨底': 'rgba(96,125,139,.13)', '筑底抬升': 'rgba(56,150,180,.13)',
+    '主升': 'rgba(230,192,80,.12)', '加速冲顶': 'rgba(246,110,60,.16)', '下行': 'rgba(150,120,170,.12)'
+  };
+  const BAND_SW = {
+    '磨底': 'rgba(120,150,165,.6)', '筑底抬升': 'rgba(70,175,205,.6)',
+    '主升': 'rgba(235,200,95,.65)', '加速冲顶': 'rgba(246,120,70,.7)', '下行': 'rgba(165,135,190,.6)'
+  };
+
+  function applyBands(chart, segs) {
+    if (!chart || !segs || !segs.length) return;
+    const data = segs.map(s => [
+      { xAxis: s.start, itemStyle: { color: BAND_FILL[s.stage] || 'rgba(120,120,120,.1)' } },
+      { xAxis: s.end }
+    ]);
+    chart.setOption({ series: [{ markArea: { silent: true, data } }] });   // 合并进蜡烛序列(series[0])
+  }
+  function renderBandLegend(segs) {
+    const el = $('t-band-legend');
+    if (!segs || !segs.length) { el.innerHTML = ''; return; }
+    const stages = [...new Set(segs.map(s => s.stage))];
+    el.innerHTML = '<span class="bl-cap">阶段色带：</span>' +
+      stages.map(s => `<span><i style="background:${BAND_SW[s] || '#888'}"></i>${s}</span>`).join('') +
+      ' <span class="bl-cap">· 机器保守近似分段·仅供学习结构，非精确断言</span>';
+  }
 
   function drawTF(tf) {
     _tf = tf;
     document.querySelectorAll('#t-tabs button').forEach(b => b.classList.toggle('on', b.dataset.tf === tf));
     const kl = _tk && _tk[tf];
-    if (kl && window.AKline) { try { AKline.render('t-kline', kl); } catch (e) {} }
+    if (kl && window.AKline) {
+      try {
+        const ch = AKline.render('t-kline', kl);
+        if (tf === 'm') applyBands(ch, _segments);
+      } catch (e) {}
+    }
+    $('t-band-legend').style.display = (tf === 'm' && _segments && _segments.length) ? 'flex' : 'none';
   }
   document.querySelectorAll('#t-tabs button').forEach(b => b.onclick = () => drawTF(b.dataset.tf));
   $('t-input').addEventListener('keydown', e => { if (e.key === 'Enter') queryTrend(); });
@@ -230,6 +268,8 @@
       const d = await r.json();
       if (!d.ok) { $('t-status').innerHTML = `<div class="t-msg">${d.msg || '查询失败'}</div>`; return; }
       _tk = { d: d.kline, w: d.kline_w, m: d.kline_m };
+      _segments = d.segments || [];
+      renderBandLegend(_segments);
       $('t-name').textContent = (d.name ? d.name + ' ' : '') + d.ts_code + `（${d.bars} 根日K）`;
       renderCycle(d.cycle);
       renderStage(d.stage, d.mtf);

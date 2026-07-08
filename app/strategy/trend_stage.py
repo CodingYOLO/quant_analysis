@@ -52,11 +52,13 @@ def build_trend_stage(ts_code: str, name: str = "",
     monthly = _resample_ohlc(k, "ME")
     cycle = _cycle_position(monthly)
     mtf = _mtf_analysis(k)
+    m_disp = monthly.tail(_MONTHLY_TAIL).reset_index(drop=True)   # 展示窗·分段与月K同源确保日期对齐
     return {
         "ok": True, "ts_code": ts_code, "name": name, "bars": int(len(k)),
         "kline": _kline_payload(k.tail(_DAILY_TAIL)),
         "kline_w": _kline_payload(_resample_ohlc(k, "W-FRI").tail(_WEEKLY_TAIL)),
-        "kline_m": _kline_payload(monthly.tail(_MONTHLY_TAIL)),
+        "kline_m": _kline_payload(m_disp),
+        "segments": _segment_stages(m_disp),   # B阶段：月K全历史保守分段色带
         "cycle": cycle,
         "mtf": mtf,
         "stage": _stage_synthesis(cycle, mtf),
@@ -126,3 +128,81 @@ def _stage_synthesis(cycle: dict, mtf: dict) -> dict:
     if above is False and rising is False:
         return {"label": "中期下行", "desc": "跌破月线且10月线下行——趋势走坏，非低位不宜逆势。"}
     return {"label": "震荡待定", "desc": "方向未明——月线在均线附近反复，等突破/跌破再给方向。"}
+
+
+# ── B阶段：月K全历史阶段分段（保守·机器近似·非精确断言）────────────────────────
+# 设计：逐月按"月线方向×历史位置×乖离"分类 → 迟滞平滑吸收 1~2 月噪声翻转 →
+# 游程合并成段，只保留 ≥ _MIN_SEG_MONTHS 的明确段；方向不明的月份留"震荡"不上色。
+_MIN_SEG_MONTHS = 3     # 段最短月数（短于此视为噪声·不成段）
+_MIN_PERSIST = 3        # 迟滞：新阶段需连续出现这么多月才切换
+_BIAS_ACCEL = 0.30      # 冲顶乖离阈（现价高出10月线 30%+）
+_LOW_PCT = 35.0         # 低位分位阈
+_HIGH_PCT = 55.0        # 冲顶需同时处于的高位分位阈
+
+
+def _segment_stages(m: pd.DataFrame) -> list:
+    """月K全历史分段：逐月分类→迟滞平滑→合并成段。数据不足 2 年返回空（不硬分）。"""
+    close = pd.to_numeric(m["close"], errors="coerce")
+    dates = m["trade_date"].astype(str).tolist()
+    n = len(close)
+    if n < 24:
+        return []
+    ma10 = close.rolling(10).mean()
+    gmin = float(close.min())
+    span = (float(close.max()) - gmin) or 1.0
+    raw = [_classify_month(i, close, ma10, gmin, span) for i in range(n)]
+    return _rle_segments(dates, _smooth_labels(raw, _MIN_PERSIST), _MIN_SEG_MONTHS)
+
+
+def _classify_month(i: int, close: pd.Series, ma10: pd.Series, gmin: float, span: float) -> str:
+    """单月阶段分类（保守规则）。数据不足/方向不明 → '震荡'（不上色）。"""
+    if i < 12 or pd.isna(ma10.iloc[i]) or pd.isna(ma10.iloc[i - 3]):
+        return "震荡"
+    m10 = float(ma10.iloc[i])
+    if m10 <= 0:
+        return "震荡"
+    c = float(close.iloc[i])
+    slope = m10 - float(ma10.iloc[i - 3])
+    above, bias, pct = c > m10, c / m10 - 1, (c - gmin) / span * 100
+    if above and slope > 0 and bias > _BIAS_ACCEL and pct >= _HIGH_PCT:
+        return "加速冲顶"
+    if above and slope > 0:
+        return "主升"
+    if (not above) and slope < 0:
+        return "下行"
+    if pct <= _LOW_PCT and slope > 0:
+        return "筑底抬升"
+    if pct <= _LOW_PCT:
+        return "磨底"
+    return "震荡"
+
+
+def _smooth_labels(raw: list, min_persist: int) -> list:
+    """迟滞平滑：新标签需连续出现 min_persist 个月才切换状态，吸收短暂噪声翻转。"""
+    if not raw:
+        return raw
+    out, state, pending, run = [], raw[0], None, 0
+    for r in raw:
+        if r == state:
+            pending, run = None, 0
+        elif r == pending:
+            run += 1
+            if run >= min_persist:
+                state, pending, run = r, None, 0
+        else:
+            pending, run = r, 1
+        out.append(state)
+    return out
+
+
+def _rle_segments(dates: list, labels: list, min_len: int) -> list:
+    """游程编码成段：合并连续相同标签，丢弃'震荡'与短于 min_len 的段。"""
+    segs, i, n = [], 0, len(labels)
+    while i < n:
+        j = i
+        while j + 1 < n and labels[j + 1] == labels[i]:
+            j += 1
+        if labels[i] != "震荡" and (j - i + 1) >= min_len:
+            segs.append({"stage": labels[i], "start": dates[i], "end": dates[j], "months": j - i + 1})
+        i = j + 1
+    return segs
