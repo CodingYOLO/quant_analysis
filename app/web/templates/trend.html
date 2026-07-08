@@ -15,12 +15,17 @@
     border: none; border-radius: 8px; cursor: pointer;
   }
   .t-search button:hover { background: #3a3f6a; }
-  .t-egs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 14px; }
-  .t-egs span {
-    padding: 3px 10px; font-size: 13px; color: #9ca3af; background: #12141f;
+  .lib-intro { font-size: 13px; color: #9ca3af; margin: 2px 0 10px; line-height: 1.5; }
+  .lib-intro b { color: #cbd5e1; }
+  #t-lib { display: flex; flex-direction: column; gap: 9px; margin-bottom: 16px; }
+  .lib-grp { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+  .lib-sec { flex: 0 0 100%; font-size: 12.5px; color: #7c9ef8; margin-bottom: 1px; }
+  .lib-sec em { color: #6b7280; font-style: normal; }
+  .lib-grp span.stk {
+    padding: 3px 11px; font-size: 13px; color: #cbd5e1; background: #12141f;
     border: 1px solid #23263a; border-radius: 12px; cursor: pointer;
   }
-  .t-egs span:hover { color: #fff; border-color: #3a3f6a; }
+  .lib-grp span.stk:hover { color: #fff; border-color: #3a3f6a; background: #1a1d2e; }
   .t-tabs { display: flex; gap: 6px; margin: 4px 0 8px; }
   .t-tabs button {
     padding: 6px 18px; font-size: 14px; background: #12141f; color: #9ca3af;
@@ -78,9 +83,8 @@
     <input id="t-input" placeholder="输入股票代码 / 名称，如 600150 或 中国船舶" autocomplete="off">
     <button onclick="queryTrend()">研究走势</button>
   </div>
-  <div class="t-egs" id="t-egs">
-    <span>中国船舶</span><span>比亚迪</span><span>贵州茅台</span><span>宁德时代</span><span>紫金矿业</span>
-  </div>
+  <div class="lib-intro">📚 <b>分板块大牛股学习库</b>——点任意一只看它的大周期结构，横向对比不同板块的风格差异（历史案例·仅供学习结构·非推荐买入）：</div>
+  <div id="t-lib"></div>
 
   <div id="t-body" style="display:none">
     <div class="t-title" id="t-name">—</div>
@@ -142,8 +146,32 @@
     if (kl && window.AKline) { try { AKline.render('t-kline', kl); } catch (e) {} }
   }
   document.querySelectorAll('#t-tabs button').forEach(b => b.onclick = () => drawTF(b.dataset.tf));
-  $('t-egs').querySelectorAll('span').forEach(s => s.onclick = () => { $('t-input').value = s.textContent; queryTrend(); });
   $('t-input').addEventListener('keydown', e => { if (e.key === 'Enter') queryTrend(); });
+
+  // 分板块大牛股学习库（历史案例·非推荐买入）：[板块, 风格一句话, [[代码,名称]...]]
+  const SECTORS = [
+    ['白酒', '慢牛·波动小·业绩+估值双击', [['600519.SH', '贵州茅台'], ['000858.SZ', '五粮液'], ['600809.SH', '山西汾酒']]],
+    ['新能源车/电池', '大开大合·景气周期驱动·振幅大', [['002594.SZ', '比亚迪'], ['300750.SZ', '宁德时代']]],
+    ['光伏', '强周期成长·产能周期主导·顶底剧烈', [['601012.SH', '隆基绿能'], ['300274.SZ', '阳光电源']]],
+    ['医药', '长坡厚雪·集采政策扰动大', [['600276.SH', '恒瑞医药'], ['300015.SZ', '爱尔眼科'], ['600436.SH', '片仔癀']]],
+    ['半导体', '国产替代+周期·弹性大·情绪重', [['002371.SZ', '北方华创'], ['603501.SH', '豪威集团'], ['688981.SH', '中芯国际']]],
+    ['AI算力/光模块', '主题+业绩共振·近年最猛·急涨急跌', [['300308.SZ', '中际旭创'], ['300502.SZ', '新易盛']]],
+    ['军工', '主题脉冲·事件驱动·持续性偏弱', [['600760.SH', '中航沈飞'], ['600150.SH', '中国船舶']]],
+    ['有色/资源', '跟大宗商品价格·强周期', [['601899.SH', '紫金矿业'], ['603993.SH', '洛阳钼业']]],
+    ['煤炭红利', '低波高股息·熊市抗跌·慢涨', [['601088.SH', '中国神华'], ['601225.SH', '陕西煤业']]],
+    ['银行/电力红利', '低波防御·股息为锚·慢牛', [['600036.SH', '招商银行'], ['600900.SH', '长江电力']]],
+    ['家电白马', '稳健现金流·消费白马', [['000333.SZ', '美的集团'], ['000651.SZ', '格力电器']]],
+    ['券商', '牛市旗手·平时趴着·牛市爆发', [['300059.SZ', '东方财富']]],
+    ['消费电子/果链', '跟大客户订单周期', [['002475.SZ', '立讯精密']]],
+    ['机械/工程', '顺周期·经济+基建驱动', [['600031.SH', '三一重工']]],
+  ];
+  function pickStock(code, name) { $('t-input').value = name; queryTrend(code); }
+  (function renderLib() {
+    $('t-lib').innerHTML = SECTORS.map(([sec, style, stocks]) =>
+      `<div class="lib-grp"><div class="lib-sec">${sec} <em>· ${style}</em></div>` +
+      stocks.map(([c, n]) => `<span class="stk" onclick="pickStock('${c}','${n}')">${n}</span>`).join('') +
+      `</div>`).join('');
+  })();
 
   function fmtPct(v) { return (v > 0 ? '+' : '') + v + '%'; }
 
@@ -175,8 +203,8 @@
       : '';
   }
 
-  async function queryTrend() {
-    const code = $('t-input').value.trim();
+  async function queryTrend(explicitCode) {
+    const code = ((typeof explicitCode === 'string' ? explicitCode : '') || $('t-input').value).trim();
     if (!code) return;
     $('t-status').innerHTML = '<div class="loading">⏳ 加载全历史K线与大周期定位…</div>';
     $('t-body').style.display = 'none';
