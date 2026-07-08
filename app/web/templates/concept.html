@@ -162,7 +162,7 @@ function renderTable(){
   let h='<thead><tr>'+COLS.map(([k,l])=>{
     const s=!TEXT.has(k); return '<th data-k="'+k+'" style="'+(s?'cursor:pointer':'')+'">'+l+(s?'<span style="color:#7c9ef8">'+arrow(k)+'</span>':'')+'</th>';
   }).join('')+'</tr></thead><tbody>';
-  data.slice(0,80).forEach(r=>{
+  data.forEach(r=>{   // 完整渲染全部概念(去掉旧的 slice(0,80) 静默截断·几百个全显示)
     h+='<tr class="datarow" data-code="'+r.code+'" data-name="'+encodeURIComponent(r.concept)+'">'+COLS.map(([k])=>{
       let v=r[k];
       if(SIGNED.has(k) && typeof v==='number'){const c=v>0?'up':(v<0?'down':'');const sg=v>0?'+':'';return '<td class="'+c+'">'+sg+v+'</td>';}
@@ -268,7 +268,7 @@ function renderPersist(){
   if(pSort.key && !PTEXT.has(pSort.key)) data.sort((a,b)=>{let x=a[pSort.key],y=b[pSort.key];x=typeof x==='number'?x:-1e9;y=typeof y==='number'?y:-1e9;return pSort.asc?x-y:y-x;});
   const arr=k=>pSort.key===k?(pSort.asc?' ▲':' ▼'):'';
   let h='<thead><tr>'+PCOLS.map(([k,l])=>{const s=!PTEXT.has(k);const hint=k==='pen5'?' title="渗透率=近5日净流入/概念流通市值·相对强度·抓小盘子资金猛灌"':'';return '<th data-k="'+k+'"'+hint+' style="'+(s?'cursor:pointer':'')+(k==='pen5'?';color:#f0a020':'')+'">'+l+(s?'<span style="color:#7c9ef8">'+arr(k)+'</span>':'')+'</th>';}).join('')+'</tr></thead><tbody>';
-  data.slice(0,80).forEach(r=>{
+  data.forEach(r=>{   // 完整渲染全部概念(去掉旧的 slice(0,80) 静默截断·几百个全显示)
     h+='<tr class="datarow" data-name="'+encodeURIComponent(r.concept)+'">'+PCOLS.map(([k])=>{
       let v=r[k];
       if(k==='concept'){ const b=r.broad?' <span class="broadtag" title="宽概念·'+r.broad+'·跨行业/风格/宽基·非可操作赛道（勾选『只看题材』可隐藏）">宽</span>':''; return '<td><span class="exp">▸</span>'+v+b+'</td>'; }
