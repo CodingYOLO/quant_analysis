@@ -2132,6 +2132,25 @@ async def api_mainline_board_ai(date: str = "", _user: str = Depends(require_aut
         return {"ok": False, "error": str(e)}
 
 
+@app.get("/ambush", response_class=HTMLResponse)
+async def ambush_page(request: Request, _user: str = Depends(require_auth)):
+    """暗流低吸榜：概念资金分档 真暗流/量价启动/假暗流·全同花顺官方口径可核对·非荐股。"""
+    return templates.TemplateResponse(request=request, name="ambush_board.html", context={"page": "ambush"})
+
+
+@app.get("/api/ambush")
+async def api_ambush(date: str = "", _user: str = Depends(require_auth)):
+    """暗流低吸榜：复用概念持续流入榜(同花顺官方)·加 真暗流/量价启动/假暗流 分档。"""
+    from fastapi.concurrency import run_in_threadpool
+    try:
+        from app.strategy.ambush_board import build_ambush_board
+        d = date or _last_trade_date()
+        return {"ok": True, "data": await run_in_threadpool(build_ambush_board, d)}
+    except Exception as e:
+        logger.exception("暗流低吸榜失败")
+        return {"ok": False, "error": str(e)}
+
+
 @app.get("/insight", response_class=HTMLResponse)
 async def insight_page(request: Request, _user: str = Depends(require_auth)):
     """产业认知教练：数据接地的认知卡片 + 练习反馈 + 自由探讨。"""

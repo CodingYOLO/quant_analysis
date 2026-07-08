@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% block title %}暗流低吸榜 — A股Agent{% endblock %}
+
+{% block extra_style %}
+<style>
+  .ab-wrap { max-width: 1040px; margin: 0 auto; }
+  .ab-top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+  .ab-top input { padding: 8px 12px; font-size: 14px; background: #12141f; border: 1px solid #2d3052; border-radius: 8px; color: #fff; }
+  .ab-top input::-webkit-calendar-picker-indicator { filter: invert(0.7); cursor: pointer; }
+  .ab-top button { padding: 8px 16px; background: #2d3052; color: #fff; border: none; border-radius: 8px; cursor: pointer; }
+  .ab-src { font-size: 12px; color: #7dd3a8; background: #10241a; border: 1px solid #1f4634; border-radius: 8px; padding: 8px 12px; margin-bottom: 10px; line-height: 1.6; }
+  .ab-note { font-size: 12px; color: #fbbf24; background: #2a2410; border: 1px solid #4a3d15; border-radius: 8px; padding: 8px 12px; margin-bottom: 14px; line-height: 1.6; }
+  .ab-sum { font-size: 13px; color: #cbd5e1; margin-bottom: 14px; }
+  .ab-sum b { color: #fff; }
+  .ab-sec { margin-bottom: 20px; }
+  .ab-sec h3 { font-size: 15px; margin: 0 0 4px; }
+  .ab-sec .sub { font-size: 12px; color: #9ca3af; margin-bottom: 8px; }
+  .h-real { color: #2ebd85; } .h-start { color: #7c9ef8; } .h-fake { color: #f6465d; }
+  table.ab { border-collapse: collapse; width: 100%; font-size: 13px; }
+  table.ab th, table.ab td { padding: 7px 10px; border-bottom: 1px solid #1a1d2e; text-align: right; white-space: nowrap; }
+  table.ab th { color: #9ca3af; font-weight: 600; background: #12141f; text-align: right; }
+  table.ab th:first-child, table.ab td:first-child,
+  table.ab th:last-child, table.ab td:last-child { text-align: left; }
+  table.ab td.name { color: #e5e7eb; font-weight: 600; }
+  table.ab td.lead { text-align: left; color: #9ca3af; }
+  .up { color: #f6465d; } .down { color: #2ebd85; } .neu { color: #6b7280; }
+  .ab-empty { color: #6b7280; font-size: 13px; padding: 6px 0; }
+  .ab-msg { color: #f6465d; font-size: 14px; padding: 16px 0; }
+  .ab-loading { color: #9ca3af; font-size: 14px; padding: 20px 0; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="ab-wrap">
+  <div class="ab-top">
+    <h2 style="margin:0;font-size:20px">🌊 暗流低吸榜</h2>
+    <input type="date" id="ab-date">
+    <button onclick="loadAmbush()">刷新</button>
+    <span id="ab-cnt" class="neu" style="font-size:12px"></span>
+  </div>
+  <div class="ab-src" id="ab-src">💎 数据源＝同花顺官方概念资金流（moneyflow_cnt_ths·DDE）· 每个数都可在同花顺 APP 逐一核对。</div>
+  <div class="ab-note" id="ab-note"></div>
+  <div class="ab-sum" id="ab-sum"></div>
+  <div id="ab-body"></div>
+  <div id="ab-status"><div class="ab-loading">⏳ 计算暗流分档中…</div></div>
+</div>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  const sgn = (v) => (v > 0 ? '+' : '') + v;
+  const cls = (v) => v > 0 ? 'up' : (v < 0 ? 'down' : 'neu');
+  const numCell = (v, suf) => v == null ? '<td class="neu">·</td>' : `<td class="${cls(v)}">${sgn(v)}${suf || ''}</td>`;
+
+  function section(title, subCls, sub, arr) {
+    let rows;
+    if (!arr.length) {
+      rows = '<div class="ab-empty">今日该档无概念（弱势/资金分散时正常）。</div>';
+    } else {
+      rows = '<table class="ab"><thead><tr>'
+        + '<th>概念</th><th>近3日(亿)</th><th>近5日(亿)</th><th>今日(亿)</th><th>5日涨%</th><th>渗透率%</th><th>龙头</th></tr></thead><tbody>'
+        + arr.map(r =>
+          `<tr><td class="name">${r.concept}</td>`
+          + numCell(r.cum3) + numCell(r.cum5) + numCell(r.today_net)
+          + numCell(r.ret5, '%')
+          + (r.pen5 == null ? '<td class="neu">·</td>' : `<td class="${cls(r.pen5)}">${sgn(r.pen5)}%</td>`)
+          + `<td class="lead">${r.lead || '·'}</td></tr>`).join('')
+        + '</tbody></table>';
+    }
+    return `<div class="ab-sec"><h3 class="${subCls}">${title}（${arr.length}）</h3><div class="sub">${sub}</div>${rows}</div>`;
+  }
+
+  async function loadAmbush() {
+    $('ab-status').innerHTML = '<div class="ab-loading">⏳ 计算暗流分档中…</div>';
+    $('ab-body').innerHTML = ''; $('ab-note').textContent = ''; $('ab-sum').innerHTML = '';
+    const date = ($('ab-date').value || '').replace(/-/g, '');
+    try {
+      const j = await (await fetch('/api/ambush?date=' + date)).json();
+      if (!j.ok) { $('ab-status').innerHTML = `<div class="ab-msg">❌ ${j.error}</div>`; return; }
+      const d = j.data;
+      if (d.date) { const dd = String(d.date).replace(/-/g, ''); if (dd.length === 8) $('ab-date').value = dd.replace(/(\d{4})(\d{2})(\d{2})/, '$1-$2-$3'); }
+      $('ab-cnt').textContent = '· ' + d.date;
+      $('ab-note').textContent = '💡 ' + d.note;
+      $('ab-sum').innerHTML = `🟢真暗流 <b>${d.real.length}</b> · 🔵量价启动 <b>${d.starting.length}</b> · 🔴假暗流 <b>${d.fake.length}</b> · ⚪已涨 ${d.n_risen} · 流出 ${d.n_outflow}`;
+      $('ab-body').innerHTML =
+        section('🟢 真暗流', 'h-real', '近3日净流入 + 今日仍在进 + 价格没涨（含下跌）= 低位持续吸筹，最值得盯', d.real)
+        + section('🔵 量价启动', 'h-start', '资金进 + 价格开始动（5日涨3%~8%）= 暗流转明流，可能已在启动', d.starting)
+        + section('🔴 假暗流（在撤）', 'h-fake', '近5日看着流入、但近3日转负或今日流出 = 之前进的钱在撤，别被5日数字骗', d.fake);
+      $('ab-status').innerHTML = '';
+    } catch (e) { $('ab-status').innerHTML = `<div class="ab-msg">❌ ${e}</div>`; }
+  }
+  loadAmbush();
+</script>
+{% endblock %}
