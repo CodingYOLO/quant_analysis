@@ -209,6 +209,27 @@ def _is_non_theme(name: str) -> bool:
     return any(k in name for k in _NON_THEME)
 
 
+# 「宽概念」分桶：跨行业/风格/宽基/宽泛地域——绝对净额天天占前排却非可操作赛道·打标供前端一键过滤。
+# 只标注不删除（用户可切回全看）·且不影响任何资金计算列。分类透明化(告诉用户为何算宽)。
+_BROAD_BUCKETS = {
+    "持股状态": ("大基金持股", "社保", "QFII", "汇金", "证金", "养老金", "机构重仓", "基金重仓", "险资"),
+    "风格因子": ("高股息", "高分红", "破净", "低市盈", "低估值", "绩优", "白马", "蓝筹",
+                 "高价股", "低价股", "大盘股", "中盘", "小盘", "微盘"),
+    "宽基指数": ("新质", "沪深300", "上证50", "上证180", "深成指", "中证", "MSCI", "富时", "标普"),
+    "央国企": ("国企改革", "央企", "国资改革"),
+    "宽泛地域": ("自贸", "一带一路", "京津冀", "长江经济", "西部大开发", "振兴东北", "粤港澳", "海南自贸"),
+    "参股类": ("参股",),
+}
+
+
+def _broad_reason(name: str) -> str | None:
+    """概念名是否属「宽概念」→ 返回所属类别(持股状态/风格因子/宽基指数/央国企/宽泛地域/参股类)，否则 None。"""
+    for label, kws in _BROAD_BUCKETS.items():
+        if any(kw in name for kw in kws):
+            return label
+    return None
+
+
 def _fetch_concept_member_codes_wide(provider, cap_max: int = 1600) -> "pd.DataFrame":
     """全题材概念成分长表(concept_name/member_code)·成分数∈[5,cap_max]·剔垃圾+非题材池。
 
@@ -335,10 +356,14 @@ def build_concept_persistent_flow(date: str, window: int = 10, provider=None) ->
         return {"date": date, "window": len(dates), "rows": []}
     df_out = df_out.sort_values("cum5", ascending=False).reset_index(drop=True)
     df_out["rank"] = df_out.index + 1
+    records = df_out.to_dict("records")
+    for rec in records:   # 宽概念标注在 to_dict 之后赋值·绕开 pandas 把 None 变 NaN(保证前端拿到 null 而非 NaN·不影响任何资金列)
+        rec["broad"] = _broad_reason(str(rec.get("concept", "")))
     return {
         "date": date, "window": len(dates),
         "dates": [f"{d[4:6]}-{d[6:]}" for d in dates],
-        "rows": df_out.to_dict("records"),
+        "rows": records,
         "note": ("同花顺概念净流入(DDE·非龙虎榜真钱)。**渗透率%=近5日净流入/概念流通市值**(相对强度·抓小盘子猛灌)。"
-                 "⚠️概念成分重叠·流通市值重复计数·渗透率近似。红=流入 绿=流出。"),
+                 "⚠️概念成分重叠·流通市值重复计数·渗透率近似。红=流入 绿=流出。"
+                 " · 「宽」=跨行业/风格/宽基/宽泛地域概念(持股状态/高股息/新质50/自贸区等)·非可操作赛道·可一键隐藏突出真题材。"),
     }

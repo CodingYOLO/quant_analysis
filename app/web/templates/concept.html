@@ -23,6 +23,7 @@
 #ptbl td { white-space:nowrap; padding:9px 12px; text-align:right; }
 #ptbl td:nth-child(2) { text-align:left; min-width:120px; font-weight:600; color:#e8ecff; }
 #ptbl td.pen { font-weight:700; }            /* 渗透率列·相对强度·加粗突出 */
+#ptbl .broadtag { font-size:10px;color:#94a3b8;background:#2a2d3a;border:1px solid #3a3f5c;border-radius:3px;padding:0 4px;margin-left:5px;font-weight:400;vertical-align:1px; }  /* 宽概念标·灰底不抢戏 */
 .sttbl td, .sttbl th { white-space:nowrap; }
 @media(max-width:900px){ .kpi-row{grid-template-columns:repeat(2,1fr)} }
 /* 行展开详情面板 */
@@ -87,7 +88,10 @@ tr.detailrow td { padding:0; background:#141729; }
 <div id="persistcard" style="display:none">
   <div id="persist-note" style="font-size:12px;color:#fbbf24;background:#2a2410;border:1px solid #4a3d15;border-radius:8px;padding:8px 12px;margin-bottom:14px;line-height:1.6"></div>
   <div class="chart-card">
-    <h3>🔥 概念资金持续流入榜 <span class="neu" id="persist-cnt" style="font-weight:400;font-size:12px"></span></h3>
+    <h3>🔥 概念资金持续流入榜 <span class="neu" id="persist-cnt" style="font-weight:400;font-size:12px"></span>
+      <label id="hidebroad-wrap" style="float:right;font-size:12.5px;color:#cbd5e1;font-weight:400;cursor:pointer;user-select:none" title="隐藏跨行业/风格/宽基/宽泛地域这类非可操作概念(持股状态/高股息/新质50/自贸区等)·只留真题材赛道">
+        <input type="checkbox" id="hidebroad" style="vertical-align:-1px"> 只看题材<span id="broad-cnt" class="neu" style="font-size:11px"></span>
+      </label></h3>
     <div id="persist-loading" class="neu" style="font-size:14px;padding:16px">⏳ 计算近N日累计净流入…</div>
     <div style="overflow-x:auto"><table id="ptbl"></table></div>
   </div>
@@ -219,7 +223,7 @@ function renderDetailPanel(d){
 }
 
 // ── 🔥 概念资金持续流入榜（多窗口 + 渗透率·相对强度）─────────────────────────────────
-let pRows=[], pSort={key:'cum5',asc:false}, pWindow=10, pDates=[];
+let pRows=[], pSort={key:'cum5',asc:false}, pWindow=10, pDates=[], pHideBroad=false;
 function setMode(daily){
   const md=document.getElementById('mode-daily'), mp=document.getElementById('mode-persist');
   md.style.background=daily?'#3358e0':'#12141c'; md.style.color=daily?'#fff':'#9ca3af';
@@ -232,6 +236,7 @@ function setMode(daily){
 document.getElementById('mode-daily').addEventListener('click',()=>setMode(true));
 document.getElementById('mode-persist').addEventListener('click',()=>setMode(false));
 document.getElementById('pwin').addEventListener('change',()=>{ pWindow=+document.getElementById('pwin').value; loadPersist(); });
+document.getElementById('hidebroad').addEventListener('change',e=>{ pHideBroad=e.target.checked; renderPersist(); });
 
 async function loadPersist(){
   const date=(document.getElementById('date').value||'').replace(/-/g,'');
@@ -242,6 +247,8 @@ async function loadPersist(){
     if(!j.ok){ L.textContent='❌ '+j.error; return; }
     pRows=j.data.rows||[]; pDates=j.data.dates||[];
     document.getElementById('persist-note').innerHTML='💡 '+j.data.note;
+    const nBroad=pRows.filter(r=>r.broad).length;
+    document.getElementById('broad-cnt').textContent=nBroad?(' ('+nBroad+')'):'';
     document.getElementById('persist-cnt').textContent='· '+pRows.length+' 个概念 · 窗口 '+(pDates[0]||'')+'~'+(pDates[pDates.length-1]||'')+'（默认按近5日净额排序·点『渗透率%』看相对强度榜·点概念看成分股）';
     L.style.display='none'; renderPersist();
   }catch(e){ L.textContent='❌ '+e; }
@@ -257,13 +264,14 @@ const PSIGNED=new Set(['today_net','delta1d','cum3','delta3d','cum5','cum10','re
 const PTEXT=new Set(['concept','ambush']);
 function renderPersist(){
   let data=pRows.slice();
+  if(pHideBroad) data=data.filter(r=>!r.broad);   // 只看题材：隐藏宽概念(不改排名·rank仍是全体真实名次)
   if(pSort.key && !PTEXT.has(pSort.key)) data.sort((a,b)=>{let x=a[pSort.key],y=b[pSort.key];x=typeof x==='number'?x:-1e9;y=typeof y==='number'?y:-1e9;return pSort.asc?x-y:y-x;});
   const arr=k=>pSort.key===k?(pSort.asc?' ▲':' ▼'):'';
   let h='<thead><tr>'+PCOLS.map(([k,l])=>{const s=!PTEXT.has(k);const hint=k==='pen5'?' title="渗透率=近5日净流入/概念流通市值·相对强度·抓小盘子资金猛灌"':'';return '<th data-k="'+k+'"'+hint+' style="'+(s?'cursor:pointer':'')+(k==='pen5'?';color:#f0a020':'')+'">'+l+(s?'<span style="color:#7c9ef8">'+arr(k)+'</span>':'')+'</th>';}).join('')+'</tr></thead><tbody>';
   data.slice(0,80).forEach(r=>{
     h+='<tr class="datarow" data-name="'+encodeURIComponent(r.concept)+'">'+PCOLS.map(([k])=>{
       let v=r[k];
-      if(k==='concept') return '<td><span class="exp">▸</span>'+v+'</td>';
+      if(k==='concept'){ const b=r.broad?' <span class="broadtag" title="宽概念·'+r.broad+'·跨行业/风格/宽基·非可操作赛道（勾选『只看题材』可隐藏）">宽</span>':''; return '<td><span class="exp">▸</span>'+v+b+'</td>'; }
       if(k==='pen5'){ if(v==null) return '<td class="pen neu">·</td>'; const c=v>0?'up':(v<0?'down':''); return '<td class="pen '+c+'">'+(v>0?'+':'')+v+'%</td>'; }
       if(k==='ambush') return '<td>'+(v?'<span style="color:#f0a020" title="资金连续进但概念价没涨=埋伏">🔥暗流</span>':(r.consec_days>=3?'<span style="color:#f6465d">持续进</span>':'·'))+'</td>';
       if(k==='days_in') return '<td>'+v+'/'+r.n_days+'</td>';
