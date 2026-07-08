@@ -1,0 +1,200 @@
+{% extends "base.html" %}
+{% block title %}走势阶段研究 — A股Agent{% endblock %}
+
+{% block extra_style %}
+<style>
+  /* 走势优先·极简：一屏只讲这只票的大周期走到哪一步，不塞杂项。 */
+  .trend-wrap { max-width: 980px; margin: 0 auto; }
+  .t-search { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 6px; }
+  .t-search input {
+    flex: 1; min-width: 200px; padding: 10px 14px; font-size: 16px;
+    background: #12141f; border: 1px solid #2d3052; border-radius: 8px; color: #fff;
+  }
+  .t-search button {
+    padding: 10px 20px; font-size: 15px; background: #2d3052; color: #fff;
+    border: none; border-radius: 8px; cursor: pointer;
+  }
+  .t-search button:hover { background: #3a3f6a; }
+  .t-egs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 14px; }
+  .t-egs span {
+    padding: 3px 10px; font-size: 13px; color: #9ca3af; background: #12141f;
+    border: 1px solid #23263a; border-radius: 12px; cursor: pointer;
+  }
+  .t-egs span:hover { color: #fff; border-color: #3a3f6a; }
+  .t-tabs { display: flex; gap: 6px; margin: 4px 0 8px; }
+  .t-tabs button {
+    padding: 6px 18px; font-size: 14px; background: #12141f; color: #9ca3af;
+    border: 1px solid #23263a; border-radius: 6px; cursor: pointer;
+  }
+  .t-tabs button.on { background: #2d3052; color: #fff; border-color: #3a3f6a; }
+  #t-kline { height: 440px; background: #0d0f18; border: 1px solid #1a1d2e; border-radius: 8px; }
+  .t-title { font-size: 18px; color: #fff; margin: 2px 0 2px; }
+  .t-sub { font-size: 13px; color: #6b7280; margin-bottom: 10px; }
+  .card {
+    background: #12141f; border: 1px solid #1a1d2e; border-radius: 10px;
+    padding: 16px; margin-top: 14px;
+  }
+  .card h3 { font-size: 15px; color: #cbd5e1; margin: 0 0 12px; font-weight: 600; }
+  /* 大周期定位条：左=历史大底 右=历史大顶 */
+  .pos-bar {
+    position: relative; height: 26px; border-radius: 13px; margin: 26px 0 8px;
+    background: linear-gradient(90deg, #2ebd85 0%, #d9b03a 55%, #f6465d 100%);
+  }
+  .pos-mark {
+    position: absolute; top: -8px; width: 3px; height: 42px; background: #fff;
+    box-shadow: 0 0 6px rgba(255,255,255,.7);
+  }
+  .pos-mark::after {
+    content: attr(data-pct); position: absolute; top: -20px; left: 50%; transform: translateX(-50%);
+    font-size: 12px; color: #fff; white-space: nowrap;
+  }
+  .pos-ends { display: flex; justify-content: space-between; font-size: 12px; color: #9ca3af; }
+  .kv { display: flex; flex-wrap: wrap; gap: 18px 28px; margin-top: 14px; }
+  .kv div { font-size: 13px; color: #9ca3af; }
+  .kv b { color: #e5e7eb; font-size: 15px; display: block; margin-top: 2px; font-weight: 600; }
+  .stage-label {
+    display: inline-block; font-size: 20px; font-weight: 700; color: #fff;
+    padding: 4px 16px; border-radius: 8px; background: #1e2138; border: 1px solid #3a3f6a;
+  }
+  .stage-desc { font-size: 14px; color: #cbd5e1; margin: 12px 0; line-height: 1.6; }
+  .mtf-row { font-size: 13.5px; color: #9ca3af; margin: 6px 0; line-height: 1.5; }
+  .mtf-row b { color: #e5e7eb; }
+  .tops { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 10px; font-size: 13px; }
+  .tops span { color: #9ca3af; }
+  .edu summary { cursor: pointer; color: #7c9ef8; font-size: 14px; padding: 4px 0; }
+  .edu table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 13px; }
+  .edu td, .edu th { border: 1px solid #23263a; padding: 8px 10px; text-align: left; vertical-align: top; }
+  .edu th { color: #cbd5e1; background: #161824; }
+  .edu td { color: #9ca3af; }
+  .disc { font-size: 12px; color: #6b7280; margin-top: 16px; line-height: 1.6; }
+  .t-msg { color: #f6465d; font-size: 14px; padding: 12px 0; }
+  .loading { color: #6b7280; font-size: 14px; padding: 20px 0; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="trend-wrap">
+  <div class="t-search">
+    <input id="t-input" placeholder="输入股票代码 / 名称，如 600150 或 中国船舶" autocomplete="off">
+    <button onclick="queryTrend()">研究走势</button>
+  </div>
+  <div class="t-egs" id="t-egs">
+    <span>中国船舶</span><span>比亚迪</span><span>贵州茅台</span><span>宁德时代</span><span>紫金矿业</span>
+  </div>
+
+  <div id="t-body" style="display:none">
+    <div class="t-title" id="t-name">—</div>
+    <div class="t-sub">前复权 · 大周期决定方向、小周期决定节奏 · 纯结构描述非买卖建议</div>
+
+    <div class="t-tabs" id="t-tabs">
+      <button data-tf="m" class="on">月K（定方向）</button>
+      <button data-tf="w">周K（定节奏）</button>
+      <button data-tf="d">日K（找买点）</button>
+    </div>
+    <div id="t-kline"></div>
+
+    <div class="card" id="t-cycle-card">
+      <h3>📍 大周期定位（现价在上市以来区间的高度）</h3>
+      <div class="pos-bar"><div class="pos-mark" id="pos-mark" data-pct=""></div></div>
+      <div class="pos-ends"><span>◀ 历史大底</span><span>历史大顶 ▶</span></div>
+      <div class="kv" id="t-cycle-kv"></div>
+    </div>
+
+    <div class="card" id="t-stage-card">
+      <h3>🧭 阶段判定</h3>
+      <div><span class="stage-label" id="t-stage-label">—</span></div>
+      <div class="stage-desc" id="t-stage-desc"></div>
+      <div class="mtf-row" id="t-mon"></div>
+      <div class="mtf-row" id="t-week"></div>
+      <div class="tops" id="t-tops"></div>
+    </div>
+
+    <details class="card edu">
+      <summary>📚 大牛股五阶段·各周期该看什么（点开学结构）</summary>
+      <table>
+        <tr><th>阶段</th><th>月K</th><th>周K</th><th>日K</th></tr>
+        <tr><td><b>①大周期磨底</b></td><td>长期走平、贴历史低位、地量</td><td>窄幅横盘、均线粘合</td><td>缩量、无人问津</td></tr>
+        <tr><td><b>②筑底抬升</b></td><td>底部逐步抬高、站上10月线</td><td>低点抬高、放量小阳</td><td>回踩不破前低</td></tr>
+        <tr><td><b>③主升浪</b></td><td>月线连阳、10月线上行</td><td>沿5周线上行</td><td>回踩均线=低吸窗口</td></tr>
+        <tr><td><b>④加速冲顶</b></td><td>远离月线、月线巨量</td><td>加速偏离均值</td><td>巨量长上影/滞涨</td></tr>
+        <tr><td><b>⑤高位派发</b></td><td>10月线拐头/MACD死叉/放量不涨</td><td>跌破5周线</td><td>放量下跌、破位</td></tr>
+      </table>
+      <div class="disc">阶段仅为盘后结构近似，用于训练"认阶段"的眼光——不代表低位就会涨、高位一定跌。</div>
+    </details>
+
+    <div class="disc" id="t-disc"></div>
+  </div>
+
+  <div id="t-status"></div>
+</div>
+
+<script src="/static/echarts.min.js"></script>
+<script src="/static/kline.js"></script>
+<script>
+  const $ = (id) => document.getElementById(id);
+  let _tk = null;      // {d, w, m} 三周期K线
+  let _tf = 'm';       // 当前周期，默认月K（大周期研究以月线定方向为先）
+
+  function drawTF(tf) {
+    _tf = tf;
+    document.querySelectorAll('#t-tabs button').forEach(b => b.classList.toggle('on', b.dataset.tf === tf));
+    const kl = _tk && _tk[tf];
+    if (kl && window.AKline) { try { AKline.render('t-kline', kl); } catch (e) {} }
+  }
+  document.querySelectorAll('#t-tabs button').forEach(b => b.onclick = () => drawTF(b.dataset.tf));
+  $('t-egs').querySelectorAll('span').forEach(s => s.onclick = () => { $('t-input').value = s.textContent; queryTrend(); });
+  $('t-input').addEventListener('keydown', e => { if (e.key === 'Enter') queryTrend(); });
+
+  function fmtPct(v) { return (v > 0 ? '+' : '') + v + '%'; }
+
+  function renderCycle(c) {
+    if (!c || !c.ok) { $('t-cycle-card').style.display = 'none'; return; }
+    $('t-cycle-card').style.display = '';
+    const mark = $('pos-mark');
+    mark.style.left = c.pct + '%';
+    mark.setAttribute('data-pct', c.zone + ' · ' + c.pct + '分位');
+    $('t-cycle-kv').innerHTML =
+      `<div>现价(前复权)<b>${c.now}</b></div>` +
+      `<div>历史大底<b>${c.low}</b></div>` +
+      `<div>历史大顶<b>${c.high}</b></div>` +
+      `<div>高出大底<b style="color:#2ebd85">${fmtPct(c.above_bottom)}</b></div>` +
+      `<div>距历史大顶<b style="color:#f6465d">${fmtPct(c.below_top)}</b></div>` +
+      `<div>统计跨度<b>${c.years} 年</b></div>`;
+  }
+
+  function renderStage(stage, mtf) {
+    $('t-stage-label').textContent = (stage && stage.label) || '—';
+    $('t-stage-desc').textContent = (stage && stage.desc) || '';
+    const mon = (mtf && mtf.monthly) || {};
+    const wk = (mtf && mtf.weekly) || {};
+    $('t-mon').innerHTML = mon.dir ? `<b>月线定方向：</b>${mon.dir}（收${mon.close} / 10月线${mon.ma10}）` : '';
+    $('t-week').innerHTML = wk.rhythm ? `<b>周线定节奏：</b>${wk.rhythm}` : '';
+    const tops = mon.top_signals || {};
+    $('t-tops').innerHTML = Object.keys(tops).length
+      ? '<span>见顶三条件：</span>' + Object.entries(tops).map(([k, v]) => `<span>${v ? '🔴' : '⚪'} ${k}</span>`).join('')
+      : '';
+  }
+
+  async function queryTrend() {
+    const code = $('t-input').value.trim();
+    if (!code) return;
+    $('t-status').innerHTML = '<div class="loading">⏳ 加载全历史K线与大周期定位…</div>';
+    $('t-body').style.display = 'none';
+    try {
+      const r = await fetch('/api/trend-stage?code=' + encodeURIComponent(code));
+      const d = await r.json();
+      if (!d.ok) { $('t-status').innerHTML = `<div class="t-msg">${d.msg || '查询失败'}</div>`; return; }
+      _tk = { d: d.kline, w: d.kline_w, m: d.kline_m };
+      $('t-name').textContent = (d.name ? d.name + ' ' : '') + d.ts_code + `（${d.bars} 根日K）`;
+      renderCycle(d.cycle);
+      renderStage(d.stage, d.mtf);
+      $('t-disc').textContent = d.disclaimer || '';
+      $('t-status').innerHTML = '';
+      $('t-body').style.display = '';
+      drawTF('m');
+    } catch (e) {
+      $('t-status').innerHTML = `<div class="t-msg">请求出错：${e}</div>`;
+    }
+  }
+</script>
+{% endblock %}

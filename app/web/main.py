@@ -2321,6 +2321,27 @@ async def api_stock_profile(code: str = "", _user: str = Depends(require_auth)):
         return {"ok": False, "msg": str(e)}
 
 
+@app.get("/trend", response_class=HTMLResponse)
+async def trend_page(request: Request, _user: str = Depends(require_auth)):
+    """走势阶段研究：单股大周期定位 + 多周期(日/周/月)阶段判定·专注看走势，无杂项干扰。"""
+    return templates.TemplateResponse(request=request, name="trend.html", context={"page": "trend"})
+
+
+@app.get("/api/trend-stage")
+async def api_trend_stage(code: str = "", _user: str = Depends(require_auth)):
+    """单股走势阶段包：日/周/月K + 大周期历史定位(分位/距大底大顶) + 阶段判定。"""
+    from fastapi.concurrency import run_in_threadpool
+    try:
+        from app.strategy.trend_stage import build_trend_stage
+        ts_code = _resolve_ts_code(code)
+        if not ts_code:
+            return {"ok": False, "msg": "无法识别股票（请输入6位代码/完整代码/名称）"}
+        return await run_in_threadpool(build_trend_stage, ts_code, _stock_name(ts_code))
+    except Exception as e:
+        logger.exception("走势阶段研究失败")
+        return {"ok": False, "msg": str(e)}
+
+
 @app.get("/api/stock/company")
 async def api_stock_company(code: str = "", _user: str = Depends(require_auth)):
     """公司画像：主营业务/主营构成(Tushare硬数据) + 行业地位/全球排名/护城河(LLM归纳·带来源)。"""
