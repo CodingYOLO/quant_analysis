@@ -180,23 +180,27 @@ function renderTable(){
 }
 
 // ── 点击概念行：展开/收起「环境/微观」详情面板 ──
+const _detailCache={};   // 'date|code' → 已渲染详情HTML·客户端缓存·再次点开秒显不重复请求LLM
 async function toggleDetail(tr){
   const code=tr.dataset.code, name=decodeURIComponent(tr.dataset.name);
   const arrow=tr.querySelector('.exp');
   const next=tr.nextElementSibling;
-  if(next && next.classList.contains('detailrow')){ next.remove(); if(arrow)arrow.textContent='▸'; return; }
-  document.querySelectorAll('tr.detailrow').forEach(e=>e.remove());
-  document.querySelectorAll('#tbl .exp').forEach(e=>e.textContent='▸');
+  if(next && next.classList.contains('detailrow')){ next.remove(); if(arrow)arrow.textContent='▸'; return; }  // 收起自己
+  // 允许多个概念同时展开：不再移除其它已打开的详情(点别的不会让这边消失)
   if(arrow)arrow.textContent='▾';
   const dr=document.createElement('tr'); dr.className='detailrow';
   const td=document.createElement('td'); td.colSpan=document.querySelectorAll('#tbl thead th').length;
-  td.innerHTML='<div class="detail neu">⏳ 加载「'+name+'」环境分析中…（首次含 LLM 点评，约数秒）</div>';
   dr.appendChild(td); tr.after(dr);
   const date=(document.getElementById('date').value||'').replace(/-/g,'');
+  const ck=date+'|'+code;
+  if(_detailCache[ck]){ td.innerHTML=_detailCache[ck]; return; }   // 命中客户端缓存→秒显·不再请求
+  td.innerHTML='<div class="detail neu">⏳ 加载「'+name+'」环境分析中…（首次含 LLM 点评，约数秒）</div>';
   try{
     const r=await fetch('/api/concept/detail?date='+date+'&code='+encodeURIComponent(code));
     const j=await r.json();
-    td.innerHTML = j.ok ? renderDetailPanel(j.data) : '<div class="detail">❌ '+j.error+'</div>';
+    const html = j.ok ? renderDetailPanel(j.data) : '<div class="detail">❌ '+j.error+'</div>';
+    td.innerHTML=html;
+    if(j.ok) _detailCache[ck]=html;   // 仅缓存成功结果·失败下次可重试
   }catch(e){ td.innerHTML='<div class="detail">❌ '+e+'</div>'; }
 }
 
