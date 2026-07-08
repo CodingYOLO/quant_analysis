@@ -2105,9 +2105,10 @@ async def mainline_page(request: Request, _user: str = Depends(require_auth)):
     return templates.TemplateResponse(request=request, name="mainline.html", context={"page": "mainline"})
 
 
-@app.get("/api/mainline")
-async def api_mainline(date: str = "", _user: str = Depends(require_auth)):
-    """今日主线榜：涨停梯队45%+资金35%+涨幅20%·去重同题材·每条挂龙头+涨停原因。"""
+@app.get("/api/mainline-board")
+async def api_mainline_board(date: str = "", _user: str = Depends(require_auth)):
+    """今日主线榜：涨停梯队45%+资金35%+涨幅20%·去重同题材·每条挂龙头+涨停原因。
+    注：路径用 /api/mainline-board 避开既有 /api/mainline(mainline_analysis·概念/行业页顶部研判卡)。"""
     from fastapi.concurrency import run_in_threadpool
     try:
         from app.strategy.mainline import build_mainline
@@ -2118,8 +2119,8 @@ async def api_mainline(date: str = "", _user: str = Depends(require_auth)):
         return {"ok": False, "error": str(e)}
 
 
-@app.get("/api/mainline-ai")
-async def api_mainline_ai(date: str = "", _user: str = Depends(require_auth)):
+@app.get("/api/mainline-board-ai")
+async def api_mainline_board_ai(date: str = "", _user: str = Depends(require_auth)):
     """明日展望：LLM 延续性定性研判（接地财联社+博查·非预测非荐股·按日缓存）。首次约20-30秒。"""
     from fastapi.concurrency import run_in_threadpool
     try:

@@ -75,7 +75,7 @@
     const date = ($('ml-date').value || '').replace(/-/g, '');
     $('ai-loading').style.display = 'block'; $('ai-outlook').style.display = 'none';
     try {
-      const j = await (await fetch('/api/mainline-ai?date=' + date)).json();
+      const j = await (await fetch('/api/mainline-board-ai?date=' + date)).json();
       if (j.ok && j.data.outlook) { $('ai-body').textContent = j.data.outlook; $('ai-outlook').style.display = 'block'; }
     } catch (e) { /* AI 失败不阻塞主线卡片 */ }
     $('ai-loading').style.display = 'none';
@@ -112,7 +112,7 @@
     $('ml-cards').innerHTML = ''; $('ml-note').textContent = '';
     const date = ($('ml-date').value || '').replace(/-/g, '');
     try {
-      const j = await (await fetch('/api/mainline?date=' + date)).json();
+      const j = await (await fetch('/api/mainline-board?date=' + date)).json();
       if (!j.ok) { $('ml-status').innerHTML = `<div class="ml-msg">❌ ${j.error}</div>`; return; }
       const d = j.data;
       $('ml-note').textContent = '💡 ' + d.note;
