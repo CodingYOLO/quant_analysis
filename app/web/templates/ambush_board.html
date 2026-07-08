@@ -84,7 +84,7 @@
     return `<div class="ab-sec"><h3 class="${subCls}">${title}（${arr.length}）</h3><div class="sub">${sub}</div><div id="ab-tbl-${secKey}">${sectionInner(secKey, arr, emptyMsgOf(secKey))}</div></div>`;
   }
   function collapsibleSection(title, sub, secKey, arr) {
-    return `<details class="ab-sec"><summary class="ab-fold">${title}（${arr.length}）</summary><div class="sub">${sub}</div><div id="ab-tbl-${secKey}">${sectionInner(secKey, arr, emptyMsgOf(secKey))}</div></details>`;
+    return `<details class="ab-sec" open><summary class="ab-fold">${title}（${arr.length}）</summary><div class="sub">${sub}</div><div id="ab-tbl-${secKey}">${sectionInner(secKey, arr, emptyMsgOf(secKey))}</div></details>`;
   }
   // 点列头排序：只重渲染该档表格(保留流出<details>展开态·且不重新请求后端)
   $('ab-body').addEventListener('click', e => {
