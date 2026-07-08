@@ -314,8 +314,9 @@ function renderStockRows(td, nm){
   const cell=(v)=>{ if(v==null) return '<td style="text-align:center" class="neu">·</td>'; const c=v>0?'up':(v<0?'down':''); const sg=v>0?'+':''; const s=(typeof v==='number')?(Math.round(v*100)/100):v; return '<td style="text-align:center" class="'+c+'">'+sg+s+'</td>'; };
   const ar=k=>sk===k?(asc?' ▲':' ▼'):'';
   const th=(k,l)=>'<th class="stsort" data-k="'+k+'" style="cursor:pointer;text-align:center;padding:6px 8px">'+l+'<span style="color:#7c9ef8">'+ar(k)+'</span></th>';
-  let hh='<div style="padding:10px 14px"><b style="color:#cdd6f4;font-size:13px">'+nm+' · 概念内持续流入个股（估算·点列头排序）</b>'
-    +'<table class="sttbl" style="width:100%;margin-top:8px;font-size:13px"><thead><tr style="color:#9ca3af"><th style="text-align:left;padding:6px 8px">代码</th><th style="text-align:left;padding:6px 8px">名称</th>'
+  // 明细表 width:auto → 列按内容紧凑排布(不再拉伸到14列宽的外层榜)；sticky left:0 → 外层横向滚动时也始终贴左可见·涨跌%不再被挤到右边要滑。
+  let hh='<div style="padding:10px 14px;position:sticky;left:0;display:inline-block"><b style="color:#cdd6f4;font-size:13px">'+nm+' · 概念内持续流入个股（估算·点列头排序）</b>'
+    +'<table class="sttbl" style="width:auto;margin-top:8px;font-size:13px;border-collapse:collapse"><thead><tr style="color:#9ca3af"><th style="text-align:left;padding:6px 10px">代码</th><th style="text-align:left;padding:6px 10px">名称</th>'
     +th('consec_inflow','连续流入天')+th('inflow_days_10','近10流入天')+th('main_net_3d','主力3日(亿)')+th('main_net_amount','今日主力(亿)')+th('pct_chg','涨跌%')+'</tr></thead><tbody>';
   sorted.forEach(r=>{ const c6=String(r.ts_code||'').slice(0,6);
     hh+='<tr><td style="padding:5px 8px"><a href="/stock?code='+c6+'" style="color:#7c9ef8">'+c6+'</a></td><td style="padding:5px 8px">'+(r.name||'')+'</td>'
