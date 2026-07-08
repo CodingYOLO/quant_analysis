@@ -31,24 +31,24 @@ def build_ambush_board(date: str, provider: CompositeProvider | None = None) -> 
     """构建暗流低吸榜。复用概念持续流入榜（同花顺官方）·只加分档·剔宽概念。"""
     prov = provider or CompositeProvider()
     rows = build_concept_persistent_flow(date, window=5, provider=prov)["rows"]
-    buckets: dict[str, list] = {"real": [], "starting": [], "fake": []}
-    n_risen = n_out = 0
+    buckets: dict[str, list] = {"real": [], "starting": [], "fake": [], "outflow": []}
+    n_risen = 0
     for r in rows:
         if r.get("broad") or (r.get("n") or 0) < _MIN_MEMBERS:   # 暗流看 sharp 赛道·剔宽概念/太小概念
             continue
         g = _grade(r)
-        if g in buckets:
-            buckets[g].append({**{k: r.get(k) for k in _SLIM_KEYS}, "grade": g})
-        elif g == "risen":
+        if g == "risen":                                        # 已涨·非低吸·仅计数不进榜
             n_risen += 1
-        else:
-            n_out += 1
-    for k in buckets:
+            continue
+        buckets[g].append({**{k: r.get(k) for k in _SLIM_KEYS}, "grade": g})
+    for k in ("real", "starting", "fake"):                      # 三档按近3日净流入降序(最猛在前)
         buckets[k].sort(key=lambda x: (x.get("cum3") if x.get("cum3") is not None else -1e9), reverse=True)
+    buckets["outflow"].sort(key=lambda x: (x.get("cum3") if x.get("cum3") is not None else 1e9))  # 流出按流出额升序(最大流出在前·避雷)
     return {
         "date": date,
         "real": buckets["real"], "starting": buckets["starting"], "fake": buckets["fake"],
-        "n_risen": n_risen, "n_outflow": n_out,
+        "outflow": buckets["outflow"],
+        "n_risen": n_risen, "n_outflow": len(buckets["outflow"]),
         "note": ("暗流分档全部基于同花顺官方概念资金(moneyflow_cnt_ths·DDE估算)·可在同花顺 APP 逐一核对。"
                  "🟢真暗流=近3日净流入+今日在进+价没涨(低位吸筹) · 🔵量价启动=资金进+价开始动 · "
                  "🔴假暗流=5日看着流入但近3日/今日在撤(别被5日数字骗)。"

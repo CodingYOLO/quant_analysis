@@ -25,6 +25,8 @@
   table.ab td.lead { text-align: left; color: #9ca3af; }
   .up { color: #f6465d; } .down { color: #2ebd85; } .neu { color: #6b7280; }
   .ab-empty { color: #6b7280; font-size: 13px; padding: 6px 0; }
+  details.ab-sec summary.ab-fold { cursor: pointer; font-size: 15px; color: #8b93a7; padding: 4px 0; list-style: revert; }
+  details.ab-sec summary.ab-fold:hover { color: #cbd5e1; }
   .ab-msg { color: #f6465d; font-size: 14px; padding: 16px 0; }
   .ab-loading { color: #9ca3af; font-size: 14px; padding: 20px 0; }
 </style>
@@ -51,22 +53,24 @@
   const cls = (v) => v > 0 ? 'up' : (v < 0 ? 'down' : 'neu');
   const numCell = (v, suf) => v == null ? '<td class="neu">·</td>' : `<td class="${cls(v)}">${sgn(v)}${suf || ''}</td>`;
 
+  function tableHtml(arr) {
+    return '<table class="ab"><thead><tr>'
+      + '<th>概念</th><th>近3日(亿)</th><th>近5日(亿)</th><th>今日(亿)</th><th>5日涨%</th><th>渗透率%</th><th>龙头</th></tr></thead><tbody>'
+      + arr.map(r =>
+        `<tr><td class="name">${r.concept}</td>`
+        + numCell(r.cum3) + numCell(r.cum5) + numCell(r.today_net)
+        + numCell(r.ret5, '%')
+        + (r.pen5 == null ? '<td class="neu">·</td>' : `<td class="${cls(r.pen5)}">${sgn(r.pen5)}%</td>`)
+        + `<td class="lead">${r.lead || '·'}</td></tr>`).join('')
+      + '</tbody></table>';
+  }
   function section(title, subCls, sub, arr) {
-    let rows;
-    if (!arr.length) {
-      rows = '<div class="ab-empty">今日该档无概念（弱势/资金分散时正常）。</div>';
-    } else {
-      rows = '<table class="ab"><thead><tr>'
-        + '<th>概念</th><th>近3日(亿)</th><th>近5日(亿)</th><th>今日(亿)</th><th>5日涨%</th><th>渗透率%</th><th>龙头</th></tr></thead><tbody>'
-        + arr.map(r =>
-          `<tr><td class="name">${r.concept}</td>`
-          + numCell(r.cum3) + numCell(r.cum5) + numCell(r.today_net)
-          + numCell(r.ret5, '%')
-          + (r.pen5 == null ? '<td class="neu">·</td>' : `<td class="${cls(r.pen5)}">${sgn(r.pen5)}%</td>`)
-          + `<td class="lead">${r.lead || '·'}</td></tr>`).join('')
-        + '</tbody></table>';
-    }
-    return `<div class="ab-sec"><h3 class="${subCls}">${title}（${arr.length}）</h3><div class="sub">${sub}</div>${rows}</div>`;
+    const body = arr.length ? tableHtml(arr) : '<div class="ab-empty">今日该档无概念（弱势/资金分散时正常）。</div>';
+    return `<div class="ab-sec"><h3 class="${subCls}">${title}（${arr.length}）</h3><div class="sub">${sub}</div>${body}</div>`;
+  }
+  function collapsibleSection(title, sub, arr) {
+    const body = arr.length ? tableHtml(arr) : '<div class="ab-empty">无</div>';
+    return `<details class="ab-sec"><summary class="ab-fold">${title}（${arr.length}）</summary><div class="sub">${sub}</div>${body}</details>`;
   }
 
   async function loadAmbush() {
@@ -84,7 +88,8 @@
       $('ab-body').innerHTML =
         section('🟢 真暗流', 'h-real', '近3日净流入 + 今日仍在进 + 价格没涨（含下跌）= 低位持续吸筹，最值得盯', d.real)
         + section('🔵 量价启动', 'h-start', '资金进 + 价格开始动（5日涨3%~8%）= 暗流转明流，可能已在启动', d.starting)
-        + section('🔴 假暗流（在撤）', 'h-fake', '近5日看着流入、但近3日转负或今日流出 = 之前进的钱在撤，别被5日数字骗', d.fake);
+        + section('🔴 假暗流（在撤）', 'h-fake', '近5日看着流入、但近3日转负或今日流出 = 之前进的钱在撤，别被5日数字骗', d.fake)
+        + collapsibleSection('⚪ 流出（钱在往外走·避雷参考）', '资金净流出的概念 · 按流出额从大到小 · 点击展开', d.outflow || []);
       $('ab-status').innerHTML = '';
     } catch (e) { $('ab-status').innerHTML = `<div class="ab-msg">❌ ${e}</div>`; }
   }
