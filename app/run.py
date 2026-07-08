@@ -768,6 +768,13 @@ def run_warmup(base_date: str) -> None:
         console.print(f"[green]✅ 主线研判预热 {latest}[/green]")
     except Exception as e:
         console.print(f"[yellow]⚠️ 主线研判预热失败: {e}[/yellow]")
+    # 1.72) 今日主线榜(涨停梯队+资金+涨幅)+ AI明日展望(延续性研判·LLM·日缓存·/mainline 页 AI 秒显)
+    try:
+        from app.strategy.mainline import build_ai_outlook
+        mo = build_ai_outlook(latest, provider=prov, force=True)
+        console.print(f"[green]✅ 今日主线+明日展望预热 {latest}·{len(mo.get('lines', []))}主线[/green]")
+    except Exception as e:
+        console.print(f"[yellow]⚠️ 今日主线预热失败: {e}[/yellow]")
     # 2) 大盘情绪默认区间(end=今/明/后·各往前30天·覆盖今晚与周末打开的缓存键)
     for off in (0, 1, 2):
         end = (datetime.datetime.strptime(base, "%Y%m%d") + datetime.timedelta(days=off)).strftime("%Y%m%d")

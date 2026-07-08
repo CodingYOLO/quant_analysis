@@ -6,6 +6,7 @@
   .ml-wrap { max-width: 1000px; margin: 0 auto; }
   .ml-top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
   .ml-top input { padding: 8px 12px; font-size: 14px; background: #12141f; border: 1px solid #2d3052; border-radius: 8px; color: #fff; }
+  .ml-top input::-webkit-calendar-picker-indicator { filter: invert(0.7); cursor: pointer; }
   .ml-note { font-size: 12px; color: #fbbf24; background: #2a2410; border: 1px solid #4a3d15; border-radius: 8px; padding: 8px 12px; margin-bottom: 14px; line-height: 1.6; }
   .ml-card { background: #12141f; border: 1px solid #1e2233; border-radius: 12px; padding: 14px 16px; margin-bottom: 12px; }
   .ml-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
@@ -40,7 +41,7 @@
 <div class="ml-wrap">
   <div class="ml-top">
     <h2 style="margin:0;font-size:20px">🎯 今日主线</h2>
-    <input id="ml-date" placeholder="YYYY-MM-DD（留空=最近交易日）" autocomplete="off">
+    <input type="date" id="ml-date">
     <button onclick="loadMainline()" style="padding:8px 16px;background:#2d3052;color:#fff;border:none;border-radius:8px;cursor:pointer">刷新</button>
     <span id="ml-cnt" class="neu" style="font-size:12px"></span>
   </div>
@@ -115,6 +116,7 @@
       const j = await (await fetch('/api/mainline-board?date=' + date)).json();
       if (!j.ok) { $('ml-status').innerHTML = `<div class="ml-msg">❌ ${j.error}</div>`; return; }
       const d = j.data;
+      if (d.date) { const dd = String(d.date).replace(/-/g, ''); if (dd.length === 8) $('ml-date').value = dd.replace(/(\d{4})(\d{2})(\d{2})/, '$1-$2-$3'); }
       $('ml-note').textContent = '💡 ' + d.note;
       $('ml-cnt').textContent = `· ${d.date} · 全市场涨停 ${d.zt_total} 只 · 主线 ${d.lines.length} 条`;
       $('ml-cards').innerHTML = d.lines.length

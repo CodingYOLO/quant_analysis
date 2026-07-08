@@ -211,13 +211,14 @@ def _continuity_verdict(c: dict) -> dict:
 
 
 # ── AI 明日展望（LLM 定性·接地财联社+博查·严禁编造·按日缓存）─────────────────────
-def build_ai_outlook(date: str, provider: CompositeProvider | None = None) -> dict:
-    """今日主线 + LLM 明日展望（延续/退潮定性研判·带消息催化·非预测非荐股）。按日缓存。"""
+def build_ai_outlook(date: str, provider: CompositeProvider | None = None, force: bool = False) -> dict:
+    """今日主线 + LLM 明日展望（延续/退潮定性研判·带消息催化·非预测非荐股）。按日缓存·force 重算(盘后预热用)。"""
     from app.strategy import detail_common as DC
     path = DC.cache_path("mainline_outlook", date, "ai")
-    cached = DC.load_cache(path)
-    if cached is not None:
-        return cached
+    if not force:
+        cached = DC.load_cache(path)
+        if cached is not None:
+            return cached
     prov = provider or CompositeProvider()
     main = build_mainline(date, prov, top=10)
     lines = main["lines"]
