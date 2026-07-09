@@ -775,6 +775,13 @@ def run_warmup(base_date: str) -> None:
         console.print(f"[green]✅ 今日主线+明日展望预热 {latest}·{len(mo.get('lines', []))}主线[/green]")
     except Exception as e:
         console.print(f"[yellow]⚠️ 今日主线预热失败: {e}[/yellow]")
+    # 1.73) 自选关键位速览(均线/支撑压力/量比换手·EOD稳定层按日缓存·/watch-levels 页秒开)
+    try:
+        from app.strategy.watch_levels import build_watch_levels
+        wl = build_watch_levels(provider=prov)
+        console.print(f"[green]✅ 自选关键位预热 {wl.get('date')}·{len(wl.get('rows', []))}只[/green]")
+    except Exception as e:
+        console.print(f"[yellow]⚠️ 自选关键位预热失败: {e}[/yellow]")
     # 2) 大盘情绪默认区间(end=今/明/后·各往前30天·覆盖今晚与周末打开的缓存键)
     for off in (0, 1, 2):
         end = (datetime.datetime.strptime(base, "%Y%m%d") + datetime.timedelta(days=off)).strftime("%Y%m%d")

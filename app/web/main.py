@@ -1322,6 +1322,24 @@ async def portfolio_page(request: Request, _user: str = Depends(require_auth)):
     return templates.TemplateResponse(request=request, name="portfolio.html", context={"page": "portfolio"})
 
 
+@app.get("/watch-levels", response_class=HTMLResponse)
+async def watch_levels_page(request: Request, _user: str = Depends(require_auth)):
+    """📐 自选关键位：每只自选/持仓的均线价/支撑/压力/量比/换手·一目了然。"""
+    return templates.TemplateResponse(request=request, name="watch_levels.html", context={"page": "watch_levels"})
+
+
+@app.get("/api/watch-levels")
+async def api_watch_levels(_user: str = Depends(require_auth)):
+    """自选关键位速览：均线MA5/10/20/60 + 最近支撑压力 + 量比 + 换手（EOD稳定层缓存+实时叠加）。"""
+    from fastapi.concurrency import run_in_threadpool
+    try:
+        from app.strategy.watch_levels import build_watch_levels
+        return {"ok": True, "data": await run_in_threadpool(build_watch_levels)}
+    except Exception as e:
+        logger.exception("自选关键位失败")
+        return {"ok": False, "error": str(e)}
+
+
 @app.get("/hold", response_class=HTMLResponse)
 async def hold_page(request: Request, _user: str = Depends(require_auth)):
     """🤚 拿得住：对每只持仓按《持有手册》4问做数据接地的'卖不卖'判定。"""

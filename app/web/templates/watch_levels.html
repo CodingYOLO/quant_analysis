@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% block title %}自选关键位 — A股Agent{% endblock %}
+
+{% block extra_style %}
+<style>
+  .wl-wrap { max-width: 1200px; margin: 0 auto; }
+  .wl-top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+  .wl-top button { padding: 7px 14px; background: #2d3052; color: #fff; border: none; border-radius: 8px; cursor: pointer; }
+  .wl-note { font-size: 12px; color: #9ca3af; background: #12141f; border: 1px solid #23263a; border-radius: 8px; padding: 8px 12px; margin-bottom: 12px; line-height: 1.6; }
+  .wl-note b { color: #cbd5e1; }
+  .wl-scroll { overflow-x: auto; }
+  table.wl { border-collapse: collapse; width: 100%; font-size: 13px; white-space: nowrap; }
+  table.wl th, table.wl td { padding: 7px 9px; border-bottom: 1px solid #1a1d2e; text-align: right; }
+  table.wl th { color: #9ca3af; font-weight: 600; background: #12141f; position: sticky; top: 0; }
+  table.wl th.sortable { cursor: pointer; user-select: none; }
+  table.wl th.sortable:hover { color: #cbd5e1; }
+  table.wl .ar { color: #7c9ef8; }
+  table.wl th:first-child, table.wl td:first-child { text-align: left; }
+  td.name { color: #e5e7eb; font-weight: 600; }
+  td.name a { color: #7c9ef8; text-decoration: none; }
+  .tag { font-size: 10px; padding: 0 5px; border-radius: 3px; margin-left: 5px; vertical-align: 1px; }
+  .tag-hold { background: #3a2a12; color: #f0a020; }
+  .up { color: #f6465d; } .down { color: #2ebd85; } .neu { color: #6b7280; }
+  .sub { font-size: 11px; color: #6b7280; }
+  .grp-ma { border-left: 1px solid #23263a; } .grp-lv { border-left: 1px solid #23263a; }
+  .wl-msg { color: #f6465d; padding: 16px 0; } .wl-loading { color: #9ca3af; padding: 20px 0; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="wl-wrap">
+  <div class="wl-top">
+    <h2 style="margin:0;font-size:20px">📐 自选关键位</h2>
+    <button onclick="loadWL()">刷新</button>
+    <span id="wl-cnt" class="sub"></span>
+  </div>
+  <div class="wl-note">
+    <b>均线</b>：现价<span class="up">站上标红</span>（强·均线在下方=支撑）、<span class="down">跌破标绿</span>（弱·均线在上方=压力）。
+    <b>⬆压力/⬇支撑</b>来自关键位算法（均线+前低前高+筹码密集区），括号=距现价%。<b>量比/换手</b>盘中实时·盘后为收盘值。
+    数据源：现价/量比/换手=幕数据实时快照（盘后EOD兜底）；均线/支撑压力=前复权日K。<b>纯客观位描述·非买卖建议。</b>
+  </div>
+  <div class="wl-scroll" id="wl-body"></div>
+  <div id="wl-status"><div class="wl-loading">⏳ 加载自选关键位…</div></div>
+</div>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  const sgn = (v) => (v > 0 ? '+' : '') + v;
+  const cls = (v) => v > 0 ? 'up' : (v < 0 ? 'down' : 'neu');
+  let _rows = [], _sort = { key: null, asc: false };
+
+  const num = (v, suf, cl) => v == null ? '<td class="neu">·</td>' : `<td class="${cl || ''}">${v}${suf || ''}</td>`;
+  const maCell = (price, ma, extra) => ma == null ? `<td class="neu ${extra || ''}">·</td>`
+    : `<td class="${price >= ma ? 'up' : 'down'} ${extra || ''}">${ma}</td>`;
+  const lvCell = (o, extra) => o == null ? `<td class="neu ${extra || ''}">·</td>`
+    : `<td class="${extra || ''}">${o.price}<span class="sub"> ${sgn(o.dist)}%</span></td>`;
+
+  const COLS = [  // [key, label, sortable]
+    ['pct_chg', '涨跌%', true], ['ma5', 'MA5', true], ['ma10', 'MA10', true], ['ma20', 'MA20', true], ['ma60', 'MA60', true],
+    ['vol_ratio', '量比', true], ['turnover', '换手%', true], ['resistance', '⬆压力', true], ['support', '⬇支撑', true], ['stop_loss', '止损', false]];
+
+  function sortVal(r, k) {
+    const v = r[k];
+    if (v && typeof v === 'object') return v.dist;   // 支撑压力按距离排
+    return typeof v === 'number' ? v : -1e18;
+  }
+  function render() {
+    let rows = _rows.slice();
+    if (_sort.key) rows.sort((a, b) => { const x = sortVal(a, _sort.key), y = sortVal(b, _sort.key); return _sort.asc ? x - y : y - x; });
+    const ar = k => _sort.key === k ? (_sort.asc ? ' ▲' : ' ▼') : '';
+    const head = '<th>名称</th><th class="sortable" data-k="price">现价<span class="ar"></span></th>'
+      + COLS.map(([k, l, s], i) => `<th class="${s ? 'sortable' : ''} ${k === 'ma5' ? 'grp-ma' : (k === 'resistance' ? 'grp-lv' : '')}" ${s ? `data-k="${k}"` : ''}>${l}${s ? `<span class="ar">${ar(k)}</span>` : ''}</th>`).join('');
+    const body = rows.map(r =>
+      `<tr><td class="name"><a href="/stock?code=${r.code}">${r.name}</a>${r.is_holding ? '<span class="tag tag-hold">持仓</span>' : ''}</td>`
+      + `<td class="${cls(r.pct_chg)}">${r.price}</td>`
+      + num(r.pct_chg, '%', cls(r.pct_chg))
+      + maCell(r.price, r.ma5, 'grp-ma') + maCell(r.price, r.ma10) + maCell(r.price, r.ma20) + maCell(r.price, r.ma60)
+      + num(r.vol_ratio, '', r.vol_ratio >= 1.5 ? 'up' : '') + num(r.turnover, '%')
+      + lvCell(r.resistance, 'grp-lv') + lvCell(r.support)
+      + num(r.stop_loss)
+      + '</tr>').join('');
+    $('wl-body').innerHTML = `<table class="wl"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
+  }
+  $('wl-body').addEventListener('click', e => {
+    const th = e.target.closest('th.sortable'); if (!th) return;
+    const k = th.dataset.k; _sort = { key: k, asc: _sort.key === k ? !_sort.asc : false }; render();
+  });
+
+  async function loadWL() {
+    $('wl-status').innerHTML = '<div class="wl-loading">⏳ 加载自选关键位…</div>'; $('wl-body').innerHTML = '';
+    try {
+      const j = await (await fetch('/api/watch-levels')).json();
+      if (!j.ok) { $('wl-status').innerHTML = `<div class="wl-msg">❌ ${j.error}</div>`; return; }
+      _rows = j.data.rows || [];
+      $('wl-cnt').textContent = `· ${j.data.rows.length} 只 · 数据日 ${j.data.date} · ${j.data.live ? '实时' : '收盘值'}`;
+      render();
+      $('wl-status').innerHTML = _rows.length ? '' : '<div class="wl-loading">自选为空。</div>';
+    } catch (e) { $('wl-status').innerHTML = `<div class="wl-msg">❌ ${e}</div>`; }
+  }
+  loadWL();
+</script>
+{% endblock %}
