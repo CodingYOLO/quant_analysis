@@ -417,7 +417,7 @@ async function loadStyle(){
     const j=await (await fetch('/api/market/style-radar')).json();
     if(!j.ok){ document.getElementById('style-body').innerHTML='<span class="neu">'+_escS(j.msg||'暂无风格数据')+'</span>'; return; }
     const ds=String(j.date||''); const df=/^\d{8}$/.test(ds)?(ds.slice(0,4)+'-'+ds.slice(4,6)+'-'+ds.slice(6,8)):ds;
-    document.getElementById('style-date').textContent='📅 盘后数据日 '+df+'·行业宽表(非实时)·盘后约17:40更新';
+    document.getElementById('style-date').textContent='📅 盘后数据日 '+df+'·行业宽表(非实时)·资金17:40入库·宽表约18:00刷新';
     const sts=j.styles||[], lead=sts[0];
     let sm='';
     if(lead) sm+='今日主线 <b style="color:#f6465d">'+_escS(lead.style)+'</b>（'+_styleYi(lead.flow_1d_yi)+'，顶 '+(lead.top_industries||[]).slice(0,3).map(m=>_escS(m.name)).join('·')+'）';
