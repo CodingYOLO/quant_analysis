@@ -263,7 +263,7 @@ function renderPersist(){
   if(pSort.key && !PTEXT.has(pSort.key)) data.sort((a,b)=>{let x=a[pSort.key],y=b[pSort.key];x=typeof x==='number'?x:-1e9;y=typeof y==='number'?y:-1e9;return pSort.asc?x-y:y-x;});
   const arr=k=>pSort.key===k?(pSort.asc?' ▲':' ▼'):'';
   let h='<thead><tr>'+PCOLS.map(([k,l])=>{const s=!PTEXT.has(k);return '<th data-k="'+k+'" style="'+(s?'cursor:pointer':'')+'">'+l+(s?'<span style="color:#7c9ef8">'+arr(k)+'</span>':'')+'</th>';}).join('')+'</tr></thead><tbody>';
-  data.slice(0,60).forEach(r=>{
+  data.forEach(r=>{   // 完整渲染全部行业(持续流入榜·去掉旧 slice(0,60) 静默截断)
     h+='<tr class="datarow" data-ind="'+encodeURIComponent(r.industry)+'">'+PCOLS.map(([k])=>{
       let v=r[k];
       if(k==='industry') return '<td><span class="exp">▸</span>'+v+'</td>';
