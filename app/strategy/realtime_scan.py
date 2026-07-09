@@ -24,6 +24,11 @@ _SCAN_INTERVAL = 30          # 秒
 _VEL_PUSH_MOVE = 3.0         # 急拉推送阈值（5分钟涨速%）
 _HEALTH_ALERT_AFTER = 180    # 盘中全推断流超此秒数 → Bark 告警
 _AUCTION_STALE_SEC = 120     # 集合竞价档放宽的全推新鲜度门（竞价更新稀疏·连续档 _STALE_SEC=15 会误挡竞价推送）
+# ── 竞价期 Sina 补全（幕数据全推开盘常拒连/慢启动·9:15快照仅半个市场→竞价信号残缺·9:25填满才爆发）──
+_AUCTION_MIN_SNAP = 4500     # 竞价期快照完整度阈值（沪深~5200只·低于视为全推残缺）
+_AUCTION_FILL_TOP = 5500     # 竞价残缺时 Sina 补全的股票数（覆盖全A股·竞价价）
+_AUCTION_FILL_COOLDOWN = 25  # 竞价兜底最短间隔（秒·防抖·补一次 count 就够）
+_auction_fill_last = [0.0]
 _health: dict = {"alerted": False, "outage_start": 0.0}    # 心跳状态
 # 推送冷却（秒）：同一事件冷却内不重复；过冷却仍触发=再提醒；程度升级(事件key带档位)立即再推。
 _COOLDOWN_DEFAULT = 1500     # 25分钟
@@ -559,9 +564,18 @@ def _push_health(title: str, body: str) -> None:
 
 
 def _health_check() -> None:
-    """心跳：盘中全推断流 → 新浪兜底填快照（保命）+ 超时 Bark 告警 + 恢复通知。"""
+    """心跳：盘中全推断流→新浪兜底填快照 + 竞价期全推残缺→Sina补全全市场 + 超时告警 + 恢复通知。"""
     now = time.time()
     mkt = is_market_hours()
+    # 竞价期(9:15-9:25)幕数据全推常拒连/慢启动→快照残缺但"新鲜"(is_live=True)·原兜底只看is_live会漏它。
+    # 按"完整度"补：竞价档快照<阈值就用Sina补全全市场→竞价信号按全市场按时触发(不再等全推9:25填满才爆发)。
+    if (hub.market_session() in hub._AUCTION_SESSIONS
+            and hub.snapshot().count() < _AUCTION_MIN_SNAP
+            and now - _auction_fill_last[0] >= _AUCTION_FILL_COOLDOWN):
+        _auction_fill_last[0] = now
+        n = hub.fallback_fill_from_sina(top_active=_AUCTION_FILL_TOP)
+        if n:
+            logger.info("[竞价兜底] 幕数据全推残缺·Sina补%d只(快照→%d只)", n, hub.snapshot().count())
     live = hub.is_live() if mkt else True
     if mkt and not live:
         if not _health["outage_start"]:
