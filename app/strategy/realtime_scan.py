@@ -106,7 +106,8 @@ def _collect_events() -> list[tuple[str, str, str, str]]:
     mkt = _mkt_warn(senti.get("state", ""))                                 # 大盘环境警示(挂到机会信号·别逆势追)
 
     def _breaks():                                                          # 龙头炸板/开板·需回写 _sealed
-        breaks, new_sealed = detect_limit_breaks(rows, _sealed)
+        # 传真实时段(非 force 伪造的 continuous)：休市封单归0→跳过·避免 force 测试端点收盘后误报
+        breaks, new_sealed = detect_limit_breaks(rows, _sealed, session=hub.market_session())
         _sealed.clear(); _sealed.update(new_sealed)
         return breaks
 

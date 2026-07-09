@@ -811,12 +811,19 @@ def is_sealed_limit(row: dict) -> tuple[bool, float | None]:
 
 
 def detect_limit_breaks(rows: list[dict], prev_sealed: dict, *,
-                        min_amount: float = 1e8, weak_ratio: float = 0.4) -> tuple[list, dict]:
+                        min_amount: float = 1e8, weak_ratio: float = 0.4,
+                        session: str = "continuous") -> tuple[list, dict]:
     """龙头炸板/开板预警。比对上一轮封板集合 → 事件 + 新封板集合。
 
     只跟踪成交额≥min_amount 的活跃涨停（避免微小盘噪音）。封单跌破峰值 weak_ratio→开板预警；
     上轮封板本轮脱板→炸板。返回 ([(key,title,body,code)], new_sealed)。
+
+    session != "continuous"（盘前/午休/收盘后）时直接跳过：非连续竞价时段封单本就归 0，
+    读到的 0 是「休市」而非「撤单炸板」。据此避免 force 测试端点在休市误报"封单萎缩至0"
+    (2026-07-09 踩坑：收盘后点『测试推送』刷出一堆假开板预警)。封板集合原样保留、不被 0 污染。
     """
+    if session != "continuous":
+        return [], dict(prev_sealed)
     by_code = {r["ts_code"]: r for r in rows}
     events, new_sealed = [], {}
     for code, r in by_code.items():
