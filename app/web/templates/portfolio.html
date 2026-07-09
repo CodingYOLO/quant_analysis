@@ -367,7 +367,10 @@ reload(); loadSignals();
       var j=await (await fetch('/api/watch-levels')).json();
       if(!j.ok){wg('wl-body').innerHTML='<div class="wl-load">❌ '+j.error+'</div>';return;}
       wlRows=j.data.rows||[];
-      wg('wl-cnt').textContent='· '+wlRows.length+'只 · '+j.data.date+' · '+(j.data.live?'实时':'收盘值');
+      // 两层口径讲清楚：技术位=已收盘日线算的(固定)，现价=实时快照(feed离线时回退收盘值)
+      var _d=j.data.date||'', _ds=_d.length===8?(_d.slice(4,6)+'-'+_d.slice(6,8)):_d, _live=j.data.live;
+      wg('wl-cnt').innerHTML='· '+wlRows.length+'只 ｜ 技术位·截至'+_ds+'收盘 ｜ 现价·<span style="color:'
+        +(_live?'#2ebd85':'#f0a020')+'">'+(_live?'实时':'收盘值(feed离线)')+'</span>';
       wlRender();
       if(!wlRows.length)wg('wl-body').innerHTML='<div class="wl-load">自选为空。</div>';
     }catch(e){wg('wl-body').innerHTML='<div class="wl-load">❌ '+e+'</div>';}
