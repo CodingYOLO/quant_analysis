@@ -135,7 +135,7 @@ function renderCols(b){
   document.getElementById('c-dip').innerHTML=(b.dip||[]).map(r=>card(r,[
     ['5日涨',sg(r.pct_chg_5d)],['今日资金',f(r.money_flow_1d)],['MA20',f(r.breadth_ma20,'%')]])).join('')||'<div class="miss" style="font-size:12px">今日无（无趋势在而当日分歧的板块）</div>';
   document.getElementById('c-risk').innerHTML=(b.risk||[]).map(r=>card(r,[
-    ['5日涨',sg(r.pct_chg_5d)],['MA20',f(r.breadth_ma20,'%')],['Top100',f(r.top100_ratio,'%')]])).join('')||'<div class="miss" style="font-size:12px">今日无（普涨无明显高位拥挤板块）</div>';
+    ['7日涨',sg(r.pct_chg_7d)],['集中度',f(r.pop_concentration_hhi,'%')],['Top100',f(r.top100_ratio,'%')]])).join('')||'<div class="miss" style="font-size:12px">今日无（普涨无明显高位拥挤板块）</div>';
 }
 
 const COLS=[
