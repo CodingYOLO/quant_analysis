@@ -238,36 +238,52 @@ def _load_rows(d: str, theme_types: tuple[str, ...]) -> list[dict]:
     ]
 
 
+# 宽概念/宽基指数去噪（板块全景只留可操作赛道；申万行业一律保留）
+_INDEX_LIKE = ("中国AI", "同花顺出海", "同花顺漂亮", "同花顺新质", "新质50", "国有大型银行",
+               "股份制银行", "科创50", "创业板指", "沪深300", "上证50", "上证180")
+
+
+def _is_broad_theme(r: dict) -> bool:
+    """宽概念/宽基指数/持股状态 → 剔（非可操作赛道·中国AI50/漂亮100/国有大型银行/国家大基金持股等）。"""
+    if r.get("theme_type") == "industry":
+        return False
+    from app.strategy.concept_flow import _broad_reason
+    nm = str(r.get("theme_name") or "")
+    return bool(_broad_reason(nm)) or any(p in nm for p in _INDEX_LIKE)
+
+
 def _classify(rows: list[dict], ctx: dict) -> tuple[list, list, list, list]:
-    """对每行打类别标签，写回 signal/signals，并分栏排序。返回 (rotate, dip, risk, ambush)。"""
-    rotate, dip, risk, ambush = [], [], [], []
+    """三栏诊断（**排名制**·取当日相对最符合各类特征的板块·弱势日也有内容；剔宽概念）。
+    互斥优先级：高位风险 > 轮动上行 > 低吸观察（暗流可叠加）。返回 (rotate, dip, risk, ambush)。"""
+    pool = [r for r in rows if not _is_broad_theme(r)]            # 剔宽概念/宽基指数
+    # 高位风险：涨幅高 + 拥挤度高（拥挤优先·最需警惕·先占）
+    risk = sorted(pool, key=lambda r: (_num(r.get("top100_ratio")), _num(r.get("pct_chg_5d"))),
+                  reverse=True)[:12]
+    rids = {id(r) for r in risk}
+    # 轮动上行：资金流入 + 强度共振（近3日资金 → MA20广度）·排除高位
+    rotate = sorted((r for r in pool if id(r) not in rids),
+                    key=lambda r: (_num(r.get("money_flow_3d")), _num(r.get("breadth_ma20"))),
+                    reverse=True)[:12]
+    seen = rids | {id(r) for r in rotate}
+    # 低吸观察：回撤（近3日跌）但结构未破（MA20广度 → 中期资金）·排除高位/轮动
+    dip = sorted((r for r in pool if id(r) not in seen and _num(r.get("pct_chg_3d")) < 0),
+                 key=lambda r: (_num(r.get("breadth_ma20")), _num(r.get("money_flow_5d"))),
+                 reverse=True)[:12]
+    # 资金暗流：保留原谓词（资金进+价没涨·非高位）·按近5日净流入排序
+    ambush = sorted((r for r in pool if id(r) not in rids and _is_ambush(r, ctx)),
+                    key=lambda r: _num(r.get("money_flow_5d")), reverse=True)
+    # 写回 signal 标签（id 判归属·互斥优先 高位>轮动>低吸；暗流可叠加）
+    rotids, dids, aids = {id(r) for r in rotate}, {id(r) for r in dip}, {id(r) for r in ambush}
     for r in rows:
         flags = []
-        is_risk = _is_risk(r, ctx)
-        # 轮动与高位互斥：已拥挤/高位的板块不进"轮动"栏——避免同一板块既被描述为"资金在进"
-        # 又被标"高位拥挤"的自相矛盾（强但拥挤 → 只进高位风险栏，如实标"追高危险"）。
-        if _is_rotate(r, ctx) and not is_risk:
-            flags.append("轮动")
-            rotate.append(r)
-        # 低吸与过热互斥：已拥挤/超买的板块不进低吸（不低吸高位板块）
-        if not is_risk and _is_dip(r, ctx):
-            flags.append("低吸")
-            dip.append(r)
-        # 资金暗流（资金进+价没涨）：非高位·资金领先价格
-        if not is_risk and _is_ambush(r, ctx):
-            flags.append("资金暗流")
-            ambush.append(r)
-        if is_risk:
+        if id(r) in rids:
             flags.append("高位风险")
-            risk.append(r)
+        elif id(r) in rotids:
+            flags.append("轮动")
+        elif id(r) in dids:
+            flags.append("低吸")
+        if id(r) in aids:
+            flags.append("资金暗流")
         r["signal"] = flags[0] if flags else ""
         r["signals"] = flags
-
-    rotate.sort(key=lambda r: _num(r.get("money_flow_3d")), reverse=True)
-    dip.sort(key=lambda r: _num(r.get("money_flow_5d")), reverse=True)
-    # 高位风险：拥挤度优先（更危险），同档按 5 日涨幅
-    risk.sort(key=lambda r: (_num(r.get("top100_ratio")), _num(r.get("pct_chg_5d"))),
-              reverse=True)
-    # 资金暗流：近5日净流入越多越靠前（资金领先幅度）
-    ambush.sort(key=lambda r: _num(r.get("money_flow_5d")), reverse=True)
     return rotate, dip, risk, ambush
