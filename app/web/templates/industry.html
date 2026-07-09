@@ -160,7 +160,7 @@ function renderTable(){
   let h='<thead><tr>'+COLS.map(([k,l])=>{
     const s=!TEXT.has(k); return '<th data-k="'+k+'" style="'+(s?'cursor:pointer':'')+'">'+l+(s?'<span style="color:#7c9ef8">'+arrow(k)+'</span>':'')+'</th>';
   }).join('')+'</tr></thead><tbody>';
-  data.slice(0,60).forEach(r=>{
+  data.forEach(r=>{   // 完整渲染全部行业(去掉旧的 slice(0,60) 静默截断·申万二级130+个全显示)
     h+='<tr class="datarow" data-ind="'+encodeURIComponent(r.industry)+'">'+COLS.map(([k])=>{
       let v=r[k];
       if(SIGNED.has(k) && typeof v==='number'){const c=v>0?'up':(v<0?'down':'');const sg=v>0?'+':'';return '<td class="'+c+'">'+sg+v+'</td>';}
