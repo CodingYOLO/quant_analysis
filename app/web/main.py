@@ -1322,12 +1322,6 @@ async def portfolio_page(request: Request, _user: str = Depends(require_auth)):
     return templates.TemplateResponse(request=request, name="portfolio.html", context={"page": "portfolio"})
 
 
-@app.get("/watch-levels", response_class=HTMLResponse)
-async def watch_levels_page(request: Request, _user: str = Depends(require_auth)):
-    """📐 自选关键位：每只自选/持仓的均线价/支撑/压力/量比/换手·一目了然。"""
-    return templates.TemplateResponse(request=request, name="watch_levels.html", context={"page": "watch_levels"})
-
-
 @app.get("/api/watch-levels")
 async def api_watch_levels(_user: str = Depends(require_auth)):
     """自选关键位速览：均线MA5/10/20/60 + 最近支撑压力 + 量比 + 换手（EOD稳定层缓存+实时叠加）。"""

@@ -40,6 +40,23 @@ tr.datarow:hover td { background:#1e2138; cursor:pointer; }
 .sig { padding:5px 11px; border-radius:7px; margin:3px 0; font-size:12.5px; line-height:1.6; }
 .sig.buy { background:#143b28; border:1px solid #1f5a3a; color:#cdd6f4; }
 .sig.sell { background:#3a1a1a; border:1px solid #5a2a2a; color:#cdd6f4; }
+/* 关键位速览（全部 scope 在 #wl-levels·不影响页内其它样式）*/
+#wl-levels .wl-title { font-size:14px; font-weight:600; color:#cdd6f4; border-left:3px solid #2ebd85; padding-left:9px; margin-bottom:4px; }
+#wl-levels .wl-sub { font-size:11px; color:#6b7280; font-weight:400; }
+#wl-levels .wl-note-x { font-size:11px; color:#6b7280; margin:2px 0 7px; line-height:1.5; }
+#wl-levels .wl-note-x .wl-up { color:#f6465d; } #wl-levels .wl-note-x .wl-down { color:#2ebd85; }
+#wl-levels .wl-scroll { overflow-x:auto; }
+#wl-levels table { border-collapse:collapse; width:100%; font-size:13px; white-space:nowrap; }
+#wl-levels th, #wl-levels td { padding:6px 9px; border-bottom:1px solid #1a1d2e; text-align:right; }
+#wl-levels th { color:#9ca3af; font-weight:600; background:#12141f; }
+#wl-levels th.s { cursor:pointer; user-select:none; } #wl-levels th.s:hover { color:#cbd5e1; }
+#wl-levels th:first-child, #wl-levels td:first-child { text-align:left; }
+#wl-levels td.nm { color:#e5e7eb; font-weight:600; } #wl-levels td.nm a { color:#7c9ef8; text-decoration:none; }
+#wl-levels .wl-up { color:#f6465d; } #wl-levels .wl-down { color:#2ebd85; } #wl-levels .wl-neu { color:#6b7280; }
+#wl-levels .wl-sub2 { font-size:11px; color:#6b7280; }
+#wl-levels .htag { font-size:10px; padding:0 5px; border-radius:3px; margin-left:5px; background:#3a2a12; color:#f0a020; }
+#wl-levels .gl { border-left:1px solid #23263a; }
+#wl-levels .wl-load { color:#9ca3af; padding:12px 0; }
 {% endblock %}
 
 {% block content %}
@@ -65,6 +82,11 @@ tr.datarow:hover td { background:#1e2138; cursor:pointer; }
   <span id="addmsg" class="lab"></span>
 </div>
 
+<div id="wl-levels" style="margin:12px 0 16px">
+  <div class="wl-title">📐 关键位速览 <span class="wl-sub" id="wl-cnt"></span></div>
+  <div class="wl-note-x">均线：现价<span class="wl-up">站上标红</span>(强)/<span class="wl-down">跌破标绿</span>(弱) · ⬆压力/⬇支撑(括号=距现价%) · 量比&gt;1.5标红 · 点列头排序 · 纯客观位·非买卖建议</div>
+  <div class="wl-scroll" id="wl-body"><div class="wl-load">⏳ 加载关键位速览…</div></div>
+</div>
 <div id="alerts" class="alerts"></div>
 <div id="sigwrap" style="margin:6px 0 12px">
   <div style="font-size:13px;color:#cdd6f4;margin-bottom:5px">
@@ -314,5 +336,42 @@ $('healthbtn').onclick=()=>{ loadLive(); loadSignals(true); };   // 手动全量
 $('addbtn').onclick=addStock;
 $('a_code').addEventListener('keydown',e=>{ if(e.key==='Enter') addStock(); });
 reload(); loadSignals();
+</script>
+<script>
+/* 关键位速览（IIFE 独立作用域·不与上面盯盘JS冲突）*/
+(function(){
+  var wg=function(id){return document.getElementById(id);};
+  var wsg=function(v){return (v>0?'+':'')+v;};
+  var wcl=function(v){return v>0?'wl-up':(v<0?'wl-down':'wl-neu');};
+  var wlRows=[], wlSort={key:null,asc:false};
+  var COLS=[['pct_chg','涨跌%',1],['ma5','MA5',1],['ma10','MA10',1],['ma20','MA20',1],['ma60','MA60',1],['vol_ratio','量比',1],['turnover','换手%',1],['resistance','⬆压力',1],['support','⬇支撑',1],['stop_loss','止损',0]];
+  function nc(v,suf,c){return v==null?'<td class="wl-neu">·</td>':'<td class="'+(c||'')+'">'+v+(suf||'')+'</td>';}
+  function mc(p,ma,e){return ma==null?'<td class="wl-neu '+(e||'')+'">·</td>':'<td class="'+(p>=ma?'wl-up':'wl-down')+' '+(e||'')+'">'+ma+'</td>';}
+  function lc(o,e){return o==null?'<td class="wl-neu '+(e||'')+'">·</td>':'<td class="'+(e||'')+'">'+o.price+'<span class="wl-sub2"> '+wsg(o.dist)+'%</span></td>';}
+  function sval(r,k){var v=r[k];if(v&&typeof v==='object')return v.dist;return typeof v==='number'?v:-1e18;}
+  function wlRender(){
+    var rs=wlRows.slice();
+    if(wlSort.key)rs.sort(function(a,b){var x=sval(a,wlSort.key),y=sval(b,wlSort.key);return wlSort.asc?x-y:y-x;});
+    var ar=function(k){return wlSort.key===k?(wlSort.asc?' ▲':' ▼'):'';};
+    var head='<th>名称</th><th class="s" data-k="price">现价</th>'+COLS.map(function(c){var k=c[0],l=c[1],s=c[2];return '<th class="'+(s?'s':'')+' '+((k==='ma5'||k==='resistance')?'gl':'')+'" '+(s?'data-k="'+k+'"':'')+'>'+l+(s?'<span>'+ar(k)+'</span>':'')+'</th>';}).join('');
+    var body=rs.map(function(r){return '<tr><td class="nm"><a href="/stock?code='+r.code+'">'+r.name+'</a>'+(r.is_holding?'<span class="htag">持仓</span>':'')+'</td>'
+      +'<td class="'+wcl(r.pct_chg)+'">'+r.price+'</td>'+nc(r.pct_chg,'%',wcl(r.pct_chg))
+      +mc(r.price,r.ma5,'gl')+mc(r.price,r.ma10)+mc(r.price,r.ma20)+mc(r.price,r.ma60)
+      +nc(r.vol_ratio,'',r.vol_ratio>=1.5?'wl-up':'')+nc(r.turnover,'%')
+      +lc(r.resistance,'gl')+lc(r.support)+nc(r.stop_loss)+'</tr>';}).join('');
+    wg('wl-body').innerHTML='<table><thead><tr>'+head+'</tr></thead><tbody>'+body+'</tbody></table>';
+  }
+  wg('wl-body').addEventListener('click',function(e){var th=e.target.closest('th.s');if(!th)return;var k=th.dataset.k;wlSort={key:k,asc:wlSort.key===k?!wlSort.asc:false};wlRender();});
+  (async function(){
+    try{
+      var j=await (await fetch('/api/watch-levels')).json();
+      if(!j.ok){wg('wl-body').innerHTML='<div class="wl-load">❌ '+j.error+'</div>';return;}
+      wlRows=j.data.rows||[];
+      wg('wl-cnt').textContent='· '+wlRows.length+'只 · '+j.data.date+' · '+(j.data.live?'实时':'收盘值');
+      wlRender();
+      if(!wlRows.length)wg('wl-body').innerHTML='<div class="wl-load">自选为空。</div>';
+    }catch(e){wg('wl-body').innerHTML='<div class="wl-load">❌ '+e+'</div>';}
+  })();
+})();
 </script>
 {% endblock %}
