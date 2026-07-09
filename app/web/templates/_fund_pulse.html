@@ -1,0 +1,81 @@
+{# 共享组件：大盘资金脉搏（实时盯盘 / 大盘情绪 共用）。数据走 /api/market/fund-pulse。
+   两层口径各自标清：官方主力=moneyflow_dc东财大单口径·盘后； 盘中主动净买=幕数据内外盘估算·实时。 #}
+<div id="fund-pulse" style="background:linear-gradient(135deg,#141726,#171a2b);border:1px solid #283056;border-radius:12px;padding:14px 16px;margin-bottom:16px">
+  <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px;margin-bottom:10px">
+    <h3 style="font-size:15px;color:#e8ecff;margin:0;font-weight:700">💰 大盘资金脉搏
+      <span style="font-size:11px;color:#8b93b8;font-weight:400">· 沪深两市 · 非投资建议</span></h3>
+    <span id="fp-asof" style="font-size:11px;color:#6b7280"></span>
+  </div>
+  <div id="fp-body">
+    <div id="fp-loading" style="font-size:13px;color:#9ca3af;padding:10px 0">⏳ 加载大盘资金…</div>
+    <div id="fp-content" style="display:none">
+      <!-- 官方主力净流入（盘后·东财大单口径）-->
+      <div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:4px">
+        <span style="font-size:12px;color:#9ca3af">主力净流入</span>
+        <span style="font-size:10px;color:#f0a020;background:#3a2a12;border-radius:3px;padding:1px 6px">超大+大单·东财口径·盘后</span>
+        <span id="fp-main-date" style="font-size:11px;color:#6b7280"></span>
+      </div>
+      <div id="fp-main-big" style="font-size:26px;font-weight:800;margin-bottom:8px">—</div>
+      <div id="fp-main-series" style="display:flex;gap:6px;align-items:flex-end;height:56px;margin-bottom:12px"></div>
+      <!-- 盘中主动净买（实时·幕数据估算）-->
+      <div style="border-top:1px solid #232a48;padding-top:10px">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px">
+          <span style="font-size:12px;color:#9ca3af">盘中主动净买</span>
+          <span style="font-size:10px;color:#7c9ef8;background:#1a2440;border-radius:3px;padding:1px 6px">内外盘估算·实时·非大单</span>
+        </div>
+        <div id="fp-rt" style="font-size:13px;color:#cdd6f4;line-height:1.95">—</div>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+(function(){
+  var $=function(id){return document.getElementById(id);};
+  // A股配色：红=流入/涨、绿=流出/跌
+  function yi(v){
+    if(v===null||v===undefined) return '<span style="color:#6b7280">—</span>';
+    var c=v>0?'#f6465d':(v<0?'#2ebd85':'#9ca3af');
+    return '<span style="color:'+c+'">'+(v>0?'+':'')+v+'亿</span>';
+  }
+  function fmtD(d){ return (d&&d.length===8)?(d.slice(4,6)+'-'+d.slice(6,8)):(d||''); }
+  function renderSeries(series){
+    if(!series||!series.length) return '';
+    var maxAbs=Math.max.apply(null,series.map(function(x){return Math.abs(x.net_yi)||0;}))||1;
+    return series.map(function(x,i){
+      var v=x.net_yi||0, h=Math.max(3,Math.round(Math.abs(v)/maxAbs*38)), last=i===series.length-1;
+      var c=v>0?'#f6465d':(v<0?'#2ebd85':'#555');
+      return '<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px" title="'+fmtD(x.date)+' '+(v>0?'+':'')+v+'亿">'
+        +'<div style="font-size:9.5px;color:'+c+';white-space:nowrap">'+(v>0?'+':'')+Math.round(v)+'</div>'
+        +'<div style="width:'+(last?'72%':'55%')+';height:'+h+'px;background:'+c+';border-radius:2px;'+(last?'box-shadow:0 0 0 1px rgba(255,255,255,.25)':'opacity:.82')+'"></div>'
+        +'<div style="font-size:9px;color:#6b7280">'+fmtD(x.date)+'</div></div>';
+    }).join('');
+  }
+  function render(j){
+    $('fp-loading').style.display='none'; $('fp-content').style.display='block';
+    var m=j.main||{}, today=m.today;
+    $('fp-main-big').innerHTML = today ? yi(today.net_yi) : '<span style="font-size:15px;color:#6b7280">盘后结算后更新</span>';
+    $('fp-main-date').textContent = today ? ('· '+fmtD(today.date)) : '';
+    $('fp-main-series').innerHTML = renderSeries(m.series);
+    var rt='';
+    if(j.live){
+      var a=j.active, v=j.volume, b=j.breadth;
+      if(a) rt+='净 <b>'+yi(a.net_yi)+'</b> <span style="color:#6b7280">（主动买'+a.buy_yi+' / 主动卖'+a.sell_yi+'）</span>';
+      if(v){ var vl=v.label||'', vc=vl.indexOf('放量')>=0?'#f6465d':(vl.indexOf('缩量')>=0?'#2ebd85':'#9ca3af');
+        rt+='<br>量能 <span style="color:'+vc+'">'+vl+'</span> <span style="color:#6b7280">今'+v.today_yi+'亿'+(v.prev_yi?' / 昨'+v.prev_yi+'亿':'')+(v.vol_ratio?' · 量比'+v.vol_ratio:'')+'</span>'; }
+      if(b) rt+='<br>广度 <span style="color:#f6465d">涨'+b.up+'</span> / <span style="color:#2ebd85">跌'+b.down+'</span> · 涨停'+b.limit_up+' / 跌停'+b.limit_down;
+    } else {
+      rt='<span style="color:#6b7280">feed 离线（交易时段自动更新主动净买 / 量能 / 广度）</span>';
+    }
+    $('fp-rt').innerHTML=rt||'<span style="color:#6b7280">—</span>';
+    $('fp-asof').textContent=(j.live?'🟢 盘中实时':'⚪ 收盘/离线')+(j.session?' · '+j.session:'');
+  }
+  function load(){
+    fetch('/api/market/fund-pulse').then(function(r){return r.json();}).then(function(j){
+      if(!j||!j.ok){ $('fp-loading').textContent='❌ '+((j&&j.msg)||'大盘资金加载失败'); return; }
+      render(j);
+    }).catch(function(e){ $('fp-loading').textContent='❌ '+e; });
+  }
+  load();
+  setInterval(load, 30000);   // 30s 刷新（盘中主动净买/量能/广度随快照更新；官方主力端 120s 缓存）
+})();
+</script>

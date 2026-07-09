@@ -23,6 +23,26 @@ def outer_ratio(inner: float, outer: float) -> float:
     return round(outer / total, 4) if total > 0 else 0.5
 
 
+def market_active_flow(df: pd.DataFrame) -> dict | None:
+    """全市场主动资金（亿元）：主动买 / 主动卖 / 净 = Σ外盘×现价 / Σ内盘×现价 / 二者之差。
+
+    口径诚实：L1 内外盘（主动买卖盘估算）·**非**东财大单口径的"主力净流入"·非龙虎榜真钱。
+    盘中实时可靠，用于快速判"钱在进还是出"；精确大单口径见盘后 moneyflow_dc。
+    df 需含 inner/outer/price 列；数据不足返回 None。
+    """
+    if df is None or df.empty or not {"inner", "outer", "price"} <= set(df.columns):
+        return None
+    price = pd.to_numeric(df["price"], errors="coerce")
+    inner = pd.to_numeric(df["inner"], errors="coerce")
+    outer = pd.to_numeric(df["outer"], errors="coerce")
+    buy_yi = float((outer * price).sum()) / 1e6          # Σ外盘手×现价×100股 ÷ 1e8
+    sell_yi = float((inner * price).sum()) / 1e6
+    if buy_yi <= 0 and sell_yi <= 0:
+        return None
+    return {"buy_yi": round(buy_yi, 1), "sell_yi": round(sell_yi, 1),
+            "net_yi": round(buy_yi - sell_yi, 1)}
+
+
 def _enrich(df: pd.DataFrame) -> pd.DataFrame:
     """补算 net_yi / outer_ratio 两列（不改入参）。"""
     d = df.copy()

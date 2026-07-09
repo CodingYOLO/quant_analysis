@@ -782,6 +782,13 @@ def run_warmup(base_date: str) -> None:
         console.print(f"[green]✅ 自选关键位预热 {wl.get('date')}·{len(wl.get('rows', []))}只[/green]")
     except Exception as e:
         console.print(f"[yellow]⚠️ 自选关键位预热失败: {e}[/yellow]")
+    # 1.74) 大盘主力净流入(moneyflow_dc东财口径·近6日聚合落盘缓存·/api/market/fund-pulse 首屏秒开)
+    try:
+        from app.data.market_fund import get_market_main_flow
+        mf = get_market_main_flow(provider=prov, days=6)
+        console.print(f"[green]✅ 大盘主力净流入预热·今日 {mf.get('today')}[/green]")
+    except Exception as e:
+        console.print(f"[yellow]⚠️ 大盘主力净流入预热失败: {e}[/yellow]")
     # 2) 大盘情绪默认区间(end=今/明/后·各往前30天·覆盖今晚与周末打开的缓存键)
     for off in (0, 1, 2):
         end = (datetime.datetime.strptime(base, "%Y%m%d") + datetime.timedelta(days=off)).strftime("%Y%m%d")

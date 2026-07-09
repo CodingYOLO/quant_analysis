@@ -1451,6 +1451,43 @@ async def api_market_style_radar(_user: str = Depends(require_auth)):
         return {"ok": False, "msg": str(e)}
 
 
+@app.get("/api/market/fund-pulse")
+async def api_market_fund_pulse(_user: str = Depends(require_auth)):
+    """大盘资金脉搏（两层口径·各自标清）：
+      · main   = 官方主力净流入（moneyflow_dc·东财大单口径·盘后·近6日序列）
+      · active = 盘中主动净买（幕数据内外盘估算·实时·非大单）
+      · volume = 大盘量能（放量/缩量 vs 昨/5日）· breadth = 涨跌家数/涨停跌停
+    实时层随幕数据快照；快照未连(feed离线)时 live=false、仅有官方主力层。
+    """
+    import pandas as pd
+    from fastapi.concurrency import run_in_threadpool
+
+    from app.data.market_fund import get_market_main_flow
+    from app.strategy.market_volume import market_volume_block
+    from app.strategy.realtime_fund import market_active_flow
+    from app.strategy.realtime_hub import market_session, stock_df
+
+    sess = market_session()
+    out = {"ok": True, "session": sess, "live": False,
+           "main": None, "active": None, "volume": None, "breadth": None}
+    try:
+        out["main"] = await run_in_threadpool(get_market_main_flow, None, 6)   # 官方主力(盘后·Tushare)
+    except Exception as e:
+        logger.warning("大盘主力净流入失败: %s", e)
+    try:
+        df = stock_df()                                                        # 盘中实时(幕数据)
+        if df is not None and len(df) > 500:
+            out["live"] = True
+            out["active"] = market_active_flow(df)
+            out["volume"] = market_volume_block(df, sess)
+            pct = pd.to_numeric(df["pct_chg"], errors="coerce")
+            out["breadth"] = {"up": int((pct > 0).sum()), "down": int((pct < 0).sum()),
+                              "limit_up": int((pct >= 9.5).sum()), "limit_down": int((pct <= -9.5).sum())}
+    except Exception as e:
+        logger.warning("大盘脉搏实时层失败: %s", e)
+    return out
+
+
 @app.post("/api/market/hot/ingest")
 async def api_market_hot_ingest(request: Request, _user: str = Depends(require_auth)):
     """接收本地电脑同步的东财热榜（住宅IP直连·绕开云IP限流）。Body: {kind, rows}。"""
