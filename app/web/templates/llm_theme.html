@@ -39,6 +39,16 @@
 table.mini { width:100%; font-size:13px; border-collapse:collapse; }
 table.mini th,table.mini td { text-align:left; padding:6px 10px; border-bottom:1px solid #1e2138; }
 table.mini th { color:#9ca3af; font-weight:500; }
+/* 主题分组（📌关注 / 🔥活跃 / 🛡冷门）与星标置顶 */
+.tgh { font-size:12px; color:#9ca3af; font-weight:600; margin:14px 0 7px; padding:0 2px; }
+.tgh:first-child { margin-top:2px; }
+.tgh .cnt { color:#6b7280; font-weight:400; }
+.tgh.fold { cursor:pointer; user-select:none; }
+.tgh.fold:hover { color:#c9d2f8; }
+.tcard .nmwrap { display:flex; align-items:center; gap:5px; min-width:0; }
+.tcard .star { cursor:pointer; font-size:13px; color:#3a3f5a; flex:none; }
+.tcard .star.on { color:#fbbf24; }
+.listhint { color:#6b7280; font-size:11px; line-height:1.5; margin:-2px 2px 8px; }
 {% endblock %}
 
 {% block content %}
@@ -61,7 +71,8 @@ table.mini th { color:#9ca3af; font-weight:500; }
       <span class="tg" data-type="concept">概念</span>
       <input type="date" id="date">
     </div>
-    <input type="text" id="search" placeholder="筛选主题…" style="width:100%;margin-bottom:8px">
+    <input type="text" id="search" placeholder="筛选主题…" style="width:100%;margin-bottom:6px">
+    <div class="listhint">⭐点星标把你盯的方向置顶；🛡冷门=3日资金与涨跌均低于当日中位数（默认折叠，不改热度分）。</div>
     <div id="tlist"><div class="neu2" style="font-size:13px;padding:10px">⏳ 加载中…</div></div>
   </div>
 
@@ -110,18 +121,68 @@ async function loadList(){
   }
   renderList();
 }
+// ===== A｜关注置顶：内置常盯方向为种子 + ⭐自定义，存 localStorage（关键词包含匹配）=====
+const PIN_SEED=['半导体','CPO','PCB','算力','光模块','光通信','存储','消费电子','服务器','军工','人工智能','机器人','固态电池','先进封装','液冷','光刻','算力租赁','AI'];
+function getPins(){
+  const raw=localStorage.getItem('themeFocusV2');
+  if(raw){ try{ const a=JSON.parse(raw); if(Array.isArray(a)) return a; }catch(e){} }
+  return PIN_SEED.slice();
+}
+function isPinned(name, pins){ return (pins||getPins()).some(k=>name.includes(k)); }
+function togglePin(name){
+  let pins=getPins();
+  if(pins.some(k=>name.includes(k))){ pins=pins.filter(k=>!name.includes(k)); }  // 取消：移除命中该名的关键词
+  else{ pins.push(name); }                                                       // 新增：精确名入库
+  localStorage.setItem('themeFocusV2', JSON.stringify(pins));
+  renderList();
+}
+// ===== B｜冷门/低活跃折叠：客观数据（3日资金 & 3日涨跌 双双低于当日中位数），不改热度分 =====
+function _median(a){ if(!a.length) return 0; const s=a.slice().sort((x,y)=>x-y); const m=s.length>>1; return s.length%2?s[m]:(s[m-1]+s[m])/2; }
+function splitActivity(data){
+  const medF=_median(data.map(r=>Math.abs(r.money_flow_3d??0)));
+  const medR=_median(data.map(r=>Math.abs(r.pct_chg_3d??0)));
+  const hot=[], cold=[];
+  data.forEach(r=>{
+    const quiet=(Math.abs(r.money_flow_3d??0)<medF)&&(Math.abs(r.pct_chg_3d??0)<medR);
+    (quiet?cold:hot).push(r);
+  });
+  return {hot, cold};
+}
+function _byHeat(a){ return a.slice().sort((x,y)=>(y.heat_score??-1)-(x.heat_score??-1)); }
+function cardHTML(r, pins){
+  const h=r.heat_score, on=isPinned(r.theme_name, pins), en=encodeURIComponent(r.theme_name);
+  return '<div class="tcard" data-name="'+en+'">'
+    +'<div class="l1"><span class="nmwrap"><span class="star '+(on?'on':'')+'" data-name="'+en+'">'+(on?'★':'☆')+'</span>'
+    +'<span class="nm">'+r.theme_name+'</span></span>'
+    +'<span class="hbadge" style="background:'+heatColor(h)+';color:#fff">热度 '+(h===null?'—':Math.round(h))+'</span></div>'
+    +'<div class="l2">趋势 '+(r.trend||'—')+'　3日资金 '+fmtNull(r.money_flow_3d)+'亿</div></div>';
+}
+function bindCards(tl){
+  tl.querySelectorAll('.star').forEach(s=>s.addEventListener('click',e=>{ e.stopPropagation(); togglePin(decodeURIComponent(s.dataset.name)); }));
+  tl.querySelectorAll('.tcard').forEach(c=>c.addEventListener('click',()=>openDetail(decodeURIComponent(c.dataset.name),c)));
+}
 function renderList(){
   const kw=(document.getElementById('search').value||'').trim();
   const tl=document.getElementById('tlist');
+  const pins=getPins();
   let data=rows.slice(); if(kw) data=data.filter(r=>r.theme_name.includes(kw));
-  tl.innerHTML = data.map(r=>{
-    const h=r.heat_score;
-    return '<div class="tcard" data-name="'+encodeURIComponent(r.theme_name)+'">'
-      +'<div class="l1"><span class="nm">'+r.theme_name+'</span>'
-      +'<span class="hbadge" style="background:'+heatColor(h)+';color:#fff">热度 '+(h===null?'—':Math.round(h))+'</span></div>'
-      +'<div class="l2">趋势 '+(r.trend||'—')+'　3日资金 '+fmtNull(r.money_flow_3d)+'亿</div></div>';
-  }).join('') || '<div class="todo-box">无匹配主题</div>';
-  tl.querySelectorAll('.tcard').forEach(c=>c.addEventListener('click',()=>openDetail(decodeURIComponent(c.dataset.name),c)));
+  // 搜索时扁平呈现（结果直观，不分组）
+  if(kw){
+    tl.innerHTML=_byHeat(data).map(r=>cardHTML(r,pins)).join('') || '<div class="todo-box">无匹配主题</div>';
+    bindCards(tl); return;
+  }
+  const pinned=_byHeat(data.filter(r=>isPinned(r.theme_name,pins)));
+  const {hot,cold}=splitActivity(data.filter(r=>!isPinned(r.theme_name,pins)));
+  let html='';
+  if(pinned.length) html+='<div class="tgh">📌 关注 <span class="cnt">'+pinned.length+'</span></div>'+pinned.map(r=>cardHTML(r,pins)).join('');
+  html+='<div class="tgh">🔥 活跃题材 <span class="cnt">'+hot.length+'</span></div>'
+      +(_byHeat(hot).map(r=>cardHTML(r,pins)).join('')||'<div class="todo-box">当日无活跃题材</div>');
+  if(cold.length) html+='<div class="tgh fold" id="coldh">🛡 冷门/低活跃 <span class="cnt">'+cold.length+' ▸</span></div>'
+      +'<div id="coldbox" style="display:none">'+_byHeat(cold).map(r=>cardHTML(r,pins)).join('')+'</div>';
+  tl.innerHTML=html;
+  const ch=document.getElementById('coldh');
+  if(ch) ch.addEventListener('click',()=>{ const b=document.getElementById('coldbox'); const open=b.style.display==='none'; b.style.display=open?'block':'none'; ch.querySelector('.cnt').innerHTML=cold.length+(open?' ▾':' ▸'); });
+  bindCards(tl);
 }
 document.getElementById('search').addEventListener('input', renderList);
 document.querySelectorAll('.tg').forEach(t=>t.addEventListener('click',()=>{
