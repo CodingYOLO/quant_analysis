@@ -1334,6 +1334,18 @@ async def api_watch_levels(_user: str = Depends(require_auth)):
         return {"ok": False, "error": str(e)}
 
 
+@app.get("/api/watch-battlemap")
+async def api_watch_battlemap(_user: str = Depends(require_auth)):
+    """自选作战地图：自选按申万行业分组 + 板块阶段(进攻/防守/过热) + 明日重点清单。"""
+    from fastapi.concurrency import run_in_threadpool
+    try:
+        from app.strategy.watch_battlemap import build_watch_battlemap
+        return {"ok": True, "data": await run_in_threadpool(build_watch_battlemap)}
+    except Exception as e:
+        logger.exception("自选作战地图失败")
+        return {"ok": False, "error": str(e)}
+
+
 @app.get("/hold", response_class=HTMLResponse)
 async def hold_page(request: Request, _user: str = Depends(require_auth)):
     """🤚 拿得住：对每只持仓按《持有手册》4问做数据接地的'卖不卖'判定。"""
