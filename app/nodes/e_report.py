@@ -705,29 +705,72 @@ def _append_post_market_section(lines: list, state: "PipelineState") -> None:
             )
         lines.append("")
 
-    # ---- 观察池近期表现 ----
-    lines.append("### 👁️ 观察池近期表现（近5日）")
+    # ---- 我的自选·当日表现（按板块）----
+    # 注：原「选股线观察池近期表现」(forward_tracker) 是系统自动选股的回测追踪·累计多日票多，
+    # 用户要盯的是自己的自选，故此处改显自选当日表现。选股线追踪仍保留于其他报告(post_market/quick_report/summary)。
+    _append_watchlist_daily(lines, owner="me")
+
+
+def _append_watchlist_daily(lines: list, owner: str = "me") -> None:
+    """我的自选 · 当日表现（按板块分组·复用作战地图 build_watch_battlemap）。
+
+    只显示 owner 的自选（默认用户1=我）；按所属板块分组·带板块阶段·组内每票今日涨跌/距止损/关键位。
+    纯客观位描述·非买卖建议。
+    """
+    lines.append("### 👁️ 我的自选 · 当日表现（按板块）")
     lines.append("")
     try:
-        from app.strategy.forward_tracker import get_recent_watchlist_perf
-        perfs = get_recent_watchlist_perf(state.trade_date, days=7)
-        if perfs:
-            lines.append("| 名称 | 代码 | 选股日 | 市场 | 止损价 | T+1收益 | 止损触发 |")
-            lines.append("|---|---|---|---|---|---|---|")
-            for p in perfs:
-                pct = f"{p['pct_return']:+.2f}%" if p["pct_return"] is not None else "待回填"
-                stop_flag = "🛑是" if p["hit_stop_loss"] else "否"
-                lines.append(
-                    f"| {p['name']} | {p['code']} | {p['run_date']} "
-                    f"| {p['market_label']} | {p['stop_loss']:.2f} "
-                    f"| {pct} | {stop_flag} |"
-                )
-        else:
-            lines.append("_（近期暂无实盘追踪记录）_")
+        from app.strategy import db
+        from app.strategy.watch_battlemap import build_watch_battlemap
+        my_codes = {str(w["ts_code"])[:6] for w in db.get_watchlist(owner=owner)}
+        if not my_codes:
+            lines.append("_（自选为空）_")
+            lines.append("")
+            return
+        bm = build_watch_battlemap()
+        shown = 0
+        for g in bm.get("groups", []):
+            stocks = [s for s in g.get("stocks", []) if s.get("code") in my_codes]
+            if not stocks:
+                continue
+            shown += len(stocks)
+            head = f"**{g.get('phase_label', '')} {g.get('sector', '')}**"
+            meta = []
+            if g.get("sector_pct_1d") is not None:
+                meta.append(f"今日{g['sector_pct_1d']:+.2f}%")
+            if g.get("sector_mf_1d") is not None:
+                meta.append(f"资金{g['sector_mf_1d']:+.1f}亿")
+            if meta:
+                head += "（" + " · ".join(meta) + "）"
+            lines.append(head)
+            lines.append("| 名称 | 代码 | 今日 | 距止损 | ⬇支撑 | ⬆压力 |")
+            lines.append("|---|---|---|---|---|---|")
+            for s in stocks:
+                lines.append("| " + " | ".join(_wl_cells(s)) + " |")
+            lines.append("")
+        if not shown:
+            lines.append("_（自选无当日数据·feed/宽表未就绪）_")
+            lines.append("")
     except Exception as e:
-        logger.warning("盘后复盘 - 观察池数据读取失败: %s", e)
+        logger.warning("盘后复盘 - 自选当日表现读取失败: %s", e)
         lines.append("_（数据读取失败）_")
-    lines.append("")
+        lines.append("")
+
+
+def _wl_cells(s: dict) -> list[str]:
+    """自选一行 → [名称, 代码, 今日, 距止损, 距支撑, 距压力]。距止损=现价/止损价-1（正=止损上方·安全垫）。"""
+    def _pct(v):
+        return f"{v:+.2f}%" if isinstance(v, (int, float)) else "—"
+
+    def _lvl(o):
+        if not o or o.get("dist") is None:
+            return "—"
+        return f"{o['dist']:+.1f}%({o.get('price')})"
+
+    price, sl = s.get("price"), s.get("stop_loss")
+    stop = f"{(price / sl - 1) * 100:+.1f}%" if (price and sl) else "—"
+    return [str(s.get("name", "")), str(s.get("code", "")), _pct(s.get("pct_chg")),
+            stop, _lvl(s.get("support")), _lvl(s.get("resistance"))]
 
 
 def _save_report(trade_date: str, content: str) -> None:
