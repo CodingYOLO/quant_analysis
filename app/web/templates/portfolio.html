@@ -73,6 +73,18 @@ tr.datarow:hover td { background:#1e2138; cursor:pointer; }
 #wl-levels .pb.hot { background:#4a1520; color:#ff6b7d; }
 #wl-levels .pb.neutral { background:#23263a; color:#9ca3af; }
 #wl-levels .gs { font-size:11px; color:#8b93b8; font-weight:400; margin-left:4px; }
+/* 板块名内联展开 K线 */
+#wl-levels tr.grp { cursor:pointer; }
+#wl-levels tr.grp:hover td { background:#1b2138; }
+#wl-levels .sc-caret { color:#6b7280; font-size:10px; margin-right:5px; }
+#wl-levels .sec-nm { color:#9db4ff; font-weight:600; }
+#wl-levels tr.sc-row td { background:#0d0f18; padding:10px 12px 4px; }
+#wl-levels .sc-load { color:#9ca3af; font-size:13px; padding:18px 0; text-align:center; }
+#wl-levels .sc-stage { font-size:12px; color:#cdd6f4; margin-bottom:8px; line-height:1.7; }
+#wl-levels .sc-stage .up { color:#f6465d; } #wl-levels .sc-stage .down { color:#2ebd85; }
+#wl-levels .sc-tabs { display:inline-flex; border:1px solid #2d3052; border-radius:6px; overflow:hidden; margin-bottom:8px; }
+#wl-levels .sc-tabs button { background:#12141c; color:#9ca3af; border:none; padding:4px 13px; font-size:12px; cursor:pointer; }
+#wl-levels .sc-tabs button.on { background:#3358e0; color:#fff; }
 {% endblock %}
 
 {% block content %}
@@ -376,8 +388,9 @@ reload(); loadSignals();
     if(g.sector_pct_1d!=null)s.push('<span class="'+wcl(g.sector_pct_1d)+'">今日'+wsg(g.sector_pct_1d)+'%</span>');
     if(g.sector_mf_1d!=null)s.push('<span class="'+wcl(g.sector_mf_1d)+'">资金'+wsg(g.sector_mf_1d)+'亿</span>');
     if(g.sector_breadth_ma20!=null)s.push('MA20广度'+g.sector_breadth_ma20+'%');
-    return '<tr class="grp"><td colspan="'+NCOL+'"><span class="pb '+g.phase+'">'+g.phase_label+'</span>'
-      +'<a href="/sector-trend?name='+encodeURIComponent(g.sector)+'" style="color:#9db4ff;text-decoration:none" title="看板块指数K线+支撑压力">'+g.sector+' 📈</a>'
+    return '<tr class="grp" data-sector="'+encodeURIComponent(g.sector)+'" title="点击展开板块指数K线+支撑压力"><td colspan="'+NCOL+'">'
+      +'<span class="sc-caret">▸</span><span class="pb '+g.phase+'">'+g.phase_label+'</span>'
+      +'<span class="sec-nm">'+g.sector+' 📈</span>'
       +'<span class="gs">'+s.join(' · ')+'</span></td></tr>';
   }
   function renderShort(list){
@@ -402,6 +415,56 @@ reload(); loadSignals();
     var body=groups.map(function(g){return grpHead(g)+g.stocks.map(stockRow).join('');}).join('');
     wg('wl-body').innerHTML='<table><thead><tr>'+head+'</tr></thead><tbody>'+body+'</tbody></table>';
   }
+  // ── 板块名内联展开 K线（echarts 懒加载·点击展开/收起）──
+  var _scId=0, _chartsReady=false, _chartsLoading=false, _chartQueue=[];
+  function ensureCharts(cb){
+    if(_chartsReady){ cb(); return; }
+    _chartQueue.push(cb);
+    if(_chartsLoading) return;
+    _chartsLoading=true;
+    var load=function(src,done){ var s=document.createElement('script'); s.src=src; s.onload=done; s.onerror=done; document.body.appendChild(s); };
+    load('/static/echarts.min.js', function(){ load('/static/kline.js', function(){ _chartsReady=true; _chartQueue.forEach(function(f){f();}); _chartQueue=[]; }); });
+  }
+  function applyLevels(ch, lv){
+    if(!ch||!lv) return;
+    var data=[];
+    (lv.support||[]).forEach(function(b){ data.push({yAxis:b.mid, lineStyle:{color:'#2ebd85',type:'dashed',width:1}, label:{formatter:'支撑 '+b.mid, position:'insideEndTop', color:'#2ebd85', fontSize:10}}); });
+    (lv.resistance||[]).forEach(function(b){ data.push({yAxis:b.mid, lineStyle:{color:'#f6465d',type:'dashed',width:1}, label:{formatter:'压力 '+b.mid, position:'insideEndTop', color:'#f6465d', fontSize:10}}); });
+    ch.setOption({series:[{markLine:{symbol:'none', silent:true, data:data}}]});
+  }
+  function renderSectorChart(box, sector){
+    fetch('/api/sector-trend?name='+encodeURIComponent(sector)+'&kind=industry').then(function(r){return r.json();}).then(function(j){
+      if(!j.ok){ box.innerHTML='<div class="sc-load">❌ '+(j.msg||'加载失败')+'</div>'; return; }
+      var st=j.stage||{}, lv=j.levels||{}, pos=st.position||{};
+      var pc=st.hist_pctile>=75?'up':(st.hist_pctile<=25?'down':'');
+      var kid='sc-kline-'+(++_scId);
+      box.innerHTML='<div class="sc-stage">近3年分位 <b class="'+pc+'">'+st.hist_pctile+'</b> · '+(st.ma_arrange||'')+(pos.label?' · '+pos.label:'')+'</div>'
+        +'<div class="sc-tabs"><button data-tf="d" class="on">日K</button><button data-tf="w">周K</button><button data-tf="m">月K</button></div>'
+        +'<div id="'+kid+'" style="height:320px"></div>';
+      var tk={d:j.kline,w:j.kline_w,m:j.kline_m};
+      var draw=function(tf){
+        box.querySelectorAll('.sc-tabs button').forEach(function(b){b.classList.toggle('on',b.dataset.tf===tf);});
+        var kl=tk[tf]; if(kl&&window.AKline){ try{ applyLevels(AKline.render(kid, kl), lv); }catch(e){} }
+      };
+      box.querySelectorAll('.sc-tabs button').forEach(function(b){ b.onclick=function(ev){ ev.stopPropagation(); draw(b.dataset.tf); }; });
+      draw('d');
+    }).catch(function(e){ box.innerHTML='<div class="sc-load">❌ '+e+'</div>'; });
+  }
+  function toggleSector(grpRow){
+    var sec=grpRow.dataset.sector, caret=grpRow.querySelector('.sc-caret');
+    var nx=grpRow.nextElementSibling;
+    if(nx&&nx.classList.contains('sc-row')&&nx.dataset.sector===sec){ nx.remove(); if(caret)caret.textContent='▸'; return; }
+    var tr=document.createElement('tr'); tr.className='sc-row'; tr.dataset.sector=sec;
+    tr.innerHTML='<td colspan="'+NCOL+'"><div class="sc-box"><div class="sc-load">⏳ 加载 '+decodeURIComponent(sec)+' 板块走势…</div></div></td>';
+    grpRow.parentNode.insertBefore(tr, grpRow.nextSibling);
+    if(caret)caret.textContent='▾';
+    ensureCharts(function(){ renderSectorChart(tr.querySelector('.sc-box'), decodeURIComponent(sec)); });
+  }
+  wg('wl-body').addEventListener('click', function(e){
+    if(e.target.closest('a')) return;            // 股票链接正常跳转
+    var grp=e.target.closest('tr.grp');
+    if(grp) toggleSector(grp);
+  });
   (async function(){
     try{
       var j=await (await fetch('/api/watch-battlemap')).json();
