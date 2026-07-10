@@ -2455,6 +2455,26 @@ async def api_trend_stage(code: str = "", _user: str = Depends(require_auth)):
         return {"ok": False, "msg": str(e)}
 
 
+@app.get("/sector-trend", response_class=HTMLResponse)
+async def sector_trend_page(request: Request, _user: str = Depends(require_auth)):
+    """板块走势研究：申万行业指数 日/周/月K + 支撑压力 + 阶段结构描述。"""
+    return templates.TemplateResponse(request=request, name="sector_trend.html", context={"page": "sector_trend"})
+
+
+@app.get("/api/sector-trend")
+async def api_sector_trend(name: str = "", kind: str = "industry", _user: str = Depends(require_auth)):
+    """板块指数走势包：日/周/月K + 支撑压力带 + 近3年分位/均线排列/位置。"""
+    from fastapi.concurrency import run_in_threadpool
+    try:
+        if not name:
+            return {"ok": False, "msg": "缺少板块名 name 参数"}
+        from app.strategy.sector_trend import build_sector_trend
+        return await run_in_threadpool(build_sector_trend, name, kind)
+    except Exception as e:
+        logger.exception("板块走势研究失败")
+        return {"ok": False, "msg": str(e)}
+
+
 @app.get("/api/stock/company")
 async def api_stock_company(code: str = "", _user: str = Depends(require_auth)):
     """公司画像：主营业务/主营构成(Tushare硬数据) + 行业地位/全球排名/护城河(LLM归纳·带来源)。"""

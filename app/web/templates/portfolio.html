@@ -376,7 +376,8 @@ reload(); loadSignals();
     if(g.sector_pct_1d!=null)s.push('<span class="'+wcl(g.sector_pct_1d)+'">今日'+wsg(g.sector_pct_1d)+'%</span>');
     if(g.sector_mf_1d!=null)s.push('<span class="'+wcl(g.sector_mf_1d)+'">资金'+wsg(g.sector_mf_1d)+'亿</span>');
     if(g.sector_breadth_ma20!=null)s.push('MA20广度'+g.sector_breadth_ma20+'%');
-    return '<tr class="grp"><td colspan="'+NCOL+'"><span class="pb '+g.phase+'">'+g.phase_label+'</span>'+g.sector
+    return '<tr class="grp"><td colspan="'+NCOL+'"><span class="pb '+g.phase+'">'+g.phase_label+'</span>'
+      +'<a href="/sector-trend?name='+encodeURIComponent(g.sector)+'" style="color:#9db4ff;text-decoration:none" title="看板块指数K线+支撑压力">'+g.sector+' 📈</a>'
       +'<span class="gs">'+s.join(' · ')+'</span></td></tr>';
   }
   function renderShort(list){

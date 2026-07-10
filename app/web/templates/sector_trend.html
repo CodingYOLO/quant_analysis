@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% block title %}板块走势 — A股Agent{% endblock %}
+{% block extra_style %}
+#st-kline { height:440px; background:#0d0f18; border:1px solid #1a1d2e; border-radius:8px; }
+#st-tabs { display:inline-flex; border:1px solid #2d3052; border-radius:7px; overflow:hidden; margin-bottom:8px; }
+#st-tabs button { background:#12141c; color:#9ca3af; border:none; padding:6px 16px; font-size:13px; cursor:pointer; }
+#st-tabs button.on { background:#3358e0; color:#fff; }
+.st-panel { background:#12152a; border:1px solid #23284a; border-radius:9px; padding:12px 14px; margin:12px 0; font-size:13px; line-height:1.95; color:#cdd6f4; }
+.st-lv { display:inline-block; margin-right:12px; }
+.st-input { background:#0f1117; color:#e8e8e8; border:1px solid #2d3052; border-radius:6px; padding:7px 10px; font-size:14px; width:200px; }
+.st-go { background:#3358e0; color:#fff; border:none; border-radius:6px; padding:7px 16px; font-size:14px; cursor:pointer; }
+.up{color:#f6465d} .down{color:#2ebd85} .neu{color:#9ca3af}
+{% endblock %}
+
+{% block content %}
+<div style="text-align:center;margin-bottom:6px"><h1 style="font-size:22px;color:#e8e8e8">📈 板块走势</h1></div>
+<div style="text-align:center;color:#8a90a0;font-size:12px;margin-bottom:14px">申万二级行业指数 · 日/周/月K + 支撑压力(可溯源) · 全为盘后结构描述 · 非预测非买卖建议</div>
+
+<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
+  <input id="st-input" class="st-input" placeholder="输入板块名 如 半导体">
+  <button id="st-go" class="st-go">查询</button>
+  <span id="st-title" style="font-size:15px;font-weight:700;color:#e8ecff;margin-left:6px"></span>
+</div>
+
+<div id="st-stage" class="st-panel" style="display:none"></div>
+
+<div id="st-tabs">
+  <button data-tf="d" class="on">日K</button><button data-tf="w">周K</button><button data-tf="m">月K</button>
+</div>
+<div id="st-kline"></div>
+<div id="st-msg" style="color:#9ca3af;font-size:13px;padding:10px 0"></div>
+{% endblock %}
+
+{% block extra_script %}
+<script src="/static/echarts.min.js"></script>
+<script src="/static/kline.js"></script>
+<script>
+const $=function(id){return document.getElementById(id);};
+let _tk=null, _levels=null, _tf='d';
+
+function fmtLv(b,isSup){
+  var c=isSup?'down':'up';
+  return '<span class="st-lv '+c+'">'+(isSup?'⬇支撑':'⬆压力')+' '+b.mid
+    +' <span class="neu">('+(b.dist_pct>0?'+':'')+b.dist_pct+'%·'+(b.srcs||[]).join('/')+')</span></span>';
+}
+function applyLevels(ch){
+  if(!ch||!_levels) return;
+  var data=[];
+  (_levels.support||[]).forEach(function(b){ data.push({yAxis:b.mid, lineStyle:{color:'#2ebd85',type:'dashed',width:1},
+    label:{formatter:'支撑 '+b.mid, position:'insideEndTop', color:'#2ebd85', fontSize:10}}); });
+  (_levels.resistance||[]).forEach(function(b){ data.push({yAxis:b.mid, lineStyle:{color:'#f6465d',type:'dashed',width:1},
+    label:{formatter:'压力 '+b.mid, position:'insideEndTop', color:'#f6465d', fontSize:10}}); });
+  ch.setOption({series:[{markLine:{symbol:'none', silent:true, data:data}}]});
+}
+function drawTF(tf){
+  _tf=tf;
+  document.querySelectorAll('#st-tabs button').forEach(function(b){b.classList.toggle('on', b.dataset.tf===tf);});
+  var kl=_tk&&_tk[tf];
+  if(kl&&window.AKline){ try{ var ch=AKline.render('st-kline', kl); applyLevels(ch); }catch(e){} }
+}
+document.querySelectorAll('#st-tabs button').forEach(function(b){ b.onclick=function(){drawTF(b.dataset.tf);}; });
+
+function renderStage(d){
+  var st=d.stage||{}, lv=d.levels||{}, pos=st.position||{};
+  var pc=st.hist_pctile>=75?'up':(st.hist_pctile<=25?'down':'neu');
+  var h='<b>近3年分位</b> <span class="'+pc+'">'+st.hist_pctile+'</span> <span class="neu">(0贴底/100贴顶)</span>'
+    +' ｜ <b>均线</b> '+(st.ma_arrange||'—')
+    +(pos.label?' ｜ <b>位置</b> '+pos.label:'')
+    +'<br>现价 <b>'+(lv.price!=null?lv.price:'—')+'</b> <span class="neu">(as_of '+(lv.as_of||'')+')</span>　'
+    +(st.nearest_resist?fmtLv(st.nearest_resist,false):'')+(st.nearest_support?fmtLv(st.nearest_support,true):'')
+    +'<br><span class="neu" style="font-size:11.5px">'+(d.disclaimer||'')+'</span>';
+  $('st-stage').innerHTML=h; $('st-stage').style.display='block';
+}
+async function query(name){
+  name=(name||$('st-input').value||'').trim();
+  if(!name) return;
+  $('st-input').value=name;
+  $('st-msg').textContent='⏳ 加载 '+name+' 指数走势…';
+  $('st-title').textContent=''; $('st-stage').style.display='none';
+  try{
+    var j=await (await fetch('/api/sector-trend?name='+encodeURIComponent(name)+'&kind=industry')).json();
+    if(!j.ok){ $('st-msg').textContent='❌ '+(j.msg||'加载失败'); return; }
+    _tk={d:j.kline, w:j.kline_w, m:j.kline_m}; _levels=j.levels;
+    $('st-title').textContent=j.name+' · '+j.index_code+'（'+j.bars+'根日K）';
+    $('st-msg').textContent='';
+    renderStage(j); drawTF('d');
+  }catch(e){ $('st-msg').textContent='❌ '+e; }
+}
+$('st-go').onclick=function(){query();};
+$('st-input').addEventListener('keydown', function(e){ if(e.key==='Enter') query(); });
+// URL ?name= 自动查询（从作战地图/全景点板块跳来）
+(function(){ var n=new URLSearchParams(location.search).get('name'); if(n) query(n); })();
+</script>
+{% endblock %}
