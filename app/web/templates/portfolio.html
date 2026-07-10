@@ -43,6 +43,8 @@ tr.datarow:hover td { background:#1e2138; cursor:pointer; }
 /* 关键位速览（全部 scope 在 #wl-levels·不影响页内其它样式）*/
 #wl-levels .wl-title { font-size:14px; font-weight:600; color:#cdd6f4; border-left:3px solid #2ebd85; padding-left:9px; margin-bottom:4px; }
 #wl-levels .wl-sub { font-size:11px; color:#6b7280; font-weight:400; }
+#wl-levels #wl-cnt { font-size:13px; color:#b8c2e8; font-weight:400; }
+#wl-levels #wl-cnt b { color:#f0f3ff; font-weight:700; }
 #wl-levels .wl-note-x { font-size:11px; color:#6b7280; margin:2px 0 7px; line-height:1.5; }
 #wl-levels .wl-note-x .wl-up { color:#f6465d; } #wl-levels .wl-note-x .wl-down { color:#2ebd85; }
 #wl-levels .wl-scroll { overflow-x:auto; }
@@ -472,8 +474,8 @@ reload(); loadSignals();
       var d=j.data, n=0; (d.groups||[]).forEach(function(g){n+=g.stocks.length;});
       // 两层口径：技术位=已收盘日线算的(固定)，现价=实时快照(feed离线回退收盘值)
       var _d=d.date||'', _ds=_d.length===8?(_d.slice(4,6)+'-'+_d.slice(6,8)):_d, _live=d.live;
-      wg('wl-cnt').innerHTML='· '+n+'只/'+(d.groups||[]).length+'板块 ｜ 技术位·截至'+_ds+'收盘 ｜ 现价·<span style="color:'
-        +(_live?'#2ebd85':'#f0a020')+'">'+(_live?'实时':'收盘值(feed离线)')+'</span>';
+      wg('wl-cnt').innerHTML='· <b>'+n+'只 / '+(d.groups||[]).length+'板块</b> ｜ 技术位·截至<b>'+_ds+'</b>收盘 ｜ 现价·<b style="color:'
+        +(_live?'#2ebd85':'#f0a020')+'">'+(_live?'实时':'收盘值(feed离线)')+'</b>';
       render(d);
     }catch(e){wg('wl-body').innerHTML='<div class="wl-load">❌ '+e+'</div>';}
   })();
