@@ -45,14 +45,15 @@ def _track_candidates(state: PipelineState) -> None:
 
 
 def _append_tracking_section(lines: list, state: PipelineState) -> None:
-    """在报告末尾附加前向追踪实际表现区块。"""
+    """报告末尾附加「明日重点」——从自选(owner=me)自动筛出的低吸观察/破位防守/上冲留意清单。
+
+    原为选股线前向追踪(get_tracking_report_section·系统自动选股)；用户要盯自己的自选，故改为自选明日重点。
+    选股线前向追踪仍保留于 post_market/quick_report/summary 报告。
+    """
     try:
-        from app.strategy.forward_tracker import get_tracking_report_section
-        section = get_tracking_report_section(state.trade_date)
-        if section:
-            lines.append(section)
+        _append_watchlist_shortlist(lines, owner="me")
     except Exception as e:
-        logger.debug("[前向追踪] 报告区块生成失败（非关键）: %s", e)
+        logger.debug("[明日重点] 报告区块生成失败（非关键）: %s", e)
 
 
 def _build_report(state: PipelineState) -> str:
@@ -754,6 +755,35 @@ def _append_watchlist_daily(lines: list, owner: str = "me") -> None:
     except Exception as e:
         logger.warning("盘后复盘 - 自选当日表现读取失败: %s", e)
         lines.append("_（数据读取失败）_")
+        lines.append("")
+
+
+def _append_watchlist_shortlist(lines: list, owner: str = "me") -> None:
+    """自选「明日重点」清单：低吸观察 / 上冲留意 / 破位防守。
+
+    复用作战地图 build_watch_battlemap 的 shortlist（客观现状 + 机械触发条件）·只取 owner 的自选·
+    纯客观描述·**非买卖建议**（守禁方向性推荐）。无候选则不输出该区块。
+    """
+    from app.strategy import db
+    from app.strategy.watch_battlemap import build_watch_battlemap
+    my_codes = {str(w["ts_code"])[:6] for w in db.get_watchlist(owner=owner)}
+    if not my_codes:
+        return
+    shortlist = [x for x in (build_watch_battlemap().get("shortlist") or [])
+                 if x.get("code") in my_codes]
+    if not shortlist:
+        return
+    lines.append("")
+    lines.append("## 🎯 明日重点（自选 · 客观触发条件 · 非买卖建议）")
+    lines.append("")
+    for key, title in (("watch", "🎯 低吸观察"), ("caution", "⚠️ 上冲留意"), ("defend", "🚨 破位防守")):
+        items = [x for x in shortlist if x.get("kind") == key]
+        if not items:
+            continue
+        lines.append(f"**{title}（{len(items)}）**")
+        lines.append("")
+        for x in items:
+            lines.append(f"- {x.get('name', '')}（{x.get('sector', '')}）：{x.get('reason', '')}")
         lines.append("")
 
 
