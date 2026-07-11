@@ -119,6 +119,98 @@ def evaluate_double_bottom(end: str, window: int = 30, min_circ_yi: float = 80.0
     }
 
 
+def _vpa_at(code, pos, close_m, high_m, low_m, vol_m, name) -> dict:
+    """信号日(pos)的 VPA 拉升前临界评分（point-in-time·只用 ≤pos 数据·涨停量剔）。"""
+    try:
+        s = pd.to_numeric(close_m[code].iloc[:pos + 1], errors="coerce").dropna()
+        if len(s) < 120:
+            return {"score": 0, "critical": False}
+        hi = pd.to_numeric(high_m[code], errors="coerce").reindex(s.index)
+        lo = pd.to_numeric(low_m[code], errors="coerce").reindex(s.index)
+        v = pd.to_numeric(vol_m[code], errors="coerce").reindex(s.index)
+        lim = _board_limit_pct(code, name)
+        pct = s.pct_change() * 100
+        mask = (pct >= lim - 0.3) | (pct <= -(lim - 0.3))
+        return W.vpa_pre_markup(s, hi, lo, v, mask)
+    except Exception:
+        return {"score": 0, "critical": False}
+
+
+def _lps_at(code, pos, close_m, high_m, low_m, vol_m) -> dict:
+    """信号日(pos)的 LPS（突破回踩不破）判定（point-in-time·只用 ≤pos 数据）。"""
+    try:
+        s = pd.to_numeric(close_m[code].iloc[:pos + 1], errors="coerce").dropna()
+        if len(s) < 90:
+            return {"is_lps": False}
+        hi = pd.to_numeric(high_m[code], errors="coerce").reindex(s.index)
+        lo = pd.to_numeric(low_m[code], errors="coerce").reindex(s.index)
+        v = pd.to_numeric(vol_m[code], errors="coerce").reindex(s.index)
+        return W.lps_entry(s, hi, lo, v)
+    except Exception:
+        return {"is_lps": False}
+
+
+def evaluate_vpa_pre_markup(end: str, window: int = 30, min_circ_yi: float = 30.0,
+                            score_floor: int = 60) -> dict:
+    """回测 VPA 拉升前临界（震仓+测试通过）T+1/5/10/20 前向收益 vs 基准（诚实验证有没有增量）。
+
+    分桶：VPA临界(测试刚通过·近3日) / VPA吸筹尾声(score≥score_floor) / 基准(全液)。含 regime 分档。
+    VPA 拉升前重点看 T+10/T+20（markup 周期），T+1/5 太短。
+    """
+    provider = CompositeProvider()
+    close_m, open_m, high_m, low_m, vol_m = load_price_matrix(end, provider, n_days=window + 280)
+    idx = list(close_m.index)
+    dates_ext = _dates_with_forward(provider, idx[0], end)
+    get_daily = _make_daily_loader(provider)
+    universe = _liquid_universe(provider, end, min_circ_yi, set(close_m.columns))
+    names = _name_map(provider)
+    idx_close = _index_close(provider, end)
+    sig_dates = [d for d in idx[-window:] if d in dates_ext]
+    logger.info("[VPA回测] 信号日 %d · universe %d 只", len(sig_dates), len(universe))
+
+    crit_key, tail_key, lps_key, base_key = ("VPA临界(测试刚通过)", f"VPA吸筹尾声(≥{score_floor})",
+                                             "LPS(突破回踩不破)", "基准(全液)")
+    b = {k: {h: [] for h in (1, 5, 10, 20)} for k in (crit_key, tail_key, lps_key, base_key)}
+    _REG = ("牛", "震荡", "熊")
+    reg_c = {r: {h: [] for h in (1, 5, 10, 20)} for r in _REG}
+    reg_l = {r: {h: [] for h in (1, 5, 10, 20)} for r in _REG}
+    reg_b = {r: {h: [] for h in (1, 5, 10, 20)} for r in _REG}
+    n_crit = n_tail = n_lps = 0
+    for d in sig_dates:
+        pos, d_ext = idx.index(d), dates_ext.index(d)
+        reg = _regime_at(idx_close, d)
+        for code in universe:
+            fwd = _fwd_multi(code, d_ext, dates_ext, get_daily)
+            if not fwd:
+                continue
+            _push_h(b[base_key], fwd)
+            _push_h(reg_b[reg], fwd)
+            r = _vpa_at(code, pos, close_m, high_m, low_m, vol_m, names.get(code, ""))
+            if r.get("critical"):
+                n_crit += 1
+                _push_h(b[crit_key], fwd)
+                _push_h(reg_c[reg], fwd)
+            elif r.get("score", 0) >= score_floor:
+                n_tail += 1
+                _push_h(b[tail_key], fwd)
+            if _lps_at(code, pos, close_m, high_m, low_m, vol_m).get("is_lps"):
+                n_lps += 1
+                _push_h(b[lps_key], fwd)
+                _push_h(reg_l[reg], fwd)
+
+    return {
+        "ok": True, "end": end, "window": len(sig_dates), "universe": len(universe),
+        "n_critical": n_crit, "n_tail": n_tail, "n_lps": n_lps, "score_floor": score_floor,
+        "buckets": {k: {f"t{h}": _agg(b[k][h]) for h in (1, 5, 10, 20)}
+                    for k in (crit_key, tail_key, lps_key, base_key)},
+        "critical_by_regime": {r: {f"t{h}": _agg(reg_c[r][h]) for h in (1, 5, 10, 20)} for r in _REG},
+        "lps_by_regime": {r: {f"t{h}": _agg(reg_l[r][h]) for h in (1, 5, 10, 20)} for r in _REG},
+        "base_by_regime": {r: {f"t{h}": _agg(reg_b[r][h]) for h in (1, 5, 10, 20)} for r in _REG},
+        "note": ("买入=次日T+1开盘·t{N}=T+N收盘相对T+1开盘·point-in-time·涨停量剔。"
+                 "VPA拉升前重看 T+10/T+20。临界 vs 基准的增量=真价值。小样本(n<30)不足信。"),
+    }
+
+
 def _fwd_multi(code, d_idx, dates, get_daily) -> dict | None:
     """T+1开盘买入·T+{1,5,10,20}收盘相对买入价(事件研究多期·同系统口径)。"""
     if d_idx + 1 >= len(dates):
