@@ -511,6 +511,8 @@ def build_board() -> dict:
     base["flash"] = _flash_block(records)
     base["surge"] = _velocity_block(imap)                 # 急拉/涨速(个股涨速竞速也用·带板块)
     base["vol_surge"] = _vol_surge_block(df, imap)        # 异常放量榜(资金关注早信号)
+    from app.strategy.realtime_fund import build_opportunity_radar
+    base["opp_radar"] = build_opportunity_radar(fr, base["surge"], base["vol_surge"], base["sectors"])  # 机会雷达:急拉/抢筹/放量×板块共振
     from app.strategy.realtime_fund import breadth_trend, market_brief, market_pulse_text
     base["breadth_trend"] = breadth_trend(base.get("breadth", {}), breadth_ago(30.0))   # 大盘走强/走弱
     base["pulse"] = market_pulse_text(base.get("breadth", {}), base["breadth_trend"],   # 盘中市场快照一句话

@@ -585,6 +585,52 @@ def build_live_mainline(sectors: list, sectors_out: list, sentiment: dict | None
     }
 
 
+def build_opportunity_radar(fund_ranking: list, surge: list, vol_surge: list,
+                            sectors: list, *, top: int = 12) -> list[dict]:
+    """机会雷达：急拉/抢筹/放量 个股信号聚合 + 个股×板块资金交叉共振 → 按强度排序。
+
+    核心：**个股异动 × 所属板块在吸金 = 真机会（板块共振）**；孤立信号多为诱多/噪音。
+    强度 = 命中信号数×2 + 板块共振加成（板块加速/拐头流入+3 · 一般涌入+1）。客观描述·非买卖建议。
+    """
+    inflow = {s["industry"]: s for s in (sectors or [])
+              if s.get("industry") and (s.get("net_yi") or 0) > 0}
+    stocks: dict = {}
+
+    def _get(code, name, industry, pct):
+        st = stocks.get(code)
+        if st is None:
+            st = stocks[code] = {"code": str(code)[:6], "name": name or code,
+                                 "industry": industry or "", "pct_chg": pct, "sig": {}}
+        elif st.get("pct_chg") is None:
+            st["pct_chg"] = pct
+        return st
+
+    for r in (surge or []):   # move=5分钟涨速(非今日涨幅)·pct_chg 留给抢筹/放量榜提供
+        _get(r["ts_code"], r.get("name"), r.get("industry"), None)["sig"]["rush"] = r.get("move")
+    for r in (fund_ranking or []):
+        _get(r["ts_code"], r.get("name"), r.get("industry"), r.get("pct_chg"))["sig"]["grab"] = r.get("net_yi")
+    for r in (vol_surge or []):
+        _get(r["ts_code"], r.get("name"), r.get("industry"), r.get("pct_chg"))["sig"]["vol"] = r.get("vol_ratio")
+
+    out = []
+    for st in stocks.values():
+        sig = st["sig"]
+        # 机会导向：至少一个进攻信号(急拉/抢筹)，或 放量且在涨（放量下跌=出货·非机会）
+        if not (("rush" in sig or "grab" in sig) or ("vol" in sig and (st.get("pct_chg") or 0) > 0)):
+            continue
+        sec = inflow.get(st["industry"])
+        bonus = (3 if sec.get("traj_tone") == "up" else 1) if sec else 0
+        st["strength"] = len(sig) * 2 + bonus
+        st["resonance"] = ({"sector": st["industry"], "label": sec.get("traj_label") or "资金涌入",
+                            "tone": sec.get("traj_tone")} if sec else None)
+        st["rush"], st["grab"], st["vol"] = sig.get("rush"), sig.get("grab"), sig.get("vol")
+        out.append(st)
+    out.sort(key=lambda x: (x["strength"], 1 if x["resonance"] else 0, x.get("pct_chg") or 0), reverse=True)
+    for st in out:
+        st.pop("sig", None)
+    return out[:top]
+
+
 def sector_flow_delta(sectors_now: list[dict], sec_net_ago: dict, *, th: float = 2.0) -> list[dict]:
     """给板块榜补 近窗口资金变化Δ + 加速/减速标签（轮动/变化的核心）。"""
     out = []

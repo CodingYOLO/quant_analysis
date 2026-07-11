@@ -25,6 +25,12 @@
   .rt-rot-ov .in { background:#2a1418; color:#ff8095; } .rt-rot-ov .out { background:#0f2820; color:#5fd6a6; }
   .rt-rot-ov .arw { color:#8b93b8; margin:0 8px; font-weight:700; }
   .rot-col-h { font-size:13px; font-weight:700; margin:0 0 7px; }
+  /* 机会雷达：信号标签 + 板块共振 + 强度 */
+  .rad-sig { font-size:11px; padding:1px 6px; border-radius:4px; margin-right:3px; white-space:nowrap; }
+  .rad-sig.rush { background:#3a2412; color:#f0a020; } .rad-sig.grab { background:#3a1420; color:#ff6b7d; } .rad-sig.vol { background:#1a2440; color:#7c9ef8; }
+  .rad-res { font-size:11px; padding:1px 7px; border-radius:4px; background:#232640; color:#9ca3af; white-space:nowrap; }
+  .rad-res.hot { background:#3a1420; color:#ff8095; font-weight:600; }
+  .rad-str { color:#f0a020; font-size:12px; white-space:nowrap; }
   /* 🏁 板块实时排名(动态竞速条)：排名变→行平滑滑动重排；数据变→条长平滑伸缩 */
   .race-toggle { float:right; font-weight:400; }
   .race-btn { background:#1a1d2e; color:#9ca3af; border:1px solid #2d3052; border-radius:6px;
@@ -69,6 +75,12 @@
 <div class="card" id="rtMainlineCard" style="display:none;border-left:3px solid #f0a020">
   <h2 style="font-size:15px">🧭 今日主攻方向 · 实时研判<span class="rt-tag">资金+持续性+龙头 规则合成 · 客观结构 · 非买卖建议</span></h2>
   <div id="rtMainline" style="font-size:14.5px;line-height:1.85"></div>
+</div>
+
+<div class="card" id="rtRadarCard" style="display:none;border-left:3px solid #f6465d">
+  <h2>📡 机会雷达 · 个股异动 × 板块共振<span class="rt-tag">急拉/抢筹/放量 聚合 · 板块共振=真机会(孤立信号多诱多) · 强度排序 · 描述非荐股</span></h2>
+  <table><thead><tr><th>股票</th><th>涨幅</th><th>信号</th><th>板块共振</th><th>强度</th></tr></thead>
+  <tbody id="rtRadar"></tbody></table>
 </div>
 
 <div class="card" id="rtBriefCard" style="display:none;border-left:3px solid #7c9ef8;border-radius:0;">
@@ -352,6 +364,25 @@ function renderPulse(t){
   if(!t){ c.style.display='none'; return; }
   c.style.display=''; $('rtPulse').textContent=t;
 }
+function renderOppRadar(rows){
+  const c=$('rtRadarCard');
+  if(!rows||!rows.length){ c.style.display='none'; return; }
+  c.style.display='';
+  $('rtRadar').innerHTML=rows.map(r=>{
+    var sig=[];
+    if(r.rush!=null) sig.push('<span class="rad-sig rush">⚡急拉'+sgn(r.rush)+'%</span>');
+    if(r.grab!=null) sig.push('<span class="rad-sig grab">🔥抢筹'+sgn(r.grab)+'亿</span>');
+    if(r.vol!=null) sig.push('<span class="rad-sig vol">🔊量比'+r.vol+'</span>');
+    var res=r.resonance
+      ? '<span class="rad-res '+(r.resonance.tone==='up'?'hot':'')+'">🎯'+r.resonance.sector+'·'+r.resonance.label+'</span>'
+      : '<span class="neu">—</span>';
+    var pct=r.pct_chg!=null?'<span class="'+cls(r.pct_chg)+'">'+sgn(r.pct_chg)+'%</span>':'<span class="neu">—</span>';
+    var fire='🔥'.repeat(Math.max(1,Math.min(3,Math.round(r.strength/3))));
+    return '<tr><td><a href="/stock?code='+r.code+'" style="color:#7c9ef8;text-decoration:none">'+r.name+'</a></td>'
+      +'<td>'+pct+'</td><td>'+sig.join(' ')+'</td><td>'+res+'</td>'
+      +'<td><span class="rad-str">'+fire+' '+r.strength+'</span></td></tr>';
+  }).join('');
+}
 function renderMainline(m){
   const c=$('rtMainlineCard');
   if(!m||(!m.lead&&!m.second)){ c.style.display='none'; return; }
@@ -520,7 +551,7 @@ async function tick(){
     const d=await (await fetch('/api/realtime/board')).json();
     if(!d.ok){ $('rtStatus').textContent='加载失败：'+(d.msg||''); return; }
     _lastBoard=d;
-    renderStatus(d); renderIndex(d); renderMarketVol(d); renderBattle(d); renderOpenBoard(d); renderAuction(d); renderPulse(d.pulse); renderRace(d); renderBrief(d.brief); renderMainline(d.mainline_live); renderBreadth(d.breadth, d.breadth_trend); renderSenti(d.sentiment); renderRotOv(d.sectors, d.sectors_out); renderSectors(d.sectors); renderThemes(d.themes);
+    renderStatus(d); renderIndex(d); renderMarketVol(d); renderBattle(d); renderOpenBoard(d); renderAuction(d); renderPulse(d.pulse); renderRace(d); renderBrief(d.brief); renderMainline(d.mainline_live); renderOppRadar(d.opp_radar); renderBreadth(d.breadth, d.breadth_trend); renderSenti(d.sentiment); renderRotOv(d.sectors, d.sectors_out); renderSectors(d.sectors); renderThemes(d.themes);
     renderTail(d.tail); renderSecOut(d.sectors_out); renderFlash(d.flash);
     renderFund(d.fund_ranking); renderVolSurge(d.vol_surge); renderSurge(d.surge); renderWatch(d.watch);
   }catch(e){ $('rtStatus').textContent='网络错误：'+e; }
