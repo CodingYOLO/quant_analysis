@@ -2475,6 +2475,24 @@ async def api_sector_trend(name: str = "", kind: str = "industry", _user: str = 
         return {"ok": False, "msg": str(e)}
 
 
+@app.get("/lps", response_class=HTMLResponse)
+async def lps_page(request: Request, _user: str = Depends(require_auth)):
+    """LPS「突破回踩」选股：威科夫放量突破后缩量回踩不破（回测验证跑赢基准）。"""
+    return templates.TemplateResponse(request=request, name="lps.html", context={"page": "lps"})
+
+
+@app.get("/api/lps-screen")
+async def api_lps_screen(date: str = "", min_circ_yi: float = 30.0, _user: str = Depends(require_auth)):
+    """全市场 LPS 突破回踩榜（排序=回踩到位+新鲜·带突破位/箱顶关键位）。"""
+    from fastapi.concurrency import run_in_threadpool
+    try:
+        from app.strategy.lps_screen import build_lps_screen
+        return await run_in_threadpool(build_lps_screen, date, None, min_circ_yi)
+    except Exception as e:
+        logger.exception("LPS选股失败")
+        return {"ok": False, "msg": str(e)}
+
+
 @app.get("/api/stock/company")
 async def api_stock_company(code: str = "", _user: str = Depends(require_auth)):
     """公司画像：主营业务/主营构成(Tushare硬数据) + 行业地位/全球排名/护城河(LLM归纳·带来源)。"""
