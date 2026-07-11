@@ -129,7 +129,7 @@
   <h2>🔄 板块资金轮动 · 涌入 vs 撤离<span class="rt-tag">高低切一眼看全 · 钱从哪撤 → 切到哪 · 龙头=板块内主动净买最大</span></h2>
   <div id="rtRotOv" class="rt-rot-ov"></div>
   <div class="rot-col-h" style="color:#f6465d">🔴 资金涌入（钱往哪走）</div>
-  <table><thead><tr><th>板块</th><th>主动净买</th><th>5分钟变化</th><th>均涨</th><th>龙头</th><th>龙头涨幅</th><th>龙头外盘</th></tr></thead>
+  <table><thead><tr><th>板块</th><th>主动净买</th><th>资金趋势</th><th>均涨</th><th>龙头</th><th>龙头涨幅</th><th>龙头外盘</th></tr></thead>
   <tbody id="rtSectors"></tbody></table>
   <div class="rot-col-h" style="color:#2ebd85;margin-top:16px">🟢 资金撤离（钱从哪撤·风险）</div>
   <table><thead><tr><th>板块</th><th>主动净卖</th><th>均跌</th><th>龙头</th></tr></thead>
@@ -300,11 +300,28 @@ function dchg(r){
   const tag=r.accel?` <span class="badge" style="font-size:9px;background:#2a2440;color:#f0a020">${r.accel}</span>`:'';
   return `<span class="${cls(r.net_delta)}">${sgn(r.net_delta)}亿</span>${tag}`;
 }
+// 板块资金"资金趋势"：近程主动净买分时 sparkline + 持续性/拐点标签(拐头流入/加速/冲高回落)
+function spark(series, tone){
+  if(!series||series.length<2) return '';
+  var w=56,h=18,p=2,mn=Math.min.apply(null,series),mx=Math.max.apply(null,series),rng=(mx-mn)||1;
+  var pts=series.map(function(v,i){return (p+(w-2*p)*i/(series.length-1)).toFixed(1)+','+(p+(h-2*p)*(1-(v-mn)/rng)).toFixed(1);}).join(' ');
+  var col=tone==='up'?'#f6465d':(tone==='warn'?'#f0a020':(tone==='down'?'#2ebd85':'#7c9ef8'));
+  var z='';
+  if(mn<0&&mx>0){var zy=(p+(h-2*p)*(1-(0-mn)/rng)).toFixed(1);z='<line x1="'+p+'" y1="'+zy+'" x2="'+(w-p)+'" y2="'+zy+'" stroke="#444a63" stroke-width="0.5" stroke-dasharray="2"/>';}
+  return '<svg width="'+w+'" height="'+h+'" style="vertical-align:middle;margin-right:5px">'+z+'<polyline points="'+pts+'" fill="none" stroke="'+col+'" stroke-width="1.3"/></svg>';
+}
+function trajCell(r){
+  if(!r.traj||r.traj.length<2) return dchg(r);   // 序列不足(刚开盘)→退回5分钟Δ
+  var tone=r.traj_tone||'neu';
+  var lcol=tone==='up'?'#f6465d':(tone==='warn'?'#f0a020':(tone==='down'?'#2ebd85':'#9ca3af'));
+  var lab=r.traj_label?'<span style="color:'+lcol+';font-size:11px;font-weight:600">'+r.traj_label+'</span>':'';
+  return spark(r.traj,tone)+lab;
+}
 function renderSectors(rows){
   if(!rows||!rows.length){ $('rtSectors').innerHTML='<tr><td colspan="7" class="rt-empty">暂无数据</td></tr>'; return; }
   $('rtSectors').innerHTML=rows.map(r=>{const op=Math.round((r.leader_outer||0)*100);
     return `<tr><td><b>${r.industry}</b><span class="neu" style="font-size:11px"> ${r.n}只</span></td>
-      <td class="${cls(r.net_yi)}">${sgn(r.net_yi)}亿</td><td>${dchg(r)}</td><td class="${cls(r.avg_pct)}">${sgn(r.avg_pct)}%</td>
+      <td class="${cls(r.net_yi)}">${sgn(r.net_yi)}亿</td><td>${trajCell(r)}</td><td class="${cls(r.avg_pct)}">${sgn(r.avg_pct)}%</td>
       <td>${lead(r)}</td><td class="${cls(r.leader_pct)}">${sgn(r.leader_pct)}%</td>
       <td><span class="rt-bar"><i style="width:${op}%"></i></span> ${op}%</td></tr>`;}).join('');
 }

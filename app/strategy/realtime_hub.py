@@ -153,6 +153,20 @@ def sector_net_ago(minutes: float = 5.0) -> dict:
     return _hist_at(_SECTOR_HISTORY, minutes) or {}
 
 
+def sector_trajectories(industries: list, points: int = 16) -> dict:
+    """给定板块近 points 个采样的主动净买序列 + 持续性形态标签。
+
+    {industry: {series:[...亿], label, tone}}。序列不足时 label 为空（前端显 —）。
+    """
+    from app.strategy.realtime_fund import trajectory_label
+    hist = list(_SECTOR_HISTORY)[-points:]
+    out: dict = {}
+    for ind in industries:
+        series = [round(float(snap.get(ind, 0.0)), 2) for _, snap in hist]
+        out[ind] = {"series": series, **trajectory_label(series)}
+    return out
+
+
 def breadth_ago(minutes: float = 30.0) -> dict:
     """约 minutes 分钟前大盘广度（走强/走弱趋势用）。"""
     return _hist_at(_BREADTH_HISTORY, minutes) or {}
@@ -475,6 +489,11 @@ def build_board() -> dict:
     base["fund_ranking"] = fr
     from app.strategy.realtime_fund import sector_flow_delta
     full = sector_flow_delta(sector_board(df, imap), sector_net_ago(5.0))   # 板块榜 + 近5min资金变化Δ/加速
+    trajs = sector_trajectories([s["industry"] for s in full[:20]])         # 近程分时序列 + 持续性/拐点标签
+    for s in full:
+        t = trajs.get(s["industry"])
+        if t:
+            s["traj"], s["traj_label"], s["traj_tone"] = t["series"], t["label"], t["tone"]
     base["sectors"] = full[:20]                            # 资金涌入榜(机会·竞速榜板块口径也用)
     base["sectors_out"] = [s for s in reversed(full) if s["net_yi"] < 0][:15]   # 资金撤离(风险)
     records = df.to_dict("records")                       # 转一次·多块复用

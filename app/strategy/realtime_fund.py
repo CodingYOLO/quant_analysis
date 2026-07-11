@@ -505,6 +505,36 @@ def _accel_tag(net_now: float, delta: float, *, th: float = 2.0) -> str:
     return "加速流出" if delta <= -th else ("流出放缓" if delta >= th else "")
 
 
+def trajectory_label(series: list, *, th: float = 2.5) -> dict:
+    """近程主动净买序列 → 持续性形态标签（客观描述·非买卖建议）。
+
+    series 升序（最早→最新）·单位亿·可含 None/0。返回 {key,label,tone}：
+      拐头流入(turn·机会)：由流出/零 转为流入 → 拐点，资金刚进场；
+      加速流入(accel)：净流入 且 近段明显加速；
+      冲高回落(fade·避雷)：曾冲高 现明显低于峰值 → 钱在撤，别追；
+      流入放缓(slow)/平稳流入(steady)/净流出(out)。tone: up/warn/down/neu。
+    """
+    pts = [float(x) for x in (series or []) if x is not None]
+    if len(pts) < 4:
+        return {"key": "na", "label": "", "tone": "neu"}
+    now, peak = pts[-1], max(pts)
+    k = max(1, len(pts) // 3)
+    early = sum(pts[:k]) / k
+    late = sum(pts[-k:]) / k
+    rising = late - early                                  # 近段趋势（正=在增）
+    if peak >= th and now < peak - th and now < peak * 0.6:
+        return {"key": "fade", "label": "冲高回落", "tone": "warn"}
+    if early <= 0 < now and rising > th * 0.5:
+        return {"key": "turn", "label": "拐头流入", "tone": "up"}
+    if now > 0 and rising > th:
+        return {"key": "accel", "label": "加速流入", "tone": "up"}
+    if now > 0 and rising < -th:
+        return {"key": "slow", "label": "流入放缓", "tone": "warn"}
+    if now > 0:
+        return {"key": "steady", "label": "平稳流入", "tone": "neu"}
+    return {"key": "out", "label": "净流出", "tone": "down"}
+
+
 def sector_flow_delta(sectors_now: list[dict], sec_net_ago: dict, *, th: float = 2.0) -> list[dict]:
     """给板块榜补 近窗口资金变化Δ + 加速/减速标签（轮动/变化的核心）。"""
     out = []
