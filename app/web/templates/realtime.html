@@ -19,6 +19,12 @@
   .rt-btn:disabled { opacity:.5; }
   .rt-empty { color:#5b6478; padding:14px; text-align:center; }
   .card h2 .rt-tag { font-size:11px; font-weight:400; color:#5b6478; margin-left:8px; }
+  /* 板块资金轮动：概览条 + 涌入/撤离并排 */
+  .rt-rot-ov { font-size:13px; line-height:2; margin:2px 0 12px; padding:9px 12px; background:#12141c; border:1px solid #232640; border-radius:8px; }
+  .rt-rot-ov .rot-pill { display:inline-block; padding:1px 9px; border-radius:11px; margin:2px 5px 2px 0; font-size:12px; font-weight:600; }
+  .rt-rot-ov .in { background:#2a1418; color:#ff8095; } .rt-rot-ov .out { background:#0f2820; color:#5fd6a6; }
+  .rt-rot-ov .arw { color:#8b93b8; margin:0 8px; font-weight:700; }
+  .rot-col-h { font-size:13px; font-weight:700; margin:0 0 7px; }
   /* 🏁 板块实时排名(动态竞速条)：排名变→行平滑滑动重排；数据变→条长平滑伸缩 */
   .race-toggle { float:right; font-weight:400; }
   .race-btn { background:#1a1d2e; color:#9ca3af; border:1px solid #2d3052; border-radius:6px;
@@ -119,10 +125,21 @@
 <div class="card"><h2>🔥 情绪温度计 · 短线周期<span class="rt-tag">连板梯队/赚钱效应/炸板率·决定能否打板追高</span></h2>
   <div id="rtSenti"></div></div>
 
-<div class="card">
-  <h2>🏆 板块龙头榜 · 资金涌入<span class="rt-tag">钱往哪走 · 龙头=板块内主动净买最大</span></h2>
-  <table><thead><tr><th>板块</th><th>主动净买</th><th>5分钟变化</th><th>均涨</th><th>龙头</th><th>龙头涨幅</th><th>龙头外盘</th></tr></thead>
-  <tbody id="rtSectors"></tbody></table>
+<div class="card" id="rtRotCard">
+  <h2>🔄 板块资金轮动 · 涌入 vs 撤离<span class="rt-tag">高低切一眼看全 · 钱从哪撤 → 切到哪 · 龙头=板块内主动净买最大</span></h2>
+  <div id="rtRotOv" class="rt-rot-ov"></div>
+  <div class="rt-2col">
+    <div>
+      <div class="rot-col-h" style="color:#f6465d">🔴 资金涌入（钱往哪走）</div>
+      <table><thead><tr><th>板块</th><th>主动净买</th><th>均涨</th><th>龙头 涨幅</th></tr></thead>
+      <tbody id="rtSectors"></tbody></table>
+    </div>
+    <div>
+      <div class="rot-col-h" style="color:#2ebd85">🟢 资金撤离（钱从哪撤·风险）</div>
+      <table><thead><tr><th>板块</th><th>主动净卖</th><th>均跌</th><th>龙头</th></tr></thead>
+      <tbody id="rtSecOut"></tbody></table>
+    </div>
+  </div>
 </div>
 
 <div class="card"><h2>🔥 题材发酵 · 资金做方向<span class="rt-tag">同一题材≥3只异动 = 轮动起点</span></h2>
@@ -145,14 +162,9 @@
 <div class="card s-noexport"><h2>⚡ 急拉榜 · 5分钟涨速</h2>
   <table><thead><tr><th>股票</th><th>5分钟</th></tr></thead><tbody id="rtSurge"></tbody></table></div>
 
-<div class="rt-2col">
-  <div class="card"><h2>📉 资金撤离板块 · 风险<span class="rt-tag">主力在撤</span></h2>
-    <table><thead><tr><th>板块</th><th>主动净卖</th><th>均跌</th><th>龙头</th></tr></thead>
-    <tbody id="rtSecOut"></tbody></table></div>
-  <div class="card"><h2>💥 急跌 / 闪崩 · 风险<span class="rt-tag">3分钟跌速+放量主动砸</span></h2>
-    <table><thead><tr><th>股票</th><th>3分钟</th><th>主动卖</th><th>级别</th></tr></thead>
-    <tbody id="rtFlash"></tbody></table></div>
-</div>
+<div class="card"><h2>💥 急跌 / 闪崩 · 风险<span class="rt-tag">3分钟跌速+放量主动砸</span></h2>
+  <table><thead><tr><th>股票</th><th>3分钟</th><th>主动卖</th><th>级别</th></tr></thead>
+  <tbody id="rtFlash"></tbody></table></div>
 
 <div class="card"><h2>👀 自选 / 持仓 · 实时盯盘<span class="rt-tag">自选优先 · 持仓带止损体检</span></h2>
   <table><thead><tr><th>股票</th><th>涨幅</th><th>量比</th><th>主动买卖</th><th>体检</th></tr></thead>
@@ -295,12 +307,21 @@ function dchg(r){
   return `<span class="${cls(r.net_delta)}">${sgn(r.net_delta)}亿</span>${tag}`;
 }
 function renderSectors(rows){
-  if(!rows||!rows.length){ $('rtSectors').innerHTML='<tr><td colspan="7" class="rt-empty">暂无数据</td></tr>'; return; }
-  $('rtSectors').innerHTML=rows.map(r=>{const op=Math.round((r.leader_outer||0)*100);
-    return `<tr><td><b>${r.industry}</b><span class="neu" style="font-size:11px"> ${r.n}只</span></td>
-      <td class="${cls(r.net_yi)}">${sgn(r.net_yi)}亿</td><td>${dchg(r)}</td><td class="${cls(r.avg_pct)}">${sgn(r.avg_pct)}%</td>
-      <td>${lead(r)}</td><td class="${cls(r.leader_pct)}">${sgn(r.leader_pct)}%</td>
-      <td><span class="rt-bar"><i style="width:${op}%"></i></span> ${op}%</td></tr>`;}).join('');
+  if(!rows||!rows.length){ $('rtSectors').innerHTML='<tr><td colspan="4" class="rt-empty">暂无数据</td></tr>'; return; }
+  $('rtSectors').innerHTML=rows.map(r=>
+    `<tr><td><b>${r.industry}</b><span class="neu" style="font-size:11px"> ${r.n}只</span></td>
+      <td class="${cls(r.net_yi)}">${sgn(r.net_yi)}亿</td><td class="${cls(r.avg_pct)}">${sgn(r.avg_pct)}%</td>
+      <td>${lead(r)} <span class="${cls(r.leader_pct)}">${sgn(r.leader_pct)}%</span></td></tr>`).join('');
+}
+// 轮动概览条：涌入 top ↔ 撤离 top（一眼看"钱从哪切到哪"）
+function renderRotOv(sectors, out){
+  const el=$('rtRotOv'); if(!el) return;
+  const inN=(sectors||[]).filter(r=>(r.net_yi||0)>0).slice(0,4);
+  const outN=(out||[]).slice(0,4);
+  const pill=(r,c)=>`<span class="rot-pill ${c}">${r.industry} ${sgn(r.net_yi)}亿</span>`;
+  const inH=inN.length?inN.map(r=>pill(r,'in')).join(''):'<span class="neu">无明显涌入</span>';
+  const outH=outN.length?outN.map(r=>pill(r,'out')).join(''):'<span class="neu">无明显撤离</span>';
+  el.innerHTML='🔴 涌入 '+inH+'<span class="arw">↔</span>🟢 撤离 '+outH;
 }
 function renderFlash(rows){
   if(!rows||!rows.length){ $('rtFlash').innerHTML='<tr><td colspan="4" class="rt-empty">暂无急跌/闪崩</td></tr>'; return; }
@@ -472,7 +493,7 @@ async function tick(){
     const d=await (await fetch('/api/realtime/board')).json();
     if(!d.ok){ $('rtStatus').textContent='加载失败：'+(d.msg||''); return; }
     _lastBoard=d;
-    renderStatus(d); renderIndex(d); renderMarketVol(d); renderBattle(d); renderOpenBoard(d); renderAuction(d); renderPulse(d.pulse); renderRace(d); renderBrief(d.brief); renderBreadth(d.breadth, d.breadth_trend); renderSenti(d.sentiment); renderSectors(d.sectors); renderThemes(d.themes);
+    renderStatus(d); renderIndex(d); renderMarketVol(d); renderBattle(d); renderOpenBoard(d); renderAuction(d); renderPulse(d.pulse); renderRace(d); renderBrief(d.brief); renderBreadth(d.breadth, d.breadth_trend); renderSenti(d.sentiment); renderRotOv(d.sectors, d.sectors_out); renderSectors(d.sectors); renderThemes(d.themes);
     renderTail(d.tail); renderSecOut(d.sectors_out); renderFlash(d.flash);
     renderFund(d.fund_ranking); renderVolSurge(d.vol_surge); renderSurge(d.surge); renderWatch(d.watch);
   }catch(e){ $('rtStatus').textContent='网络错误：'+e; }
