@@ -128,18 +128,12 @@
 <div class="card" id="rtRotCard">
   <h2>🔄 板块资金轮动 · 涌入 vs 撤离<span class="rt-tag">高低切一眼看全 · 钱从哪撤 → 切到哪 · 龙头=板块内主动净买最大</span></h2>
   <div id="rtRotOv" class="rt-rot-ov"></div>
-  <div class="rt-2col">
-    <div>
-      <div class="rot-col-h" style="color:#f6465d">🔴 资金涌入（钱往哪走）</div>
-      <table><thead><tr><th>板块</th><th>主动净买</th><th>均涨</th><th>龙头 涨幅</th></tr></thead>
-      <tbody id="rtSectors"></tbody></table>
-    </div>
-    <div>
-      <div class="rot-col-h" style="color:#2ebd85">🟢 资金撤离（钱从哪撤·风险）</div>
-      <table><thead><tr><th>板块</th><th>主动净卖</th><th>均跌</th><th>龙头</th></tr></thead>
-      <tbody id="rtSecOut"></tbody></table>
-    </div>
-  </div>
+  <div class="rot-col-h" style="color:#f6465d">🔴 资金涌入（钱往哪走）</div>
+  <table><thead><tr><th>板块</th><th>主动净买</th><th>5分钟变化</th><th>均涨</th><th>龙头</th><th>龙头涨幅</th><th>龙头外盘</th></tr></thead>
+  <tbody id="rtSectors"></tbody></table>
+  <div class="rot-col-h" style="color:#2ebd85;margin-top:16px">🟢 资金撤离（钱从哪撤·风险）</div>
+  <table><thead><tr><th>板块</th><th>主动净卖</th><th>均跌</th><th>龙头</th></tr></thead>
+  <tbody id="rtSecOut"></tbody></table>
 </div>
 
 <div class="card"><h2>🔥 题材发酵 · 资金做方向<span class="rt-tag">同一题材≥3只异动 = 轮动起点</span></h2>
@@ -307,11 +301,12 @@ function dchg(r){
   return `<span class="${cls(r.net_delta)}">${sgn(r.net_delta)}亿</span>${tag}`;
 }
 function renderSectors(rows){
-  if(!rows||!rows.length){ $('rtSectors').innerHTML='<tr><td colspan="4" class="rt-empty">暂无数据</td></tr>'; return; }
-  $('rtSectors').innerHTML=rows.map(r=>
-    `<tr><td><b>${r.industry}</b><span class="neu" style="font-size:11px"> ${r.n}只</span></td>
-      <td class="${cls(r.net_yi)}">${sgn(r.net_yi)}亿</td><td class="${cls(r.avg_pct)}">${sgn(r.avg_pct)}%</td>
-      <td>${lead(r)} <span class="${cls(r.leader_pct)}">${sgn(r.leader_pct)}%</span></td></tr>`).join('');
+  if(!rows||!rows.length){ $('rtSectors').innerHTML='<tr><td colspan="7" class="rt-empty">暂无数据</td></tr>'; return; }
+  $('rtSectors').innerHTML=rows.map(r=>{const op=Math.round((r.leader_outer||0)*100);
+    return `<tr><td><b>${r.industry}</b><span class="neu" style="font-size:11px"> ${r.n}只</span></td>
+      <td class="${cls(r.net_yi)}">${sgn(r.net_yi)}亿</td><td>${dchg(r)}</td><td class="${cls(r.avg_pct)}">${sgn(r.avg_pct)}%</td>
+      <td>${lead(r)}</td><td class="${cls(r.leader_pct)}">${sgn(r.leader_pct)}%</td>
+      <td><span class="rt-bar"><i style="width:${op}%"></i></span> ${op}%</td></tr>`;}).join('');
 }
 // 轮动概览条：涌入 top ↔ 撤离 top（一眼看"钱从哪切到哪"）
 function renderRotOv(sectors, out){
