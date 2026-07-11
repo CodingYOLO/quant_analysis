@@ -301,25 +301,30 @@ def vpa_pre_markup(close: pd.Series, high: pd.Series, low: pd.Series, vol: pd.Se
 # ── LPS（Last Point of Support·放量突破后缩量回踩不破·威科夫最可靠买点）──────────
 _LPS = {
     "sos_look": 20,        # SOS 突破发生在近 N 日内
-    "box_n": 60,           # 突破前箱体回看
+    "box_n": 60,           # 突破前区间回看（用于取突破位=前高·并算形态诊断）
     "sos_up": 0.03,        # 突破日大阳 ≥ 3%
     "sos_vol_mult": 1.8,   # 突破日大量 ≥ 1.8×近20日均量
-    "break_buf": 0.01,     # 有效突破：收盘 > 箱顶×(1+buf)
+    "break_buf": 0.01,     # 有效突破：收盘 > 前高×(1+buf)
     "min_since": 2,        # 突破后至少 N 日（留出回踩）
     "max_since": 15,       # 突破后 N 日内（"刚回踩"·超了不算）
     "hold_buf": 0.03,      # 不破：回踩最低 ≥ 突破位×(1-buf)
     "pull_dry": 0.75,      # 缩量回踩：回踩段均量 < 突破日量×此值
     "near_buf": 0.06,      # 当前回落到突破位附近（不追高）
+    # 注：box_range/base_trend/excursion 仅作"形态诊断"返回供页面展示与自筛，
+    #     不做硬门槛——回测证实收严(只留教科书横盘)会抹掉动量 edge（A股 momentum>reversal）。
 }
 
 
 def lps_entry(close: pd.Series, high: pd.Series, low: pd.Series, vol: pd.Series,
               cfg: dict | None = None) -> dict:
-    """LPS（放量突破后缩量回踩不破·威科夫最可靠买点）·point-in-time·客观结构·非买卖建议。
+    """LPS（放量突破后缩量回踩不破）·point-in-time·客观结构·非买卖建议。
 
-    近 sos_look 日内有 SOS（放量大阳突破前箱顶）→ 其后缩量回踩至突破位（前箱顶=现支撑）且未跌破
-    = 突破确认·启动前临界。假突破（放量跌回箱内）→ is_lps=False。
-    返回 {is_lps, days_since_sos, level, held, dry, near}。
+    近 sos_look 日内有 SOS（放量大阳突破前高）→ 其后缩量回踩至突破位（前高=现支撑）且未跌破
+    = 突破确认。假突破（放量跌回）→ is_lps=False。选股条件只卡"突破+缩量回踩不破"（动量口径·
+    回测两期跑赢基准）。另返回形态诊断 box_range/base_trend/excursion 供页面展示与自筛——**不做门槛**：
+    收严只留教科书横盘会抹掉动量 edge（回测证实，A股 momentum>reversal）。
+
+    返回 {is_lps, days_since_sos, level, box_lo, box_range, base_trend, excursion, held, dry, near}。
     """
     c = cfg or _LPS
     close, high, low, vol = _clean(close), _clean(high), _clean(low), _clean(vol)
@@ -329,15 +334,25 @@ def lps_entry(close: pd.Series, high: pd.Series, low: pd.Series, vol: pd.Series,
     vma = vol.rolling(20).mean()
     sos_i = None
     level = 0.0
+    box_lo = 0.0
+    box_range = 9.9
+    base_trend = 9.9
     for k in range(n - c["min_since"] - 1, n - c["max_since"] - 2, -1):   # 近→远找最近一次 SOS
         if k < c["box_n"]:
             break
-        prior_top = float(high.iloc[k - c["box_n"]:k].max())             # k 日之前的箱顶（不含突破日）
+        prior_top = float(high.iloc[k - c["box_n"]:k].max())             # k 日之前的前高（突破位）
         up = float(close.iloc[k]) / float(close.iloc[k - 1]) - 1
         vmk = float(vma.iloc[k]) if vma.iloc[k] == vma.iloc[k] else 0.0
-        if (float(close.iloc[k]) > prior_top * (1 + c["break_buf"])
+        if (float(close.iloc[k]) > prior_top * (1 + c["break_buf"])       # 放量大阳有效突破
                 and up >= c["sos_up"] and vmk > 0 and float(vol.iloc[k]) >= c["sos_vol_mult"] * vmk):
             sos_i, level = k, prior_top
+            # ── 形态诊断（仅供展示/自筛·不做门槛）──
+            win_c = close.iloc[k - c["box_n"]:k]
+            box_lo = float(low.iloc[k - c["box_n"]:k].min())
+            box_range = prior_top / box_lo - 1 if box_lo > 0 else 9.9    # 前区间高低差（小=真横盘·大=已上行）
+            third = max(5, c["box_n"] // 3)
+            head = float(win_c.iloc[:third].mean())
+            base_trend = (float(win_c.iloc[-third:].mean()) / head - 1) if head > 0 else 9.9  # 净上行（大=伪箱体）
             break
     if sos_i is None:
         return {"is_lps": False}
@@ -346,8 +361,11 @@ def lps_entry(close: pd.Series, high: pd.Series, low: pd.Series, vol: pd.Series,
     pull_vol = float(vol.iloc[sos_i + 1:].mean())
     post_high = float(high.iloc[sos_i:].max())
     cur = float(close.iloc[-1])
+    excursion = post_high / level - 1 if level else 9.9                   # 突破后冲高（大=主升浪已走·追高风险）
     held = pull_low >= level * (1 - c["hold_buf"])                        # 不破：回踩守住突破位
     dry = pull_vol < float(vol.iloc[sos_i]) * c["pull_dry"]               # 缩量回踩（无供应）
     near = level * (1 - c["near_buf"]) <= cur <= post_high * 0.995        # 已回落到突破位附近·不追高
     return {"is_lps": bool(held and dry and near), "days_since_sos": since,
-            "level": round(level, 2), "held": held, "dry": dry, "near": near}
+            "level": round(level, 2), "box_lo": round(box_lo, 2),
+            "box_range": round(box_range * 100, 1), "base_trend": round(base_trend * 100, 1),
+            "excursion": round(excursion * 100, 1), "held": held, "dry": dry, "near": near}

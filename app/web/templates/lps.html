@@ -25,15 +25,17 @@
 .qbar i { display:block; height:100%; background:#f0a020; }
 .lps-hint { color:#8a90a0; font-size:12.5px; line-height:1.7; margin:8px 0 16px; }
 .lps-hint b { color:#cdd6f4; }
+.tone-clean { color:#2ebd85; font-weight:600; }   /* 真横盘 / 抢得早 */
+.tone-ext { color:#c98a3a; }                       /* 已上行 / 已冲高·追高风险 */
 {% endblock %}
 
 {% block content %}
 <div id="lps-wrap">
   <div style="text-align:center;margin-bottom:6px"><h1 style="font-size:22px;color:#e8e8e8">🎯 LPS 突破回踩选股</h1></div>
   <div class="lps-hint" style="text-align:center">
-    威科夫最可靠买点：<b>放量突破箱顶（SOS）→ 缩量回踩至突破位 → 不破</b>（假突破已剔除）。
-    <b style="color:#2ebd85">回测验证</b>：2026-06跌市 T+20 −0.8%（基准−7.18%·抗跌）、2026-03上行 T+20 +5.44%（基准+1.89%·近3倍）。
-    <br>排序=<b>回踩到位（现价贴突破位）+ 新鲜（距SOS天数近）</b>。纯客观结构·<b>非买卖建议·非荐股</b>·仍需结合板块/大盘/基本面。
+    <b>放量突破前高 → 缩量回踩突破位不破</b>（假突破已剔除）。<b style="color:#f0a020">口径说明：这是"强势突破股的缩量回踩"（顺势动量），不是"长期横盘箱体突破"</b>——回测证实 A股这里的 edge 是<b>动量</b>，硬筛成教科书横盘反而抹掉收益。
+    <b style="color:#2ebd85">回测</b>：2026-06跌市 T+20 −0.8%（基准−7.18%·抗跌）、2026-03上行 +5.44%（基准+1.89%·近3倍）。
+    <br>看<b>箱幅</b>（<span style="color:#2ebd85">小=真横盘</span>/<span style="color:#c98a3a">大=已上行</span>）和<b>冲高</b>（<span style="color:#2ebd85">小=抢得早</span>/<span style="color:#c98a3a">大=已涨过一波</span>）自己判断每只形态。排序=回踩到位+新鲜。<b>非买卖建议·非荐股</b>·结合板块/大盘/基本面。
   </div>
   <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px">
     <span class="neu" style="font-size:13px">流通市值下限</span>
@@ -46,9 +48,9 @@
     <span id="lps-meta" class="neu" style="font-size:12.5px;margin-left:auto"></span>
   </div>
   <div class="lps-scroll"><table id="lps-tbl"><thead><tr>
-    <th>#</th><th>代码</th><th>名称</th><th>操作</th><th>板块</th><th>行业</th><th>现价</th><th>⬆突破位</th><th>箱顶</th>
-    <th>距突破位</th><th>距SOS</th><th>质量</th>
-  </tr></thead><tbody id="lps-body"><tr><td colspan="12" class="neu" style="text-align:center;padding:16px">⏳ 扫描全市场中…（首次约10-20秒）</td></tr></tbody></table></div>
+    <th>#</th><th>代码</th><th>名称</th><th>操作</th><th>板块</th><th>行业</th><th>现价</th><th>⬆突破位</th><th title="突破前箱体高低差·越小越是真横盘">箱幅</th>
+    <th>距突破位</th><th title="突破后最高较突破位·越小=抢得越早·大=主升浪已走">冲高</th><th>距SOS</th><th>质量</th>
+  </tr></thead><tbody id="lps-body"><tr><td colspan="13" class="neu" style="text-align:center;padding:16px">⏳ 扫描全市场中…（首次约10-20秒）</td></tr></tbody></table></div>
 </div>
 {% endblock %}
 
@@ -57,6 +59,9 @@
 const $=function(id){return document.getElementById(id);};
 function cls(v){ return v>0?'up':(v<0?'down':'neu'); }
 function sgn(v){ return (v>0?'+':'')+v; }
+// 形态诊断配色（供自筛·非门槛）：箱幅小=真横盘绿·大=已上行橙；冲高小=抢得早绿·大=已涨过头橙
+function boxTone(v){ return v==null?'neu':(v<=35?'tone-clean':(v>=60?'tone-ext':'neu')); }
+function excTone(v){ return v==null?'neu':(v<=12?'tone-clean':(v>=22?'tone-ext':'neu')); }
 // 按代码前缀判板块（688/689科创·300/301创业·8x/4x/920北交·其余主板）
 function boardOf(c){
   c=String(c); var p3=c.slice(0,3);
@@ -90,15 +95,15 @@ async function toggleWatch(code, btn){
 }
 async function loadLps(){
   var cap=$('lps-cap').value;
-  $('lps-body').innerHTML='<tr><td colspan="12" class="neu" style="text-align:center;padding:16px">⏳ 扫描全市场中…</td></tr>';
+  $('lps-body').innerHTML='<tr><td colspan="13" class="neu" style="text-align:center;padding:16px">⏳ 扫描全市场中…</td></tr>';
   try{
     var res=await Promise.all([ fetch('/api/lps-screen?min_circ_yi='+cap).then(function(r){return r.json();}), loadWatched() ]);
     var j=res[0];
-    if(!j.ok){ $('lps-body').innerHTML='<tr><td colspan="12" class="neu" style="text-align:center;padding:16px">❌ '+(j.msg||'加载失败')+'</td></tr>'; return; }
+    if(!j.ok){ $('lps-body').innerHTML='<tr><td colspan="13" class="neu" style="text-align:center;padding:16px">❌ '+(j.msg||'加载失败')+'</td></tr>'; return; }
     var _d=j.date||'', ds=_d.length===8?(_d.slice(0,4)+'-'+_d.slice(4,6)+'-'+_d.slice(6,8)):_d;
     $('lps-meta').textContent='数据日 '+ds+' · 命中 '+j.n+' 只 · 盘后日线口径';
     var rows=j.rows||[];
-    if(!rows.length){ $('lps-body').innerHTML='<tr><td colspan="12" class="neu" style="text-align:center;padding:16px">当日无 LPS 突破回踩标的</td></tr>'; return; }
+    if(!rows.length){ $('lps-body').innerHTML='<tr><td colspan="13" class="neu" style="text-align:center;padding:16px">当日无 LPS 突破回踩标的</td></tr>'; return; }
     var maxq=Math.max.apply(null,rows.map(function(r){return r.quality||0;}))||1;
     $('lps-body').innerHTML=rows.map(function(r,i){
       var qw=Math.round((r.quality||0)/maxq*100), bd=boardOf(r.code), added=WATCHED.has(r.code);
@@ -109,12 +114,14 @@ async function loadLps(){
         +'<td><button class="'+bcls+'"'+(added?' data-added="1"':'')+' title="'+btip+'" onclick="toggleWatch(\''+r.code+'\',this)">'+btxt+'</button></td>'
         +'<td><span class="bd '+bd.c+'">'+bd.t+'</span></td>'
         +'<td class="neu">'+(r.industry||'')+'</td>'
-        +'<td>'+r.price+'</td><td class="up">'+r.level+'</td><td class="neu">'+r.box_top+'</td>'
+        +'<td>'+r.price+'</td><td class="up">'+r.level+'</td>'
+        +'<td class="'+boxTone(r.box_range)+'">'+(r.box_range!=null?r.box_range+'%':'—')+'</td>'
         +'<td class="'+cls(r.dist)+'">'+(r.dist!=null?sgn(r.dist)+'%':'—')+'</td>'
+        +'<td class="'+excTone(r.excursion)+'">'+(r.excursion!=null?'+'+r.excursion+'%':'—')+'</td>'
         +'<td class="neu">'+r.days_since_sos+'天前</td>'
         +'<td><span class="qbar"><i style="width:'+qw+'%"></i></span>'+r.quality+'</td></tr>';
     }).join('');
-  }catch(e){ $('lps-body').innerHTML='<tr><td colspan="12" class="neu" style="text-align:center;padding:16px">❌ '+e+'</td></tr>'; }
+  }catch(e){ $('lps-body').innerHTML='<tr><td colspan="13" class="neu" style="text-align:center;padding:16px">❌ '+e+'</td></tr>'; }
 }
 $('lps-cap').addEventListener('change', loadLps);
 loadLps();

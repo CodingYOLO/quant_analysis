@@ -59,10 +59,15 @@ def build_lps_screen(date: str = "", provider: CompositeProvider | None = None,
         level = r["level"]
         dist = round((cur / level - 1) * 100, 1) if level else None      # 现价距突破位%（越小越贴买点）
         days = r.get("days_since_sos") or 16
+        # 质量 = 回踩到位（现价贴突破位）+ 新鲜（距SOS近）。形态诊断(箱幅/冲高)不入排序——
+        # 回测证实收严只留教科书横盘会抹掉动量 edge，故只作展示供自筛，不做打分权重。
         quality = round(max(0.0, 20 - abs(dist if dist is not None else 20)) + max(0.0, 16 - days), 1)
         rows.append({
             "code": code[:6], "name": nm, "industry": inds.get(code, ""),
-            "price": round(cur, 2), "level": level, "box_top": round(float(hi.tail(80).max()), 2),
+            "price": round(cur, 2), "level": level, "box_lo": r.get("box_lo"),
+            "box_range": r.get("box_range"),        # 箱幅%（前区间高低差·小=真横盘·大=已上行）
+            "base_trend": r.get("base_trend"),      # 箱体净上行%（大=伪箱体/已主升浪）
+            "excursion": r.get("excursion"),        # 突破后冲高%（大=追高·主升浪已走）
             "dist": dist, "days_since_sos": days, "quality": quality,
         })
     rows.sort(key=lambda x: -x["quality"])
