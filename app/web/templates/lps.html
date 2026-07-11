@@ -5,8 +5,8 @@
 #lps-tbl { width:100%; border-collapse:collapse; font-size:13.5px; white-space:nowrap; }
 #lps-tbl th, #lps-tbl td { padding:8px 11px; border-bottom:1px solid #1e2138; text-align:right; }
 #lps-tbl th { color:#9ca3af; font-weight:600; background:#12141f; position:sticky; top:0; }
-#lps-tbl th:nth-child(-n+4), #lps-tbl td:nth-child(-n+4) { text-align:left; }
-#lps-tbl th:last-child, #lps-tbl td:last-child { text-align:center; }
+#lps-tbl th:nth-child(-n+6), #lps-tbl td:nth-child(-n+6) { text-align:left; }
+#lps-tbl td.code { color:#8a90a0; font-variant-numeric:tabular-nums; }
 #lps-tbl td.nm a { color:#9db4ff; text-decoration:none; font-weight:600; }
 #lps-tbl tr:hover td { background:rgba(255,255,255,.02); }
 .lps-scroll { overflow-x:auto; border:1px solid #242842; border-radius:10px; }
@@ -16,10 +16,11 @@
 .bd-cy { background:rgba(96,165,250,.16); color:#60a5fa; }
 .bd-zb { background:rgba(148,163,184,.16); color:#94a3b8; }
 .bd-bj { background:rgba(167,139,250,.16); color:#a78bfa; }
-.addbtn { background:#1a2f22; color:#2ebd85; border:1px solid #2e5a44; border-radius:6px; padding:3px 9px; font-size:12px; cursor:pointer; }
+.addbtn { background:#1a2f22; color:#2ebd85; border:1px solid #2e5a44; border-radius:6px; padding:3px 9px; font-size:12px; cursor:pointer; white-space:nowrap; }
 .addbtn:hover { background:#22432f; }
-.addbtn.added { background:#232640; color:#8a90a0; border-color:#2d3052; cursor:default; }
-.addbtn:disabled { opacity:.6; cursor:default; }
+.addbtn.added { background:#232640; color:#8a90a0; border-color:#2d3052; }
+.addbtn.added:hover { background:#3a1f26; color:#f6465d; border-color:#5a2e36; }   /* 已加态·悬停变红提示可取消 */
+.addbtn:disabled { opacity:.6; cursor:wait; }
 .qbar { display:inline-block; width:40px; height:7px; background:#232640; border-radius:4px; vertical-align:middle; overflow:hidden; margin-right:5px; }
 .qbar i { display:block; height:100%; background:#f0a020; }
 .lps-hint { color:#8a90a0; font-size:12.5px; line-height:1.7; margin:8px 0 16px; }
@@ -45,9 +46,9 @@
     <span id="lps-meta" class="neu" style="font-size:12.5px;margin-left:auto"></span>
   </div>
   <div class="lps-scroll"><table id="lps-tbl"><thead><tr>
-    <th>#</th><th>名称</th><th>板块</th><th>行业</th><th>现价</th><th>⬆突破位</th><th>箱顶</th>
-    <th>距突破位</th><th>距SOS</th><th>质量</th><th>操作</th>
-  </tr></thead><tbody id="lps-body"><tr><td colspan="11" class="neu" style="text-align:center;padding:16px">⏳ 扫描全市场中…（首次约10-20秒）</td></tr></tbody></table></div>
+    <th>#</th><th>代码</th><th>名称</th><th>操作</th><th>板块</th><th>行业</th><th>现价</th><th>⬆突破位</th><th>箱顶</th>
+    <th>距突破位</th><th>距SOS</th><th>质量</th>
+  </tr></thead><tbody id="lps-body"><tr><td colspan="12" class="neu" style="text-align:center;padding:16px">⏳ 扫描全市场中…（首次约10-20秒）</td></tr></tbody></table></div>
 </div>
 {% endblock %}
 
@@ -64,40 +65,56 @@ function boardOf(c){
   if(c[0]==='8'||c[0]==='4'||p3==='920') return {t:'北交所',c:'bd-bj'};
   return {t:'主板',c:'bd-zb'};
 }
-// 加入自选（POST /api/portfolio/add·后端按6位码补名字·仅入观察名单不持仓）
-async function addWatch(code, btn){
-  if(btn.dataset.done) return;
-  var old=btn.textContent; btn.disabled=true; btn.textContent='…';
+// 已在自选里的 6 位代码集合（页面加载/切换市值时刷新·用于渲染按钮初始态）
+var WATCHED = new Set();
+async function loadWatched(){
   try{
-    var d=await (await fetch('/api/portfolio/add',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code:code})})).json();
-    if(d.ok){ btn.textContent='✓已加'; btn.classList.add('added'); btn.dataset.done='1'; }
-    else{ btn.textContent='✗'; btn.title=d.msg||'失败'; btn.disabled=false; setTimeout(function(){btn.textContent=old;},2000); }
-  }catch(e){ btn.textContent='✗'; btn.title=String(e); btn.disabled=false; setTimeout(function(){btn.textContent=old;},2000); }
+    var j=await (await fetch('/api/portfolio/list?owner=me')).json();
+    WATCHED = new Set((j.rows||[]).map(function(w){return String(w.ts_code||'').slice(0,6);}));
+  }catch(e){ WATCHED = new Set(); }
+}
+function paintBtn(btn, added){    // 切换按钮显隐/文案（added=在自选中）
+  if(added){ btn.dataset.added='1'; btn.textContent='✓已加'; btn.title='点击取消自选'; btn.classList.add('added'); }
+  else{ delete btn.dataset.added; btn.textContent='＋自选'; btn.title='加入自选'; btn.classList.remove('added'); }
+}
+// 一键切换：未加则 add·已加则 remove（复用 portfolio 现有端点·6位码后端自动补名字·仅观察不持仓）
+async function toggleWatch(code, btn){
+  var adding = !btn.dataset.added, url = adding ? '/api/portfolio/add' : '/api/portfolio/remove';
+  btn.disabled=true;
+  try{
+    var d=await (await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code:code})})).json();
+    if(d.ok){ paintBtn(btn, adding); if(adding){WATCHED.add(code);}else{WATCHED.delete(code);} }
+    else{ btn.title=d.msg||'操作失败'; btn.textContent='✗'; setTimeout(function(){paintBtn(btn, !adding);},1500); }
+  }catch(e){ btn.title=String(e); btn.textContent='✗'; setTimeout(function(){paintBtn(btn, !adding);},1500); }
+  btn.disabled=false;
 }
 async function loadLps(){
   var cap=$('lps-cap').value;
-  $('lps-body').innerHTML='<tr><td colspan="11" class="neu" style="text-align:center;padding:16px">⏳ 扫描全市场中…</td></tr>';
+  $('lps-body').innerHTML='<tr><td colspan="12" class="neu" style="text-align:center;padding:16px">⏳ 扫描全市场中…</td></tr>';
   try{
-    var j=await (await fetch('/api/lps-screen?min_circ_yi='+cap)).json();
-    if(!j.ok){ $('lps-body').innerHTML='<tr><td colspan="11" class="neu" style="text-align:center;padding:16px">❌ '+(j.msg||'加载失败')+'</td></tr>'; return; }
+    var res=await Promise.all([ fetch('/api/lps-screen?min_circ_yi='+cap).then(function(r){return r.json();}), loadWatched() ]);
+    var j=res[0];
+    if(!j.ok){ $('lps-body').innerHTML='<tr><td colspan="12" class="neu" style="text-align:center;padding:16px">❌ '+(j.msg||'加载失败')+'</td></tr>'; return; }
     var _d=j.date||'', ds=_d.length===8?(_d.slice(0,4)+'-'+_d.slice(4,6)+'-'+_d.slice(6,8)):_d;
     $('lps-meta').textContent='数据日 '+ds+' · 命中 '+j.n+' 只 · 盘后日线口径';
     var rows=j.rows||[];
-    if(!rows.length){ $('lps-body').innerHTML='<tr><td colspan="11" class="neu" style="text-align:center;padding:16px">当日无 LPS 突破回踩标的</td></tr>'; return; }
+    if(!rows.length){ $('lps-body').innerHTML='<tr><td colspan="12" class="neu" style="text-align:center;padding:16px">当日无 LPS 突破回踩标的</td></tr>'; return; }
     var maxq=Math.max.apply(null,rows.map(function(r){return r.quality||0;}))||1;
     $('lps-body').innerHTML=rows.map(function(r,i){
-      var qw=Math.round((r.quality||0)/maxq*100), bd=boardOf(r.code);
+      var qw=Math.round((r.quality||0)/maxq*100), bd=boardOf(r.code), added=WATCHED.has(r.code);
+      var bcls=added?'addbtn added':'addbtn', btxt=added?'✓已加':'＋自选', btip=added?'点击取消自选':'加入自选';
       return '<tr><td class="neu">'+(i+1)+'</td>'
+        +'<td class="code">'+r.code+'</td>'
         +'<td class="nm"><a href="/stock?code='+r.code+'">'+r.name+'</a></td>'
+        +'<td><button class="'+bcls+'"'+(added?' data-added="1"':'')+' title="'+btip+'" onclick="toggleWatch(\''+r.code+'\',this)">'+btxt+'</button></td>'
         +'<td><span class="bd '+bd.c+'">'+bd.t+'</span></td>'
         +'<td class="neu">'+(r.industry||'')+'</td>'
         +'<td>'+r.price+'</td><td class="up">'+r.level+'</td><td class="neu">'+r.box_top+'</td>'
         +'<td class="'+cls(r.dist)+'">'+(r.dist!=null?sgn(r.dist)+'%':'—')+'</td>'
         +'<td class="neu">'+r.days_since_sos+'天前</td>'
-        +'<td><span class="qbar"><i style="width:'+qw+'%"></i></span>'+r.quality+'</td>'
-        +'<td><button class="addbtn" onclick="addWatch(\''+r.code+'\',this)">＋自选</button></td></tr>';
+        +'<td><span class="qbar"><i style="width:'+qw+'%"></i></span>'+r.quality+'</td></tr>';
     }).join('');
-  }catch(e){ $('lps-body').innerHTML='<tr><td colspan="11" class="neu" style="text-align:center;padding:16px">❌ '+e+'</td></tr>'; }
+  }catch(e){ $('lps-body').innerHTML='<tr><td colspan="12" class="neu" style="text-align:center;padding:16px">❌ '+e+'</td></tr>'; }
 }
 $('lps-cap').addEventListener('change', loadLps);
 loadLps();
