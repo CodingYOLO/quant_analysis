@@ -66,6 +66,11 @@
 
 {% include "_fund_pulse.html" %}
 
+<div class="card" id="rtMainlineCard" style="display:none;border-left:3px solid #f0a020">
+  <h2 style="font-size:15px">🧭 今日主攻方向 · 实时研判<span class="rt-tag">资金+持续性+龙头 规则合成 · 客观结构 · 非买卖建议</span></h2>
+  <div id="rtMainline" style="font-size:14.5px;line-height:1.85"></div>
+</div>
+
 <div class="card" id="rtBriefCard" style="display:none;border-left:3px solid #7c9ef8;border-radius:0;">
   <div style="font-size:12px;color:#9ca3af;margin-bottom:4px;">📌 此刻该干啥（综合情绪/广度/资金）</div>
   <div id="rtBrief" style="font-size:16px;font-weight:500;line-height:1.6;"></div>
@@ -347,6 +352,16 @@ function renderPulse(t){
   if(!t){ c.style.display='none'; return; }
   c.style.display=''; $('rtPulse').textContent=t;
 }
+function renderMainline(m){
+  const c=$('rtMainlineCard');
+  if(!m||(!m.lead&&!m.second)){ c.style.display='none'; return; }
+  c.style.display='';
+  var h='';
+  if(m.lead) h+='<div>🎯 <b style="color:#f6465d">主攻 '+m.lead.industry+'</b> <span class="neu" style="font-size:12.5px">'+m.lead.reason+'</span></div>';
+  if(m.second) h+='<div>🥈 <b style="color:#f0a020">次攻 '+m.second.industry+'</b> <span class="neu" style="font-size:12.5px">'+m.second.reason+'</span></div>';
+  if(m.ebb&&m.ebb.length) h+='<div>🌊 <b style="color:#2ebd85">退潮/避雷</b> '+m.ebb.map(e=>e.industry+'<span class="neu" style="font-size:11.5px">('+e.reason+')</span>').join(' · ')+'</div>';
+  $('rtMainline').innerHTML=h;
+}
 function renderBrief(t){
   const c=$('rtBriefCard');
   if(!t){ c.style.display='none'; return; }
@@ -505,7 +520,7 @@ async function tick(){
     const d=await (await fetch('/api/realtime/board')).json();
     if(!d.ok){ $('rtStatus').textContent='加载失败：'+(d.msg||''); return; }
     _lastBoard=d;
-    renderStatus(d); renderIndex(d); renderMarketVol(d); renderBattle(d); renderOpenBoard(d); renderAuction(d); renderPulse(d.pulse); renderRace(d); renderBrief(d.brief); renderBreadth(d.breadth, d.breadth_trend); renderSenti(d.sentiment); renderRotOv(d.sectors, d.sectors_out); renderSectors(d.sectors); renderThemes(d.themes);
+    renderStatus(d); renderIndex(d); renderMarketVol(d); renderBattle(d); renderOpenBoard(d); renderAuction(d); renderPulse(d.pulse); renderRace(d); renderBrief(d.brief); renderMainline(d.mainline_live); renderBreadth(d.breadth, d.breadth_trend); renderSenti(d.sentiment); renderRotOv(d.sectors, d.sectors_out); renderSectors(d.sectors); renderThemes(d.themes);
     renderTail(d.tail); renderSecOut(d.sectors_out); renderFlash(d.flash);
     renderFund(d.fund_ranking); renderVolSurge(d.vol_surge); renderSurge(d.surge); renderWatch(d.watch);
   }catch(e){ $('rtStatus').textContent='网络错误：'+e; }

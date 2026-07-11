@@ -535,6 +535,56 @@ def trajectory_label(series: list, *, th: float = 2.5) -> dict:
     return {"key": "out", "label": "净流出", "tone": "down"}
 
 
+def _yi(x) -> str:
+    """带符号亿元短串（None→'?'）。"""
+    if x is None:
+        return "?"
+    return f"+{x}亿" if x >= 0 else f"{x}亿"
+
+
+def build_live_mainline(sectors: list, sectors_out: list, sentiment: dict | None = None) -> dict:
+    """实时主攻方向研判（规则合成·非LLM·非预测·纯客观结构描述·非买卖建议）。
+
+    从板块资金榜（含持续性 traj）+ 龙头 + 涨幅，打分选出 主攻/次攻，并列出退潮/避雷板块。
+    评分：净买 + 龙头涨幅×1.5 + 均涨 + 持续性(加速/拐头+8 · 冲高回落−12·不当主攻)。
+    返回 {lead, second, ebb[], sentiment}。数据不足则相应字段为 None/空。
+    """
+    def score(s: dict) -> float:
+        base = (s.get("net_yi") or 0) + (s.get("leader_pct") or 0) * 1.5 + (s.get("avg_pct") or 0)
+        tone = s.get("traj_tone")
+        return base + (8 if tone == "up" else (-12 if tone == "warn" else 0))
+
+    def desc(s: dict) -> str:
+        bits = [f"净买{_yi(s.get('net_yi'))}"]
+        if s.get("traj_label"):
+            bits.append(s["traj_label"])
+        if s.get("leader") and s.get("leader_pct") is not None:
+            bits.append(f"龙头{s['leader']}{('+' if (s.get('leader_pct') or 0) >= 0 else '')}{s.get('leader_pct')}%")
+        return "·".join(bits)
+
+    inflow = [s for s in (sectors or []) if (s.get("net_yi") or 0) > 0]
+    ranked = sorted(inflow, key=score, reverse=True)
+    lead = ranked[0] if ranked else None
+    second = ranked[1] if len(ranked) > 1 else None
+    # 退潮/避雷：冲高回落的涌入板块（看着强其实在撤）+ 撤离榜
+    ebb_names: set = set()
+    ebb: list = []
+    for s in inflow:
+        if s.get("traj_tone") == "warn" and s["industry"] not in ebb_names:
+            ebb.append({"industry": s["industry"], "reason": f"{s.get('traj_label', '资金转弱')}·净买{_yi(s.get('net_yi'))}"})
+            ebb_names.add(s["industry"])
+    for s in (sectors_out or []):
+        if s["industry"] not in ebb_names and len(ebb) < 3:
+            ebb.append({"industry": s["industry"], "reason": f"资金撤{_yi(s.get('net_yi'))}"})
+            ebb_names.add(s["industry"])
+    return {
+        "lead": {"industry": lead["industry"], "reason": desc(lead)} if lead else None,
+        "second": {"industry": second["industry"], "reason": desc(second)} if second else None,
+        "ebb": ebb[:3],
+        "sentiment": (sentiment or {}).get("state", ""),
+    }
+
+
 def sector_flow_delta(sectors_now: list[dict], sec_net_ago: dict, *, th: float = 2.0) -> list[dict]:
     """给板块榜补 近窗口资金变化Δ + 加速/减速标签（轮动/变化的核心）。"""
     out = []

@@ -503,6 +503,8 @@ def build_board() -> dict:
     from app.strategy.market_volume import market_volume_block
     base["market_volume"] = market_volume_block(df, base["session"])   # 大盘量能(今日Σ成交额 vs 昨/5日·放量缩量)
     base["sentiment"] = _sentiment_block(records, tm)     # 情绪温度计(连板梯队/晋级率/炸板率)
+    from app.strategy.realtime_fund import build_live_mainline
+    base["mainline_live"] = build_live_mainline(base["sectors"], base["sectors_out"], base["sentiment"])  # 今日主攻研判(规则合成)
     base["themes"] = _theme_block(records)
     base["concepts"] = _concept_block(records)            # 概念/题材级资金榜(竞速榜细分维度)
     base["tail"] = _tail_block(records, imap)
