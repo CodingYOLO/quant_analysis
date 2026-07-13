@@ -458,8 +458,8 @@ def build_insight_card(theme: str, force: bool = False, client=None, fast: bool 
     返回 {ok, theme, card, sources, model}。极速版与标准版分开缓存·互不覆盖。
     """
     wk = datetime.date.today().strftime("%G%V")          # ISO 年+周
-    mode = "fast" if fast else "pro"
-    cache = _cache("card", f"{hashlib.md5(theme.encode()).hexdigest()[:10]}_{_CARD_VER}_{mode}_{wk}")
+    suffix = "_fast" if fast else ""                     # pro 沿用原键(向后兼容·不作废已有卡片)·仅极速加后缀
+    cache = _cache("card", f"{hashlib.md5(theme.encode()).hexdigest()[:10]}_{_CARD_VER}{suffix}_{wk}")
     if cache.exists() and not force:
         try:
             return json.loads(cache.read_text(encoding="utf-8"))
