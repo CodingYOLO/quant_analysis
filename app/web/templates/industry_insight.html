@@ -116,24 +116,39 @@ $('chips').innerHTML='<div class="chip-grp"><span class="chip-lbl">宽板块</sp
     +HOT.map(x=>'<span class="chip">'+x+'</span>').join('')+'</div>';
 $('chips').addEventListener('click',e=>{ const c=e.target.closest('.chip'); if(c){ $('theme').value=c.textContent; go(); }});
 
-let _theme='', _hist=[];
+let _theme='', _hist=[], _tick=null;
+// 实时计时：让"正在生成"显示已用秒数(首次约60s)·避免看着像卡死
+function startTick(el){ const t0=Date.now(); clearInterval(_tick);
+  const upd=()=>{ el.textContent='⏳ 正在生成… 已用 '+Math.round((Date.now()-t0)/1000)+' 秒（首次约60秒·之后秒开）'; };
+  upd(); _tick=setInterval(upd,1000); }
+function stopTick(){ clearInterval(_tick); _tick=null; }
+// 带超时的 fetch：请求挂住/网络断时不再无限转圈，到点抛 AbortError → 提示可重试
+async function fetchJSON(url, ms, opts){
+  const ac=new AbortController(), to=setTimeout(()=>ac.abort(), ms);
+  try{ return await (await fetch(url, Object.assign({signal:ac.signal}, opts||{}))).json(); }
+  finally{ clearTimeout(to); }
+}
+function cardErr(html){ stopTick(); $('card').className='md';
+  $('card').innerHTML='<p>'+html+' — <a href="#" id="retry" style="color:#5d7cff">点此重试</a></p>';
+  const rb=$('retry'); if(rb) rb.onclick=(ev)=>{ ev.preventDefault(); go(); }; $('go').disabled=false; }
 async function go(){
   const t=$('theme').value.trim(); if(!t) return;
   _theme=t; _hist=[]; $('hint').style.display='none'; $('result').style.display='block';
   $('go').disabled=true; $('card-title').textContent='🧭 「'+esc(t)+'」认知卡片';
-  $('card').className='md loading'; $('card').textContent='⏳ 正在生成(首次约30-60秒·之后秒开)…';
+  $('card').className='md loading'; startTick($('card'));
   $('sources').innerHTML=''; $('quiz').className='loading'; $('quiz').textContent='⏳ 出题中…'; $('disc').innerHTML=''; $('stocks-card').style.display='none';
   $('exp-img').style.display='none'; $('exp-foot').style.display='none';
   try{
-    const j=await (await fetch('/api/insight/card?theme='+encodeURIComponent(t))).json();
-    if(!j.ok){ $('card').className='md'; $('card').innerHTML='<p>❌ '+esc(j.msg||'生成失败')+'</p>'; $('go').disabled=false; return; }
+    const j=await fetchJSON('/api/insight/card?theme='+encodeURIComponent(t), 150000);
+    stopTick();
+    if(!j.ok){ cardErr('❌ '+esc(j.msg||'生成失败')); return; }
     $('card').className='md'; $('card').innerHTML=md(j.card);
     $('exp-img').style.display='inline-block';
     $('sources').innerHTML=(j.sources&&j.sources.length)?('📎 来源(需自行甄别)：'+j.sources.map(s=>'<a href="'+esc(s.url)+'" target="_blank">'+esc(s.title||s.site||'链接')+'</a>').join(' · ')):'';
     $('disc-disclaimer').innerHTML='📅 业绩/资金数据日 <b>'+esc((j.data&&j.data.date)||'—')+'</b>(最新交易日·每晚自动刷新) · 联网信息近1月 · 问答/批改/探讨均接<b>实时真实数据</b>(DeepSeek V4-Pro 最强推理)。<br>⚠️ '+esc(j.disclaimer||'');
     renderStocks(j.data);
     loadQuiz(t);
-  }catch(e){ $('card').className='md'; $('card').innerHTML='<p>❌ '+esc(e)+'</p>'; }
+  }catch(e){ cardErr((e&&e.name==='AbortError')?'⏳ 生成超时（首次较慢或网络波动·后端仍在算·可稍后重试即秒开）':('❌ '+esc(e))); return; }
   finally{ $('go').disabled=false; }
 }
 $('go').onclick=go; $('theme').addEventListener('keydown',e=>{ if(e.key==='Enter') go(); });
@@ -218,7 +233,7 @@ async function loadProfile(code, name, uid){
 
 async function loadQuiz(t){
   try{
-    const j=await (await fetch('/api/insight/quiz?theme='+encodeURIComponent(t))).json();
+    const j=await fetchJSON('/api/insight/quiz?theme='+encodeURIComponent(t), 120000);
     const qs=(j.ok&&j.questions)?j.questions:[];
     if(!qs.length){ $('quiz').className=''; $('quiz').innerHTML='<span class="neu">出题失败，可在下方直接探讨。</span>'; return; }
     $('quiz').className='';
