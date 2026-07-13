@@ -331,10 +331,11 @@ def _llm_core_leaders(df, theme: str, g=None, client=None) -> list[dict]:
         rows.append(br)
         if len(rows) >= 10:
             break
-    try:                                                               # 空结果也缓存(过滤确定性·避免同题同周重复调LLM)
-        cache.write_text(json.dumps(rows, ensure_ascii=False), encoding="utf-8")
-    except Exception:
-        pass
+    if rows:                                                           # 只缓存非空(flash温度0.3输出不稳·偶发空/被荐股过滤·
+        try:                                                           #   不能把一次空结果污染整周·下次重试自愈)
+            cache.write_text(json.dumps(rows, ensure_ascii=False), encoding="utf-8")
+        except Exception:
+            pass
     return rows
 
 
