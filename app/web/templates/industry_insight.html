@@ -75,7 +75,7 @@ h1 { font-size:22px; text-align:center; margin-bottom:4px; }
 <div class="chips" id="chips"></div>
 
 <div id="result" style="display:none">
-  <div class="card" id="card-box"><h2 id="card-title">🧭 认知卡片
+  <div class="card" id="card-box"><h2><span id="card-title">🧭 认知卡片</span>
       <button id="exp-img" style="float:right;background:#23264a;color:#7c9ef8;border:none;border-radius:6px;padding:5px 12px;font-size:12px;cursor:pointer;font-weight:400;display:none">📷 导出长图</button></h2>
     <div id="card" class="md loading">⏳ 正在生成(首次约30-60秒·之后秒开)…</div>
     <div id="sources" class="src" style="margin-top:12px"></div>
@@ -137,19 +137,21 @@ async function fetchJSON(url, ms, opts){
 function cardErr(html){ stopTick(); $('card').className='md';
   $('card').innerHTML='<p>'+html+' — <a href="#" id="retry" style="color:#5d7cff">点此重试</a></p>';
   const rb=$('retry'); if(rb) rb.onclick=(ev)=>{ ev.preventDefault(); go(); }; $('go').disabled=false; }
+// 空安全设置 display（元素缺失时静默跳过·绝不因单个元素缺失崩掉整个生成流程）
+function sd(id, v){ const e=$(id); if(e) e.style.display=v; }
 async function go(){
   const t=$('theme').value.trim(); if(!t) return;
-  _theme=t; _hist=[]; _fast=$('fast').checked; $('hint').style.display='none'; $('result').style.display='block';
+  _theme=t; _hist=[]; _fast=($('fast')||{}).checked||false; sd('hint','none'); sd('result','block');
   $('go').disabled=true; $('card-title').textContent='🧭 「'+esc(t)+'」认知卡片';
   $('card').className='md loading'; startTick($('card'));
-  $('sources').innerHTML=''; $('quiz').className='loading'; $('quiz').textContent='⏳ 出题中…'; $('disc').innerHTML=''; $('stocks-card').style.display='none';
-  $('exp-img').style.display='none'; $('exp-foot').style.display='none';
+  $('sources').innerHTML=''; $('quiz').className='loading'; $('quiz').textContent='⏳ 出题中…'; $('disc').innerHTML=''; sd('stocks-card','none');
+  sd('exp-img','none'); sd('exp-foot','none');
   try{
     const j=await fetchJSON('/api/insight/card?theme='+encodeURIComponent(t)+'&fast='+(_fast?1:0), 150000);
     stopTick();
     if(!j.ok){ cardErr('❌ '+esc(j.msg||'生成失败')); return; }
     $('card').className='md'; $('card').innerHTML=md(j.card);
-    $('exp-img').style.display='inline-block';
+    sd('exp-img','inline-block');
     $('sources').innerHTML=(j.sources&&j.sources.length)?('📎 来源(需自行甄别)：'+j.sources.map(s=>'<a href="'+esc(s.url)+'" target="_blank">'+esc(s.title||s.site||'链接')+'</a>').join(' · ')):'';
     $('disc-disclaimer').innerHTML='📅 业绩/资金数据日 <b>'+esc((j.data&&j.data.date)||'—')+'</b>(最新交易日·每晚自动刷新) · 联网信息近1月 · 问答/批改/探讨均接<b>实时真实数据</b>(DeepSeek V4-Pro 最强推理)。<br>⚠️ '+esc(j.disclaimer||'');
     renderStocks(j.data);
@@ -160,7 +162,9 @@ async function go(){
 $('go').onclick=go; $('theme').addEventListener('keydown',e=>{ if(e.key==='Enter') go(); });
 
 // 导出长图：把整张认知卡片(标题+正文+来源+数据日) html2canvas 截成 PNG(深色底·便于分享/存档)
-$('exp-img').addEventListener('click', async ()=>{
+// 空判断防护：exp-img 缺失时不注册·避免 parse 阶段抛错中断后续脚本(问答/探讨监听器)
+const _expImgBtn=$('exp-img');
+if(_expImgBtn) _expImgBtn.addEventListener('click', async ()=>{
   const node=$('card-box'); if(!node) return;
   if(typeof html2canvas==='undefined'){ alert('图片库未加载，请刷新后重试'); return; }
   const btn=$('exp-img'), old=btn.textContent;
