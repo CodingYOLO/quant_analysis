@@ -452,14 +452,27 @@ def _facts_block(data: dict, web: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def build_insight_card(theme: str, force: bool = False, client=None, fast: bool = False) -> dict:
-    """产业认知卡片（数据接地·按周缓存避免重复花费）。fast=True 用 flash 模型极速出卡（~15s·质量略降）。
+def _latest_data_date() -> str:
+    """最新因子表数据日 YYYYMMDD（随每交易日 18:30 cron 更新）。用作卡片缓存键→按最新收盘自动刷新。"""
+    try:
+        from app.strategy.screener import _FACTOR_TABLE_VERSION
+        files = sorted((get_settings().cache_dir / "factor_table").glob(f"*_{_FACTOR_TABLE_VERSION}.parquet"))
+        if files:
+            return files[-1].name.split("_")[0]
+    except Exception as e:
+        logger.debug("[认知] 取最新数据日失败: %s", e)
+    return datetime.date.today().strftime("%Y%m%d")
 
-    返回 {ok, theme, card, sources, model}。极速版与标准版分开缓存·互不覆盖。
+
+def build_insight_card(theme: str, force: bool = False, client=None, fast: bool = False) -> dict:
+    """产业认知卡片（数据接地·按【数据日】缓存：每交易日收盘更新后自动用最新数据重算·当日内秒开）。
+
+    fast=True 用 flash 模型极速出卡（~15s·质量略降）。返回 {ok, theme, card, sources, model}。
+    极速版与标准版分开缓存·互不覆盖。
     """
-    wk = datetime.date.today().strftime("%G%V")          # ISO 年+周
-    suffix = "_fast" if fast else ""                     # pro 沿用原键(向后兼容·不作废已有卡片)·仅极速加后缀
-    cache = _cache("card", f"{hashlib.md5(theme.encode()).hexdigest()[:10]}_{_CARD_VER}{suffix}_{wk}")
+    dd = _latest_data_date()                             # 数据日(随交易日更新)→数据一变缓存键就变→自动刷新
+    suffix = "_fast" if fast else ""                     # 极速加后缀·与标准版分开缓存
+    cache = _cache("card", f"{hashlib.md5(theme.encode()).hexdigest()[:10]}_{_CARD_VER}{suffix}_{dd}")
     if cache.exists() and not force:
         try:
             return json.loads(cache.read_text(encoding="utf-8"))
