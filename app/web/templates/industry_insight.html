@@ -66,6 +66,12 @@ h1 { font-size:22px; text-align:center; margin-bottom:4px; }
   <input id="theme" type="text" placeholder="行业/产业主题，如 半导体 / AI算力 / 固态电池 / 机器人" autofocus>
   <button id="go">生成认知卡片</button>
 </div>
+<div style="text-align:center;margin:-4px 0 10px">
+  <label style="font-size:12.5px;color:#9ca3af;cursor:pointer;user-select:none">
+    <input type="checkbox" id="fast" style="vertical-align:-2px"> ⚡ 极速模式
+    <span style="color:#6b7280">（约25秒·质量略降；默认不勾=V4-Pro最强推理·约60秒）</span>
+  </label>
+</div>
 <div class="chips" id="chips"></div>
 
 <div id="result" style="display:none">
@@ -116,10 +122,10 @@ $('chips').innerHTML='<div class="chip-grp"><span class="chip-lbl">宽板块</sp
     +HOT.map(x=>'<span class="chip">'+x+'</span>').join('')+'</div>';
 $('chips').addEventListener('click',e=>{ const c=e.target.closest('.chip'); if(c){ $('theme').value=c.textContent; go(); }});
 
-let _theme='', _hist=[], _tick=null;
-// 实时计时：让"正在生成"显示已用秒数(首次约60s)·避免看着像卡死
-function startTick(el){ const t0=Date.now(); clearInterval(_tick);
-  const upd=()=>{ el.textContent='⏳ 正在生成… 已用 '+Math.round((Date.now()-t0)/1000)+' 秒（首次约60秒·之后秒开）'; };
+let _theme='', _hist=[], _tick=null, _fast=false;
+// 实时计时：让"正在生成"显示已用秒数·避免看着像卡死（极速约15s·标准约60s）
+function startTick(el){ const t0=Date.now(); clearInterval(_tick); const est=_fast?'约25秒':'约60秒';
+  const upd=()=>{ el.textContent='⏳ 正在生成… 已用 '+Math.round((Date.now()-t0)/1000)+' 秒（首次'+est+'·之后秒开）'; };
   upd(); _tick=setInterval(upd,1000); }
 function stopTick(){ clearInterval(_tick); _tick=null; }
 // 带超时的 fetch：请求挂住/网络断时不再无限转圈，到点抛 AbortError → 提示可重试
@@ -133,13 +139,13 @@ function cardErr(html){ stopTick(); $('card').className='md';
   const rb=$('retry'); if(rb) rb.onclick=(ev)=>{ ev.preventDefault(); go(); }; $('go').disabled=false; }
 async function go(){
   const t=$('theme').value.trim(); if(!t) return;
-  _theme=t; _hist=[]; $('hint').style.display='none'; $('result').style.display='block';
+  _theme=t; _hist=[]; _fast=$('fast').checked; $('hint').style.display='none'; $('result').style.display='block';
   $('go').disabled=true; $('card-title').textContent='🧭 「'+esc(t)+'」认知卡片';
   $('card').className='md loading'; startTick($('card'));
   $('sources').innerHTML=''; $('quiz').className='loading'; $('quiz').textContent='⏳ 出题中…'; $('disc').innerHTML=''; $('stocks-card').style.display='none';
   $('exp-img').style.display='none'; $('exp-foot').style.display='none';
   try{
-    const j=await fetchJSON('/api/insight/card?theme='+encodeURIComponent(t), 150000);
+    const j=await fetchJSON('/api/insight/card?theme='+encodeURIComponent(t)+'&fast='+(_fast?1:0), 150000);
     stopTick();
     if(!j.ok){ cardErr('❌ '+esc(j.msg||'生成失败')); return; }
     $('card').className='md'; $('card').innerHTML=md(j.card);
@@ -233,7 +239,7 @@ async function loadProfile(code, name, uid){
 
 async function loadQuiz(t){
   try{
-    const j=await fetchJSON('/api/insight/quiz?theme='+encodeURIComponent(t), 120000);
+    const j=await fetchJSON('/api/insight/quiz?theme='+encodeURIComponent(t)+'&fast='+(_fast?1:0), 120000);
     const qs=(j.ok&&j.questions)?j.questions:[];
     if(!qs.length){ $('quiz').className=''; $('quiz').innerHTML='<span class="neu">出题失败，可在下方直接探讨。</span>'; return; }
     $('quiz').className='';
@@ -250,7 +256,7 @@ $('quiz').addEventListener('click', async e=>{
   b.disabled=true; b.textContent='⏳ 批改中…';
   try{
     const j=await (await fetch('/api/insight/grade',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({theme:_theme, question:b.dataset.q, answer:ans})})).json();
+      body:JSON.stringify({theme:_theme, question:b.dataset.q, answer:ans, fast:_fast})})).json();
     const fb=$('fb'+i); fb.style.display='block'; fb.textContent=j.ok?j.feedback:'❌ '+(j.msg||'批改失败');
   }catch(e){ $('fb'+i).style.display='block'; $('fb'+i).textContent='❌ '+e; }
   finally{ b.disabled=false; b.textContent='重新提交'; }
@@ -262,7 +268,7 @@ async function send(){
   const wait=document.createElement('div'); wait.className='bubble bu-ai'; wait.textContent='⏳ 思考中…'; $('disc').appendChild(wait);
   try{
     const j=await (await fetch('/api/insight/discuss',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({theme:_theme, history:_hist, msg:m})})).json();
+      body:JSON.stringify({theme:_theme, history:_hist, msg:m, fast:_fast})})).json();
     wait.innerHTML=j.ok?md(j.reply):'❌ '+esc(j.msg||'失败');
     if(j.ok){ _hist.push({role:'user',content:m}); _hist.push({role:'assistant',content:j.reply}); }
   }catch(e){ wait.textContent='❌ '+e; }

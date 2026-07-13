@@ -2272,28 +2272,28 @@ async def api_screen(request: Request, _user: str = Depends(require_auth)):
 
 
 @app.get("/api/insight/card")
-async def api_insight_card(theme: str = "", force: bool = False, _user: str = Depends(require_auth)):
-    """产业认知卡片(数据接地·按周缓存)。"""
+async def api_insight_card(theme: str = "", force: bool = False, fast: bool = False, _user: str = Depends(require_auth)):
+    """产业认知卡片(数据接地·按周缓存)。fast=极速(flash·~15s·质量略降)。"""
     try:
         from fastapi.concurrency import run_in_threadpool
 
         from app.strategy.industry_insight import build_insight_card
         if not theme.strip():
             return {"ok": False, "msg": "请输入行业/产业主题"}
-        return await run_in_threadpool(build_insight_card, theme.strip(), bool(force), None)
+        return await run_in_threadpool(build_insight_card, theme.strip(), bool(force), None, bool(fast))
     except Exception as e:
         logger.exception("产业认知卡片失败")
         return {"ok": False, "msg": str(e)}
 
 
 @app.get("/api/insight/quiz")
-async def api_insight_quiz(theme: str = "", _user: str = Depends(require_auth)):
-    """据卡片出思考题(主动回忆)。"""
+async def api_insight_quiz(theme: str = "", fast: bool = False, _user: str = Depends(require_auth)):
+    """据卡片出思考题(主动回忆)。fast 需与卡片一致以命中同一缓存。"""
     try:
         from fastapi.concurrency import run_in_threadpool
 
         from app.strategy.industry_insight import build_insight_card, gen_quiz
-        card = (await run_in_threadpool(build_insight_card, theme.strip(), False, None)).get("card", "")
+        card = (await run_in_threadpool(build_insight_card, theme.strip(), False, None, bool(fast))).get("card", "")
         if not card:
             return {"ok": False, "questions": []}
         return await run_in_threadpool(gen_quiz, theme.strip(), card, None)
@@ -2310,7 +2310,7 @@ async def api_insight_grade(request: Request, _user: str = Depends(require_auth)
 
         from app.strategy.industry_insight import build_insight_card, grade_answer
         b = await request.json()
-        card = (await run_in_threadpool(build_insight_card, b.get("theme", "").strip(), False, None)).get("card", "")
+        card = (await run_in_threadpool(build_insight_card, b.get("theme", "").strip(), False, None, bool(b.get("fast")))).get("card", "")
         return await run_in_threadpool(grade_answer, b.get("theme", ""), card,
                                        b.get("question", ""), b.get("answer", ""), None)
     except Exception as e:
@@ -2326,7 +2326,7 @@ async def api_insight_discuss(request: Request, _user: str = Depends(require_aut
 
         from app.strategy.industry_insight import build_insight_card, discuss
         b = await request.json()
-        card = (await run_in_threadpool(build_insight_card, b.get("theme", "").strip(), False, None)).get("card", "")
+        card = (await run_in_threadpool(build_insight_card, b.get("theme", "").strip(), False, None, bool(b.get("fast")))).get("card", "")
         return await run_in_threadpool(discuss, b.get("theme", ""), card,
                                        b.get("history", []), b.get("msg", ""), None)
     except Exception as e:

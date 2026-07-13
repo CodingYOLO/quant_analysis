@@ -339,10 +339,11 @@ def _llm_core_leaders(df, theme: str, g=None, client=None) -> list[dict]:
     return rows
 
 
-def _gather_data(industry: str, provider=None) -> dict:
+def _gather_data(industry: str, provider=None, fast: bool = False) -> dict:
     """从因子表+板块强弱聚合该行业/概念的真实数据面（业绩/资金/阶段/龙头），供 LLM 接地。
 
     主题解析支持 **申万行业 + 同花顺概念成分**（概念型主题也能落到个股·[[relative-strength-over-absolute]] 同源）。
+    fast=True（极速模式）跳过 AI 核心龙头归类（省~15s·回退 leader_score）。
     """
     out: dict = {"industry": industry}
     try:
@@ -356,9 +357,9 @@ def _gather_data(industry: str, provider=None) -> dict:
             df = pd.read_parquet(files[-1])
             g, via = _theme_group(df, industry, provider)          # 申万行业 或 同花顺概念成分
             out["解析口径"] = via
-            core = _chain_core(df, industry)                        # ①策展核心龙头(tech_chain·带环节·最优)
+            core = _chain_core(df, industry)                        # ①策展核心龙头(tech_chain·带环节·最优·极速也保留·无LLM)
             core_src = "chain" if core else ""
-            if not core and not g.empty and len(g) >= 10:           # ②非策展产业→LLM 从成分挑核心(覆盖任意产业)
+            if not core and not fast and not g.empty and len(g) >= 10:  # ②非策展产业→LLM 挑核心(极速模式跳过·省~15s)
                 core = _llm_core_leaders(df, industry, g)
                 core_src = "llm" if core else ""
             out["核心口径"] = bool(core)
@@ -451,16 +452,20 @@ def _facts_block(data: dict, web: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def build_insight_card(theme: str, force: bool = False, client=None) -> dict:
-    """产业认知卡片（数据接地·按周缓存避免重复花费）。返回 {ok, theme, card, sources, model}。"""
+def build_insight_card(theme: str, force: bool = False, client=None, fast: bool = False) -> dict:
+    """产业认知卡片（数据接地·按周缓存避免重复花费）。fast=True 用 flash 模型极速出卡（~15s·质量略降）。
+
+    返回 {ok, theme, card, sources, model}。极速版与标准版分开缓存·互不覆盖。
+    """
     wk = datetime.date.today().strftime("%G%V")          # ISO 年+周
-    cache = _cache("card", f"{hashlib.md5(theme.encode()).hexdigest()[:10]}_{_CARD_VER}_{wk}")
+    mode = "fast" if fast else "pro"
+    cache = _cache("card", f"{hashlib.md5(theme.encode()).hexdigest()[:10]}_{_CARD_VER}_{mode}_{wk}")
     if cache.exists() and not force:
         try:
             return json.loads(cache.read_text(encoding="utf-8"))
         except Exception:
             pass
-    data = _gather_data(theme)
+    data = _gather_data(theme, fast=fast)                # 极速模式跳过 AI 核心龙头归类(省~15s)
     web = _web_research(theme)
     prompt = (ANALYST_STANCE + "\n\n你是 A 股顶级产业研究员（实干派视角）。基于下面【真实数据+联网检索】，"
               f"把「{theme}」这个产业/主题讲透，帮投资者建立认知、不被概念忽悠。务必：\n"
@@ -484,9 +489,13 @@ def build_insight_card(theme: str, force: bool = False, client=None) -> dict:
     if client is None:
         from app.llm.client import LLMClient
         client = LLMClient()
-    raw = client.chat([{"role": "user", "content": prompt}], task_type="pro", max_tokens=2200, temperature=0.4)
+    raw = client.chat([{"role": "user", "content": prompt}],
+                      task_type=("flash" if fast else "pro"), max_tokens=2200, temperature=0.4)
     st = get_settings()
-    model = st.claude_model if st.llm_provider == "claude" else st.deepseek_pro_model
+    if st.llm_provider == "claude":
+        model = st.claude_model
+    else:
+        model = st.deepseek_flash_model if fast else st.deepseek_pro_model
     out = {"ok": bool(raw), "theme": theme, "card": (raw or "").strip(),
            "sources": [{"title": h["title"], "url": h["url"], "site": h["site"]} for h in web],
            "data": data, "model": model,
