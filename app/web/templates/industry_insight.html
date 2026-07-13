@@ -11,6 +11,10 @@ h1 { font-size:22px; text-align:center; margin-bottom:4px; }
 .chips { text-align:center; margin-bottom:16px; }
 .chip { display:inline-block; font-size:12.5px; color:#9ca3af; background:#161929; border:1px solid #2d3052; border-radius:14px; padding:4px 12px; margin:3px; cursor:pointer; }
 .chip:hover { border-color:#5d7cff; color:#fff; }
+.chip-grp { margin:5px 0; }
+.chip-lbl { font-size:11.5px; color:#6b7280; margin-right:6px; }
+.chip.broad { color:#9db4ff; border-color:#3a4573; background:#171b2e; }
+.chip.broad:hover { border-color:#5d7cff; color:#fff; }
 .card { background:#1a1d2e; border:1px solid #2d3052; border-radius:11px; padding:18px 22px; margin-bottom:16px; }
 .card h2 { font-size:16px; color:#7c9ef8; margin-bottom:10px; }
 .md h3 { font-size:15px; color:#7c9ef8; margin:14px 0 6px; } .md h4 { font-size:13.5px; color:#a3b3e8; margin:10px 0 4px; }
@@ -103,8 +107,13 @@ function md(t){
   }
   if(inUl) h+='</ul>'; return h;
 }
-const HOT=['半导体','AI算力','固态电池','人形机器人','创新药','稀土永磁','光模块','军工','消费电子','光伏','PCB','医疗器械'];
-$('chips').innerHTML=HOT.map(x=>'<span class="chip">'+x+'</span>').join('');
+// 宽板块（申万一级/俗称·后端会并集其全部二级成分）+ 热门概念（同花顺概念/产业链）
+const BROAD=['医药','新能源','有色金属','军工','证券','白酒','家电','汽车','机械设备','计算机','化工','食品饮料'];
+const HOT=['半导体','AI算力','固态电池','人形机器人','创新药','稀土永磁','光模块','消费电子','光伏','PCB','医疗器械','算力'];
+$('chips').innerHTML='<div class="chip-grp"><span class="chip-lbl">宽板块</span>'
+    +BROAD.map(x=>'<span class="chip broad">'+x+'</span>').join('')+'</div>'
+  +'<div class="chip-grp"><span class="chip-lbl">热门概念</span>'
+    +HOT.map(x=>'<span class="chip">'+x+'</span>').join('')+'</div>';
 $('chips').addEventListener('click',e=>{ const c=e.target.closest('.chip'); if(c){ $('theme').value=c.textContent; go(); }});
 
 let _theme='', _hist=[];
