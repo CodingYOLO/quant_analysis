@@ -153,17 +153,19 @@ def sector_net_ago(minutes: float = 5.0) -> dict:
     return _hist_at(_SECTOR_HISTORY, minutes) or {}
 
 
-def sector_trajectories(industries: list, points: int = 16) -> dict:
+def sector_trajectories(industries: list, points: int = 16, outflow: bool = False) -> dict:
     """给定板块近 points 个采样的主动净买序列 + 持续性形态标签。
 
     {industry: {series:[...亿], label, tone}}。序列不足时 label 为空（前端显 —）。
+    outflow=True 用撤离口径标签（加速撤离/撤离放缓/拐头回流）——让资金撤离表也能看出速度方向。
     """
-    from app.strategy.realtime_fund import trajectory_label
+    from app.strategy.realtime_fund import trajectory_label, trajectory_label_out
+    labeler = trajectory_label_out if outflow else trajectory_label
     hist = list(_SECTOR_HISTORY)[-points:]
     out: dict = {}
     for ind in industries:
         series = [round(float(snap.get(ind, 0.0)), 2) for _, snap in hist]
-        out[ind] = {"series": series, **trajectory_label(series)}
+        out[ind] = {"series": series, **labeler(series)}
     return out
 
 
@@ -489,13 +491,19 @@ def build_board() -> dict:
     base["fund_ranking"] = fr
     from app.strategy.realtime_fund import sector_flow_delta
     full = sector_flow_delta(sector_board(df, imap), sector_net_ago(5.0))   # 板块榜 + 近5min资金变化Δ/加速
-    trajs = sector_trajectories([s["industry"] for s in full[:20]])         # 近程分时序列 + 持续性/拐点标签
-    for s in full:
+    out_rows = [s for s in reversed(full) if s["net_yi"] < 0][:15]          # 资金撤离榜(先取·并入趋势请求)
+    trajs = sector_trajectories([s["industry"] for s in full[:20]])         # 涌入口径趋势(加速流入/冲高回落…)
+    trajs_out = sector_trajectories([s["industry"] for s in out_rows], outflow=True)  # 撤离口径(加速撤离/放缓/回流)
+    for s in full:                                        # 涌入行贴涌入趋势
         t = trajs.get(s["industry"])
         if t:
             s["traj"], s["traj_label"], s["traj_tone"] = t["series"], t["label"], t["tone"]
+    for s in out_rows:                                    # 撤离行贴撤离趋势(覆盖·同一对象)
+        t = trajs_out.get(s["industry"])
+        if t:
+            s["traj"], s["traj_label"], s["traj_tone"] = t["series"], t["label"], t["tone"]
     base["sectors"] = full[:20]                            # 资金涌入榜(机会·竞速榜板块口径也用)
-    base["sectors_out"] = [s for s in reversed(full) if s["net_yi"] < 0][:15]   # 资金撤离(风险)
+    base["sectors_out"] = out_rows                         # 资金撤离(风险)·带撤离趋势
     records = df.to_dict("records")                       # 转一次·多块复用
     base["battle"] = _battle_block(records, base["session"])   # 竞价·开盘作战台(开盘半小时·自选/持仓)
     base["open_board"] = _open_board_block(records, base["session"], imap)  # 全市场开盘高开·强承接榜(机会发现)

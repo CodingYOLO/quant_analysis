@@ -535,6 +535,34 @@ def trajectory_label(series: list, *, th: float = 2.5) -> dict:
     return {"key": "out", "label": "净流出", "tone": "down"}
 
 
+def trajectory_label_out(series: list, *, th: float = 2.5) -> dict:
+    """撤离视角：近程主动净买序列（撤离板块为负）→ 撤离节奏标签（客观描述·非买卖建议）。
+
+    series 升序（最早→最新）·单位亿。让"资金撤离"表也能看出**速度和方向**：
+      拐头回流(turn_in·机会)：由净卖转为净买 → 资金回流，风险缓解；
+      加速撤离(accel_out·避雷)：净卖且近段明显加剧 → 钱在加速跑；
+      撤离放缓(slow_out)：仍净卖但卖压减弱；持续撤离(steady_out)：稳定净卖。
+    tone: up(回流红)/warn(加速撤离橙)/neu(放缓)/down(持续撤离绿)。
+    """
+    pts = [float(x) for x in (series or []) if x is not None]
+    if len(pts) < 4:
+        return {"key": "na", "label": "", "tone": "neu"}
+    now = pts[-1]
+    k = max(1, len(pts) // 3)
+    early = sum(pts[:k]) / k
+    late = sum(pts[-k:]) / k
+    rising = late - early                                  # 正=净卖减弱/回流；负=净卖加剧
+    if early < 0 <= now and rising > th * 0.5:
+        return {"key": "turn_in", "label": "拐头回流", "tone": "up"}
+    if now < 0 and rising < -th:
+        return {"key": "accel_out", "label": "加速撤离", "tone": "warn"}
+    if now < 0 and rising > th:
+        return {"key": "slow_out", "label": "撤离放缓", "tone": "neu"}
+    if now < 0:
+        return {"key": "steady_out", "label": "持续撤离", "tone": "down"}
+    return {"key": "in", "label": "已转流入", "tone": "up"}
+
+
 def _yi(x) -> str:
     """带符号亿元短串（None→'?'）。"""
     if x is None:
