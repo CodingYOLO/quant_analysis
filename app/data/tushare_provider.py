@@ -348,7 +348,7 @@ class TushareProvider(DataProvider):
             "tushare_fina_indicator",
             self._api.fina_indicator_vip,
             period=period,
-            fields="ts_code,debt_to_assets,netprofit_yoy,roe,or_yoy,grossprofit_margin",
+            fields="ts_code,debt_to_assets,netprofit_yoy,roe,or_yoy,grossprofit_margin,dt_netprofit_yoy",
         )
 
     def get_balancesheet_by_period(self, period: str) -> pd.DataFrame:
@@ -366,7 +366,7 @@ class TushareProvider(DataProvider):
             "tushare_balancesheet",
             self._api.balancesheet_vip,
             period=period,
-            fields="ts_code,goodwill,total_hldr_eqy_exc_min_int,money_cap,st_borr,lt_borr,bond_payable,total_assets",
+            fields="ts_code,goodwill,total_hldr_eqy_exc_min_int,money_cap,st_borr,lt_borr,bond_payable,total_assets,accounts_receiv,inventories",
         )
 
     def get_forecast_by_period(self, period: str) -> pd.DataFrame:

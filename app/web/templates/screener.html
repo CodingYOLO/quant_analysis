@@ -360,10 +360,10 @@ document.getElementById('preset-qualfund').addEventListener('click', () =>
   applyPreset(['roe_ge5', 'consec_inflow3', 'accum_fund3d', 'above_ma20', 'risk_not_st'], 'comment_score'));
 // 🐂 牛股画像·基本面质量：据《估值实战》文档——营收/净利≥20%·ROE≥15%·毛利≥40%·负债≤60% + 排雷(ST/商誉/大存大贷) + 站MA20(基本面选股×技术面择时)·按RPS120排。财务为最新财报口径(季度滞后)
 document.getElementById('preset-bull').addEventListener('click', () =>
-  applyPreset(['bull_or_yoy20', 'bull_np_yoy20', 'bull_roe15', 'bull_gpm40', 'bull_debt60', 'risk_not_st', 'risk_goodwill30', 'risk_no_bigcashdebt', 'above_ma20'], 'rps120'));
-// 🛡 财务排雷体检：一票否决全打包(剔ST + 净资产为正 + 负债≤70% + 净利非断崖 + 商誉≤30% + 非大存大贷)·据《估值实战》排雷清单·按流通市值排
+  applyPreset(['bull_or_yoy20', 'bull_np_yoy20', 'bull_dtnp_yoy20', 'bull_roe15', 'bull_gpm40', 'bull_debt60', 'risk_not_st', 'risk_goodwill30', 'risk_no_bigcashdebt', 'above_ma20'], 'rps120'));
+// 🛡 财务排雷体检：一票否决全打包(剔ST + 净资产为正 + 负债≤70% + 净利非断崖 + 商誉≤30% + 非大存大贷 + 应收存货未虚增)·据《估值实战》排雷清单·按流通市值排
 document.getElementById('preset-derisk').addEventListener('click', () =>
-  applyPreset(['risk_not_st', 'risk_pos_equity', 'risk_debt70', 'risk_not_huge_loss', 'risk_goodwill30', 'risk_no_bigcashdebt'], 'circ_mv_100m'));
+  applyPreset(['risk_not_st', 'risk_pos_equity', 'risk_debt70', 'risk_not_huge_loss', 'risk_goodwill30', 'risk_no_bigcashdebt', 'risk_no_recvbloat'], 'circ_mv_100m'));
 // 📐 VOL.2 形态选股(进阶篇)·找符合结构的票·非涨跌预测
 document.getElementById('preset-gap').addEventListener('click', () =>
   applyPreset(['pat_gap_breakout', 'risk_not_st'], 'rps120'));

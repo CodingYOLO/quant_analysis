@@ -53,6 +53,7 @@ FACTOR_GROUPS = [
         "factors": [
             {"key": "bull_or_yoy20", "label": "🐂营收同比≥20%(成长第一证据·较难造假)", "col": "or_yoy", "op": "ge", "val": 20},
             {"key": "bull_np_yoy20", "label": "🐂净利同比≥20%", "col": "netprofit_yoy", "op": "ge", "val": 20},
+            {"key": "bull_dtnp_yoy20", "label": "🐂扣非净利同比≥20%(去非经常性·真主业增速·较难粉饰)", "col": "dt_netprofit_yoy", "op": "ge", "val": 20},
             {"key": "bull_roe15", "label": "🐂ROE≥15%(牛股共同基因·🟢IC+0.06已验证)", "col": "roe", "op": "ge", "val": 15},
             {"key": "bull_gpm40", "label": "🐂毛利率≥40%(定价权直接证据)", "col": "grossprofit_margin", "op": "ge", "val": 40},
             {"key": "bull_debt60", "label": "🐂资产负债率≤60%(财务稳健)", "col": "debt_to_assets", "op": "le", "val": 60},
@@ -155,6 +156,7 @@ FACTOR_GROUPS = [
             {"key": "risk_not_huge_loss", "label": "🛡排雷·净利同比≥-50%(非断崖)", "col": "netprofit_yoy", "op": "ge", "val": -50},
             {"key": "risk_goodwill30", "label": "🛡排雷·商誉≤净资产30%(防商誉减值暴雷)", "col": "goodwill_ratio", "op": "le", "val": 30},
             {"key": "risk_no_bigcashdebt", "label": "🛡排雷·非大存大贷(疑似造假信号·启发式需核实)", "col": "big_cash_debt", "op": "false"},
+            {"key": "risk_no_recvbloat", "label": "🛡排雷·应收存货未虚增(增速未超营收30pp·防赊账/滞销暴雷)", "col": "recv_inv_bloat", "op": "false"},
         ],
     },
     {
@@ -315,6 +317,7 @@ CUSTOM_FIELDS = [
     {"col": "or_yoy", "label": "🐂营收同比%(最新财报)"}, {"col": "grossprofit_margin", "label": "🐂毛利率%(最新财报)"},
     {"col": "dv_ratio", "label": "💰股息率%"}, {"col": "ps_ttm", "label": "💰市销率PS"},
     {"col": "peg", "label": "💰PEG(粗略近似·仅5-70%稳增股)"}, {"col": "goodwill_ratio", "label": "🛡商誉占净资产%"},
+    {"col": "dt_netprofit_yoy", "label": "🐂扣非净利同比%(最新财报)"}, {"col": "recv_inv_yoy", "label": "🛡应收+存货同比增速%"},
     {"col": "act_rank", "label": "活跃度排名(当前)"}, {"col": "act_peak", "label": "活跃度峰值"},
     {"col": "act_trough", "label": "活跃度谷值"}, {"col": "act_recover", "label": "人气回升位"},
     {"col": "inst_net_yi", "label": "龙虎榜机构净买(亿)"},
@@ -337,6 +340,7 @@ DISPLAY_COLS = [
     ("debt_to_assets", "负债率%"), ("netprofit_yoy", "净利同比%"), ("roe", "🟢ROE%"),
     ("or_yoy", "🐂营收同比%"), ("grossprofit_margin", "🐂毛利率%"), ("dv_ratio", "💰股息率%"),
     ("peg", "💰PEG"), ("goodwill_ratio", "🛡商誉/净资产%"), ("big_cash_debt", "🛡疑似大存大贷"),
+    ("dt_netprofit_yoy", "🐂扣非净利同比%"), ("recv_inv_yoy", "🛡应收存货增速%"),
     ("turnover_rate", "换手%"), ("volume_ratio", "量比"), ("circ_mv_100m", "流通市值(亿)"),
     ("main_net_amount", "主力净流入(亿)"), ("main_net_3d", "主力3日(亿)"), ("elg_net", "超大单(亿)"),
     ("inflow_days_10", "💰流入天数(近10)"), ("consec_inflow", "连续流入天"), ("sector_inflow_days", "板块流入天"),
@@ -356,7 +360,7 @@ DISPLAY_COLS = [
 # ──────────────────────────────────────────────
 
 # 因子表结构版本：新增因子列时 +1，使旧缓存自动失效重算（避免读到缺列的旧表）
-_FACTOR_TABLE_VERSION = "v28"  # v28: 排雷深化 goodwill_ratio(商誉/净资产)/big_cash_debt(大存大贷)/peg(近似)；v27 牛股画像营收/毛利/股息/PS；v26 主力资金口径修正
+_FACTOR_TABLE_VERSION = "v29"  # v29: dt_netprofit_yoy(扣非净利同比)/recv_inv_yoy(应收存货增速·虚增排雷)；v28 商誉/大存大贷/PEG；v27 营收/毛利/股息/PS
 
 
 def _factor_cache_path(date: str) -> Path:
@@ -1000,7 +1004,7 @@ def _add_fundamentals(df: pd.DataFrame, provider) -> pd.DataFrame:
         fin = provider.get_fina_indicator_by_period(_latest_fina_period())
         if fin is not None and not fin.empty:
             fin = fin.drop_duplicates("ts_code", keep="first")
-            for col in ("debt_to_assets", "netprofit_yoy", "roe", "or_yoy", "grossprofit_margin"):
+            for col in ("debt_to_assets", "netprofit_yoy", "roe", "or_yoy", "grossprofit_margin", "dt_netprofit_yoy"):
                 if col in fin.columns:
                     m = dict(zip(fin["ts_code"], pd.to_numeric(fin[col], errors="coerce")))
                     df[col] = df["ts_code"].map(m)
@@ -1016,19 +1020,21 @@ def _add_fundamentals(df: pd.DataFrame, provider) -> pd.DataFrame:
 
 
 def _add_balancesheet_flags(df: pd.DataFrame, provider) -> pd.DataFrame:
-    """全市场批量资产负债表(1次 vip 调用)：商誉占净资产 + 大存大贷启发式，供财务排雷。失败优雅跳过。
+    """全市场批量资产负债表(2次 vip 调用·今+去年同期)：商誉/大存大贷/应收存货虚增，供财务排雷。失败优雅跳过。
 
     口径：最新财报(季度·滞后)。
     · 商誉率 goodwill_ratio = 商誉/归母净资产×100（缺商誉→0·净资产≤0→0不误杀·由PB>0排雷另管）。
-    · 大存大贷 big_cash_debt = 货币资金/总资产≥25% 且 有息负债(短借+长借+应付债券)/总资产≥25%
-      （**启发式·需人工核实**·康美/康得新型财务造假信号·非确定性一票否决）。
+    · 大存大贷 big_cash_debt = 货币资金/总资产≥25% 且 有息负债(短借+长借+应付债券)/总资产≥25%（**启发式·需核实**·康美/康得新型）。
+    · 应收存货虚增 recv_inv_bloat = (应收+存货)同比增速 超 营收增速 30pp+ 且自身增速>20%（收入赊出来的/货卖不动·暴雷前兆·启发式）。
     """
     try:
-        bs = provider.get_balancesheet_by_period(_latest_fina_period())
+        period = _latest_fina_period()
+        bs = provider.get_balancesheet_by_period(period)
         if bs is None or bs.empty:
             return df
         bs = bs.drop_duplicates("ts_code", keep="first").copy()
-        for c in ("goodwill", "total_hldr_eqy_exc_min_int", "money_cap", "st_borr", "lt_borr", "bond_payable", "total_assets"):
+        for c in ("goodwill", "total_hldr_eqy_exc_min_int", "money_cap", "st_borr", "lt_borr",
+                  "bond_payable", "total_assets", "accounts_receiv", "inventories"):
             bs[c] = pd.to_numeric(bs.get(c), errors="coerce")
         eq, ta = bs["total_hldr_eqy_exc_min_int"], bs["total_assets"]
         bs["goodwill_ratio"] = (bs["goodwill"].fillna(0.0) / eq * 100).where(eq > 0).round(1)
@@ -1038,6 +1044,20 @@ def _add_balancesheet_flags(df: pd.DataFrame, provider) -> pd.DataFrame:
         bs["big_cash_debt"] = ((cash_r >= 0.25) & (debt_r >= 0.25)).fillna(False)
         df["goodwill_ratio"] = df["ts_code"].map(dict(zip(bs["ts_code"], bs["goodwill_ratio"]))).fillna(0.0)
         df["big_cash_debt"] = df["ts_code"].map(dict(zip(bs["ts_code"], bs["big_cash_debt"]))).fillna(False)
+        # 应收+存货 增速 vs 营收增速(or_yoy)：远超=收入赊出来的/货卖不动·暴雷前兆
+        prev = str(int(period[:4]) - 1) + period[4:]                      # 去年同期报告期
+        bsp = provider.get_balancesheet_by_period(prev)
+        ri_now = bs["accounts_receiv"].fillna(0) + bs["inventories"].fillna(0)
+        if bsp is not None and not bsp.empty:
+            bsp = bsp.drop_duplicates("ts_code", keep="first")
+            ri_prev = pd.to_numeric(bsp.get("accounts_receiv"), errors="coerce").fillna(0) + \
+                pd.to_numeric(bsp.get("inventories"), errors="coerce").fillna(0)
+            prev_map = dict(zip(bsp["ts_code"], ri_prev))
+            bs["_rp"] = bs["ts_code"].map(prev_map)
+            bs["recv_inv_yoy"] = ((ri_now / bs["_rp"] - 1) * 100).where(bs["_rp"] > 0).round(1)
+            df["recv_inv_yoy"] = df["ts_code"].map(dict(zip(bs["ts_code"], bs["recv_inv_yoy"])))
+            oy = pd.to_numeric(df.get("or_yoy"), errors="coerce")
+            df["recv_inv_bloat"] = ((df["recv_inv_yoy"] - oy > 30) & (df["recv_inv_yoy"] > 20)).fillna(False)
     except Exception as e:
         logger.debug("批量资产负债表获取失败: %s", e)
     return df
