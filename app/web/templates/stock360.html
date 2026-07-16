@@ -402,6 +402,7 @@ function renderFin(d,facts){
   if(ev.holder_trade&&ev.holder_trade.de_count) evp.push('减持公告 '+ev.holder_trade.de_count+'次');
   if(ev.block&&ev.block.count) evp.push('大宗 '+ev.block.count+'笔·均价'+(ev.block.premium_avg!=null?ev.block.premium_avg+'%':''));
   if(ev.express) evp.push('快报：'+(ev.express.netprofit_yoy!=null?'净利同比'+ev.express.netprofit_yoy+'%':'有'));
+  if(ev.pledge) evp.push('🔒大股东质押'+ev.pledge.ratio+'%'+(ev.pledge.ratio>=50?' 🚨高风险(最懂公司的人在押)':(ev.pledge.ratio>=30?' 留意':''))+'('+esc(ev.pledge.date||'')+')');
   if(evp.length) h+='<div style="margin-top:8px"><b class="neu2" style="font-size:12px">⚠️ 事件避雷：</b>'+evp.map(x=>'<span class="tag warn">'+esc(x)+'</span>').join('')+'</div>';
   $('v-fin').className=''; $('v-fin').innerHTML=h;
   facts['财务与风险']=(d.summary||'')+(evp.length?(' 事件：'+evp.join('；')):'');

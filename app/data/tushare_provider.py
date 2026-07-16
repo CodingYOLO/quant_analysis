@@ -247,6 +247,15 @@ class TushareProvider(DataProvider):
             start_date=(t - datetime.timedelta(days=400)).strftime("%Y%m%d"),
             end_date=t.strftime("%Y%m%d"))
 
+    def get_pledge_stat(self, ts_code: str) -> pd.DataFrame:
+        """单股质押统计（大股东质押比例·>50%高风险·最懂公司的人在押）。缓存一天。"""
+        return cached_daily("tushare_pledge_stat", self._today_key(ts_code),
+                            lambda: self._fetch_pledge_stat(ts_code))
+
+    @_RETRY
+    def _fetch_pledge_stat(self, ts_code: str) -> pd.DataFrame:
+        return rate_limited_call("tushare_pledge_stat", self._api.pledge_stat, ts_code=ts_code)
+
     def get_block_trade(self, ts_code: str) -> pd.DataFrame:
         """单股大宗交易（近180天，含成交价/金额/买卖席位）。缓存一天。"""
         return cached_daily("tushare_block_trade", self._today_key(ts_code),

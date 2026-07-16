@@ -94,6 +94,9 @@ def _events_summary(ts_code: str, provider: CompositeProvider) -> dict | None:
     hn = _holdernum_summary(_safe_fetch(provider, "get_holder_number", ts_code))
     if hn:
         out["holdernum"] = hn
+    pg = _pledge_summary(_safe_fetch(provider, "get_pledge_stat", ts_code))
+    if pg:
+        out["pledge"] = pg
     bl = _block_trade_summary(ts_code, provider)
     if bl:
         out["block"] = bl
@@ -256,6 +259,33 @@ def _holdernum_summary(df) -> dict | None:
         trend = "户数减少·筹码集中" if chg < 0 else "户数增加·筹码分散"
     return {"latest": latest, "chg_pct": chg, "trend": trend,
             "date": _fmt_date(str(df["end_date"].iloc[0]))}
+
+
+def _pledge_summary(df) -> dict | None:
+    """大股东质押：最新质押比例（>50%高风险=最懂公司的人在押·排雷项）。
+
+    **数据准确性**：pledge_stat 只在有质押事件时更新，仅展示**近18个月内**的记录——过时记录
+    (如数年前 76% )可能质押早已解除，当作当前风险会误导。<5%/过时/无数据 均不提示（减噪音）。
+    """
+    import datetime
+    if df is None or df.empty or "pledge_ratio" not in df.columns:
+        return None
+    df = df.copy()
+    df["end_date"] = df["end_date"].astype(str)
+    df = df.sort_values("end_date").tail(1)
+    ed = str(df["end_date"].iloc[0])
+    try:
+        age = (datetime.date.today() - datetime.datetime.strptime(ed, "%Y%m%d").date()).days
+    except Exception:
+        return None
+    if age > 540:                                                       # 记录过时(>18个月)→不当作当前风险
+        return None
+    ratio = pd.to_numeric(df["pledge_ratio"], errors="coerce").iloc[0]
+    if ratio is None or ratio != ratio or float(ratio) < 5:             # 无值/极低→不提示
+        return None
+    ratio = round(float(ratio), 1)
+    level = "danger" if ratio >= 50 else ("warn" if ratio >= 30 else "info")   # ≥50高风险·≥30留意
+    return {"ratio": ratio, "date": _fmt_date(ed), "level": level}
 
 
 def _survey_summary(ts_code: str, provider: CompositeProvider) -> dict | None:
