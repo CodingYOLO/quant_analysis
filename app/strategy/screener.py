@@ -59,6 +59,7 @@ FACTOR_GROUPS = [
             {"key": "bull_mv_50_300", "label": "🐂总市值50-300亿(十倍股起点体格)", "col": "total_mv_100m", "op": "between", "val": [50, 300]},
             {"key": "val_dv3", "label": "💰股息率≥3%(红利·熊市底部锚)", "col": "dv_ratio", "op": "ge", "val": 3},
             {"key": "val_ps_le10", "label": "💰市销率PS≤10", "col": "ps_ttm", "op": "between", "val": [0.01, 10], "pos": True},
+            {"key": "val_peg_le12", "label": "💰PEG≤1.2(彼得林奇标尺·粗略近似=PE/净利同比·仅5-70%稳增股·扭亏/低基数不算)", "col": "peg", "op": "between", "val": [0.01, 1.2], "pos": True},
         ],
     },
     {
@@ -152,6 +153,8 @@ FACTOR_GROUPS = [
             {"key": "risk_pos_equity", "label": "🛡排雷·净资产为正(PB>0)", "col": "pb", "op": "gt", "val": 0},
             {"key": "risk_debt70", "label": "🛡排雷·资产负债率≤70%", "col": "debt_to_assets", "op": "le", "val": 70},
             {"key": "risk_not_huge_loss", "label": "🛡排雷·净利同比≥-50%(非断崖)", "col": "netprofit_yoy", "op": "ge", "val": -50},
+            {"key": "risk_goodwill30", "label": "🛡排雷·商誉≤净资产30%(防商誉减值暴雷)", "col": "goodwill_ratio", "op": "le", "val": 30},
+            {"key": "risk_no_bigcashdebt", "label": "🛡排雷·非大存大贷(疑似造假信号·启发式需核实)", "col": "big_cash_debt", "op": "false"},
         ],
     },
     {
@@ -311,6 +314,7 @@ CUSTOM_FIELDS = [
     {"col": "roe", "label": "ROE%"},
     {"col": "or_yoy", "label": "🐂营收同比%(最新财报)"}, {"col": "grossprofit_margin", "label": "🐂毛利率%(最新财报)"},
     {"col": "dv_ratio", "label": "💰股息率%"}, {"col": "ps_ttm", "label": "💰市销率PS"},
+    {"col": "peg", "label": "💰PEG(粗略近似·仅5-70%稳增股)"}, {"col": "goodwill_ratio", "label": "🛡商誉占净资产%"},
     {"col": "act_rank", "label": "活跃度排名(当前)"}, {"col": "act_peak", "label": "活跃度峰值"},
     {"col": "act_trough", "label": "活跃度谷值"}, {"col": "act_recover", "label": "人气回升位"},
     {"col": "inst_net_yi", "label": "龙虎榜机构净买(亿)"},
@@ -332,6 +336,7 @@ DISPLAY_COLS = [
     ("forecast_type", "业绩预告"), ("forecast_chg", "预告净利%"),
     ("debt_to_assets", "负债率%"), ("netprofit_yoy", "净利同比%"), ("roe", "🟢ROE%"),
     ("or_yoy", "🐂营收同比%"), ("grossprofit_margin", "🐂毛利率%"), ("dv_ratio", "💰股息率%"),
+    ("peg", "💰PEG"), ("goodwill_ratio", "🛡商誉/净资产%"), ("big_cash_debt", "🛡疑似大存大贷"),
     ("turnover_rate", "换手%"), ("volume_ratio", "量比"), ("circ_mv_100m", "流通市值(亿)"),
     ("main_net_amount", "主力净流入(亿)"), ("main_net_3d", "主力3日(亿)"), ("elg_net", "超大单(亿)"),
     ("inflow_days_10", "💰流入天数(近10)"), ("consec_inflow", "连续流入天"), ("sector_inflow_days", "板块流入天"),
@@ -351,7 +356,7 @@ DISPLAY_COLS = [
 # ──────────────────────────────────────────────
 
 # 因子表结构版本：新增因子列时 +1，使旧缓存自动失效重算（避免读到缺列的旧表）
-_FACTOR_TABLE_VERSION = "v27"  # v27: 牛股画像新增 or_yoy(营收同比)/grossprofit_margin(毛利率)/dv_ratio(股息率)/ps_ttm(市销率)；v26 主力资金口径修正；v25 VOL.2形态
+_FACTOR_TABLE_VERSION = "v28"  # v28: 排雷深化 goodwill_ratio(商誉/净资产)/big_cash_debt(大存大贷)/peg(近似)；v27 牛股画像营收/毛利/股息/PS；v26 主力资金口径修正
 
 
 def _factor_cache_path(date: str) -> Path:
@@ -389,7 +394,8 @@ def build_factor_table(date: str, provider: CompositeProvider | None = None,
     df = _add_technical_factors(df, date, provider)
     df = _add_fund_persistence(df, date, provider)   # 近3日主力净流入(持续性)
     df = _add_fund_repeat_inflow(df, date, provider)  # 近10日反复净流入(天数/连续)+板块持续流入
-    df = _add_fundamentals(df, provider)              # 批量财务(负债率/净利同比/ROE)·妖股排雷
+    df = _add_fundamentals(df, provider)              # 批量财务(负债率/净利同比/ROE/营收/毛利/PEG)·牛股画像+排雷
+    df = _add_balancesheet_flags(df, provider)        # 批量资产负债表(商誉率/大存大贷)·财务地雷排雷
     df = _add_youzi_relay(df, date, provider)         # 近20日游资接力天数(批量top_inst)
     df = _add_earnings(df, provider)                  # 业绩预告(中报+一季报·二季度催化)
     df = _add_leader_flags(df)                         # 板块龙头标记(行业内强+大+活排名)
@@ -1000,6 +1006,40 @@ def _add_fundamentals(df: pd.DataFrame, provider) -> pd.DataFrame:
                     df[col] = df["ts_code"].map(m)
     except Exception as e:
         logger.debug("批量财务获取失败: %s", e)
+    # PEG ≈ PE-TTM / 最新净利同比（**粗略近似·非前瞻**：文档要求未来2-3年增速·我们全市场批量取不到前瞻一致预期，
+    #      暂用最新单期净利同比代理）。**关键·数据准确性**：只对"稳健增长"(净利同比 5%~70%)且 PE(0,150] 的股计算——
+    #      扭亏/低基数会让增速爆表(如4943%)→PEG假性极低误导；亏损/负增长 PEG 无意义。区间外一律留空(不算 > 假算)。
+    pe = pd.to_numeric(df.get("pe_ttm"), errors="coerce")
+    g = pd.to_numeric(df.get("netprofit_yoy"), errors="coerce")
+    df["peg"] = (pe / g).where((pe > 0) & (pe <= 150) & (g >= 5) & (g <= 70)).round(2)
+    return df
+
+
+def _add_balancesheet_flags(df: pd.DataFrame, provider) -> pd.DataFrame:
+    """全市场批量资产负债表(1次 vip 调用)：商誉占净资产 + 大存大贷启发式，供财务排雷。失败优雅跳过。
+
+    口径：最新财报(季度·滞后)。
+    · 商誉率 goodwill_ratio = 商誉/归母净资产×100（缺商誉→0·净资产≤0→0不误杀·由PB>0排雷另管）。
+    · 大存大贷 big_cash_debt = 货币资金/总资产≥25% 且 有息负债(短借+长借+应付债券)/总资产≥25%
+      （**启发式·需人工核实**·康美/康得新型财务造假信号·非确定性一票否决）。
+    """
+    try:
+        bs = provider.get_balancesheet_by_period(_latest_fina_period())
+        if bs is None or bs.empty:
+            return df
+        bs = bs.drop_duplicates("ts_code", keep="first").copy()
+        for c in ("goodwill", "total_hldr_eqy_exc_min_int", "money_cap", "st_borr", "lt_borr", "bond_payable", "total_assets"):
+            bs[c] = pd.to_numeric(bs.get(c), errors="coerce")
+        eq, ta = bs["total_hldr_eqy_exc_min_int"], bs["total_assets"]
+        bs["goodwill_ratio"] = (bs["goodwill"].fillna(0.0) / eq * 100).where(eq > 0).round(1)
+        cash_r = (bs["money_cap"] / ta).where(ta > 0)
+        debt = bs["st_borr"].fillna(0) + bs["lt_borr"].fillna(0) + bs["bond_payable"].fillna(0)
+        debt_r = (debt / ta).where(ta > 0)
+        bs["big_cash_debt"] = ((cash_r >= 0.25) & (debt_r >= 0.25)).fillna(False)
+        df["goodwill_ratio"] = df["ts_code"].map(dict(zip(bs["ts_code"], bs["goodwill_ratio"]))).fillna(0.0)
+        df["big_cash_debt"] = df["ts_code"].map(dict(zip(bs["ts_code"], bs["big_cash_debt"]))).fillna(False)
+    except Exception as e:
+        logger.debug("批量资产负债表获取失败: %s", e)
     return df
 
 

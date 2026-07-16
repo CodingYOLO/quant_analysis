@@ -351,6 +351,24 @@ class TushareProvider(DataProvider):
             fields="ts_code,debt_to_assets,netprofit_yoy,roe,or_yoy,grossprofit_margin",
         )
 
+    def get_balancesheet_by_period(self, period: str) -> pd.DataFrame:
+        """全市场某报告期资产负债表关键项（一次取全·供商誉/大存大贷排雷）。列：商誉/归母净资产/
+        货币资金/短长期借款/应付债券/总资产。按 period 缓存一天。"""
+        return cached_daily(
+            name="tushare_balancesheet_by_period",
+            date_key=period,
+            fetch_fn=lambda: self._fetch_balancesheet_by_period(period),
+        )
+
+    @_RETRY
+    def _fetch_balancesheet_by_period(self, period: str) -> pd.DataFrame:
+        return rate_limited_call(
+            "tushare_balancesheet",
+            self._api.balancesheet_vip,
+            period=period,
+            fields="ts_code,goodwill,total_hldr_eqy_exc_min_int,money_cap,st_borr,lt_borr,bond_payable,total_assets",
+        )
+
     def get_forecast_by_period(self, period: str) -> pd.DataFrame:
         """全市场某报告期业绩预告（一次取全·供选股业绩催化）。列：ts_code/type/
         p_change_min/p_change_max。按 period 缓存一天。"""

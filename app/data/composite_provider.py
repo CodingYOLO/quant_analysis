@@ -39,6 +39,10 @@ class CompositeProvider(DataProvider):
         """全市场某报告期财务指标（批量·供选股排雷）。"""
         return self._ts.get_fina_indicator_by_period(period)
 
+    def get_balancesheet_by_period(self, period: str) -> pd.DataFrame:
+        """全市场某报告期资产负债表关键项（批量·供商誉/大存大贷排雷）。"""
+        return self._ts.get_balancesheet_by_period(period)
+
     def get_forecast_by_period(self, period: str) -> pd.DataFrame:
         """全市场某报告期业绩预告（批量·供选股业绩催化）。"""
         return self._ts.get_forecast_by_period(period)
