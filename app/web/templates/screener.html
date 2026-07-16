@@ -70,8 +70,10 @@
 .up   { color: #f6465d; font-weight: 600; }   /* 红涨 */
 .down { color: #2ebd85; font-weight: 600; }   /* 绿跌 */
 .code { color: #7c9ef8; font-family: ui-monospace, monospace; }
-.addw { font-size: 10px; color: #4ade80; cursor: pointer; border: 1px solid #1f5a3a; border-radius: 5px; padding: 1px 5px; }
+.addw { font-size: 10px; color: #4ade80; cursor: pointer; border: 1px solid #1f5a3a; border-radius: 5px; padding: 1px 5px; white-space: nowrap; }
 .addw:hover { background: #143b28; }
+.addw.added { color: #8a90a0; border-color: #2d3052; }                 /* 已在自选·点击可取消 */
+.addw.added:hover { background: #3a1f26; color: #f6465d; border-color: #5a2e36; }
 /* 展开行（点击任一结果行 → 看 K线 + 量能/乖离/筹码，复用 /api/stock/profile） */
 #restable tr.datarow { cursor: pointer; }
 #restable tr.datarow:hover td { background: #1e2138; }
@@ -481,7 +483,9 @@ function fmtCell(key, v, row) {
     return '<td class="' + cls + '">' + sign + v + '</td>';
   }
   if (key === 'ts_code') return '<td class="code">' + v
-    + ' <span class="addw" title="加入我的持仓·自选" onclick="event.stopPropagation();addWatch(\'' + v + '\',this)">＋自选</span></td>';
+    + ' <span class="addw' + (_inW(v) ? ' added' : '') + '"' + (_inW(v) ? ' data-added="1"' : '')
+    + ' title="' + (_inW(v) ? '点击取消自选' : '加入我的持仓·自选') + '"'
+    + ' onclick="event.stopPropagation();toggleWatch(\'' + v + '\',this)">' + (_inW(v) ? '✓已加' : '＋自选') + '</span></td>';
   if (key === 'reso_n') {                                    // 🎯确定性 N/4：亮灯 + 悬浮解释(透明·替代黑话A/B/C/D)
     const d = (row && row.reso_dims) || {};
     const dot = hit => hit ? '🟢' : '⚪';
@@ -685,13 +689,27 @@ document.getElementById('restable').addEventListener('click', async ev => {
   } catch (e) { out.textContent = ' ❌ ' + e; b.disabled = false; b.textContent = '🤖 重试'; }
 });
 
-// ＋自选：一键加入「我的持仓」
-async function addWatch(code, el) {
-  if (el) el.textContent = '⏳';
+// ── 自选：已在自选的显「✓已加」·再点即取消（复用 portfolio 现有 add/remove 端点）──
+let WATCHED = new Set();                       // 已在自选的 6 位代码（渲染前刷新）
+const _inW = c => WATCHED.has(String(c || '').slice(0, 6));
+async function loadWatched() {
   try {
-    const d = await (await fetch('/api/portfolio/add', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code }) })).json();
-    if (el) { el.textContent = d.ok ? '✓已加' : '✗'; el.title = d.ok ? '已加入我的持仓' : (d.msg || ''); }
-  } catch (e) { if (el) el.textContent = '✗'; }
+    const j = await (await fetch('/api/portfolio/list?owner=me')).json();
+    WATCHED = new Set((j.rows || []).map(w => String(w.ts_code || '').slice(0, 6)));
+  } catch (e) { WATCHED = new Set(); }
+}
+function paintW(el, added) {
+  if (added) { el.dataset.added = '1'; el.textContent = '✓已加'; el.title = '点击取消自选'; el.classList.add('added'); }
+  else { delete el.dataset.added; el.textContent = '＋自选'; el.title = '加入我的持仓·自选'; el.classList.remove('added'); }
+}
+async function toggleWatch(code, el) {         // 未加→add·已加→remove
+  const adding = !el.dataset.added, url = adding ? '/api/portfolio/add' : '/api/portfolio/remove';
+  el.textContent = '⏳';
+  try {
+    const d = await (await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code }) })).json();
+    if (d.ok) { paintW(el, adding); const c6 = String(code).slice(0, 6); adding ? WATCHED.add(c6) : WATCHED.delete(c6); }
+    else { el.textContent = '✗'; el.title = d.msg || '操作失败'; setTimeout(() => paintW(el, !adding), 1500); }
+  } catch (e) { el.textContent = '✗'; setTimeout(() => paintW(el, !adding), 1500); }
 }
 
 // ── 复盘清单：把"本次筛选实际用的条件"显示在结果卡片 + 烙进导出长图（方便复盘）──
@@ -744,7 +762,7 @@ async function runScreen() {
   // 正常已预热=秒出，先温和提示；只有真的久(首次某日在建因子表)才升级为"请耐心等"
   statusEl.textContent = '⏳ 筛选中…';
   const slowTimer = setTimeout(() => {
-    if (!mySignal.aborted) statusEl.textContent = '⏳ 首次某日在建因子表，请稍候（最长约30-60秒）…';
+    if (!mySignal.aborted) statusEl.textContent = '⏳ 新交易日首次在建全市场因子表，请稍候（约1-3分钟·之后同日秒出）…';
   }, 6000);
   const isoDate = document.getElementById('date').value;
   const body = {
@@ -768,6 +786,7 @@ async function runScreen() {
     lastData = { columns: d.columns, rows: d.rows, count: d.count };   // count=命中总数(供主板同步)
     lastCriteria = snapshotCriteria();          // 锁定本次筛选条件(复盘用)
     sortState = { key: document.getElementById('sort').value, asc: false };
+    await loadWatched();                        // 先拿自选名单→已在自选的直接显「✓已加」
     renderTable();                              // renderTable 内部按「只看主板」同步命中数
     document.getElementById('rescard').style.display = 'block';
     renderCriteria();

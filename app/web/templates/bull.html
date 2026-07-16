@@ -41,8 +41,10 @@ tr.datarow:hover td { background:#1e2138; cursor:pointer; }
 .detail { padding:12px 16px; background:#141729; font-size:12.5px; line-height:1.8; }
 .detail b { color:#7c9ef8; }
 .falsify { color:#f0a020; }
-.addw { font-size:10px; color:#4ade80; cursor:pointer; border:1px solid #1f5a3a; border-radius:5px; padding:1px 5px; }
+.addw { font-size:10px; color:#4ade80; cursor:pointer; border:1px solid #1f5a3a; border-radius:5px; padding:1px 5px; white-space:nowrap; }
 .addw:hover { background:#143b28; }
+.addw.added { color:#8a90a0; border-color:#2d3052; }                 /* 已在自选·点击可取消 */
+.addw.added:hover { background:#3a1f26; color:#f6465d; border-color:#5a2e36; }
 {% endblock %}
 
 {% block content %}
@@ -166,6 +168,7 @@ async function loadAmbush(concept){
       $('atbl').innerHTML='<tr><td class="neu2" style="padding:14px">ℹ️ '+esc(j.msg||'该板块无满足三重门槛的埋伏标的——宁可不埋伏')+'</td></tr>';
       return;
     }
+    await loadWatched();                       // 先拿自选名单→已在自选的直接显「✓已加」
     renderAmbushTable(j.candidates);
   }catch(e){ $('ambush-loading').textContent='❌ 埋伏扫描失败：'+e; }
 }
@@ -204,7 +207,9 @@ function renderAmbushTable(cands, keepSort){
       +'<td style="font-size:12px">'+dualCell(c)+'</td>'
       +'<td>'+esc(c.ts_code)+'</td>'
       +'<td>'+esc(c.name)+boardTag(c.ts_code)
-        +' <span class="addw" title="加入我的持仓·自选" onclick="event.stopPropagation();addWatch(\''+c.ts_code+'\',this)">＋自选</span></td>'
+        +' <span class="addw'+(_inW(c.ts_code)?' added':'')+'"'+(_inW(c.ts_code)?' data-added="1"':'')
+        +' title="'+(_inW(c.ts_code)?'点击取消自选':'加入我的持仓·自选')+'"'
+        +' onclick="event.stopPropagation();toggleWatch(\''+c.ts_code+'\',this)">'+(_inW(c.ts_code)?'✓已加':'＋自选')+'</span></td>'
       +'<td>'+perf+'</td><td>'+flow+'</td><td>'+pos+'</td>'
       +'<td class="neu2">'+esc(c.evidence.vol)+'</td><td>'+rk+'</td></tr>';
     h+='<tr id="row_'+cid+'" style="display:none"><td colspan="9" style="padding:0">'
@@ -284,13 +289,27 @@ function extIndicators(d){
 }
 function renderKline(cid, kl){ _kcharts[cid]=AKline.render(cid, kl); }   // 复用 /static/kline.js
 
-// ＋自选：一键加入「我的持仓」(默认自选·之后可在持仓页改持仓/填成本)
-async function addWatch(code, el){
-  const old=el?el.textContent:''; if(el){ el.textContent='⏳'; }
+// ── 自选：已在自选的显「✓已加」·再点即取消（复用 portfolio 现有 add/remove 端点）──
+let WATCHED = new Set();                       // 已在自选的 6 位代码（渲染前刷新）
+const _inW = c => WATCHED.has(String(c||'').slice(0,6));
+async function loadWatched(){
   try{
-    const d=await (await fetch('/api/portfolio/add',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code})})).json();
-    if(el){ el.textContent=d.ok?'✓已加':'✗'; el.title=d.ok?'已加入我的持仓':(d.msg||''); }
-  }catch(e){ if(el) el.textContent='✗'; }
+    const j = await (await fetch('/api/portfolio/list?owner=me')).json();
+    WATCHED = new Set((j.rows||[]).map(w => String(w.ts_code||'').slice(0,6)));
+  }catch(e){ WATCHED = new Set(); }
+}
+function paintW(el, added){
+  if(added){ el.dataset.added='1'; el.textContent='✓已加'; el.title='点击取消自选'; el.classList.add('added'); }
+  else{ delete el.dataset.added; el.textContent='＋自选'; el.title='加入我的持仓·自选'; el.classList.remove('added'); }
+}
+async function toggleWatch(code, el){          // 未加→add·已加→remove
+  const adding = !el.dataset.added, url = adding ? '/api/portfolio/add' : '/api/portfolio/remove';
+  el.textContent='⏳';
+  try{
+    const d = await (await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code})})).json();
+    if(d.ok){ paintW(el, adding); const c6=String(code).slice(0,6); adding ? WATCHED.add(c6) : WATCHED.delete(c6); }
+    else { el.textContent='✗'; el.title=d.msg||'操作失败'; setTimeout(()=>paintW(el, !adding), 1500); }
+  }catch(e){ el.textContent='✗'; setTimeout(()=>paintW(el, !adding), 1500); }
 }
 $('refresh').onclick=()=>loadCatalysts(true);
 $('date').onchange=()=>{ loadCatalysts(false);
