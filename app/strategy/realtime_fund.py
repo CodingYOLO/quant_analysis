@@ -1139,6 +1139,8 @@ def tail_sector_flow(rows: list[dict], baseline: dict, industry_map: dict,
         if not base or not ind:
             continue
         net_tail = active_net_yi(r.get("inner") or 0, r.get("outer") or 0, r.get("price") or 0) - base["net"]
+        if net_tail != net_tail:            # NaN(停牌/坏数据·inner为NaN时 `or 0` 因NaN truthy 仍得NaN)→跳过·别污染整个板块聚合
+            continue
         a = agg.setdefault(ind, [0.0, 0])
         a[0] += net_tail
         a[1] += 1
