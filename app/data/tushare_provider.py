@@ -334,8 +334,8 @@ class TushareProvider(DataProvider):
         )
 
     def get_fina_indicator_by_period(self, period: str) -> pd.DataFrame:
-        """全市场某报告期财务指标（一次取全·供选股批量排雷）。列：ts_code/debt_to_assets/
-        netprofit_yoy/roe/or_yoy。按 period 缓存一天。"""
+        """全市场某报告期财务指标（一次取全·供选股批量排雷+牛股画像）。列：ts_code/debt_to_assets/
+        netprofit_yoy/roe/or_yoy/grossprofit_margin。按 period 缓存一天。"""
         return cached_daily(
             name="tushare_fina_by_period",
             date_key=period,
@@ -348,7 +348,7 @@ class TushareProvider(DataProvider):
             "tushare_fina_indicator",
             self._api.fina_indicator_vip,
             period=period,
-            fields="ts_code,debt_to_assets,netprofit_yoy,roe,or_yoy",
+            fields="ts_code,debt_to_assets,netprofit_yoy,roe,or_yoy,grossprofit_margin",
         )
 
     def get_forecast_by_period(self, period: str) -> pd.DataFrame:
@@ -643,7 +643,7 @@ class TushareProvider(DataProvider):
             "tushare_daily_basic",
             self._api.daily_basic,
             trade_date=trade_date,
-            fields="ts_code,trade_date,close,turnover_rate,volume_ratio,pe_ttm,pb,total_mv,circ_mv",
+            fields="ts_code,trade_date,close,turnover_rate,volume_ratio,pe_ttm,pb,ps_ttm,dv_ratio,total_mv,circ_mv",
         )
 
     def get_money_flow(self, trade_date: str) -> pd.DataFrame:

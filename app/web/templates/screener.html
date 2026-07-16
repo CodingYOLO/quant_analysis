@@ -104,6 +104,7 @@
     <button class="quickbtn" id="preset-wyckoff" style="border-color:#5a4a2a;color:#d4b483">🎼 威科夫·吸筹蓄势（OBV上行+收窄+无背离）</button>
     <button class="quickbtn" id="preset-mainrise" style="border-color:#6b3a1a;color:#fb923c">🚀 强势主升浪·趋势确立（回测优选·MA60向上+RSI强+资金+板块·追趋势非追突破）</button>
     <button class="quickbtn" id="preset-qualfund" style="border-color:#1f5a3a;color:#4ade80">💎 质量资金共振（因子归因验证·稳健正alpha：ROE+资金持续+千评）</button>
+    <button class="quickbtn" id="preset-bull" style="border-color:#6b5a1a;color:#f6c343">🐂 牛股画像·基本面质量（营收/净利≥20%·ROE≥15%·毛利≥40%·负债≤60%·据《估值实战》文档）</button>
     <span class="neu" style="width:100%;font-size:11px;margin:4px 0 0">📐 VOL.2形态选股（进阶篇·找符合结构的票·非涨跌预测）：</span>
     <button class="quickbtn" id="preset-gap" style="border-color:#5a2a6b;color:#c084fc">🪂 跳空突破缺口（放量2倍·平台边缘·稀有）</button>
     <button class="quickbtn" id="preset-glue" style="border-color:#2a5a4a;color:#4ade80">🧬 均线粘合蓄能（MA5/10/20间距<2%·埋伏待发）</button>
@@ -356,6 +357,9 @@ document.getElementById('preset-mainrise').addEventListener('click', () =>
 // 💎 质量资金共振：因子归因验证的稳健正alpha(ROE质量+资金持续+近3日力度+趋势健康)·按千评(最强IC)排
 document.getElementById('preset-qualfund').addEventListener('click', () =>
   applyPreset(['roe_ge5', 'consec_inflow3', 'accum_fund3d', 'above_ma20', 'risk_not_st'], 'comment_score'));
+// 🐂 牛股画像·基本面质量：据《估值实战》文档——营收/净利≥20%·ROE≥15%·毛利≥40%·负债≤60% + 排雷 + 站MA20(基本面选股×技术面择时)·按RPS120排。财务为最新财报口径(季度滞后)
+document.getElementById('preset-bull').addEventListener('click', () =>
+  applyPreset(['bull_or_yoy20', 'bull_np_yoy20', 'bull_roe15', 'bull_gpm40', 'bull_debt60', 'risk_not_st', 'above_ma20'], 'rps120'));
 // 📐 VOL.2 形态选股(进阶篇)·找符合结构的票·非涨跌预测
 document.getElementById('preset-gap').addEventListener('click', () =>
   applyPreset(['pat_gap_breakout', 'risk_not_st'], 'rps120'));

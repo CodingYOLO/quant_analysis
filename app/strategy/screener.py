@@ -49,6 +49,19 @@ FACTOR_GROUPS = [
         ],
     },
     {
+        "group": "🐂 牛股画像·基本面质量（据《估值实战》文档·均为最新财报口径·季度滞后）",
+        "factors": [
+            {"key": "bull_or_yoy20", "label": "🐂营收同比≥20%(成长第一证据·较难造假)", "col": "or_yoy", "op": "ge", "val": 20},
+            {"key": "bull_np_yoy20", "label": "🐂净利同比≥20%", "col": "netprofit_yoy", "op": "ge", "val": 20},
+            {"key": "bull_roe15", "label": "🐂ROE≥15%(牛股共同基因·🟢IC+0.06已验证)", "col": "roe", "op": "ge", "val": 15},
+            {"key": "bull_gpm40", "label": "🐂毛利率≥40%(定价权直接证据)", "col": "grossprofit_margin", "op": "ge", "val": 40},
+            {"key": "bull_debt60", "label": "🐂资产负债率≤60%(财务稳健)", "col": "debt_to_assets", "op": "le", "val": 60},
+            {"key": "bull_mv_50_300", "label": "🐂总市值50-300亿(十倍股起点体格)", "col": "total_mv_100m", "op": "between", "val": [50, 300]},
+            {"key": "val_dv3", "label": "💰股息率≥3%(红利·熊市底部锚)", "col": "dv_ratio", "op": "ge", "val": 3},
+            {"key": "val_ps_le10", "label": "💰市销率PS≤10", "col": "ps_ttm", "op": "between", "val": [0.01, 10], "pos": True},
+        ],
+    },
+    {
         "group": "量能与活跃度",
         "factors": [
             {"key": "limit_up", "label": "今日涨停", "col": "is_limit_up", "op": "true"},
@@ -296,6 +309,8 @@ CUSTOM_FIELDS = [
     {"col": "youzi_relay_days", "label": "游资接力天数"}, {"col": "forecast_chg", "label": "预告净利变动%"},
     {"col": "debt_to_assets", "label": "资产负债率%"}, {"col": "netprofit_yoy", "label": "净利同比%"},
     {"col": "roe", "label": "ROE%"},
+    {"col": "or_yoy", "label": "🐂营收同比%(最新财报)"}, {"col": "grossprofit_margin", "label": "🐂毛利率%(最新财报)"},
+    {"col": "dv_ratio", "label": "💰股息率%"}, {"col": "ps_ttm", "label": "💰市销率PS"},
     {"col": "act_rank", "label": "活跃度排名(当前)"}, {"col": "act_peak", "label": "活跃度峰值"},
     {"col": "act_trough", "label": "活跃度谷值"}, {"col": "act_recover", "label": "人气回升位"},
     {"col": "inst_net_yi", "label": "龙虎榜机构净买(亿)"},
@@ -316,6 +331,7 @@ DISPLAY_COLS = [
     ("youzi_relay_days", "🔥游资接力日"),
     ("forecast_type", "业绩预告"), ("forecast_chg", "预告净利%"),
     ("debt_to_assets", "负债率%"), ("netprofit_yoy", "净利同比%"), ("roe", "🟢ROE%"),
+    ("or_yoy", "🐂营收同比%"), ("grossprofit_margin", "🐂毛利率%"), ("dv_ratio", "💰股息率%"),
     ("turnover_rate", "换手%"), ("volume_ratio", "量比"), ("circ_mv_100m", "流通市值(亿)"),
     ("main_net_amount", "主力净流入(亿)"), ("main_net_3d", "主力3日(亿)"), ("elg_net", "超大单(亿)"),
     ("inflow_days_10", "💰流入天数(近10)"), ("consec_inflow", "连续流入天"), ("sector_inflow_days", "板块流入天"),
@@ -335,7 +351,7 @@ DISPLAY_COLS = [
 # ──────────────────────────────────────────────
 
 # 因子表结构版本：新增因子列时 +1，使旧缓存自动失效重算（避免读到缺列的旧表）
-_FACTOR_TABLE_VERSION = "v26"  # v26: 主力资金口径修正(net_mf_amount→超大单+大单净·东财口径·修资金方向反了的bug)；v25 VOL.2形态；v24 rel1d/3d/5d
+_FACTOR_TABLE_VERSION = "v27"  # v27: 牛股画像新增 or_yoy(营收同比)/grossprofit_margin(毛利率)/dv_ratio(股息率)/ps_ttm(市销率)；v26 主力资金口径修正；v25 VOL.2形态
 
 
 def _factor_cache_path(date: str) -> Path:
@@ -401,7 +417,9 @@ def _merge_base(daily, daily_basic, money_flow, stock_basic, comment) -> pd.Data
 
     if daily_basic is not None and not daily_basic.empty:
         # 注意：daily_basic.volume_ratio 当日常为空，量比改由成交量矩阵自算（见 _add_technical_factors）
-        cols = ["ts_code", "circ_mv", "total_mv", "turnover_rate", "pe_ttm", "pb"]
+        # ps_ttm(市销率)/dv_ratio(股息率·%) 供牛股画像·估值——与 pe/pb 同源同一次调用·零新增成本·个别缺列优雅跳过
+        want = ["ts_code", "circ_mv", "total_mv", "turnover_rate", "pe_ttm", "pb", "ps_ttm", "dv_ratio"]
+        cols = [c for c in want if c in daily_basic.columns]
         uni = uni.merge(daily_basic[cols], on="ts_code", how="left")
         uni["circ_mv_100m"] = pd.to_numeric(uni["circ_mv"], errors="coerce") / 10000
         uni["total_mv_100m"] = pd.to_numeric(uni["total_mv"], errors="coerce") / 10000
@@ -968,12 +986,15 @@ def _add_inst_money(df: pd.DataFrame, date: str, provider) -> pd.DataFrame:
 
 
 def _add_fundamentals(df: pd.DataFrame, provider) -> pd.DataFrame:
-    """全市场批量财务(1次 vip 调用)：资产负债率/净利同比/ROE，供妖股排雷。失败优雅跳过。"""
+    """全市场批量财务(1次 vip 调用)：资产负债率/净利同比/ROE/营收同比/毛利率，供牛股画像+排雷。失败优雅跳过。
+
+    口径：均为**最新财报**(季度·滞后)。营收同比 or_yoy、毛利率 grossprofit_margin 与前三者同源同一次调用·零新增成本。
+    """
     try:
         fin = provider.get_fina_indicator_by_period(_latest_fina_period())
         if fin is not None and not fin.empty:
             fin = fin.drop_duplicates("ts_code", keep="first")
-            for col in ("debt_to_assets", "netprofit_yoy", "roe"):
+            for col in ("debt_to_assets", "netprofit_yoy", "roe", "or_yoy", "grossprofit_margin"):
                 if col in fin.columns:
                     m = dict(zip(fin["ts_code"], pd.to_numeric(fin[col], errors="coerce")))
                     df[col] = df["ts_code"].map(m)
