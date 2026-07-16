@@ -61,6 +61,7 @@ FACTOR_GROUPS = [
             {"key": "val_dv3", "label": "💰股息率≥3%(红利·熊市底部锚)", "col": "dv_ratio", "op": "ge", "val": 3},
             {"key": "val_ps_le10", "label": "💰市销率PS≤10", "col": "ps_ttm", "op": "between", "val": [0.01, 10], "pos": True},
             {"key": "val_peg_le12", "label": "💰PEG≤1.2(彼得林奇标尺·粗略近似=PE/净利同比·仅5-70%稳增股·扭亏/低基数不算)", "col": "peg", "op": "between", "val": [0.01, 1.2], "pos": True},
+            {"key": "val_pe_pct_low", "label": "💰PE处历史低估区(≤30%分位·跟自己近4年比·需≥2年PE史)", "col": "pe_pct", "op": "le", "val": 30, "pos": True},
         ],
     },
     {
@@ -318,6 +319,7 @@ CUSTOM_FIELDS = [
     {"col": "dv_ratio", "label": "💰股息率%"}, {"col": "ps_ttm", "label": "💰市销率PS"},
     {"col": "peg", "label": "💰PEG(粗略近似·仅5-70%稳增股)"}, {"col": "goodwill_ratio", "label": "🛡商誉占净资产%"},
     {"col": "dt_netprofit_yoy", "label": "🐂扣非净利同比%(最新财报)"}, {"col": "recv_inv_yoy", "label": "🛡应收+存货同比增速%"},
+    {"col": "pe_pct", "label": "💰PE历史分位%(近4年·越低越低估)"},
     {"col": "act_rank", "label": "活跃度排名(当前)"}, {"col": "act_peak", "label": "活跃度峰值"},
     {"col": "act_trough", "label": "活跃度谷值"}, {"col": "act_recover", "label": "人气回升位"},
     {"col": "inst_net_yi", "label": "龙虎榜机构净买(亿)"},
@@ -340,7 +342,7 @@ DISPLAY_COLS = [
     ("debt_to_assets", "负债率%"), ("netprofit_yoy", "净利同比%"), ("roe", "🟢ROE%"),
     ("or_yoy", "🐂营收同比%"), ("grossprofit_margin", "🐂毛利率%"), ("dv_ratio", "💰股息率%"),
     ("peg", "💰PEG"), ("goodwill_ratio", "🛡商誉/净资产%"), ("big_cash_debt", "🛡疑似大存大贷"),
-    ("dt_netprofit_yoy", "🐂扣非净利同比%"), ("recv_inv_yoy", "🛡应收存货增速%"),
+    ("dt_netprofit_yoy", "🐂扣非净利同比%"), ("recv_inv_yoy", "🛡应收存货增速%"), ("pe_pct", "💰PE历史分位%"),
     ("turnover_rate", "换手%"), ("volume_ratio", "量比"), ("circ_mv_100m", "流通市值(亿)"),
     ("main_net_amount", "主力净流入(亿)"), ("main_net_3d", "主力3日(亿)"), ("elg_net", "超大单(亿)"),
     ("inflow_days_10", "💰流入天数(近10)"), ("consec_inflow", "连续流入天"), ("sector_inflow_days", "板块流入天"),
@@ -360,7 +362,7 @@ DISPLAY_COLS = [
 # ──────────────────────────────────────────────
 
 # 因子表结构版本：新增因子列时 +1，使旧缓存自动失效重算（避免读到缺列的旧表）
-_FACTOR_TABLE_VERSION = "v29"  # v29: dt_netprofit_yoy(扣非净利同比)/recv_inv_yoy(应收存货增速·虚增排雷)；v28 商誉/大存大贷/PEG；v27 营收/毛利/股息/PS
+_FACTOR_TABLE_VERSION = "v30"  # v30: pe_pct(PE历史分位·跟自己比·近4年月度面板)；v29 扣非/应收存货虚增；v28 商誉/大存大贷/PEG；v27 营收/毛利/股息/PS
 
 
 def _factor_cache_path(date: str) -> Path:
@@ -399,7 +401,8 @@ def build_factor_table(date: str, provider: CompositeProvider | None = None,
     df = _add_fund_persistence(df, date, provider)   # 近3日主力净流入(持续性)
     df = _add_fund_repeat_inflow(df, date, provider)  # 近10日反复净流入(天数/连续)+板块持续流入
     df = _add_fundamentals(df, provider)              # 批量财务(负债率/净利同比/ROE/营收/毛利/PEG)·牛股画像+排雷
-    df = _add_balancesheet_flags(df, provider)        # 批量资产负债表(商誉率/大存大贷)·财务地雷排雷
+    df = _add_balancesheet_flags(df, provider)        # 批量资产负债表(商誉率/大存大贷/应收存货虚增)·财务地雷排雷
+    df = _add_pe_percentile(df, provider, date)       # PE 历史分位(跟自己历史比·估值坐标系①)
     df = _add_youzi_relay(df, date, provider)         # 近20日游资接力天数(批量top_inst)
     df = _add_earnings(df, provider)                  # 业绩预告(中报+一季报·二季度催化)
     df = _add_leader_flags(df)                         # 板块龙头标记(行业内强+大+活排名)
@@ -1060,6 +1063,49 @@ def _add_balancesheet_flags(df: pd.DataFrame, provider) -> pd.DataFrame:
             df["recv_inv_bloat"] = ((df["recv_inv_yoy"] - oy > 30) & (df["recv_inv_yoy"] > 20)).fillna(False)
     except Exception as e:
         logger.debug("批量资产负债表获取失败: %s", e)
+    return df
+
+
+def _add_pe_percentile(df: pd.DataFrame, provider, date: str,
+                       years: int = 4, sample_every: int = 20, min_points: int = 24) -> pd.DataFrame:
+    """每股当前 PE-TTM 在其自身近 years 年历史 PE 中的分位数 pe_pct(0~100)，供"跟自己历史比"估值。
+
+    分位<20=历史低估区·>80=高估区（文档"坐标系①·第一道过滤")。**数据准确性**：
+    · 仅正 PE 计入历史(亏损期 PE null/负→剔除·不污染分位)；
+    · 有效历史点 < min_points(≈2年) 或当前亏损 → pe_pct 留空(次新股/长期亏损股·不硬给分位)；
+    · 每 sample_every(≈20交易日=月) 采样一个历史交易日·历史 daily_basic 永久缓存·首建后复用。
+    """
+    import datetime
+    from collections import defaultdict
+    try:
+        start = (datetime.datetime.strptime(date, "%Y%m%d")
+                 - datetime.timedelta(days=365 * years + 30)).strftime("%Y%m%d")
+        cal = provider.get_trade_cal(start, date)
+        days = sorted(cal[cal["is_open"] == 1]["cal_date"].astype(str).tolist())
+        sampled = days[::sample_every]
+        if date not in sampled:
+            sampled.append(date)
+        hist: dict = defaultdict(list)
+        for d in sampled:
+            db = provider.get_daily_basic(d)                          # 历史日期永久缓存
+            if db is None or db.empty or "pe_ttm" not in db.columns:
+                continue
+            pe = pd.to_numeric(db["pe_ttm"], errors="coerce")
+            for code, v in zip(db["ts_code"], pe):
+                if v == v and v > 0:                                  # 仅正 PE（NaN 自不等→剔·负/亏损→剔）
+                    hist[code].append(float(v))
+        cur = dict(zip(df["ts_code"], pd.to_numeric(df.get("pe_ttm"), errors="coerce")))
+        pct_map: dict = {}
+        for code, series in hist.items():
+            if len(series) < min_points:
+                continue
+            cp = cur.get(code)
+            if cp is None or cp != cp or cp <= 0:                     # 当前亏损/缺→无分位
+                continue
+            pct_map[code] = round(sum(1 for x in series if x <= cp) / len(series) * 100, 1)
+        df["pe_pct"] = df["ts_code"].map(pct_map)
+    except Exception as e:
+        logger.debug("PE历史分位计算失败: %s", e)
     return df
 
 
