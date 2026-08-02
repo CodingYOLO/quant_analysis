@@ -359,7 +359,9 @@ async def sentiment_page(request: Request, _user: str = Depends(require_auth)):
 @app.get("/macro", response_class=HTMLResponse)
 async def macro_page(request: Request, _user: str = Depends(require_auth)):
     """宏观传导面板（约束器·非信号源）。只读 macro.db·断网可开。"""
-    return templates.TemplateResponse(request=request, name="macro.html", context={"page": "macro"})
+    resp = templates.TemplateResponse(request=request, name="macro.html", context={"page": "macro"})
+    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"   # 迭代页·改版即生效免硬刷(同realtime先例)
+    return resp
 
 
 @app.get("/api/macro/panel")

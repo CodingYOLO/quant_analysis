@@ -127,6 +127,7 @@ class LLMClient:
         task_type: TaskType = "flash",
         temperature: float = 0.3,
         max_tokens: int = 2048,
+        extra_body: dict | None = None,
     ) -> str:
         """
         发送对话请求，返回 assistant 回复内容字符串。
@@ -140,11 +141,14 @@ class LLMClient:
         client, model = self._get_client(task_type)
         start = time.monotonic()
 
+        # extra_body：供调用方透传 provider 专有参数。实测用例：v4-flash 对数据分析任务会自动
+        # 进思考模式(思考7900字吃光max_tokens·content空)·{"thinking":{"type":"disabled"}} 可关闭
         response = client.chat.completions.create(
             model=model,
             messages=messages,
             temperature=temperature,
             max_tokens=max_tokens,
+            **({"extra_body": extra_body} if extra_body else {}),
         )
 
         elapsed_ms = int((time.monotonic() - start) * 1000)
