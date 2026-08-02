@@ -56,11 +56,24 @@ def _shift_days(ymd: str, days: int) -> str:
 
 
 def align_to_trading_days(points: list[Point], days: list[str], lag_days: int,
-                          max_carry_days: int) -> list[dict]:
+                          max_carry_days: int, freq: str = "daily",
+                          ref_days: list[str] | None = None) -> list[dict]:
     """把某指标的观测点对齐到交易日序列，返回待写入的行。
 
     返回的每行含 value/as_of/source/is_stale；取不到则 value=None（如实写 NULL）。
+
+    **is_stale 存的是"已沿用的交易日会话数"**（0=当日新值），不是 0/1 布尔——
+    评分层要区分"外盘隔夜差 1 个会话（正常）"与"断 2 个会话以上（源坏了）"。
+
+    结转超限判定按频率分两种单位（单位混用会出错，各自理由）：
+    · daily → **交易日会话数**。用自然日的话周五值沿用到周一=3天，每个周一都会被误判
+      超限；"断 N 天=源坏了"的本意是 N 个交易时段没更新。会话数在 `ref_days`
+      （完整交易日历，可比 `days` 更早）上用二分统计——单日增量时 `days` 只有 1 天，
+      没有参照日历就数不出会话。
+    · weekly/monthly → **自然日**。发布周期是日历概念（下月中旬发布=约45自然日）。
     """
+    import bisect
+    ref = sorted(ref_days or days)
     obs = sorted({(p.as_of, p.value, p.source) for p in points})
     rows: list[dict] = []
     idx = 0
@@ -75,14 +88,20 @@ def align_to_trading_days(points: list[Point], days: list[str], lag_days: int,
                          "source": None, "is_stale": 0})
             continue
         as_of, value, src = cur
-        stale_days = (pd.Timestamp(d) - pd.Timestamp(as_of)).days - lag_days
-        if stale_days > max_carry_days:
-            # 陈旧超限：写 NULL 而不是无限期沿用（沿用会让面板显示一个早已失效的"当前值"）
+        visible = _shift_days(as_of, lag_days)
+        sessions = bisect.bisect_right(ref, d) - bisect.bisect_right(ref, visible)
+        if freq == "daily":
+            over = sessions > max_carry_days
+        else:
+            over = (pd.Timestamp(d) - pd.Timestamp(as_of)).days - lag_days > max_carry_days
+        if over:
+            # 陈旧超限：写 NULL 而不是无限期沿用（沿用会让面板显示一个早已失效的"当前值"）；
+            # as_of/source 保留供排查"断供从哪天开始"
             rows.append({"trade_date": d, "value": None, "as_of": as_of,
-                         "source": src, "is_stale": 1})
+                         "source": src, "is_stale": sessions})
             continue
         rows.append({"trade_date": d, "value": float(value), "as_of": as_of,
-                     "source": src, "is_stale": 1 if stale_days > 0 else 0})
+                     "source": src, "is_stale": sessions})
     return rows
 
 
@@ -96,6 +115,9 @@ def run(start: str, end: str, codes: set[str] | None = None,
     days = trading_days(start, end)
     if not days:
         raise ValueError(f"{start}~{end} 无交易日")
+
+    # 参照交易日历：往前多取 120 自然日，保证单日增量时也能数出"已沿用几个会话"
+    ref_days = trading_days(_shift_days(start, -120), end)
 
     ok: list[str] = []
     failed: dict[str, str] = {}
@@ -117,7 +139,8 @@ def run(start: str, end: str, codes: set[str] | None = None,
                              "status": "error", "rows": 0, "elapsed_ms": 0,
                              "err_msg": str(e)[:300]})
                 all_rows += [dict(r, code=c, source_run_id=run_id)
-                             for r in align_to_trading_days([], days, 0, 0)]
+                             for r in align_to_trading_days([], days, 0, 0,
+                                                            ref_days=ref_days)]
             continue
 
         by_code: dict[str, list[Point]] = {}
@@ -127,7 +150,8 @@ def run(start: str, end: str, codes: set[str] | None = None,
             m = meta[c]
             got = by_code.get(c, [])
             rows = align_to_trading_days(got, days, int(m["lag_days"]),
-                                         int(m["max_carry_days"]))
+                                         int(m["max_carry_days"]),
+                                         freq=m["freq"], ref_days=ref_days)
             all_rows += [dict(r, code=c, source_run_id=run_id) for r in rows]
             n_val = sum(1 for r in rows if r["value"] is not None)
             if n_val:

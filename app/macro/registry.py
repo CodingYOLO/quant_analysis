@@ -61,12 +61,14 @@ class MetricDef:
         默认值不是拍的，是由"下一次发布前该值仍是当前有效值"决定的：
         · monthly=45 —— 月频数据在下月发布前一直有效；设 0 会让月频指标只在发布当天有值、
           次日即 NULL（实测踩到：1月CPI 只在 2/10 出现一天）；
-        · weekly=15、daily=5 —— 覆盖周末 + 小长假；外盘指标在 A 股交易日常因休市而无当日值。
+        · weekly=15（自然日）、daily=2（**交易日会话**·外盘隔夜差1个会话属正常，断2个即告警）。
         超过上限仍取不到 → 写 NULL 并告警，不无限期挂着陈旧值冒充当前值。
         """
         if self.max_carry_days >= 0:
             return self.max_carry_days
-        return {"monthly": 45, "weekly": 15}.get(self.freq, 5)
+        # daily=2(**交易日会话**)：日频断2个会话不是延迟是源坏了——要的是早知道，
+        # 不是让面板替源掩饰5天(2026-08-02用户定档·由5降2)。monthly/weekly 按自然日。
+        return {"monthly": 45, "weekly": 15}.get(self.freq, 2)
 
 
 L0, L1, L2, L3 = "L0_liquidity", "L1_flow", "L2_sentiment", "L3_external"

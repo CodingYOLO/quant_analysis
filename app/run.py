@@ -568,6 +568,28 @@ def _run_macro_sync(start: str, end: str, codes: set[str]) -> None:
                       f"{lg['err_msg'][:70]}")
     console.print(f"\n[green]成功 {res.ok_count}[/green] / "
                   f"[red]失败 {len(res.failed)}[/red] · 用时 {_t.time() - t0:.0f}秒")
+
+    # 派生量 + 分层评分（全量重算·幂等·<2s）
+    from app.macro import compute
+    cres = compute.run(end, run_id=res.run_id)
+    console.print(f"[bold]派生量 {cres.rows_updated} 行 · 评分 {cres.score_days} 天[/bold]")
+    for r in cres.layer_today:
+        if r["layer"] == "TOTAL":
+            continue
+        label = store.LAYER_LABELS.get(r["layer"], r["layer"])
+        if r["score"] is None:
+            console.print(f"  {label:<14} [dim]—（{r['n_part']}/{r['n_total']} 参与·无数据）[/dim]")
+        else:
+            console.print(f"  {label:<14} [bold]{r['score']:.1f}[/bold] "
+                          f"（{r['n_part']}/{r['n_total']} 项参与评分）")
+    if cres.anomalies_today:
+        console.print(f"\n[bold yellow]⚡ {end} 异动 {len(cres.anomalies_today)} 条：[/bold yellow]")
+        for a in cres.anomalies_today:
+            arrow = "↑" if a["direction"] > 0 else "↓"
+            console.print(f"  {arrow} {a['name_cn']}  chg={a['chg_1d']} z={a['zscore']} "
+                          f"分位={a['pctile']}")
+    else:
+        console.print(f"\n[dim]{end} 无显著异动[/dim]")
     if res.failed:
         from app.notify.notifier import push_bark
         try:                                       # 失败必须告警，不静默

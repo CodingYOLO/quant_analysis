@@ -150,6 +150,19 @@ CREATE TABLE IF NOT EXISTS macro_calendar (
 );
 CREATE INDEX IF NOT EXISTS idx_cal_date ON macro_calendar(event_date);
 
+-- 分层评分（夜间重算全历史·幂等）。n_part/n_total 供 UI 显示"本层8项中6项参与评分"——
+-- 没有它就分不清得分下降是真降温还是指标没参与
+CREATE TABLE IF NOT EXISTS macro_score (
+    trade_date  TEXT NOT NULL,
+    layer       TEXT NOT NULL,             -- L0_liquidity|...|TOTAL
+    score       REAL,                      -- 0-100·NULL=该层当日无可评分指标
+    n_part      INTEGER NOT NULL DEFAULT 0,-- 实际参与评分的指标数
+    n_total     INTEGER NOT NULL DEFAULT 0,-- 原则上可评分的指标数(启用·direction≠0·weight>0)
+    run_id      TEXT,
+    updated_at  TEXT DEFAULT (datetime('now','localtime')),
+    PRIMARY KEY (trade_date, layer)
+);
+
 -- 每日 LLM 摘要存档（可按日期回读，供回看模式）
 CREATE TABLE IF NOT EXISTS macro_summary (
     trade_date  TEXT PRIMARY KEY,
@@ -165,6 +178,7 @@ CREATE TABLE IF NOT EXISTS macro_summary (
 _NEW_COLS: tuple[tuple[str, str, str], ...] = (
     ("macro_daily", "sample_n", "INTEGER"),
     ("macro_daily", "source", "TEXT"),
+    ("macro_daily", "anomaly", "INTEGER NOT NULL DEFAULT 0"),
     ("macro_daily", "is_stale", "INTEGER NOT NULL DEFAULT 0"),
     ("metric_meta", "break_mode", "TEXT NOT NULL DEFAULT 'truncate'"),
     ("metric_meta", "score_from", "TEXT NOT NULL DEFAULT ''"),
@@ -340,6 +354,49 @@ def available_dates(limit: int = 60) -> list[str]:
 # ──────────────────────────────────────────────
 # 运行日志 / 日历 / 摘要
 # ──────────────────────────────────────────────
+
+def update_derived(rows: Iterable[dict]) -> int:
+    """批量回写派生量（compute 全量重算后调用）。只更新已存在的行，不新建。"""
+    sql = ("UPDATE macro_daily SET chg_1d=?, chg_5d=?, zscore_250=?, pctile_750=?, "
+           "sample_n=?, anomaly=? WHERE trade_date=? AND code=?")
+    payload = [(r.get("chg_1d"), r.get("chg_5d"), r.get("zscore_250"), r.get("pctile_750"),
+                r.get("sample_n"), int(r.get("anomaly") or 0), r["trade_date"], r["code"])
+               for r in rows]
+    with _conn() as con:
+        con.executemany(sql, payload)
+    return len(payload)
+
+
+def upsert_scores(rows: Iterable[dict]) -> int:
+    """写入分层评分（按 (trade_date, layer) 覆盖）。score=None 如实写 NULL。"""
+    sql = ("INSERT INTO macro_score (trade_date, layer, score, n_part, n_total, run_id) "
+           "VALUES (?,?,?,?,?,?) ON CONFLICT(trade_date, layer) DO UPDATE SET "
+           "score=excluded.score, n_part=excluded.n_part, n_total=excluded.n_total, "
+           "run_id=excluded.run_id, updated_at=datetime('now','localtime')")
+    payload = [(r["trade_date"], r["layer"], r.get("score"),
+                int(r.get("n_part", 0)), int(r.get("n_total", 0)), r.get("run_id", ""))
+               for r in rows]
+    with _conn() as con:
+        con.executemany(sql, payload)
+    return len(payload)
+
+
+def read_scores(trade_date: str) -> list[dict]:
+    """某日全部分层得分（含 TOTAL）。"""
+    with _conn() as con:
+        return [dict(r) for r in con.execute(
+            "SELECT * FROM macro_score WHERE trade_date=? ORDER BY layer", (trade_date,))]
+
+
+def read_score_series(layer: str, end_date: str, limit: int = 60) -> list[dict]:
+    """某层截至 end_date 的得分序列（升序·供 5 日趋势箭头与走势图）。point-in-time 同 read_series。"""
+    with _conn() as con:
+        rows = [dict(r) for r in con.execute(
+            "SELECT trade_date, score, n_part, n_total FROM macro_score "
+            "WHERE layer=? AND trade_date<=? ORDER BY trade_date DESC LIMIT ?",
+            (layer, end_date, limit))]
+    return rows[::-1]
+
 
 def log_runs(rows: Iterable[dict]) -> int:
     sql = ("INSERT INTO macro_run_log (run_id, trade_date, code, status, rows, elapsed_ms, err_msg) "
