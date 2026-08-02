@@ -56,6 +56,29 @@ details.laysec[open] summary .caret::before { content:"▾ "; }
 .badge-mini { display:inline-block; font-size:10px; padding:1px 6px; border-radius:8px;
   background:#232640; color:#9ca3af; margin-left:4px; }
 .spark { width:100%; height:30px; }
+/* 讲解模块 */
+.exp-toggle { cursor:pointer; color:#5b6478; font-size:12px; border:none; background:none; padding:0 2px; }
+.exp-toggle:hover { color:#7c9ef8; }
+.exp-body { display:none; font-size:11.5px; color:#aab3c5; line-height:1.55; background:#161929;
+  border-left:2px solid #2d3052; padding:7px 9px; border-radius:0 6px 6px 0; }
+.tile.clickable { cursor:pointer; } .tile.clickable:hover { border-color:#7c9ef8; }
+#bd-panel { display:none; margin-top:10px; background:#161929; border:1px solid #2d3052;
+  border-radius:8px; padding:10px 14px; }
+.bd-row { display:flex; align-items:center; gap:8px; font-size:12px; padding:3px 0; }
+.bd-row .bnm { min-width:180px; color:#cdd6f4; }
+.bd-bar { flex:1; height:12px; position:relative; background:#232640; border-radius:3px; }
+.bd-bar i { position:absolute; top:0; height:100%; border-radius:2px; }
+.bd-num { width:120px; text-align:right; color:#9ca3af; font-size:11px; }
+/* 事件日历 */
+.cal-row { display:flex; gap:10px; align-items:baseline; padding:5px 2px; font-size:13px;
+  border-bottom:1px solid #1e2138; }
+.cal-row:last-child { border-bottom:none; }
+.cal-date { color:#7c9ef8; font-weight:700; min-width:88px; font-size:12px; }
+.cal-imp3 { color:#f6465d; } .cal-note { color:#5b6478; font-size:11px; }
+/* 链路图 */
+.chain-svg { width:100%; height:auto; }
+/* 底部讲解 */
+#exp-text { white-space:pre-wrap; font-size:13.5px; line-height:1.8; color:#cdd6f4; }
 {% endblock %}
 
 {% block content %}
@@ -75,7 +98,25 @@ details.laysec[open] summary .caret::before { content:"▾ "; }
 
 <div class="card"><h2>⚡ 今日异动</h2><div id="anomalies"></div></div>
 
+<div class="card"><h2>🔗 传导链路（节点色=该指标当日"对A股好坏"分位）</h2>
+  <svg class="chain-svg" id="chain" viewBox="0 0 960 330"></svg></div>
+
 <div id="layer-secs"></div>
+
+<div class="card"><h2>📅 事件日历（未来7天 + 过去3天）</h2>
+  <div id="cal-up"></div>
+  <div class="neu" style="font-size:11px;margin:8px 0 4px">— 过去3天（已发布配实际值）—</div>
+  <div id="cal-past"></div>
+  <div class="cal-note" id="cal-note" style="margin-top:6px"></div></div>
+
+<!-- 讲解固定放页面底部(用户定档)：先自己读一遍数据形成判断·讲解做校正而非替代 -->
+<div class="card"><h2>📖 当日讲解（LLM·讲解≠结论）</h2>
+  <div class="neu" style="font-size:11.5px;margin-bottom:8px">
+    只描述"指标处于什么位置·在传导链条上意味着什么"——不含任何操作含义(输出经禁词校验)。
+    建议先看完上方数据再展开；回看模式下同样可生成(学关键历史日怎么读)。</div>
+  <div id="exp-text"></div>
+  <button class="mac-btn" id="exp-btn" style="margin-top:8px">生成讲解</button>
+  <span class="neu" id="exp-status" style="font-size:11px;margin-left:8px"></span></div>
 
 <script>
 const fmt = (v, n=2) => (v===null||v===undefined) ? '—' : Number(v).toFixed(n).replace(/\.?0+$/,'');
@@ -106,7 +147,8 @@ function renderThermo(th) {
       continue;
     }
     const col = tint(t.score);
-    h += `<div class="tile"><div class="lb">${t.label}</div>
+    h += `<div class="tile clickable" onclick="loadBreakdown('${t.layer}')" title="点击拆解：为什么是这个分？">
+      <div class="lb">${t.label} <span class="badge-mini">为什么?</span></div>
       <div class="sc" style="color:${col}">${fmt(t.score,1)}${trendArrow(t.trend5)}</div>
       <div class="sub">${t.n_part}/${t.n_total} 项参与评分</div></div>`;
   }
@@ -116,6 +158,7 @@ function renderThermo(th) {
     <div class="sub">0-100·分位加权</div></div>`;
   el.innerHTML = h;
   document.getElementById('total-note').textContent = tot.note || '';
+  el.insertAdjacentHTML('afterend', '<div id="bd-panel"></div>');
 }
 
 function renderAnomalies(list) {
@@ -178,8 +221,10 @@ function cardHtml(c) {
   if (!c.scored && c.score_note) notes += `<div class="note-line">${c.score_note}</div>`;
   if (staleDaily) notes += `<div class="note-line warn">已沿用 ${c.stale_sessions} 个交易日·源可能异常</div>`;
   const anomTag = c.anomaly ? `<span class="badge-mini" style="color:${c.anomaly>0?'#f6465d':'#2ebd85'}">异动${c.anomaly>0?'↑':'↓'}</span>` : '';
+  const expBtn = c.explain ? `<button class="exp-toggle" onclick="toggleExp(this)" title="这是什么指标·怎么读">ℹ️</button>` : '';
+  const expBody = c.explain ? `<div class="exp-body">${c.explain.replace(/\*\*(.+?)\*\*/g,'<b>$1</b>')}</div>` : '';
   return `<div class="mcard${staleDaily?' gray':''}">
-    <div class="nm"><span>${c.name}${anomTag}</span><span class="asof${asofWarn?' warn':''}">${c.as_of||''}${c.freq==='daily'&&c.stale_sessions===1?'·T-1':''}</span></div>
+    <div class="nm"><span>${c.name}${anomTag}${expBtn}</span><span class="asof${asofWarn?' warn':''}">${c.as_of||''}${c.freq==='daily'&&c.stale_sessions===1?'·T-1':''}</span></div>${expBody}
     <div class="val" style="color:${c.direction===0||c.no_dist?'#e8e8e8':tint(c.adj_pctile)}">${fmt(c.value)}<span class="unit">${c.unit||''}</span></div>
     <div class="chg"><span class="${signCls(c.chg_1d)}">1日 ${c.chg_1d>0?'+':''}${fmt(c.chg_1d)}</span>
       <span class="${signCls(c.chg_5d)}">5日 ${c.chg_5d>0?'+':''}${fmt(c.chg_5d)}</span></div>
@@ -209,6 +254,106 @@ function renderLayers(layers) {
   el.innerHTML = h;
 }
 
+function toggleExp(btn) {
+  const b = btn.closest('.mcard').querySelector('.exp-body');
+  b.style.display = (b.style.display === 'block') ? 'none' : 'block';
+}
+
+function renderChain(ch) {
+  const svg = document.getElementById('chain');
+  const W = 200, H = 52;
+  const pos = {}; ch.nodes.forEach(n => pos[n.id] = n);
+  let defs = `<defs><marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#3d4468"/></marker></defs>`;
+  let eh = '';
+  for (const [a, b] of ch.edges) {
+    const A = pos[a], B = pos[b];
+    if (!A || !B) continue;
+    const x1 = A.x + W, y1 = A.y + H/2, x2 = B.x, y2 = B.y + H/2;
+    // 同列上下相邻(margin/etf→turn 的上行箭头)：从顶边/底边出
+    if (Math.abs(A.x - B.x) < 1) continue;
+    if (A.x < B.x) eh += `<line x1="${x1}" y1="${y1}" x2="${x2-2}" y2="${y2}" stroke="#3d4468" stroke-width="1.5" marker-end="url(#arr)"/>`;
+    else eh += `<line x1="${A.x+W/2}" y1="${A.y}" x2="${B.x+W/2}" y2="${B.y+H+2}" stroke="#3d4468" stroke-width="1.5" marker-end="url(#arr)"/>`;
+  }
+  let nh = '';
+  for (const n of ch.nodes) {
+    const ok = n.state === 'ok';
+    const col = ok ? tint(n.adj) : '#3d4468';
+    const dash = ok ? '' : 'stroke-dasharray="4,3"';
+    const sub = ok ? `${fmt(n.value)}${n.unit||''} · 分位${fmt(n.pctile,0)}`
+                   : (n.state === 'inactive' ? '未接入(Phase 2)' : (n.state === 'missing' ? '数据未更新' : '待接入'));
+    nh += `<g><title>${n.tip||n.label}</title>
+      <rect x="${n.x}" y="${n.y}" width="${W}" height="${H}" rx="9" fill="#1a1d2e" stroke="${col}" stroke-width="1.6" ${dash}/>
+      <text x="${n.x+10}" y="${n.y+21}" fill="#cdd6f4" font-size="13" font-weight="600">${n.label}</text>
+      <text x="${n.x+10}" y="${n.y+40}" fill="${ok?col:'#5b6478'}" font-size="11.5">${sub}</text></g>`;
+  }
+  svg.innerHTML = defs + eh + nh;
+}
+
+function calRow(e, showActual) {
+  const iso = e.event_date.slice(4,6)+'/'+e.event_date.slice(6);
+  const imp = e.importance >= 3 ? ' cal-imp3' : '';
+  const extra = showActual ? (e.actual ? ` <b class="pos">${e.actual}</b>` : ' <span class="cal-note">实际值未入库</span>')
+                           : (e.expected ? ` <span class="neu">预期 ${e.expected}</span>` : '');
+  return `<div class="cal-row"><span class="cal-date${imp}">${iso} ${e.region||''}</span>
+    <span>${e.title}${e.is_manual?'<span class="badge-mini">手工</span>':''}${extra}</span>
+    <span class="cal-note">${e.note||''}</span></div>`;
+}
+
+function renderCalendar(cal) {
+  document.getElementById('cal-up').innerHTML =
+    cal.upcoming.length ? cal.upcoming.map(e => calRow(e, false)).join('') : '<div class="neu">未来7天无登记事件</div>';
+  document.getElementById('cal-past').innerHTML =
+    cal.past.length ? cal.past.map(e => calRow(e, true)).join('') : '<div class="neu">无</div>';
+  document.getElementById('cal-note').textContent = cal.note || '';
+}
+
+async function loadBreakdown(layer) {
+  const d = window._mac ? window._mac.date : '';
+  const panel = document.getElementById('bd-panel');
+  panel.style.display = 'block';
+  panel.innerHTML = '<span class="neu">拆解中…</span>';
+  const r = await fetch(`/api/macro/breakdown?layer=${layer}&date=${d}`);
+  const b = await r.json();
+  if (!b.ok) { panel.innerHTML = b.error || '拆解失败'; return; }
+  const maxAbs = Math.max(0.1, ...b.items.map(x => Math.abs(x.pull)));
+  let h = `<div style="display:flex;justify-content:space-between;align-items:baseline">
+    <b style="color:#7c9ef8">${b.label} = ${fmt(b.score,1)} 是怎么来的？</b>
+    <button class="mac-btn" onclick="document.getElementById('bd-panel').style.display='none'">收起</button></div>
+    <div class="neu" style="font-size:11px;margin:4px 0 8px">${b.note}</div>`;
+  for (const x of b.items) {
+    const w = Math.abs(x.pull) / maxAbs * 50;
+    const left = x.pull >= 0 ? 50 : 50 - w;
+    const col = x.pull >= 0 ? '#f6465d' : '#2ebd85';
+    h += `<div class="bd-row"><span class="bnm">${x.name}</span>
+      <div class="bd-bar"><i style="left:${left}%;width:${w}%;background:${col}"></i>
+        <i style="left:50%;width:1px;background:#5b6478;height:100%"></i></div>
+      <span class="bd-num">${x.pull>0?'+':''}${x.pull} · 好坏分位${fmt(x.adj,0)} · 权重${x.weight_pct}%</span></div>`;
+  }
+  if (b.excluded.length)
+    h += `<div class="cal-note" style="margin-top:8px">未参与：${b.excluded.map(e=>`${e.name}(${e.reason})`).join('；')}</div>`;
+  panel.innerHTML = h;
+}
+
+async function genExplain(force) {
+  const st = document.getElementById('exp-status');
+  const btn = document.getElementById('exp-btn');
+  btn.disabled = true; st.textContent = '生成中(LLM·约20-60秒)…';
+  try {
+    const r = await fetch('/api/macro/explain', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({date: window._mac ? window._mac.date : '', force: !!force})});
+    const d = await r.json();
+    if (d.ok) {
+      document.getElementById('exp-text').textContent = d.text;
+      st.textContent = (d.cached ? '（缓存）' : '（新生成）') + ' 已过禁词校验';
+      btn.textContent = '重新生成';
+    } else st.textContent = d.error || '生成失败';
+  } catch (e) { st.textContent = '请求失败'; }
+  btn.disabled = false;
+}
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('exp-btn').onclick = () => genExplain(document.getElementById('exp-btn').textContent==='重新生成');
+});
+
 async function load(date) {
   const q = date ? ('?date='+date) : '';
   const r = await fetch('/api/macro/panel'+q);
@@ -221,7 +366,12 @@ async function load(date) {
   if (d.is_lookback) { bn.style.display='block';
     bn.textContent = `⏪ 回看模式 · ${iso} · 所有数值/分位/评分均为该日真实可得口径（严格 point-in-time·不含之后的任何数据）`; }
   else bn.style.display='none';
-  renderThermo(d.thermo); renderAnomalies(d.anomalies); renderLayers(d.layers);
+  renderThermo(d.thermo); renderAnomalies(d.anomalies); renderChain(d.chain); renderLayers(d.layers);
+  renderCalendar(d.calendar);
+  const bp = document.getElementById('bd-panel'); if (bp) bp.style.display='none';
+  document.getElementById('exp-text').textContent = d.explain_cached || '';
+  document.getElementById('exp-btn').textContent = d.explain_cached ? '重新生成' : '生成讲解';
+  document.getElementById('exp-status').textContent = d.explain_cached ? '（缓存·'+d.date+'）' : '';
   history.replaceState(null,'', d.is_lookback ? ('/macro?date='+d.date) : '/macro');
 }
 

@@ -373,6 +373,33 @@ async def api_macro_panel(date: str = "", _user: str = Depends(require_auth)):
         return {"ok": False, "error": str(e)}
 
 
+@app.get("/api/macro/breakdown")
+async def api_macro_breakdown(layer: str, date: str = "", _user: str = Depends(require_auth)):
+    """「为什么是 64?」——分层得分拆到指标(纯计算·Σ拉动可核账)。"""
+    try:
+        from app.macro.explain import score_breakdown
+        from app.macro.service import resolve_date
+        return score_breakdown(layer, resolve_date(date))
+    except Exception as e:
+        logger.exception("得分拆解失败")
+        return {"ok": False, "error": str(e)}
+
+
+@app.post("/api/macro/explain")
+async def api_macro_explain(request: Request, _user: str = Depends(require_auth)):
+    """「今天发生了什么」LLM讲解(讲解≠结论·禁词输出侧校验·缓存按日)。Body:{date,force}。
+
+    这是宏观面板**唯一**会发起外部调用(LLM)的端点——且仅在用户主动点击时；
+    面板本身(/api/macro/panel)保持只读库·断网可开。"""
+    try:
+        body = await request.json()
+        from app.macro.explain import daily_explain
+        return daily_explain(body.get("date") or "", force=bool(body.get("force")))
+    except Exception as e:
+        logger.exception("讲解生成失败")
+        return {"ok": False, "error": str(e)}
+
+
 @app.get("/api/sentiment")
 async def api_sentiment(days: int = 22, start: str = "", end: str = "",
                         _user: str = Depends(require_auth)):

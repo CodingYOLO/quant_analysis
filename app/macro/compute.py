@@ -110,7 +110,10 @@ def changes(fresh: pd.Series, unit: str, freq: str) -> tuple[pd.Series, pd.Serie
     月频/周频：chg_1d = 相邻两次**发布**之间的变化（发布日才有值·沿用日留空——
     "日变动"对月频的沿用日没有意义，填 0 会稀释异动阈值的分布）；chg_5d 无意义留空。
     """
-    absolute = unit in ("%", "bp")
+    # 绝对差 vs 涨跌幅：利率(%/bp)按百分点差；**量级类(亿元/亿份/家)也必须绝对差**——
+    # 资金净流入可正可负·pct_change 分母过零会算出 -517% 这类无意义数(924回看实测抓到)。
+    # 只有无单位比值(汇率等)与点位类才用涨跌幅。
+    absolute = unit not in ("", "点")
     c1 = fresh.diff() if absolute else fresh.pct_change() * 100
     c5 = fresh.diff(5) if absolute else fresh.pct_change(5) * 100
     c1 = c1.replace([np.inf, -np.inf], np.nan)

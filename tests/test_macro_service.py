@@ -119,8 +119,61 @@ def test_lookback_point_in_time() -> None:
     print("  ✓ 回看：point-in-time·非交易日解析")
 
 
+def test_breakdown_identity() -> None:
+    """「为什么是64?」：Σ拉动必须精确等于 score−50（用户可核账）。"""
+    with tempfile.TemporaryDirectory() as td:
+        _seed(Path(td))
+        from app.macro.explain import score_breakdown
+        b = score_breakdown("L0_liquidity", "20260731")
+        _assert(b["ok"] and b["items"], "有参与指标")
+        _assert(abs((50 + sum(x["pull"] for x in b["items"])) - b["score"]) < 0.02,
+                "⭐score = 50 + Σpull 恒等式(圆整容差内)")
+        _assert(any("中性" in e["reason"] for e in b["excluded"]),
+                "未参与列表必须带原因(CPI 中性)")
+        _assert(abs(sum(x["weight_pct"] for x in b["items"]) - 100) < 0.5, "权重占比合计≈100%")
+    print("  ✓ 拆解：Σpull恒等式·未参与带原因·权重合计100%")
+
+
+def test_explain_module_static() -> None:
+    """讲解模块的非LLM部分：禁词校验器 + explain 字段随卡片下发。"""
+    from app.macro.explain import FORBIDDEN, validate_text
+    _assert(validate_text("M1同比处于低分位·反映资金活化不足") == [], "干净文本通过")
+    _assert(validate_text("建议逢低加仓") == ["建议", "加仓"], "⭐禁词逐个命中")
+    _assert(len(FORBIDDEN) == 10, "用户点名的10个禁词一个不少")
+    with tempfile.TemporaryDirectory() as td:
+        _seed(Path(td))
+        p = service.build_panel("")
+        cards = {c["code"]: c for lay in p["layers"] for c in lay["cards"]}
+        _assert("银行间" in cards["fdr007"]["explain"],
+                "⭐卡片必须带静态讲解(metric_meta.explain·教学内容·不用LLM)")
+        _assert("calendar" in p and "chain" in p, "面板含日历与链路")
+        _assert(len(p["chain"]["nodes"]) == 12 and len(p["chain"]["edges"]) == 11,
+                "链路拓扑 12节点11边")
+        l2 = [n for n in p["chain"]["nodes"] if n["state"] == "inactive"]
+        _assert(len(l2) == 2, "L2占位节点灰显·不冒充有数据")
+    print("  ✓ 讲解静态部分：禁词器·卡片explain·链路拓扑")
+
+
+def test_calendar_rules() -> None:
+    from app.macro.calendar_seed import rule_events
+    ev = rule_events("20260801", months=2)
+    lpr = [e for e in ev if e["event_type"] == "lpr"]
+    _assert(all(e["event_date"].endswith("20") for e in lpr), "LPR=每月20日")
+    nfp = [e for e in ev if e["event_type"] == "us_nfp"]
+    import pandas as pd
+    _assert(all(pd.Timestamp(e["event_date"]).weekday() == 4 for e in nfp),
+            "非农=每月第一个周五(规则推算)")
+    fuzzy = [e for e in ev if "预计" in e["title"]]
+    _assert(all("以官方" in e["note"] for e in fuzzy),
+            "⭐模糊日期事件必须明示'预计+以官方为准'——不冒充精确日期")
+    _assert(not any(e["event_type"] == "fomc" for e in ev),
+            "FOMC 不在规则推算里(具体日期必须走人工核实清单)")
+    print("  ✓ 日历规则：LPR20日·非农首周五·模糊事件明示·FOMC不推算")
+
+
 if __name__ == "__main__":
     print("宏观面板 · 服务层测试")
-    for fn in (test_panel, test_lookback_point_in_time):
+    for fn in (test_panel, test_lookback_point_in_time, test_breakdown_identity,
+               test_explain_module_static, test_calendar_rules):
         fn()
     print("✅ 全部通过")

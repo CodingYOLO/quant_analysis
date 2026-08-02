@@ -58,7 +58,10 @@ def build_panel(date: str | None = None) -> dict:
         "dates": store.available_dates(90),
         "thermo": _build_thermo(layers, d),
         "anomalies": _build_anomalies(metas, day_rows),
+        "chain": _build_chain(metas, day_rows),
         "layers": layers,
+        "calendar": _build_calendar(d),
+        "explain_cached": (store.read_summary(d) or {}).get("explain") or "",
     }
 
 
@@ -142,7 +145,7 @@ def _build_card(m: dict, row: dict | None, d: str) -> dict:
     card = {
         "code": code, "name": m["name_cn"], "unit": m["unit"], "freq": m["freq"],
         "direction": int(m["direction"]), "no_dist": int(m.get("no_dist") or 0),
-        "weight": m["weight"],
+        "weight": m["weight"], "explain": m.get("explain") or "",
         "spark": [{"d": s["trade_date"], "v": s["value"]} for s in series],
         "breaks": [b for b in (m["hist_break"] or "").split(",") if b],
         "break_note": _break_note(m, d),
@@ -211,3 +214,96 @@ def _break_note(m: dict, d: str) -> str:
     if m["score_from"] and d < m["score_from"]:
         txt += f"（{m['score_from']} 前只展示不计分）"
     return txt
+
+
+# ──────────────────────────────────────────────
+# 传导链路图（静态拓扑·节点按当日"好坏分位"上色）
+# ──────────────────────────────────────────────
+# 拓扑是**视图配置**放在服务端——前端只渲染下发的 nodes/edges，不硬编码任何指标
+# （守"不硬编码指标列表到前端"红线）。code=None 的节点是尚未接入层的占位（灰显）。
+_CHAIN_NODES: list[dict] = [
+    {"id": "us2y",   "code": "us_2y",              "label": "美联储路径(2Y)",   "x": 20,  "y": 20},
+    {"id": "spread", "code": "cn_us_spread_10y",   "label": "中美利差",         "x": 260, "y": 20},
+    {"id": "cnh",    "code": "usdcnh",             "label": "USDCNH",          "x": 500, "y": 20},
+    {"id": "lpr",    "code": "lpr_1y",             "label": "货币政策空间(LPR)", "x": 740, "y": 20},
+    {"id": "sf",     "code": "social_finance_inc", "label": "社融(月)",         "x": 20,  "y": 120},
+    {"id": "m1",     "code": "m1_yoy",             "label": "M1同比(月)",       "x": 20,  "y": 190},
+    {"id": "dr",     "code": "fdr007",             "label": "银行间FDR007",     "x": 260, "y": 155},
+    {"id": "turn",   "code": "turnover_total",     "label": "两市成交额",       "x": 500, "y": 155},
+    {"id": "l2a",    "code": None,                 "label": "涨停/赚钱效应",    "x": 740, "y": 155, "pseudo": "L2"},
+    {"id": "margin", "code": "margin_ratio",       "label": "融资余额/市值",    "x": 260, "y": 265},
+    {"id": "etf",    "code": "etf_share_chg",      "label": "宽基ETF申购",      "x": 500, "y": 265},
+    {"id": "l2b",    "code": None,                 "label": "情绪温度",         "x": 740, "y": 265, "pseudo": "L2"},
+]
+_CHAIN_EDGES = [("us2y", "spread"), ("spread", "cnh"), ("cnh", "lpr"), ("lpr", "dr"),
+                ("sf", "dr"), ("m1", "dr"), ("dr", "turn"), ("margin", "turn"),
+                ("etf", "turn"), ("turn", "l2a"), ("l2a", "l2b")]
+
+
+def _build_chain(metas: list[dict], day_rows: dict) -> dict:
+    by = {m["code"]: m for m in metas}
+    nodes = []
+    for nd in _CHAIN_NODES:
+        n = {k: nd[k] for k in ("id", "label", "x", "y")}
+        code = nd.get("code")
+        if not code:
+            n.update(state="inactive", tip=f"{nd['label']}：{nd.get('pseudo', '')} 层未接入(Phase 2)")
+            nodes.append(n)
+            continue
+        m = by.get(code) or {}
+        row = day_rows.get(code)
+        if not m.get("enabled") or row is None:
+            n.update(state="pending", tip=f"{m.get('name_cn', code)}：数据源待接入")
+        elif row.get("value") is None:
+            n.update(state="missing", tip=f"{m.get('name_cn', code)}：数据未更新")
+        else:
+            n.update(state="ok", value=row["value"], unit=m.get("unit", ""),
+                     pctile=row.get("pctile_750"),
+                     adj=_adj(row.get("pctile_750"), int(m.get("direction", 0))),
+                     tip=f"{m.get('name_cn', code)} = {row['value']}{m.get('unit', '')}"
+                         f" · 分位 {row.get('pctile_750')}")
+        nodes.append(n)
+    return {"nodes": nodes, "edges": _CHAIN_EDGES}
+
+
+# ──────────────────────────────────────────────
+# 事件日历（未来7天 + 过去3天·已发布的中国数据自动配"实际值"）
+# ──────────────────────────────────────────────
+# 事件→指标映射：过去事件的"实际值"直接读 macro_daily 的新值行——零外部调用
+_EVENT_METRIC = {"cn_cpi": ("cpi_yoy", "%"), "cn_sf": ("social_finance_inc", "亿元"),
+                 "cn_pmi": ("pmi_mfg", ""), "lpr": ("lpr_1y", "%")}
+
+
+def _build_calendar(d: str) -> dict:
+    import pandas as pd
+    lo = (pd.Timestamp(d) - pd.Timedelta(days=3)).strftime("%Y%m%d")
+    hi = (pd.Timestamp(d) + pd.Timedelta(days=7)).strftime("%Y%m%d")
+    events = store.read_calendar(lo, hi)
+    past, upcoming = [], []
+    for e in events:
+        item = {k: e[k] for k in ("event_date", "event_type", "title", "importance",
+                                  "region", "note", "is_manual")}
+        if e["event_date"] < d:
+            item["actual"] = e.get("actual") or _actual_from_db(e, d)
+            past.append(item)
+        else:
+            item["expected"] = e.get("expected") or ""
+            upcoming.append(item)
+    return {"past": past, "upcoming": upcoming,
+            "note": "日历为当前登记状态(规则/核实/推算三类·见口径文档)·非历史快照"}
+
+
+def _actual_from_db(e: dict, d: str) -> str:
+    """过去的中国数据事件 → 从库内新值行取实际值（发布日后 0~6 天内的 fresh 行）。"""
+    import pandas as pd
+    mc = _EVENT_METRIC.get(e["event_type"])
+    if not mc:
+        return ""
+    code, unit = mc
+    hi = min(d, (pd.Timestamp(e["event_date"]) + pd.Timedelta(days=6)).strftime("%Y%m%d"))
+    with store._conn() as con:
+        row = con.execute(
+            "SELECT value FROM macro_daily WHERE code=? AND is_stale=0 AND value IS NOT NULL "
+            "AND trade_date BETWEEN ? AND ? ORDER BY trade_date LIMIT 1",
+            (code, e["event_date"], hi)).fetchone()
+    return f"实际 {row['value']}{unit}" if row else ""

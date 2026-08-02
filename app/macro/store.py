@@ -186,6 +186,8 @@ _NEW_COLS: tuple[tuple[str, str, str], ...] = (
     ("metric_meta", "max_carry_days", "INTEGER NOT NULL DEFAULT 0"),
     ("metric_meta", "source_fallback", "TEXT NOT NULL DEFAULT ''"),
     ("metric_meta", "no_dist", "INTEGER NOT NULL DEFAULT 0"),
+    ("metric_meta", "explain", "TEXT NOT NULL DEFAULT ''"),
+    ("macro_summary", "explain", "TEXT NOT NULL DEFAULT ''"),
     ("metric_meta", "sort_order", "INTEGER NOT NULL DEFAULT 100"),
 )
 
@@ -208,7 +210,7 @@ def init_db() -> None:
 
 _META_COLS = ("code", "name_cn", "layer", "freq", "unit", "direction", "weight",
               "source", "source_fallback", "api", "lag_days", "enabled", "hist_break",
-              "break_mode", "score_from", "max_carry_days", "no_dist", "sort_order", "note")
+              "break_mode", "score_from", "max_carry_days", "no_dist", "explain", "sort_order", "note")
 
 # 可调项集合（upsert 时保留库内值；reset 时统一重置）。**单一定义**——
 # 之前 reset 的 UPDATE 手写列清单、加 max_carry_days 时漏了它，导致 reset 后仍是旧值(踩坑)。

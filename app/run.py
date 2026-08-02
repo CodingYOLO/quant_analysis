@@ -538,6 +538,14 @@ def macro_sync_cmd(trade_date: str, sync_meta: bool, reset_tuning: bool,
     _run_macro_sync(start, td, covered)
 
 
+@cli.command("macro-doc")
+def macro_doc_cmd() -> None:
+    """生成口径文档(指标部分由 metric_meta 渲染·与代码同源不漂移)。"""
+    from app.macro.docgen import generate
+    path = generate()
+    console.print(f"[green]✅ 口径文档: {path}[/green]")
+
+
 @cli.command("macro-backfill")
 @click.option("--days", default=750, show_default=True, help="回补最近 N 个交易日（分位冷启动需≥250）")
 @click.option("--end", default="last", help="回补截止交易日，默认最近交易日")
@@ -574,6 +582,13 @@ def _run_macro_sync(start: str, end: str, codes: set[str]) -> None:
                       f"{lg['err_msg'][:70]}")
     console.print(f"\n[green]成功 {res.ok_count}[/green] / "
                   f"[red]失败 {len(res.failed)}[/red] · 用时 {_t.time() - t0:.0f}秒")
+
+    # 事件日历播种（规则/核实/解禁三类·手工行不受影响·失败不阻塞）
+    try:
+        from app.macro import calendar_seed
+        calendar_seed.seed(months=3)
+    except Exception as e:
+        console.print(f"[yellow]⚠️ 事件日历播种失败(不阻塞): {e}[/yellow]")
 
     # 派生量 + 分层评分（全量重算·幂等·<2s）
     from app.macro import compute
