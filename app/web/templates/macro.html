@@ -1,0 +1,243 @@
+{% extends "base.html" %}
+{% block title %}宏观传导面板{% endblock %}
+
+{% block extra_style %}
+/* ── 定位：约束器·不是信号源——页面上没有任何"买入/看多/信号"元素 ── */
+.mac-toolbar { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:14px; }
+.mac-toolbar input[type=date] { background:#232640; color:#e8e8e8; border:1px solid #2d3052;
+  border-radius:6px; padding:5px 8px; font-size:13px; }
+.mac-btn { background:#232640; color:#9ca3af; border:1px solid #2d3052; border-radius:6px;
+  padding:5px 12px; font-size:13px; cursor:pointer; }
+.mac-btn:hover { color:#fff; border-color:#7c9ef8; }
+.lookback-banner { background:#3b3218; color:#fbbf24; border:1px solid #6b5a1a; border-radius:8px;
+  padding:8px 14px; font-size:13px; margin-bottom:12px; display:none; }
+
+/* 体温计 */
+.thermo { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:10px; }
+.tile { background:#1a1d2e; border:1px solid #2d3052; border-radius:10px; padding:12px 14px; }
+.tile .lb { font-size:12px; color:#9ca3af; }
+.tile .sc { font-size:26px; font-weight:800; margin:2px 0; }
+.tile .sub { font-size:11px; color:#5b6478; }
+.tile.na { border-style:dashed; opacity:.75; }
+.tile.na .sc { font-size:15px; font-weight:600; color:#9ca3af; padding:6px 0; }
+.trend-up { color:#f6465d; } .trend-dn { color:#2ebd85; } .trend-flat { color:#9ca3af; }
+
+/* 异动区 */
+.anomaly-row { display:flex; align-items:center; gap:12px; padding:7px 4px;
+  border-bottom:1px solid #1e2138; font-size:14px; }
+.anomaly-row:last-child { border-bottom:none; }
+.adir { font-size:16px; width:20px; text-align:center; }
+
+/* 卡片区 */
+details.laysec { margin-bottom:14px; }
+details.laysec summary { cursor:pointer; user-select:none; font-size:15px; color:#7c9ef8;
+  font-weight:700; padding:8px 4px; list-style:none; }
+details.laysec summary::-webkit-details-marker { display:none; }
+details.laysec summary .caret::before { content:"▸ "; color:#5b6478; }
+details.laysec[open] summary .caret::before { content:"▾ "; }
+.layer-off { background:#161929; border:1px dashed #2d3052; border-radius:10px;
+  padding:14px 16px; color:#9ca3af; font-size:13px; }
+.layer-off b { color:#cdd6f4; }
+.cards { display:grid; grid-template-columns:repeat(auto-fill,minmax(250px,1fr)); gap:10px; }
+.mcard { background:#1a1d2e; border:1px solid #2d3052; border-radius:10px; padding:11px 13px;
+  display:flex; flex-direction:column; gap:5px; }
+.mcard.gray { opacity:.62; }
+.mcard .nm { font-size:12.5px; color:#cdd6f4; display:flex; justify-content:space-between; gap:6px; }
+.mcard .asof { font-size:10.5px; color:#5b6478; white-space:nowrap; }
+.mcard .asof.warn { color:#fbbf24; }
+.mcard .val { font-size:20px; font-weight:800; }
+.mcard .val .unit { font-size:11px; color:#9ca3af; font-weight:400; margin-left:3px; }
+.mcard .chg { font-size:11.5px; color:#9ca3af; display:flex; gap:12px; }
+.pbar { height:7px; background:#232640; border-radius:4px; overflow:hidden; }
+.pbar i { display:block; height:100%; border-radius:4px; }
+.pmeta { font-size:10.5px; color:#5b6478; display:flex; justify-content:space-between; }
+.note-line { font-size:10.5px; color:#8a93a8; }
+.note-line.warn { color:#fbbf24; }
+.badge-mini { display:inline-block; font-size:10px; padding:1px 6px; border-radius:8px;
+  background:#232640; color:#9ca3af; margin-left:4px; }
+.spark { width:100%; height:30px; }
+{% endblock %}
+
+{% block content %}
+<div class="mac-toolbar">
+  <h2 style="margin:0;color:#e8e8e8;font-size:18px">🌐 宏观传导面板</h2>
+  <span class="neu" style="font-size:12px">约束器：只答"环境在什么位置、今天什么变了"——不产生买卖信号</span>
+  <span style="flex:1"></span>
+  <button class="mac-btn" id="d-prev">◀ 前一日</button>
+  <input type="date" id="d-pick">
+  <button class="mac-btn" id="d-next">后一日 ▶</button>
+  <button class="mac-btn" id="d-latest">最新</button>
+</div>
+<div class="lookback-banner" id="lb-banner"></div>
+
+<div class="card"><h2>宏观体温计</h2><div class="thermo" id="thermo"></div>
+  <div class="neu" id="total-note" style="font-size:11px;margin-top:8px"></div></div>
+
+<div class="card"><h2>⚡ 今日异动</h2><div id="anomalies"></div></div>
+
+<div id="layer-secs"></div>
+
+<script>
+const fmt = (v, n=2) => (v===null||v===undefined) ? '—' : Number(v).toFixed(n).replace(/\.?0+$/,'');
+const signCls = v => v>0 ? 'pos' : (v<0 ? 'neg' : 'neu');
+// "对A股好坏"统一色带(adj 分位)：暖=偏利好·冷=偏利空·中间灰（A股口径红涨绿跌）
+function tint(adj) {
+  if (adj===null||adj===undefined) return '#7c9ef8';
+  if (adj>=70) return '#f6465d'; if (adj>=55) return '#e8907a';
+  if (adj>30 && adj<55) return '#9ca3af'; if (adj>15) return '#5fb89a';
+  return '#2ebd85';
+}
+function trendArrow(t) {
+  if (t===null||t===undefined) return '';
+  const c = t>0.5?'trend-up':(t<-0.5?'trend-dn':'trend-flat');
+  const a = t>0.5?'▲':(t<-0.5?'▼':'▶');
+  return `<span class="${c}" style="font-size:12px"> ${a}${Math.abs(t).toFixed(1)} (5日)</span>`;
+}
+
+function renderThermo(th) {
+  const el = document.getElementById('thermo');
+  let h = '';
+  for (const t of th.tiles) {
+    if (t.state !== 'active') {
+      // (1) 未启用/待接入层：明确文字·绝不画成 0 分仪表盘
+      const txt = t.state==='inactive' ? '该层未启用' : '数据源待接入';
+      h += `<div class="tile na"><div class="lb">${t.label}</div><div class="sc">${txt}</div>
+            <div class="sub">不参与总分</div></div>`;
+      continue;
+    }
+    const col = tint(t.score);
+    h += `<div class="tile"><div class="lb">${t.label}</div>
+      <div class="sc" style="color:${col}">${fmt(t.score,1)}${trendArrow(t.trend5)}</div>
+      <div class="sub">${t.n_part}/${t.n_total} 项参与评分</div></div>`;
+  }
+  const tot = th.total;
+  h += `<div class="tile" style="border-color:#3358e0"><div class="lb">总分</div>
+    <div class="sc" style="color:${tint(tot.score)}">${fmt(tot.score,1)}${trendArrow(tot.trend5)}</div>
+    <div class="sub">0-100·分位加权</div></div>`;
+  el.innerHTML = h;
+  document.getElementById('total-note').textContent = tot.note || '';
+}
+
+function renderAnomalies(list) {
+  const el = document.getElementById('anomalies');
+  if (!list.length) { el.innerHTML = '<div class="neu" style="padding:6px 2px">今日无显著异动</div>'; return; }
+  el.innerHTML = list.map(a => `<div class="anomaly-row">
+    <span class="adir ${a.dir>0?'pos':'neg'}">${a.dir>0?'↑':'↓'}</span>
+    <b style="min-width:170px">${a.name}</b>
+    <span>${fmt(a.value)}<span class="neu" style="font-size:11px"> ${a.unit||''}</span></span>
+    <span class="${signCls(a.chg_1d)}">变动 ${a.chg_1d>0?'+':''}${fmt(a.chg_1d)}</span>
+    <span class="neu">分位 ${fmt(a.pctile,1)}%</span></div>`).join('');
+}
+
+function sparkSvg(spark, breaks) {
+  const pts = spark.filter(p => p.v!==null && p.v!==undefined);
+  if (pts.length < 2) return '<div class="neu" style="font-size:10px">历史点不足</div>';
+  const vs = pts.map(p=>p.v), lo = Math.min(...vs), hi = Math.max(...vs), rg = (hi-lo)||1;
+  const W=120, H=28, n=pts.length;
+  const xy = pts.map((p,i)=>`${(i/(n-1)*W).toFixed(1)},${(H-2-(p.v-lo)/rg*(H-5)).toFixed(1)}`);
+  let lines = '';
+  for (const b of (breaks||[])) {               // 断点竖线(在窗口内才画)
+    const idx = pts.findIndex(p => p.d >= b);
+    if (idx > 0) lines += `<line x1="${(idx/(n-1)*W).toFixed(1)}" y1="0" x2="${(idx/(n-1)*W).toFixed(1)}" y2="${H}" stroke="#fbbf24" stroke-dasharray="2,2" stroke-width="1"/>`;
+  }
+  const last = xy[xy.length-1].split(',');
+  return `<svg class="spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${lines}
+    <polyline points="${xy.join(' ')}" fill="none" stroke="#7c9ef8" stroke-width="1.4"/>
+    <circle cx="${last[0]}" cy="${last[1]}" r="2" fill="#7c9ef8"/></svg>`;
+}
+
+function cardHtml(c) {
+  if (c.state === 'pending_source')
+    return `<div class="mcard gray"><div class="nm">${c.name}</div>
+      <div class="neu" style="font-size:12px;padding:8px 0">数据源待接入</div></div>`;
+  if (c.state === 'missing')
+    return `<div class="mcard gray"><div class="nm">${c.name}
+        <span class="asof warn">最后数据 ${c.as_of||'—'}</span></div>
+      <div style="color:#fbbf24;font-size:13px;padding:4px 0">数据未更新</div>
+      <div class="note-line">不显示 0·不显示上一日值</div>${sparkSvg(c.spark, c.breaks)}</div>`;
+
+  const staleDaily = c.freq==='daily' && c.stale_sessions>=2;   // 源降级：灰显+不计分
+  const asofWarn = staleDaily;
+  // 分位条：no_dist(前瞻计划)不画；direction=0 画中性蓝；其余按"好坏"色
+  let bar = '';
+  if (c.no_dist) {
+    bar = `<div class="note-line">前瞻计划·无历史分布·不适用分位</div>`;
+  } else if (c.pctile===null || c.pctile===undefined) {
+    bar = `<div class="note-line warn">分位样本不足（${c.sample_n||0}/${c.sample_min}）</div>`;
+  } else {
+    const col = c.direction===0 ? '#7c9ef8' : tint(c.adj_pctile);
+    bar = `<div class="pbar"><i style="width:${c.pctile}%;background:${col}"></i></div>
+      <div class="pmeta"><span>分位 ${fmt(c.pctile,1)}%${c.direction===0?'<span class="badge-mini">中性</span>':''}</span>
+      <span>样本 ${c.sample_n}/${c.sample_win}</span></div>`;
+  }
+  // (3) 月频/周频：数据时点 + 距下次发布
+  let pub = '';
+  if (c.pub) pub = `<div class="note-line">数据时点 ${c.as_of} · 距下次发布约 ${c.pub.next_days} 天</div>`;
+  let notes = '';
+  if (c.break_note) notes += `<div class="note-line warn">⚠ ${c.break_note}</div>`;
+  if (!c.scored && c.score_note) notes += `<div class="note-line">${c.score_note}</div>`;
+  if (staleDaily) notes += `<div class="note-line warn">已沿用 ${c.stale_sessions} 个交易日·源可能异常</div>`;
+  const anomTag = c.anomaly ? `<span class="badge-mini" style="color:${c.anomaly>0?'#f6465d':'#2ebd85'}">异动${c.anomaly>0?'↑':'↓'}</span>` : '';
+  return `<div class="mcard${staleDaily?' gray':''}">
+    <div class="nm"><span>${c.name}${anomTag}</span><span class="asof${asofWarn?' warn':''}">${c.as_of||''}${c.freq==='daily'&&c.stale_sessions===1?'·T-1':''}</span></div>
+    <div class="val" style="color:${c.direction===0||c.no_dist?'#e8e8e8':tint(c.adj_pctile)}">${fmt(c.value)}<span class="unit">${c.unit||''}</span></div>
+    <div class="chg"><span class="${signCls(c.chg_1d)}">1日 ${c.chg_1d>0?'+':''}${fmt(c.chg_1d)}</span>
+      <span class="${signCls(c.chg_5d)}">5日 ${c.chg_5d>0?'+':''}${fmt(c.chg_5d)}</span></div>
+    ${bar}${sparkSvg(c.spark, c.breaks)}${pub}${notes}</div>`;
+}
+
+function renderLayers(layers) {
+  const el = document.getElementById('layer-secs');
+  let h = '';
+  for (const lay of layers) {
+    if (lay.state !== 'active') {
+      // (1) 层级明确"未启用/待接入"块
+      const names = (lay.pending_names||[]).join('、');
+      h += `<div class="card"><h2>${lay.label}</h2><div class="layer-off">
+        <b>${lay.state==='inactive'?'该层未启用':'数据源待接入'}</b> — ${lay.note||''}
+        ${names?`<br>已登记待接入：${names}`:''}<br>该层不参与总分。</div></div>`;
+      continue;
+    }
+    const open = ' open';                        // 有数据的层默认展开
+    h += `<details class="laysec"${open}><summary><span class="caret"></span>${lay.label}
+      <span class="neu" style="font-size:11px">（${lay.cards.length} 项）</span></summary>
+      <div class="cards" style="margin-top:8px">${lay.cards.map(cardHtml).join('')}</div>`;
+    if ((lay.disabled||[]).length)
+      h += `<div class="neu" style="font-size:11px;margin-top:8px">未接入：${lay.disabled.map(x=>`<span class="badge-mini" title="${(x.note||'').replace(/"/g,'&quot;')}">${x.name}</span>`).join(' ')}</div>`;
+    h += `</details>`;
+  }
+  el.innerHTML = h;
+}
+
+async function load(date) {
+  const q = date ? ('?date='+date) : '';
+  const r = await fetch('/api/macro/panel'+q);
+  const d = await r.json();
+  if (!d.ok) { document.getElementById('layer-secs').innerHTML = `<div class="card">${d.error||'加载失败'}</div>`; return; }
+  window._mac = d;
+  const iso = d.date.slice(0,4)+'-'+d.date.slice(4,6)+'-'+d.date.slice(6);
+  document.getElementById('d-pick').value = iso;
+  const bn = document.getElementById('lb-banner');
+  if (d.is_lookback) { bn.style.display='block';
+    bn.textContent = `⏪ 回看模式 · ${iso} · 所有数值/分位/评分均为该日真实可得口径（严格 point-in-time·不含之后的任何数据）`; }
+  else bn.style.display='none';
+  renderThermo(d.thermo); renderAnomalies(d.anomalies); renderLayers(d.layers);
+  history.replaceState(null,'', d.is_lookback ? ('/macro?date='+d.date) : '/macro');
+}
+
+function shiftDay(dir) {
+  const ds = window._mac ? window._mac.dates : [];   // 降序
+  const cur = window._mac ? window._mac.date : null;
+  if (!ds.length || !cur) return;
+  const i = ds.indexOf(cur);
+  const j = i + (dir>0 ? -1 : 1);                    // dates 降序：next=index-1
+  if (j>=0 && j<ds.length) load(ds[j]);
+}
+document.getElementById('d-prev').onclick = () => shiftDay(-1);
+document.getElementById('d-next').onclick = () => shiftDay(1);
+document.getElementById('d-latest').onclick = () => load('');
+document.getElementById('d-pick').onchange = e => load(e.target.value.replaceAll('-',''));
+
+load(new URLSearchParams(location.search).get('date') || '');
+</script>
+{% endblock %}

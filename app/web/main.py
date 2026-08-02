@@ -356,6 +356,23 @@ async def sentiment_page(request: Request, _user: str = Depends(require_auth)):
     return templates.TemplateResponse(request=request, name="sentiment.html", context={})
 
 
+@app.get("/macro", response_class=HTMLResponse)
+async def macro_page(request: Request, _user: str = Depends(require_auth)):
+    """宏观传导面板（约束器·非信号源）。只读 macro.db·断网可开。"""
+    return templates.TemplateResponse(request=request, name="macro.html", context={"page": "macro"})
+
+
+@app.get("/api/macro/panel")
+async def api_macro_panel(date: str = "", _user: str = Depends(require_auth)):
+    """面板数据。?date=YYYYMMDD 回看（严格 point-in-time·由数据层保证）。"""
+    try:
+        from app.macro.service import build_panel
+        return build_panel(date)
+    except Exception as e:
+        logger.exception("宏观面板组装失败")
+        return {"ok": False, "error": str(e)}
+
+
 @app.get("/api/sentiment")
 async def api_sentiment(days: int = 22, start: str = "", end: str = "",
                         _user: str = Depends(require_auth)):
