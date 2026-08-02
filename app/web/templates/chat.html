@@ -2,46 +2,95 @@
 {% block title %}AI 投研助手{% endblock %}
 
 {% block extra_style %}
-/* 全页 AI 投研：左会话列表 + 右大对话区。消息气泡复用全局 .aic-* 样式 */
-.cpg { display: flex; gap: 14px; height: calc(100vh - 150px); min-height: 420px; }
+/* 全页 AI 投研：左会话列表 + 右大对话区。消息气泡复用全局 .aic-* 样式·本页仅做视觉升级(.cpg 作用域) */
+.cpg { display: flex; gap: 16px; height: calc(100vh - 150px); min-height: 420px; }
+
+/* ── 侧栏 ── */
 .cpg-side {
-  width: 230px; flex-shrink: 0; background: #161929; border: 1px solid #2d3052;
-  border-radius: 10px; display: flex; flex-direction: column; overflow: hidden;
+  width: 240px; flex-shrink: 0; background: linear-gradient(180deg, #171a2c 0%, #141626 100%);
+  border: 1px solid #2d3052; border-radius: 14px; display: flex; flex-direction: column; overflow: hidden;
 }
 .cpg-newbtn {
-  margin: 10px; padding: 9px 12px; background: #3358e0; color: #fff; border: none;
-  border-radius: 8px; cursor: pointer; font-size: 13px; flex-shrink: 0;
+  margin: 12px; padding: 11px 12px; background: linear-gradient(135deg, #3358e0, #5d7cff);
+  color: #fff; border: none; border-radius: 10px; cursor: pointer; font-size: 14.5px; font-weight: 600;
+  flex-shrink: 0; box-shadow: 0 2px 10px rgba(51, 88, 224, .35); transition: transform .12s, box-shadow .12s;
 }
-.cpg-newbtn:hover { background: #3d63f0; }
-/* 关键修复：全局 .aic-ses 有 max-height:170px（给悬浮窗用的），全页要解锁、铺满侧栏高度 */
+.cpg-newbtn:hover { transform: translateY(-1px); box-shadow: 0 4px 14px rgba(51, 88, 224, .5); }
 .cpg-side .cpg-seslist { flex: 1; overflow-y: auto; border-top: 1px solid #242842; max-height: none; background: transparent; }
+.cpg-side .aic-srow { font-size: 13.5px; padding: 11px 14px; line-height: 1.5; border-left: 3px solid transparent; transition: background .12s; }
+.cpg-side .aic-srow:hover { background: #1d2138; }
+.cpg-side .aic-srow.cur { border-left-color: #5d7cff; background: #1d2138; }
+.cpg-side .aic-srow .del { font-size: 12px; opacity: .35; }
+.cpg-side .aic-srow:hover .del { opacity: 1; }
+
+/* ── 主区 ── */
 .cpg-main {
   flex: 1; min-width: 0; background: #0f1117; border: 1px solid #2d3052;
-  border-radius: 10px; display: flex; flex-direction: column; overflow: hidden;
+  border-radius: 14px; display: flex; flex-direction: column; overflow: hidden;
 }
-.cpg-msgs { flex: 1; overflow-y: auto; padding: 20px 26px; }
-/* 全页放大字号、加宽气泡，更易读（仅作用于全页 .cpg，不影响悬浮窗） */
-.cpg-msgs .aic-msg { margin-bottom: 18px; }
-.cpg-msgs .aic-msg.ai .bubble, .cpg-msgs .aic-msg.user .bubble { font-size: 15.5px; line-height: 1.85; max-width: 92%; }
+.cpg-msgs { flex: 1; overflow-y: auto; padding: 22px 30px; scroll-behavior: smooth; }
+.cpg-msgs::-webkit-scrollbar { width: 8px; }
+.cpg-msgs::-webkit-scrollbar-thumb { background: #2d3052; border-radius: 4px; }
+.cpg-msgs::-webkit-scrollbar-thumb:hover { background: #3d4270; }
+
+/* 气泡（页面级美化·不影响悬浮窗） */
+.cpg-msgs .aic-msg { margin-bottom: 20px; }
+.cpg-msgs .aic-msg.user .bubble {
+  font-size: 15px; line-height: 1.75; max-width: 78%;
+  background: linear-gradient(135deg, #2742a8, #3358e0); border: none;
+  border-radius: 14px 14px 4px 14px; box-shadow: 0 2px 10px rgba(39, 66, 168, .3); padding: 12px 16px;
+}
+.cpg-msgs .aic-msg.ai .bubble {
+  font-size: 15.5px; line-height: 1.85; max-width: 94%;
+  background: #161929; border: 1px solid #262b48;
+  border-radius: 4px 14px 14px 14px; padding: 16px 20px;
+}
 .cpg-msgs .aic-tip { font-size: 15px; line-height: 1.95; padding: 16px 6px; }
-.cpg-msgs .aic-md h1, .cpg-msgs .aic-md h2, .cpg-msgs .aic-md h3 { font-size: 16px; }
-.cpg-msgs .aic-md table { font-size: 13.5px; } .cpg-msgs .aic-md li { font-size: 15px; }
-/* 会话列表项放大、加高，留白填满后更顺眼 */
-.cpg-side .aic-srow { font-size: 14px; padding: 11px 14px; line-height: 1.5; }
-.cpg-side .aic-srow .del { font-size: 12px; }
-.cpg-newbtn { margin: 12px; padding: 11px 12px; font-size: 14.5px; }
-.cpg-in { display: flex; gap: 10px; padding: 14px; border-top: 1px solid #242842; }
+.cpg-msgs .aic-md h1, .cpg-msgs .aic-md h2, .cpg-msgs .aic-md h3 {
+  font-size: 16px; color: #8fa8ff; margin: 12px 0 6px; padding-bottom: 4px; border-bottom: 1px solid #242842;
+}
+.cpg-msgs .aic-md li { font-size: 15px; }
+.cpg-msgs .aic-md blockquote { border-left: 3px solid #3d4270; padding-left: 10px; color: #9ca3af; }
+.cpg-msgs .aic-md code { background: #232640; border-radius: 4px; padding: 1px 6px; font-size: 13.5px; }
+/* 表格美化：圆角容器+条纹+悬停 */
+.cpg-msgs .aic-md table {
+  font-size: 13.5px; border: 1px solid #2d3052; border-radius: 8px; border-collapse: separate;
+  border-spacing: 0; overflow: hidden; margin: 8px 0; width: 100%;
+}
+.cpg-msgs .aic-md th { background: #1e2240; color: #a9b6e8; position: sticky; top: 0; }
+.cpg-msgs .aic-md tr:nth-child(even) td { background: #131627; }
+.cpg-msgs .aic-md tr:hover td { background: #1a1e35; }
+.cpg-msgs .aic-status { color: #7c9ef8; }
+
+/* 快捷提问 */
+.cpg-quick { display: flex; gap: 8px; flex-wrap: wrap; padding: 10px 16px 0; }
+.qchip {
+  font-size: 12.5px; padding: 7px 14px; border-radius: 18px; cursor: pointer;
+  background: #161929; color: #cdd6f4; border: 1px solid #2d3052; white-space: nowrap;
+  transition: all .13s;
+}
+.qchip:hover { background: #2742a8; border-color: #3d63f0; color: #fff; transform: translateY(-1px); }
+.qhint { width: 100%; font-size: 11px; color: #6b7280; margin-bottom: 2px; }
+
+/* 输入区 + 模型选择器 */
+.cpg-in { display: flex; gap: 10px; padding: 14px 16px 16px; border-top: 1px solid #242842; align-items: flex-end; }
 .cpg-in textarea {
   flex: 1; background: #161929; color: #e8e8e8; border: 1px solid #2d3052;
-  border-radius: 8px; padding: 11px 13px; font-size: 15.5px; resize: none; height: 56px;
-  font-family: inherit; line-height: 1.6;
+  border-radius: 12px; padding: 12px 14px; font-size: 15.5px; resize: none; height: 58px;
+  font-family: inherit; line-height: 1.6; transition: border-color .15s, box-shadow .15s;
 }
-.cpg-in .aic-send { padding: 0 24px; font-size: 15px; }
-/* 问题快捷键：点一下就用我预写的"专家级 prompt"提问 */
-.cpg-quick { display: flex; gap: 7px; flex-wrap: wrap; padding: 10px 14px 0; }
-.qchip { font-size: 12.5px; padding: 6px 13px; border-radius: 16px; cursor: pointer; background: #161929; color: #cdd6f4; border: 1px solid #2d3052; white-space: nowrap; }
-.qchip:hover { background: #2742a8; border-color: #2742a8; color: #fff; }
-.qhint { width: 100%; font-size: 11px; color: #6b7280; margin-bottom: 2px; }
+.cpg-in textarea:focus { outline: none; border-color: #3d63f0; box-shadow: 0 0 0 3px rgba(51, 88, 224, .18); }
+.cpg-in .aic-send {
+  padding: 0 26px; font-size: 15px; height: 58px; border-radius: 12px;
+  background: linear-gradient(135deg, #3358e0, #5d7cff); font-weight: 600;
+}
+.cpg-modelrow { display: flex; align-items: center; gap: 8px; padding: 10px 16px 0; }
+.cpg-model {
+  background: #161929; color: #cdd6f4; border: 1px solid #2d3052; border-radius: 9px;
+  padding: 7px 10px; font-size: 12.5px; cursor: pointer;
+}
+.cpg-model:focus { outline: none; border-color: #3d63f0; }
+.model-note { font-size: 11px; color: #6b7280; }
 {% endblock %}
 
 {% block content %}
@@ -52,6 +101,16 @@
   </aside>
   <main class="cpg-main">
     <div id="cpg-msgs" class="cpg-msgs"></div>
+    <div class="cpg-modelrow">
+      <span class="model-note">🤖 回答模型</span>
+      <select id="cpg-model" class="cpg-model">
+        <option value="auto">自动（预设按钮各自档位 · 手输走 DeepSeek-Pro）</option>
+        <option value="pro">DeepSeek Pro（深推演 · 默认强模型）</option>
+        <option value="kimi">Kimi K3（思考常开 · 长答更慢但更细）</option>
+        <option value="flash">DeepSeek Flash（快省 · 简单查询）</option>
+      </select>
+      <span class="model-note">选定后覆盖所有消息（含快捷提问）· 记住选择</span>
+    </div>
     <div class="cpg-quick" id="cpg-quick"></div>
     <div class="cpg-in">
       <textarea id="cpg-text" placeholder="问点什么…（Enter 发送 / Shift+Enter 换行）"></textarea>
@@ -65,7 +124,7 @@
 <!-- chat.js 由 base.html 在 body 末尾加载，故 init 须等 DOMContentLoaded 后再用 AChat -->
 <script>
 // 预写的"专家级 prompt"——每个都强制：先调真实数据工具 → 套专业框架 → 诚实(带来源/标推演/不编造)
-// t: 模型档位——pro(复杂推演/多步判断·强模型) / flash(单工具查询+整理·快省)
+// t: 默认模型档位——pro(复杂推演·强模型) / flash(单工具查询·快省)；顶部选择器可整体覆盖
 const QUICK = [
   { k: '📈 后市走势推演', t: 'pro', p:
 '请做一份【A股后市走势推演】，要专业、敢下判断，但严守诚实。按这个框架：\n' +
@@ -93,10 +152,11 @@ const QUICK = [
 ];
 
 window.addEventListener('DOMContentLoaded', function () {
-  const chat = AChat.create({ msgs: 'cpg-msgs', text: 'cpg-text', sendBtn: 'cpg-send', sesList: 'cpg-ses' });
+  const chat = AChat.create({ msgs: 'cpg-msgs', text: 'cpg-text', sendBtn: 'cpg-send',
+                              sesList: 'cpg-ses', modelSel: 'cpg-model' });
   document.getElementById('cpg-new').onclick = () => chat.newSession(true);
   const qbar = document.getElementById('cpg-quick');
-  qbar.innerHTML = '<div class="qhint">💡 快捷提问（点一下用预写的专家级 prompt·先查真实数据再分析）·<span style="color:#7c9ef8">pro</span>=强模型深推演 / <span style="color:#9ca3af">flash</span>=快省查询</div>';
+  qbar.innerHTML = '<div class="qhint">💡 快捷提问（点一下用预写的专家级 prompt·先查真实数据再分析）·标签为各自默认档位·顶部选定模型后整体覆盖</div>';
   QUICK.forEach(function (q) {
     const b = document.createElement('button');
     b.className = 'qchip'; b.title = (q.t === 'flash' ? 'flash·快省' : 'pro·强模型深推演');

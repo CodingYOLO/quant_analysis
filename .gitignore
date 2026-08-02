@@ -19,6 +19,10 @@ app/web/static/*.js
 # 第三方图表库锁版本入库：ECharts 5.6.0（SHA256 e84270bd0cd5bdf60fefc26d00c2a391cb2e81f4d26a7a9ee16185a54773a3cf）
 # 原先只存在于服务器，本地开发看不到任何图表；入库后本地/生产同版本可复现
 !app/web/static/echarts.min.js
+# 一方 JS(自研·非第三方库)必须入库版本管理——此前被 *.js 整体忽略是历史遗留·改动无法追溯
+!app/web/static/chat.js
+!app/web/static/kline.js
+!app/web/static/research_widget.js
 
 # 本地热榜同步(含凭据+运行日志·勿入库)
 scripts/local_hotrank_sync.py

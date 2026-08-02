@@ -177,7 +177,19 @@ window.AChat = (function () {
     const TIP = cfg.tip || DEFAULT_TIP;
     const sticky = cfg.sticky !== false;
     let busy = false;
-    let nextTask = null;          // 下一条消息的模型档位(pro/flash)·快捷键设·发完即清·默认走后端 pro
+    let nextTask = null;          // 下一条消息的模型档位·快捷键设·发完即清
+    // 模型选择器(可选·仅全页传入)：auto=预设各自档位/手输默认pro；显式选择则覆盖一切
+    const MODEL_KEY = "aic_model";
+    const elModel = () => (cfg.modelSel ? $(cfg.modelSel) : null);
+    if (elModel()) {
+      elModel().value = localStorage.getItem(MODEL_KEY) || "auto";
+      elModel().onchange = function () { localStorage.setItem(MODEL_KEY, this.value); };
+    }
+    function pickTask() {
+      const sel = elModel() ? elModel().value : "auto";
+      if (sel && sel !== "auto") return sel;      // 用户显式选了模型 → 覆盖预设档位
+      return nextTask;                             // auto：预设带的档位·手输为空走后端默认(pro)
+    }
     let sid = sticky ? parseInt(localStorage.getItem(SID_KEY)) || null : null;
 
     function setSid(v) {
@@ -289,7 +301,7 @@ window.AChat = (function () {
       addMsg("user", esc(text));
       const bubble = addMsg("ai", '<span class="aic-status">⏳ 正在思考…</span>');
       try {
-        const task = nextTask; nextTask = null;        // 取本条档位并清空，后续手输消息回落默认
+        const task = pickTask(); nextTask = null;      // 选择器优先·预设档位次之·发完即清
         const resp = await fetch("/api/chat/stream", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -375,7 +387,7 @@ window.AChat = (function () {
 
     return {
       loadSessions, newSession, openSession, delSession, send, showMsgs, resume,
-      setTask(t) { nextTask = (t === "pro" || t === "flash") ? t : null; },   // 下一条消息的模型档位
+      setTask(t) { nextTask = (t === "pro" || t === "flash" || t === "kimi") ? t : null; },
       get sid() { return sid; },
     };
   }

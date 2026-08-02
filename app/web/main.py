@@ -1333,7 +1333,7 @@ async def api_chat_stream(request: Request, _user: str = Depends(require_auth)):
     body = await request.json()
     sid = int(body.get("session_id") or 0)
     message = str(body.get("message") or "").strip()
-    task = body.get("task") if body.get("task") in ("pro", "flash") else "pro"   # 模型档位·默认强模型
+    task = body.get("task") if body.get("task") in ("pro", "flash", "kimi") else "pro"   # 模型档位·默认强模型
     if not sid or not message:
         return {"ok": False, "msg": "缺少 session_id 或 message"}
 

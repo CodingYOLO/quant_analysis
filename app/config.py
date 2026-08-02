@@ -30,6 +30,11 @@ class Settings(BaseSettings):
     claude_api_key: str = Field("", description="Claude API Key（可选备用）")
     claude_model: str = Field("claude-sonnet-4-6")
 
+    # ---------- Kimi / Moonshot（AI投研可选模型·2026-08-02·官方OpenAI兼容） ----------
+    kimi_api_key: str = Field("", description="Kimi(Moonshot) API Key·留空=前端不展示该选项")
+    kimi_base_url: str = Field("https://api.moonshot.ai/v1", description="官方兼容端点(旧文档的 .cn 已迁移)")
+    kimi_model: str = Field("kimi-k3", description="实测 models.list 该key仅此一个模型·思考常开")
+
     # ---------- LLM Provider ----------
     llm_provider: str = Field("deepseek", description="默认LLM提供商: deepseek | claude")
 

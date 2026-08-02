@@ -27,7 +27,7 @@ _DEEPSEEK_PRICE_OUTPUT = 2.0   # ¥/1M output tokens (v4-flash)
 _DEEPSEEK_PRO_PRICE_INPUT = 3.1
 _DEEPSEEK_PRO_PRICE_OUTPUT = 6.3
 
-TaskType = Literal["flash", "pro"]
+TaskType = Literal["flash", "pro", "kimi"]
 
 
 class LLMClient:
@@ -64,6 +64,17 @@ class LLMClient:
         """
         provider = self._settings.llm_provider
 
+        # kimi 档位独立于 llm_provider 全局开关：AI投研页可逐条消息选模型
+        if task_type == "kimi":
+            if not self._settings.kimi_api_key:
+                raise ValueError("Kimi 未配置：请在服务器 .env 设置 KIMI_API_KEY")
+            client = OpenAI(
+                api_key=self._settings.kimi_api_key,
+                base_url=self._settings.kimi_base_url,
+                timeout=180.0,                   # kimi-k3 思考常开·长答比 deepseek 慢
+            )
+            return client, self._settings.kimi_model
+
         if provider == "deepseek":
             client = OpenAI(
                 api_key=self._settings.deepseek_api_key,
@@ -88,8 +99,15 @@ class LLMClient:
 
         return client, model
 
+    @staticmethod
+    def _fix_temperature(model: str, temperature: float) -> float:
+        """kimi-k3 实测约束：`invalid temperature: only 1 is allowed for this model`(思考常开·固定采样)。"""
+        return 1.0 if "kimi" in model.lower() else temperature
+
     def _estimate_cost(self, model: str, input_tokens: int, output_tokens: int) -> float:
         """估算本次调用费用（人民币）。"""
+        if "kimi" in model.lower():
+            return 0.0        # Kimi 定价未配置·成本页显示0（如需精确·在此按官网价补常量）
         if "reasoner" in model or "pro" in model.lower():
             cost = (input_tokens * _DEEPSEEK_PRO_PRICE_INPUT + output_tokens * _DEEPSEEK_PRO_PRICE_OUTPUT) / 1_000_000
         else:
@@ -146,7 +164,7 @@ class LLMClient:
         response = client.chat.completions.create(
             model=model,
             messages=messages,
-            temperature=temperature,
+            temperature=self._fix_temperature(model, temperature),
             max_tokens=max_tokens,
             **({"extra_body": extra_body} if extra_body else {}),
         )
@@ -180,7 +198,7 @@ class LLMClient:
         client, model = self._get_client(task_type)
         resp = client.chat.completions.create(
             model=model, messages=messages, tools=tools, tool_choice="auto",
-            temperature=0.2, max_tokens=max_tokens,
+            temperature=self._fix_temperature(model, 0.2), max_tokens=max_tokens,
         )
         u = resp.usage
         if u:
@@ -197,7 +215,8 @@ class LLMClient:
         token(<｜tool_calls｜>/DSML 标记)当文本吐出泄漏给用户。
         """
         client, model = self._get_client(task_type)
-        kwargs: dict = dict(model=model, messages=messages, temperature=0.3,
+        kwargs: dict = dict(model=model, messages=messages,
+                            temperature=self._fix_temperature(model, 0.3),
                             max_tokens=max_tokens, stream=True)
         if tools:
             kwargs["tools"] = tools

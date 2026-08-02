@@ -484,13 +484,15 @@ def run_chat(history: list[dict], provider: CompositeProvider | None = None, cli
     task: 模型档位——'pro'(强·复杂推演) / 'flash'(快省·简单查询)。默认 pro。
     yield 事件 dict：{type:'status'|'thinking'|'delta'|'done'|'error', ...}。
     """
-    task = task if task in ("pro", "flash") else _AGENT_TASK
+    task = task if task in ("pro", "flash", "kimi") else _AGENT_TASK
     provider = provider or CompositeProvider()
     client = client or LLMClient()
     messages = [{"role": "system", "content": _SYSTEM + "\n\n" + _now_context()}, *history]
     try:
         for _ in range(_MAX_TOOL_ROUNDS):
-            msg = client.complete_with_tools(messages, _tool_schemas(), task_type=task)
+            # max_tokens 9000/12000 = 原 3000/4000 ×3（用户反馈长回答被截断·2026-08-02）
+            msg = client.complete_with_tools(messages, _tool_schemas(), task_type=task,
+                                             max_tokens=9000)
             if not getattr(msg, "tool_calls", None):
                 break
             messages.append({"role": "assistant", "content": msg.content or "",
@@ -505,7 +507,7 @@ def run_chat(history: list[dict], provider: CompositeProvider | None = None, cli
         # ③ 泄漏检测兜底(三保险)——根治复杂多股问题答一半被 <｜tool…｜> 截断
         messages.append({"role": "system", "content": _FINAL_SYNTH})
         parts, thinking_sent, stopped = [], False, False
-        for kind, text in client.stream_answer(messages, task_type=task):
+        for kind, text in client.stream_answer(messages, task_type=task, max_tokens=12000):
             if kind == "reasoning":
                 if not thinking_sent:
                     yield {"type": "thinking", "text": "💭 思考中…"}
