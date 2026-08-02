@@ -82,6 +82,7 @@ def _tool_schemas() -> list[dict]:
         _fn("my_portfolio", "查用户自己的自选/持仓：盈亏+持仓体检(健康灯)+事件预警", {"type": "object", "properties": {}}),
         _fn("search_news", "联网搜索任意财经主题的真实新闻(博查)，如政策/行业/事件", {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}),
         _fn("inst_lhb_board", "查最近交易日龙虎榜机构席位真实净买/净卖榜（真金白银·A股仅存的个股级真机构钱）", {"type": "object", "properties": {"tech_only": {"type": "boolean", "description": "是否只看科技赛道(电子/通信/计算机/半导体等)，默认否"}}}),
+        _fn("macro_panel", "查宏观传导面板：L0流动性/L1市场资金分层得分+今日宏观异动+关键指标(利率/汇率/两融/成交额等)的历史分位——做『宏观环境→板块/持仓传导』判断必调(读库·零延迟)", {"type": "object", "properties": {}}),
         _fn("market_overview", "查大盘体检：当前状态(强/震/弱)+上证点位+成交量水位+市场广度+涨停跌停+连板高度+情绪温度+近5日领涨/领跌板块（做『大盘格局/后市/择时/仓位』判断必调）", {"type": "object", "properties": {}}),
     ]
 
@@ -94,7 +95,7 @@ _LABELS = {
     "stock_quote": "查行情", "stock_financials": "查财报/事件", "stock_research": "查研报",
     "stock_news": "查新闻", "stock_best_signal": "查最佳信号", "sector_heat": "查板块热度",
     "my_portfolio": "查我的持仓", "search_news": "联网搜索", "inst_lhb_board": "查机构动向",
-    "market_overview": "查大盘体检",
+    "market_overview": "查大盘体检", "macro_panel": "查宏观面板",
 }
 
 
@@ -431,11 +432,44 @@ def _t_market_overview(args, provider) -> dict:
     }
 
 
+def _t_macro_panel(args, provider) -> dict:
+    """宏观面板快照(只读 macro.db·与 /macro 页同源)。给 LLM 的是紧凑摘要而非全量卡片。"""
+    from app.macro import store as mstore
+    d = mstore.latest_date()
+    if not d:
+        return {"error": "宏观库为空"}
+    scores = {r["layer"]: {"score": r["score"], "参与": f"{r['n_part']}/{r['n_total']}"}
+              for r in mstore.read_scores(d) if r["score"] is not None}
+    rows = mstore.read_panel(d)
+    metas = {m["code"]: m for m in mstore.get_meta()}
+    key = {}
+    for code in ("fdr007", "cn_10y", "cn_us_spread_10y", "usdcnh", "us_10y", "turnover_total",
+                 "margin_ratio", "mainflow_total", "northbound_turnover", "etf_share_chg",
+                 "m1_yoy", "social_finance_inc", "pmi_mfg", "float_release"):
+        r = rows.get(code)
+        m = metas.get(code)
+        if not r or not m or r.get("value") is None:
+            continue
+        item = {"值": r["value"], "单位": m["unit"], "分位": r.get("pctile_750")}
+        if r.get("anomaly"):
+            item["异动"] = "↑" if r["anomaly"] > 0 else "↓"
+        if int(m["direction"]) == -1:
+            item["口径"] = "高=偏空"
+        elif int(m["direction"]) == 0:
+            item["口径"] = "中性"
+        key[m["name_cn"]] = item
+    anomalies = [f"{metas[c]['name_cn']}{'↑' if r['anomaly']>0 else '↓'}"
+                 for c, r in rows.items() if r.get("anomaly") and c in metas]
+    return {"数据日": d, "分层得分(0-100·好坏分位加权)": scores, "今日异动": anomalies or "无",
+            "关键指标": key,
+            "说明": "分位=近三年历史百分位；L2情绪/L3外部层未接入不参与总分；来源=项目宏观库(/macro页同源)"}
+
+
 _TOOLS = {
     "stock_quote": _t_quote, "stock_financials": _t_financials, "stock_research": _t_research,
     "stock_news": _t_news, "stock_best_signal": _t_best_signal, "sector_heat": _t_sector,
     "my_portfolio": _t_portfolio, "search_news": _t_search, "inst_lhb_board": _t_inst_board,
-    "market_overview": _t_market_overview,
+    "market_overview": _t_market_overview, "macro_panel": _t_macro_panel,
 }
 
 
