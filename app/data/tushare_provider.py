@@ -344,20 +344,49 @@ class TushareProvider(DataProvider):
 
     def get_fina_indicator_by_period(self, period: str) -> pd.DataFrame:
         """全市场某报告期财务指标（一次取全·供选股批量排雷+牛股画像）。列：ts_code/debt_to_assets/
-        netprofit_yoy/roe/or_yoy/grossprofit_margin。按 period 缓存一天。"""
+        netprofit_yoy/roe/or_yoy/grossprofit_margin/dt_netprofit_yoy/profit_dedt。按 period 缓存。
+
+        profit_dedt(扣非净利**绝对值**)：供"连续多年增长"自算增速——只有绝对值能判断基期是否为正，
+        同比率在基期亏损时数学上无意义(符号翻转)，不能拿来判可持续增长。
+        """
         return cached_daily(
             name="tushare_fina_by_period",
             date_key=period,
             fetch_fn=lambda: self._fetch_fina_by_period(period),
         )
 
-    @_RETRY
+    # 单次返回上限（Tushare 侧硬限制；早期报告期因历史修正记录多会撞顶）
+    _FINA_PAGE = 6000
+
     def _fetch_fina_by_period(self, period: str) -> pd.DataFrame:
+        """按报告期拉全市场财务指标，**分页取完**。
+
+        ⚠️ 不分页会被静默截断：实测 period=20221231 单次只回 12000 行(uniq 6398)，
+        分页后 12186 行(uniq 6580)——少掉的公司会在"连续多年增长"里被误判成数据缺失。
+        """
+        parts: list[pd.DataFrame] = []
+        offset = 0
+        while True:
+            page = self._fetch_fina_page(period, offset)
+            if page is None or page.empty:
+                break
+            parts.append(page)
+            offset += len(page)
+            if len(page) < self._FINA_PAGE:
+                break
+        if not parts:
+            return pd.DataFrame()
+        return pd.concat(parts, ignore_index=True)
+
+    @_RETRY
+    def _fetch_fina_page(self, period: str, offset: int) -> pd.DataFrame:
         return rate_limited_call(
             "tushare_fina_indicator",
             self._api.fina_indicator_vip,
             period=period,
-            fields="ts_code,debt_to_assets,netprofit_yoy,roe,or_yoy,grossprofit_margin,dt_netprofit_yoy",
+            fields="ts_code,debt_to_assets,netprofit_yoy,roe,or_yoy,grossprofit_margin,dt_netprofit_yoy,profit_dedt",
+            limit=self._FINA_PAGE,
+            offset=offset,
         )
 
     def get_balancesheet_by_period(self, period: str) -> pd.DataFrame:

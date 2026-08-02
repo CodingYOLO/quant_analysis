@@ -107,6 +107,7 @@
     <button class="quickbtn" id="preset-mainrise" style="border-color:#6b3a1a;color:#fb923c">🚀 强势主升浪·趋势确立（回测优选·MA60向上+RSI强+资金+板块·追趋势非追突破）</button>
     <button class="quickbtn" id="preset-qualfund" style="border-color:#1f5a3a;color:#4ade80">💎 质量资金共振（因子归因验证·稳健正alpha：ROE+资金持续+千评）</button>
     <button class="quickbtn" id="preset-bull" style="border-color:#6b5a1a;color:#f6c343">🐂 牛股画像·基本面质量（营收/净利≥20%·ROE≥15%·毛利≥40%·负债≤60%·据《估值实战》文档）</button>
+    <button class="quickbtn" id="preset-growth3y" style="border-color:#6b5a1a;color:#fbbf24">⭐ 连续3年高成长（年报口径·营收+扣非每年≥20%·排除"一年爆发"伪成长）</button>
     <button class="quickbtn" id="preset-derisk" style="border-color:#6b2a2a;color:#f87171">🛡 财务排雷体检（一票否决全打包：ST/负债/商誉/大存大贷·排雷比选股更重要）</button>
     <span class="neu" style="width:100%;font-size:11px;margin:4px 0 0">📐 VOL.2形态选股（进阶篇·找符合结构的票·非涨跌预测）：</span>
     <button class="quickbtn" id="preset-gap" style="border-color:#5a2a6b;color:#c084fc">🪂 跳空突破缺口（放量2倍·平台边缘·稀有）</button>
@@ -160,6 +161,9 @@
       <option value="limit_ups_60d">🔥 连板基因(60日涨停)</option>
       <option value="youzi_relay_days">🔥 游资接力(天数)</option>
       <option value="forecast_chg">📈 预告净利增幅</option>
+      <option value="or_cagr3">⭐ 营收3年复合增速</option>
+      <option value="dtnp_cagr3">⭐ 扣非净利3年复合增速</option>
+      <option value="consec_inflow">💰 连续净流入天数</option>
       <option value="main_net_amount">主力净流入</option>
       <option value="elg_net">超大单净流入</option>
       <option value="pct_chg">涨跌幅</option>
@@ -363,6 +367,11 @@ document.getElementById('preset-qualfund').addEventListener('click', () =>
 // 🐂 牛股画像·基本面质量：据《估值实战》文档——营收/净利≥20%·ROE≥15%·毛利≥40%·负债≤60% + 排雷(ST/商誉/大存大贷) + 站MA20(基本面选股×技术面择时)·按RPS120排。财务为最新财报口径(季度滞后)
 document.getElementById('preset-bull').addEventListener('click', () =>
   applyPreset(['bull_or_yoy20', 'bull_np_yoy20', 'bull_dtnp_yoy20', 'bull_roe15', 'bull_gpm40', 'bull_debt60', 'risk_not_st', 'risk_goodwill30', 'risk_no_bigcashdebt', 'above_ma20'], 'rps120'));
+// ⭐ 连续3年高成长：年报口径连续性(营收+扣非每年≥20%·四年均盈利) + ROE质量 + 负债稳健 + 排雷 + 站MA20择时
+//    与「🐂牛股画像」的区别：那个看**最新单期**财报，这个要求**每一年都达标**——专治"前两年下滑、今年低基数暴涨"的伪成长。
+//    按营收3年复合增速排序（不是按最新一期，避免单期爆发插队）。缺任一年年报数据的股会留空→自动被过滤掉。
+document.getElementById('preset-growth3y').addEventListener('click', () =>
+  applyPreset(['bull_growth3y20', 'bull_roe15', 'bull_debt60', 'risk_not_st', 'risk_goodwill30', 'risk_no_bigcashdebt', 'above_ma20'], 'or_cagr3'));
 // 🛡 财务排雷体检：一票否决全打包(剔ST + 净资产为正 + 负债≤70% + 净利非断崖 + 商誉≤30% + 非大存大贷 + 应收存货未虚增)·据《估值实战》排雷清单·按流通市值排
 document.getElementById('preset-derisk').addEventListener('click', () =>
   applyPreset(['risk_not_st', 'risk_pos_equity', 'risk_debt70', 'risk_not_huge_loss', 'risk_goodwill30', 'risk_no_bigcashdebt', 'risk_no_recvbloat'], 'circ_mv_100m'));
@@ -439,7 +448,7 @@ document.getElementById('qPrev').addEventListener('click', () => {
 // 需要 红涨绿跌 + 正负号的列
 const SIGNED = new Set(['pct_chg', 'main_net_amount', 'main_net_3d', 'elg_net', 'vwap_dev', 'ret5', 'ret20', 'netprofit_yoy', 'forecast_chg']);
 // 文本列（不可数值排序）
-const TEXT_COLS = new Set(['ts_code', 'name', 'industry', 'forecast_type']);
+const TEXT_COLS = new Set(['ts_code', 'name', 'industry', 'forecast_type', 'or_yoy_3y', 'dtnp_yoy_3y']);
 
 let lastData = null;        // 最近一次结果 {columns, rows}
 let sortState = { key: null, asc: false };

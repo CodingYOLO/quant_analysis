@@ -52,9 +52,13 @@ FACTOR_GROUPS = [
         "group": "🐂 牛股画像·基本面质量（据《估值实战》文档·均为最新财报口径·季度滞后）",
         "factors": [
             {"key": "bull_or_yoy20", "label": "🐂营收同比≥20%(成长第一证据·较难造假)", "col": "or_yoy", "op": "ge", "val": 20},
-            {"key": "bull_np_yoy20", "label": "🐂净利同比≥20%", "col": "netprofit_yoy", "op": "ge", "val": 20},
-            {"key": "bull_dtnp_yoy20", "label": "🐂扣非净利同比≥20%(去非经常性·真主业增速·较难粉饰)", "col": "dt_netprofit_yoy", "op": "ge", "val": 20},
-            {"key": "bull_roe15", "label": "🐂ROE≥15%(牛股共同基因·🟢IC+0.06已验证)", "col": "roe", "op": "ge", "val": 15},
+            {"key": "bull_np_yoy20", "label": "🐂净利同比≥20%(已剔除仍亏损股)", "col": "np_yoy_pos", "op": "ge", "val": 20},
+            {"key": "bull_dtnp_yoy20", "label": "🐂扣非净利同比≥20%(去非经常性·真主业增速·已剔除仍亏损股)", "col": "dtnp_yoy_pos", "op": "ge", "val": 20},
+            {"key": "bull_profitable", "label": "🐂本期扣非净利为正(排除『亏损收窄』伪增长)", "col": "dedt_positive", "op": "true"},
+            {"key": "bull_growth3y20", "label": "⭐连续3年营收+扣非双≥20%(年报口径·真成长·排除一年爆发)", "col": "growth3y_20", "op": "true"},
+            {"key": "bull_or3y_min15", "label": "🐂近3年营收每年≥15%(增长不断档·年报口径)", "col": "or_yoy_3y_min", "op": "ge", "val": 15},
+            {"key": "bull_dtnp_cagr20", "label": "🐂扣非净利3年复合≥20%(允许单年波动·看总斜率·需四年均盈利)", "col": "dtnp_cagr3", "op": "ge", "val": 20},
+            {"key": "bull_roe15", "label": "🐂ROE≥15%(牛股共同基因·**年报口径**·原用单季ROE门槛失真已修)", "col": "roe_yr", "op": "ge", "val": 15},
             {"key": "bull_gpm40", "label": "🐂毛利率≥40%(定价权直接证据)", "col": "grossprofit_margin", "op": "ge", "val": 40},
             {"key": "bull_debt60", "label": "🐂资产负债率≤60%(财务稳健)", "col": "debt_to_assets", "op": "le", "val": 60},
             {"key": "bull_mv_50_300", "label": "🐂总市值50-300亿(十倍股起点体格)", "col": "total_mv_100m", "op": "between", "val": [50, 300]},
@@ -320,6 +324,10 @@ CUSTOM_FIELDS = [
     {"col": "peg", "label": "💰PEG(粗略近似·仅5-70%稳增股)"}, {"col": "goodwill_ratio", "label": "🛡商誉占净资产%"},
     {"col": "dt_netprofit_yoy", "label": "🐂扣非净利同比%(最新财报)"}, {"col": "recv_inv_yoy", "label": "🛡应收+存货同比增速%"},
     {"col": "pe_pct", "label": "💰PE历史分位%(近4年·越低越低估)"},
+    {"col": "roe_yr", "label": "🐂ROE%(年报口径·非单季)"},
+    {"col": "dtnp_yoy_pos", "label": "🐂扣非同比%(仅本期盈利股)"}, {"col": "np_yoy_pos", "label": "🐂净利同比%(仅本期盈利股)"},
+    {"col": "or_yoy_3y_min", "label": "⭐近3年营收同比最小值%(年报)"}, {"col": "or_cagr3", "label": "⭐营收3年复合增速%"},
+    {"col": "dtnp_yoy_3y_min", "label": "⭐近3年扣非增速最小值%"}, {"col": "dtnp_cagr3", "label": "⭐扣非3年复合增速%"},
     {"col": "act_rank", "label": "活跃度排名(当前)"}, {"col": "act_peak", "label": "活跃度峰值"},
     {"col": "act_trough", "label": "活跃度谷值"}, {"col": "act_recover", "label": "人气回升位"},
     {"col": "inst_net_yi", "label": "龙虎榜机构净买(亿)"},
@@ -339,10 +347,12 @@ DISPLAY_COLS = [
     ("limit_ups_60d", "60日涨停"), ("max_consec_limit", "最高连板"),
     ("youzi_relay_days", "🔥游资接力日"),
     ("forecast_type", "业绩预告"), ("forecast_chg", "预告净利%"),
-    ("debt_to_assets", "负债率%"), ("netprofit_yoy", "净利同比%"), ("roe", "🟢ROE%"),
+    ("debt_to_assets", "负债率%"), ("netprofit_yoy", "净利同比%"), ("roe", "🟢ROE%(单季)"), ("roe_yr", "🐂ROE%(年报)"),
     ("or_yoy", "🐂营收同比%"), ("grossprofit_margin", "🐂毛利率%"), ("dv_ratio", "💰股息率%"),
     ("peg", "💰PEG"), ("goodwill_ratio", "🛡商誉/净资产%"), ("big_cash_debt", "🛡疑似大存大贷"),
     ("dt_netprofit_yoy", "🐂扣非净利同比%"), ("recv_inv_yoy", "🛡应收存货增速%"), ("pe_pct", "💰PE历史分位%"),
+    ("or_yoy_3y", "⭐营收3年(新→旧)%"), ("or_cagr3", "⭐营收3年复合%"),
+    ("dtnp_yoy_3y", "⭐扣非3年(新→旧)%"), ("dtnp_cagr3", "⭐扣非3年复合%"),
     ("turnover_rate", "换手%"), ("volume_ratio", "量比"), ("circ_mv_100m", "流通市值(亿)"),
     ("main_net_amount", "主力净流入(亿)"), ("main_net_3d", "主力3日(亿)"), ("elg_net", "超大单(亿)"),
     ("inflow_days_10", "💰流入天数(近10)"), ("consec_inflow", "连续流入天"), ("sector_inflow_days", "板块流入天"),
@@ -362,7 +372,7 @@ DISPLAY_COLS = [
 # ──────────────────────────────────────────────
 
 # 因子表结构版本：新增因子列时 +1，使旧缓存自动失效重算（避免读到缺列的旧表）
-_FACTOR_TABLE_VERSION = "v30"  # v30: pe_pct(PE历史分位·跟自己比·近4年月度面板)；v29 扣非/应收存货虚增；v28 商誉/大存大贷/PEG；v27 营收/毛利/股息/PS
+_FACTOR_TABLE_VERSION = "v32"  # v32: 连续3年营收/扣非增长(年报口径)+同比增速剔亏损股(dtnp_yoy_pos)+年报ROE(roe_yr·修单季ROE比年度门槛)；v30 PE历史分位；v29 扣非/应收存货虚增；v28 商誉/大存大贷/PEG
 
 
 def _factor_cache_path(date: str) -> Path:
@@ -401,6 +411,7 @@ def build_factor_table(date: str, provider: CompositeProvider | None = None,
     df = _add_fund_persistence(df, date, provider)   # 近3日主力净流入(持续性)
     df = _add_fund_repeat_inflow(df, date, provider)  # 近10日反复净流入(天数/连续)+板块持续流入
     df = _add_fundamentals(df, provider)              # 批量财务(负债率/净利同比/ROE/营收/毛利/PEG)·牛股画像+排雷
+    df = _add_multiyear_growth(df, provider)          # 连续3年营收/扣非增长(年报口径·分辨真成长与一年爆发)
     df = _add_balancesheet_flags(df, provider)        # 批量资产负债表(商誉率/大存大贷/应收存货虚增)·财务地雷排雷
     df = _add_pe_percentile(df, provider, date)       # PE 历史分位(跟自己历史比·估值坐标系①)
     df = _add_youzi_relay(df, date, provider)         # 近20日游资接力天数(批量top_inst)
@@ -1007,18 +1018,47 @@ def _add_fundamentals(df: pd.DataFrame, provider) -> pd.DataFrame:
         fin = provider.get_fina_indicator_by_period(_latest_fina_period())
         if fin is not None and not fin.empty:
             fin = fin.drop_duplicates("ts_code", keep="first")
-            for col in ("debt_to_assets", "netprofit_yoy", "roe", "or_yoy", "grossprofit_margin", "dt_netprofit_yoy"):
+            for col in ("debt_to_assets", "netprofit_yoy", "roe", "or_yoy", "grossprofit_margin",
+                        "dt_netprofit_yoy", "profit_dedt"):
                 if col in fin.columns:
                     m = dict(zip(fin["ts_code"], pd.to_numeric(fin[col], errors="coerce")))
                     df[col] = df["ts_code"].map(m)
     except Exception as e:
         logger.debug("批量财务获取失败: %s", e)
+    df = _add_profitable_growth(df)                       # 在 try 之外：取数失败也要建列(见函数内 fail-closed 说明)
     # PEG ≈ PE-TTM / 最新净利同比（**粗略近似·非前瞻**：文档要求未来2-3年增速·我们全市场批量取不到前瞻一致预期，
     #      暂用最新单期净利同比代理）。**关键·数据准确性**：只对"稳健增长"(净利同比 5%~70%)且 PE(0,150] 的股计算——
     #      扭亏/低基数会让增速爆表(如4943%)→PEG假性极低误导；亏损/负增长 PEG 无意义。区间外一律留空(不算 > 假算)。
     pe = pd.to_numeric(df.get("pe_ttm"), errors="coerce")
     g = pd.to_numeric(df.get("netprofit_yoy"), errors="coerce")
     df["peg"] = (pe / g).where((pe > 0) & (pe <= 150) & (g >= 5) & (g <= 70)).round(2)
+    return df
+
+
+def _add_profitable_growth(df: pd.DataFrame) -> pd.DataFrame:
+    """把"仍在亏损"的同比增速屏蔽掉，给牛股画像用干净的成长口径。
+
+    **实测踩坑（本函数存在的理由）**：Tushare 的同比率在**亏损期照样给正数**——深振业A 扣非
+    由 -15.7亿 收窄到 -0.53亿，`dt_netprofit_yoy` 显示 **+96.6%**；全市场按"扣非同比≥20%"筛，
+    命中的 1875 只里有 **335 只(17.9%) 本期扣非仍为负**（晶科能源亏14亿显示+24%、首开股份亏7.5亿显示+31.5%）。
+    "亏损收窄"是困境反转叙事，不是成长——混进牛股画像会直接选出一堆亏损股。
+
+    做法：保留原始 `netprofit_yoy`/`dt_netprofit_yoy` 列**不动**（结果表照常展示·透明），
+    另给两列"仅本期盈利才有效"的增速供**筛选**使用；不盈利→NA（NA 不会通过任何 ≥ 阈值筛选）。
+    净利同比也用扣非为正来把关：只靠非经常性损益才盈利的公司，本就不该进牛股画像。
+    """
+    def num(col: str) -> pd.Series:
+        """取数值列；列缺失(取数失败)时给全 NaN——**必须仍然建列**：
+        `_apply_condition` 对缺失列是 fail-open(该因子被静默忽略)，会把没做过基本面筛选的股票
+        当成通过牛股画像返回。全 NaN 则 fail-closed，宁可筛不出也不给假命中。"""
+        if col not in df.columns:
+            return pd.Series(np.nan, index=df.index)
+        return pd.to_numeric(df[col], errors="coerce")
+
+    dedt = num("profit_dedt")
+    df["dedt_positive"] = dedt.gt(0).fillna(False)          # 本期扣非净利为正(真盈利)
+    for src, dst in (("dt_netprofit_yoy", "dtnp_yoy_pos"), ("netprofit_yoy", "np_yoy_pos")):
+        df[dst] = num(src).where(dedt > 0)
     return df
 
 
@@ -1063,6 +1103,135 @@ def _add_balancesheet_flags(df: pd.DataFrame, provider) -> pd.DataFrame:
             df["recv_inv_bloat"] = ((df["recv_inv_yoy"] - oy > 30) & (df["recv_inv_yoy"] > 20)).fillna(False)
     except Exception as e:
         logger.debug("批量资产负债表获取失败: %s", e)
+    return df
+
+
+_GROWTH_YEARS = 3          # 连续增长考察年数
+# 单年同比上限%：任一年超过此值即**不给复合增速**（只影响 *_cagr3 两列）。
+# 理由：复合数会被那一个低基数爆发年主导（如某股扣非单年+1927%→复合287%），
+# 数字虽真却不代表"成长质量"，会在按复合排序时插到真·稳定增长股前面。
+# 逐年最小值(*_yoy_3y_min)与逐年序列(*_yoy_3y)不受此限——它们本就把爆发年暴露给用户自行判断。
+_GROWTH_YOY_CAP = 1000.0
+
+
+def _annual_periods(n: int, now=None) -> list[str]:
+    """最近 n 个『已披露完毕』的年度报告期 YYYYMMDD（新→旧）。
+
+    年报法定披露截止为次年 4-30，这里留到 **5-15** 才认为该年度全市场基本齐备：
+    1月~5月上旬只有少数公司披露完，用当年会造成大面积假性缺失——"连续N年"这类因子
+    最怕披露不齐，宁可整体后退一年用齐备口径。
+    """
+    import datetime
+    now = now or datetime.date.today()
+    latest = now.year - 1 if (now.month, now.day) >= (5, 15) else now.year - 2
+    return [f"{latest - i}1231" for i in range(n)]
+
+
+def _period_col(provider, periods: list[str], col: str) -> dict[str, pd.Series]:
+    """按报告期批量取某一财务列 → {period: Series(index=ts_code)}。缺期给空 Series（下游成 NA）。"""
+    out: dict[str, pd.Series] = {}
+    for p in periods:
+        try:
+            fin = provider.get_fina_indicator_by_period(p)
+        except Exception as e:
+            logger.debug("[连续增长] 报告期 %s 取数失败: %s", p, e)
+            fin = None
+        if fin is None or fin.empty or col not in fin.columns:
+            out[p] = pd.Series(dtype="float64")
+            continue
+        fin = fin.drop_duplicates("ts_code", keep="first")
+        out[p] = pd.Series(pd.to_numeric(fin[col], errors="coerce").values, index=fin["ts_code"])
+    return out
+
+
+def _cagr_from_yoy(g: pd.DataFrame) -> pd.Series:
+    """由逐年同比%算复合年均增速%：(∏(1+gi))^(1/n)-1。乘积≤0（营收近乎归零）→NaN。"""
+    prod = (1 + g / 100).prod(axis=1)
+    return (prod.where(prod > 0) ** (1 / g.shape[1]) - 1) * 100
+
+
+def _fmt_growth_seq(g: pd.DataFrame) -> pd.Series:
+    """逐年增速→"38/25/22"（新→旧·取整），供结果表一眼看出增长在加速还是减速。"""
+    parts = [g[c].map(lambda v: f"{v:.0f}" if pd.notna(v) else "-") for c in g.columns]
+    seq = parts[0]
+    for p in parts[1:]:
+        seq = seq + "/" + p
+    return seq
+
+
+def _add_revenue_growth_3y(df: pd.DataFrame, provider, periods: list[str]) -> pd.DataFrame:
+    """近3年**营收**同比：逐年最小值 / 复合增速 / 逐年序列。任一年缺失→整组留空（不猜）。"""
+    yoy = _period_col(provider, periods[:_GROWTH_YEARS], "or_yoy")
+    g = pd.concat([df["ts_code"].map(yoy[p]) for p in periods[:_GROWTH_YEARS]], axis=1)
+    g.columns = range(_GROWTH_YEARS)                       # 列序：新→旧
+    have = g.notna().all(axis=1)
+    df["or_yoy_3y_min"] = g.min(axis=1).where(have).round(1)
+    df["or_yoy_3y"] = _fmt_growth_seq(g).where(have)
+    sane = have & (g > -100).all(axis=1) & (g <= _GROWTH_YOY_CAP).all(axis=1)
+    df["or_cagr3"] = _cagr_from_yoy(g).where(sane).round(1)
+    return df
+
+
+def _add_dedt_growth_3y(df: pd.DataFrame, provider, periods: list[str]) -> pd.DataFrame:
+    """近3年**扣非净利**增速：由 profit_dedt 绝对值自算（需 4 个年度），要求**四年均盈利**。
+
+    为什么不用现成的 dt_netprofit_yoy：基期亏损时同比率符号翻转、数学上无意义
+    （扭亏公司会显示天量增速），拿来判"可持续增长"是错的。只有绝对值能验基期为正。
+    """
+    dedt = _period_col(provider, periods, "profit_dedt")
+    vals = pd.concat([df["ts_code"].map(dedt[p]) for p in periods], axis=1)
+    vals.columns = range(len(periods))                     # 列序：新→旧
+    ok = vals.notna().all(axis=1) & (vals > 0).all(axis=1)  # 四年均盈利才算(否则留空)
+    g = pd.concat([(vals[i] / vals[i + 1] - 1) * 100 for i in range(_GROWTH_YEARS)], axis=1)
+    g.columns = range(_GROWTH_YEARS)
+    df["dtnp_yoy_3y_min"] = g.min(axis=1).where(ok).round(1)
+    df["dtnp_yoy_3y"] = _fmt_growth_seq(g).where(ok)
+    sane = ok & (g <= _GROWTH_YOY_CAP).all(axis=1)          # 与营收同一口径：单年爆表则复合数留空
+    df["dtnp_cagr3"] = (((vals[0] / vals[_GROWTH_YEARS]) ** (1 / _GROWTH_YEARS) - 1) * 100).where(sane).round(1)
+    return df
+
+
+def _add_annual_roe(df: pd.DataFrame, provider, periods: list[str]) -> pd.DataFrame:
+    """加「最近年报 ROE」`roe_yr` —— 牛股画像说的 ROE≥15% 指的是**年度** ROE。
+
+    **实测踩坑（本列存在的理由）**：因子表原有的 `roe` 取自最新**季报**期（如 20260331），
+    是单季 ROE——全市场中位数仅 **1.03%**、≥15% 的只有 **36 只**；拿它去比"15%"这个年度门槛
+    等于把因子废掉，🐂牛股画像预设因此常年近乎空结果（连续3年高成长的 31 只里只有 2 只能过）。
+    这里改用最近**年报**期 ROE，口径与门槛一致；代价是滞后到上一完整年度——对"质量基因"类
+    判断可接受，且比用错口径强。
+
+    原 `roe` 列**保持不动**：因子归因里 ROE 的 IC 结论基于它，换列会让已验证结果失效
+    （见 [[factor-attribution-regime]] / [[honest-validation-no-overclaim]]）。
+    """
+    ann = _period_col(provider, periods[:1], "roe")
+    df["roe_yr"] = df["ts_code"].map(ann[periods[0]])
+    return df
+
+
+def _add_multiyear_growth(df: pd.DataFrame, provider) -> pd.DataFrame:
+    """加「连续多年增长」因子（《估值实战》牛股画像核心：真牛股是**连续**增长，不是一年爆发）。
+
+    单期同比只能看到"最近一个财报好"，无法区分「三年稳定20%+」和「前两年下滑、今年低基数暴涨」——
+    后者正是最容易套人的伪成长。这里给出逐年最小值(每年都达标)与复合增速(允许单年波动看总斜率)两个视角。
+
+    **口径（数据准确性·全部为留空优先，不用 0 填充——0 会被当成真实低增长）**：
+    · 只用**年报**：季报同比受季节性/单季扰动，跨年可比性差；
+    · 只用已披露完毕的年度（次年 5-15 之后，见 `_annual_periods`）；
+    · 营收用 Tushare or_yoy；扣非净利用绝对值自算且要求四年均盈利（见 `_add_dedt_growth_3y`）。
+    """
+    try:
+        periods = _annual_periods(_GROWTH_YEARS + 1)       # 3个增速需要4个年度端点
+        df = _add_revenue_growth_3y(df, provider, periods)
+        df = _add_dedt_growth_3y(df, provider, periods)
+        df = _add_annual_roe(df, provider, periods)         # 年报口径 ROE(同一批年报数据·零新增取数)
+        df["growth3y_20"] = ((df["or_yoy_3y_min"] >= 20) & (df["dtnp_yoy_3y_min"] >= 20)).fillna(False)
+    except Exception as e:
+        logger.warning("[连续增长] 计算失败·相关列留空: %s", e)
+        for c in ("or_yoy_3y_min", "or_cagr3", "or_yoy_3y",
+                  "dtnp_yoy_3y_min", "dtnp_cagr3", "dtnp_yoy_3y", "roe_yr"):
+            if c not in df.columns:
+                df[c] = pd.NA
+        df["growth3y_20"] = False
     return df
 
 
