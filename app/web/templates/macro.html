@@ -119,7 +119,10 @@ details.laysec[open] summary .caret::before { content:"▾ "; }
   <span class="neu" id="exp-status" style="font-size:11px;margin-left:8px"></span></div>
 
 <script>
-const fmt = (v, n=2) => (v===null||v===undefined) ? '—' : Number(v).toFixed(n).replace(/\.?0+$/,'');
+// 去尾零只能在有小数点时做：旧版 /\.?0+$/ 的 \.? 可选·会把整数 "60"→"6"、"100"→"1"
+// (实测：美联储2Y分位59.73·toFixed(0)="60"·被截成"分位6"——用户抓到)
+const fmt = (v, n=2) => (v===null||v===undefined) ? '—'
+  : Number(v).toFixed(n).replace(/(\.\d*?)0+$/,'$1').replace(/\.$/,'');
 const signCls = v => v>0 ? 'pos' : (v<0 ? 'neg' : 'neu');
 // "对A股好坏"统一色带(adj 分位)：暖=偏利好·冷=偏利空·中间灰（A股口径红涨绿跌）
 function tint(adj) {
