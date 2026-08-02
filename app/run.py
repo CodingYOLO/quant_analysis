@@ -485,8 +485,10 @@ def activity_rank_cmd(days: int) -> None:
 @cli.command("macro-sync")
 @click.option("--date", "trade_date", default="last", help="交易日，默认最近交易日")
 @click.option("--sync-meta", is_flag=True, default=False, help="只同步指标元数据到 metric_meta，不取数")
+@click.option("--reset-tuning", is_flag=True, default=False,
+              help="把 weight/hist_break/break_mode/score_from/max_carry_days 强制重置回注册表默认值")
 @click.option("--dry-run", is_flag=True, default=False, help="只列出将要取哪些指标，不落库")
-def macro_sync_cmd(trade_date: str, sync_meta: bool, dry_run: bool) -> None:
+def macro_sync_cmd(trade_date: str, sync_meta: bool, reset_tuning: bool, dry_run: bool) -> None:
     """宏观传导面板·每日取数+计算落库（19:50 cron·必须排在 19:25 warmup 之后）。"""
     from app.macro import registry, store
 
@@ -498,6 +500,9 @@ def macro_sync_cmd(trade_date: str, sync_meta: bool, dry_run: bool) -> None:
         raise SystemExit(1)
 
     n = registry.sync_to_db()
+    if reset_tuning:
+        k = store.reset_meta_tuning()
+        console.print(f"[yellow]↺ 已重置 {k} 个指标的可调项为注册表默认值[/yellow]")
     console.print(f"\n[bold cyan]🌐 宏观面板[/bold cyan]  元数据同步 {n} 个指标 → {store.db_path()}")
 
     rows = store.get_meta(enabled_only=False)
@@ -514,12 +519,63 @@ def macro_sync_cmd(trade_date: str, sync_meta: bool, dry_run: bool) -> None:
         console.print("[green]✅ 仅同步元数据，已完成[/green]\n")
         return
     td = _resolve_date(trade_date)
+    from app.macro import adapters as _ad
+    enabled = {r["code"] for r in store.get_meta()}
+    covered, uncovered = enabled & _ad.covered_codes(), enabled - _ad.covered_codes()
     if dry_run:
-        console.print(f"[yellow]— dry-run — 目标交易日 {td}，"
-                      f"将取 {len(store.get_meta())} 个启用指标（取数适配器见 commit 2）[/yellow]\n")
+        console.print(f"[yellow]— dry-run — 目标交易日 {td}[/yellow]")
+        console.print(f"  有适配器可取 {len(covered)} 个：{'、'.join(sorted(covered))}")
+        if uncovered:
+            console.print(f"  [dim]尚无适配器 {len(uncovered)} 个：{'、'.join(sorted(uncovered))}"
+                          f"（后续 commit 接入）[/dim]")
         return
-    console.print(f"[yellow]⚠️ 取数适配器尚未接入（commit 2）。目标交易日 {td}。"
-                  f"当前可用：--sync-meta / --dry-run[/yellow]\n")
+    _run_macro_sync(td, td, covered)
+
+
+@cli.command("macro-backfill")
+@click.option("--days", default=750, show_default=True, help="回补最近 N 个交易日（分位冷启动需≥250）")
+@click.option("--end", default="last", help="回补截止交易日，默认最近交易日")
+def macro_backfill_cmd(days: int, end: str) -> None:
+    """宏观面板·历史回补（一次性）。与每日增量走同一段代码，只是区间更长。"""
+    import datetime
+
+    from app.macro import adapters as _ad, registry, store
+
+    registry.sync_to_db()
+    td = _resolve_date(end)
+    # 750 交易日 ≈ days/250*365 自然日，多留 30% 余量覆盖节假日
+    start = (datetime.datetime.strptime(td, "%Y%m%d")
+             - datetime.timedelta(days=int(days / 250 * 365 * 1.3))).strftime("%Y%m%d")
+    covered = {r["code"] for r in store.get_meta()} & _ad.covered_codes()
+    console.print(f"\n[bold cyan]🌐 宏观面板·历史回补[/bold cyan]  {start} ~ {td}"
+                  f"（目标 {days} 交易日 · {len(covered)} 个指标）\n")
+    _run_macro_sync(start, td, covered)
+
+
+def _run_macro_sync(start: str, end: str, codes: set[str]) -> None:
+    """执行取数并打印逐指标的成功/失败/耗时（验收要求）。"""
+    import time as _t
+
+    from app.macro import store, sync
+
+    t0 = _t.time()
+    res = sync.run(start, end, codes)
+    console.print(f"[bold]交易日 {res.trade_days} 天 · 写入 {res.rows} 行 · "
+                  f"run_id={res.run_id}[/bold]\n")
+    for lg in sorted(res.logs, key=lambda x: (x["status"] != "ok", x["code"])):
+        mark = {"ok": "[green]✅[/green]", "empty": "[yellow]⚠️[/yellow]"}.get(lg["status"], "[red]❌[/red]")
+        console.print(f"  {mark} {lg['code']:<22} {lg['rows']:>5} 值  {lg['elapsed_ms']:>6}ms  "
+                      f"{lg['err_msg'][:70]}")
+    console.print(f"\n[green]成功 {res.ok_count}[/green] / "
+                  f"[red]失败 {len(res.failed)}[/red] · 用时 {_t.time() - t0:.0f}秒")
+    if res.failed:
+        from app.notify.notifier import push_bark
+        try:                                       # 失败必须告警，不静默
+            push_bark("宏观面板取数失败",
+                      f"{end} 失败 {len(res.failed)} 个：" + "、".join(sorted(res.failed)[:6]))
+        except Exception:
+            logger.debug("[macro] Bark 告警发送失败", exc_info=True)
+    console.print()
 
 
 @cli.command("flow-monitor")

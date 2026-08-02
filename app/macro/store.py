@@ -82,10 +82,19 @@ CREATE TABLE IF NOT EXISTS metric_meta (
     hist_break  TEXT    NOT NULL DEFAULT '',   -- 断点日，逗号分隔 YYYYMMDD（可多个）
     break_mode  TEXT    NOT NULL DEFAULT 'truncate',  -- truncate=硬截断窗口 | mark=只标注不截断
     score_from  TEXT    NOT NULL DEFAULT '',   -- 该日起才参与分层评分；之前只展示不计分（见下）
+    max_carry_days INTEGER NOT NULL DEFAULT 0, -- 允许沿用上一有效值的最长天数；0=不允许（见下）
     sort_order  INTEGER NOT NULL DEFAULT 100,
     note        TEXT    NOT NULL DEFAULT '',
     updated_at  TEXT    DEFAULT (datetime('now','localtime'))
 );
+-- max_carry_days 与「绝不 fallback 昨值」的边界：
+--   红线禁的是**静默伪装**——把昨天的值当成今天的真实数据、不留痕迹地混进分位与异动判定。
+--   它禁的不是**显式降级**。对慢变量(DXY/VIX/月频指标)，偶发单日取数失败时可以沿用上一有效值，
+--   但必须同时满足三条，缺一不可：
+--     ① as_of 保持为**该值的真实日期**（不改成今天）→ 前端据此显示"数据滞后 N 天"并灰显；
+--     ② is_stale=1 标记；
+--     ③ **不参与分层评分**（陈旧值不得影响 layer_score）。
+--   超过 max_carry_days 仍取不到 → 写 NULL + 告警。max_carry_days=0 表示不允许结转（严格模式）。
 -- score_from 的必要性：break_mode='mark' 只画竖线，那是**给人看的**；
 -- 而 layer_score 是机器算的，它看不见竖线。制度断点（如杠杆上限 1.25→1.00）会把指标中枢
 -- 系统性下移，评分函数会把"制度性下移"误读成"杠杆情绪降温"，导致该层得分虚高数月。
@@ -159,6 +168,7 @@ _NEW_COLS: tuple[tuple[str, str, str], ...] = (
     ("macro_daily", "is_stale", "INTEGER NOT NULL DEFAULT 0"),
     ("metric_meta", "break_mode", "TEXT NOT NULL DEFAULT 'truncate'"),
     ("metric_meta", "score_from", "TEXT NOT NULL DEFAULT ''"),
+    ("metric_meta", "max_carry_days", "INTEGER NOT NULL DEFAULT 0"),
     ("metric_meta", "source_fallback", "TEXT NOT NULL DEFAULT ''"),
     ("metric_meta", "sort_order", "INTEGER NOT NULL DEFAULT 100"),
 )
@@ -182,7 +192,14 @@ def init_db() -> None:
 
 _META_COLS = ("code", "name_cn", "layer", "freq", "unit", "direction", "weight",
               "source", "source_fallback", "api", "lag_days", "enabled", "hist_break",
-              "break_mode", "score_from", "sort_order", "note")
+              "break_mode", "score_from", "max_carry_days", "sort_order", "note")
+
+# 可调项集合（upsert 时保留库内值；reset 时统一重置）。**单一定义**——
+# 之前 reset 的 UPDATE 手写列清单、加 max_carry_days 时漏了它，导致 reset 后仍是旧值(踩坑)。
+TUNABLE_COLS: tuple[str, ...] = ("weight", "hist_break", "break_mode",
+                                 "score_from", "max_carry_days")
+
+
 
 
 def upsert_meta(rows: Iterable[dict]) -> int:
@@ -192,7 +209,10 @@ def upsert_meta(rows: Iterable[dict]) -> int:
     代码里改了注册表不应该把用户在库里的手工调整冲掉——故这四列用 COALESCE 保留库内已有值。
     要强制重置用 `reset_meta_tuning()`。
     """
-    tunable = {"weight", "enabled", "hist_break", "break_mode", "score_from"}
+    # 语义分工：**registry 决定"能不能取"，DB 决定"怎么用"**。
+    # enabled 编码的是"这个指标有没有可用数据源"——那是代码侧的客观事实，不是用户偏好，
+    # 必须跟随 registry（否则源没了/新接上了都推不下去）。用户想停用某指标应设 weight=0。
+    tunable = set(TUNABLE_COLS)
     sets = ", ".join(
         f"{c}=COALESCE((SELECT {c} FROM metric_meta WHERE code=excluded.code), excluded.{c})"
         if c in tunable else f"{c}=excluded.{c}"
@@ -201,21 +221,36 @@ def upsert_meta(rows: Iterable[dict]) -> int:
     sql = (f"INSERT INTO metric_meta ({','.join(_META_COLS)}) "
            f"VALUES ({','.join('?' * len(_META_COLS))}) "
            f"ON CONFLICT(code) DO UPDATE SET {sets}, updated_at=datetime('now','localtime')")
+    rows = list(rows)
     payload = [tuple(r.get(c) for c in _META_COLS) for r in rows]
     with _conn() as con:
+        # 保留是对的，但**静默保留会让人以为改注册表生效了、其实没有**（踩过两次）。
+        # 凡是库内值与注册表默认不一致的可调项，一律告警提示用 --reset-tuning。
+        cur = {r["code"]: r for r in
+               (dict(x) for x in con.execute(f"SELECT code,{','.join(tunable)} FROM metric_meta"))}
+        for r in rows:
+            old = cur.get(r["code"])
+            if not old:
+                continue
+            diff = [c for c in tunable if old[c] != r.get(c)]
+            if diff:
+                logger.warning("[macro] %s 的可调项在库内与注册表不一致，保留库内值 %s"
+                               "（要改用注册表默认请跑 macro-sync --reset-tuning）",
+                               r["code"], {c: (old[c], r.get(c)) for c in diff})
         con.executemany(sql, payload)
     return len(payload)
 
 
 def reset_meta_tuning(codes: Sequence[str] | None = None) -> int:
-    """把可调项（weight/enabled/hist_break/break_mode）强制重置回注册表默认值。"""
+    """把可调项强制重置回注册表默认值（列清单取自 TUNABLE_COLS，不再手写）。"""
     from app.macro.registry import METRICS
     defs = {m.code: m for m in METRICS if codes is None or m.code in codes}
+    sets = ", ".join(f"{c}=?" for c in TUNABLE_COLS)
     with _conn() as con:
         for code, m in defs.items():
-            con.execute("UPDATE metric_meta SET weight=?, enabled=?, hist_break=?, break_mode=?, "
-                        "score_from=? WHERE code=?",
-                        (m.weight, int(m.enabled), m.hist_break, m.break_mode, m.score_from, code))
+            row = m.as_row()                       # as_row 会解析 max_carry_days 的 -1 默认
+            con.execute(f"UPDATE metric_meta SET {sets} WHERE code=?",
+                        (*[row[c] for c in TUNABLE_COLS], code))
     return len(defs)
 
 

@@ -44,13 +44,29 @@ class MetricDef:
     hist_break: str = ""
     break_mode: str = "truncate"
     score_from: str = ""
+    # -1 = 按 freq 自动取默认（见 _resolve_carry）；显式 0 = 严格模式(不允许任何结转)
+    max_carry_days: int = -1
     sort_order: int = 100
     note: str = ""
 
     def as_row(self) -> dict:
         d = self.__dict__.copy()
         d["enabled"] = int(self.enabled)
+        d["max_carry_days"] = self._resolve_carry()
         return d
+
+    def _resolve_carry(self) -> int:
+        """按发布频率给出合理的结转上限（-1 表示用默认）。
+
+        默认值不是拍的，是由"下一次发布前该值仍是当前有效值"决定的：
+        · monthly=45 —— 月频数据在下月发布前一直有效；设 0 会让月频指标只在发布当天有值、
+          次日即 NULL（实测踩到：1月CPI 只在 2/10 出现一天）；
+        · weekly=15、daily=5 —— 覆盖周末 + 小长假；外盘指标在 A 股交易日常因休市而无当日值。
+        超过上限仍取不到 → 写 NULL 并告警，不无限期挂着陈旧值冒充当前值。
+        """
+        if self.max_carry_days >= 0:
+            return self.max_carry_days
+        return {"monthly": 45, "weekly": 15}.get(self.freq, 5)
 
 
 L0, L1, L2, L3 = "L0_liquidity", "L1_flow", "L2_sentiment", "L3_external"
@@ -110,13 +126,22 @@ _L0: list[MetricDef] = [
     MetricDef(
         code="dxy", name_cn="美元指数(ICE)", layer=L0, freq="daily",
         unit="", direction=-1, source="eastmoney", api="push2his kline secid=100.UDI",
-        source_fallback="akshare:index_global_hist_em(美元指数)", sort_order=18,
+        source_fallback="akshare:index_global_hist_em(美元指数)", enabled=False, sort_order=18,
         note="职责：把人民币走弱拆成『美元故事 vs 中国故事』——usdcnh 单看分不清是美元强还是人民币弱。"
              "⚠️**刻意不用 FXCM 的 USDOLLAR 篮子**：它含商品货币敞口，做不了这个拆分。"
              "取数走**自写东财适配器**而非 akshare 封装：服务器实测 akshare 的 index_global_hist_em "
              "被拦(RemoteDisconnected)，而裸接 push2his + 浏览器UA/Referer 返回 HTTP 200/46ms 有效数据。"
-             "⚠️东财对该 IP 有突发限流(连续请求会被封且数分钟不恢复)，故必须：每日仅 1 次调用 + 指数退避重试 + "
-             "失败写 NULL 告警，**绝不可用于高频回补**(kline 单次即返回全历史，回补也只需 1 次)。",
+             "❌本期 enabled=0：数据本身已验证可得，但**服务器取数通道待定**，不阻塞主线，另作独立小任务。"
+             "⚠️注意我此前的测试是错的：连打20次把IP打封、再拿该结果评估『每天1次』的生产场景，"
+             "严苛二十倍、对生产无推断力。正确方案按性价比排序："
+             "①**回补与增量分离**(最优)——750日历史在本地跑一次全量、导出文件灌进服务器 macro.db，"
+             "服务器夜间只做单日增量(1次/单secid/单条K线)；回补脚本与原始导出文件一并入库，"
+             "source_run_id 标 manual_backfill_YYYYMMDD 保证可追溯。此模式对所有东财系指标通用。"
+             "②换源——优先腾讯行情 qt.gtimg.cn(服务器在腾讯云·同云内最不可能被反爬)；"
+             "其次新浪(index_us_stock_sina 取 SOX 在服务器实测可用，说明新浪系是通的，"
+             "只是 .VIX 该 symbol 不支持)——须抓新浪全球指数页 XHR 拿真实代码，**不许猜 symbol**。"
+             "③仍用东财则：Connection: close 不复用 Session、间隔≥5s 加随机抖动、"
+             "Referer 设为对应 quote 页、绝不并发；验证按真实节奏(每天1次连续5天)。",
     ),
     MetricDef(
         code="omo_net", name_cn="央行公开市场净投放", layer=L0, freq="daily",
@@ -308,13 +333,14 @@ _L3: list[MetricDef] = [
               note="⚠️代码是 `HKTECH` 不是 HSTECH(实测 HSTECH 返回空)。中概/港股科技情绪的同步指标。"),
     MetricDef(
         code="vix", name_cn="VIX 恐慌指数", layer=L3, freq="daily", unit="",
-        direction=-1, source="eastmoney", api="push2his kline secid=167.VIX", sort_order=13,
+        direction=-1, source="eastmoney", api="push2his kline secid=167.VIX", enabled=False, sort_order=13,
         note="服务器实测：东财 secid=167.VIX 返回 HTTP 200/141ms，name 字段确认为『VIX恐慌指数』。"
              "其余路径均不可用——Tushare `index_global` 无 VIX；"
              "akshare `index_us_stock_sina('.VIX')` 报 IndexError（同函数 '.SOX' 正常，属该 symbol 不支持）。"
              "**刻意不用国内 qvix 顶替**：qvix 是国内300ETF期权隐波、属国内情绪(已归 L2)，"
              "拿它填 L3 会让『外部输入』这一层的含义失真。"
-             "限流注意事项同 dxy（每日1次+退避+失败写NULL）。",
+             "❌本期 enabled=0：同 dxy——数据已验证可得，服务器取数通道待定，另作独立小任务，不阻塞主线。"
+             "换源优先级：腾讯 qt.gtimg.cn > 新浪(需抓 XHR 拿真实代码·不猜) > 东财(需 Connection:close+≥5s抖动)。",
     ),
     MetricDef(code="brent", name_cn="布伦特原油", layer=L3, freq="daily", unit="美元",
               direction=0, source="", api="", enabled=False, sort_order=14, note="Phase 2 评估数据源。"),

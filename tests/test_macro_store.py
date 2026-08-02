@@ -48,15 +48,15 @@ def test_registry_valid() -> None:
     _assert(not problems, "注册表自检失败:\n  " + "\n  ".join(problems))
     codes = [m.code for m in registry.METRICS]
     _assert(len(codes) == len(set(codes)), "指标 code 有重复")
-    # 服务器实测确认可得的源必须启用，且必须走东财裸接（akshare 封装在服务器被拦）
+    # dxy/vix：数据已验证可得(东财 100.UDI / 167.VIX 服务器实测 HTTP200)，
+    # 但服务器取数通道待定 → 本期 enabled=0，作独立小任务，不阻塞主线
     dxy = registry.get("dxy")
-    _assert(dxy is not None and dxy.enabled, "dxy 已确认东财 100.UDI 可用，应启用")
-    _assert(dxy.source == "eastmoney" and "100.UDI" in dxy.api,
-            f"dxy 必须走东财 secid=100.UDI，实为 {dxy.source}/{dxy.api}")
-    _assert(dxy.source_fallback, "dxy 应配备源(主源限流时降级)")
+    _assert(dxy is not None and not dxy.enabled, "dxy 本期应停用(取数通道待定)")
+    _assert("100.UDI" in dxy.api, f"dxy 的 secid 结论应保留在 api 字段，实为 {dxy.api}")
+    _assert(dxy.source_fallback, "dxy 应配备源")
     vix = registry.get("vix")
-    _assert(vix is not None and vix.enabled and "167.VIX" in vix.api,
-            "vix 已确认东财 167.VIX 可用，应启用且走该 secid")
+    _assert(vix is not None and not vix.enabled and "167.VIX" in vix.api,
+            "vix 本期应停用，但 secid 结论保留")
     # OMO 系统性排查后确无源，必须保持停用而不是塞个替代品
     omo = registry.get("omo_net")
     _assert(omo is not None and not omo.enabled, "omo_net 无可靠日频源，必须 enabled=False")
@@ -113,7 +113,9 @@ def test_meta_tuning_preserved() -> None:
         rows = {r["code"]: r for r in store.get_meta(enabled_only=False)}
         _assert(abs(rows["sox"]["weight"] - 3.5) < 1e-9,
                 "⭐用户调过的 weight 必须保留，不能被注册表默认值冲掉")
-        _assert(rows["sox"]["enabled"] == 0, "用户调过的 enabled 必须保留")
+        _assert(rows["sox"]["enabled"] == 1,
+                "⭐enabled 编码的是『有没有可用数据源』(代码侧事实)，必须跟随 registry；"
+                "否则源接上了/没了都推不下去。用户要停用应设 weight=0")
         _assert("费城半导体" in rows["sox"]["name_cn"], "定义类字段(name_cn)应随注册表更新")
         store.reset_meta_tuning(["sox"])               # 显式重置才恢复默认
         rows = {r["code"]: r for r in store.get_meta(enabled_only=False)}
