@@ -11,9 +11,13 @@ from app.macro.adapters.base import (Adapter, MacroFetchError, MissingSourceErro
                                      Point, StaleDataError, TruncatedError)
 from app.macro.adapters.ts_macro_m import (CpiAdapter, LprAdapter, MoneySupplyAdapter,
                                            PmiAdapter, PpiAdapter, SocialFinanceAdapter)
+from app.macro.adapters.ts_flow import (EtfShareAdapter, FloatReleaseAdapter,
+                                        MainflowAdapter, MarginAdapter,
+                                        NewFundAdapter, NorthboundAdapter,
+                                        TurnoverAdapter)
 from app.macro.adapters.ts_rates import FxAdapter, ShiborAdapter
 
-# Phase 1 已接入的适配器（L0）。L1/L2/L3 在后续 commit 追加。
+# 已接入：L0(commit 2) + L1(commit 4)。L2/L3 在后续 commit 追加。
 ADAPTERS: tuple[Adapter, ...] = (
     BondYieldAdapter(),
     RepoRateAdapter(),
@@ -25,6 +29,13 @@ ADAPTERS: tuple[Adapter, ...] = (
     PpiAdapter(),
     PmiAdapter(),
     LprAdapter(),
+    TurnoverAdapter(),
+    MarginAdapter(),
+    NorthboundAdapter(),
+    MainflowAdapter(),
+    EtfShareAdapter(),
+    NewFundAdapter(),
+    FloatReleaseAdapter(),
 )
 
 

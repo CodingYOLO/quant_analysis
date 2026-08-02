@@ -83,6 +83,7 @@ CREATE TABLE IF NOT EXISTS metric_meta (
     break_mode  TEXT    NOT NULL DEFAULT 'truncate',  -- truncate=硬截断窗口 | mark=只标注不截断
     score_from  TEXT    NOT NULL DEFAULT '',   -- 该日起才参与分层评分；之前只展示不计分（见下）
     max_carry_days INTEGER NOT NULL DEFAULT 0, -- 允许沿用上一有效值的最长天数；0=不允许（见下）
+    no_dist     INTEGER NOT NULL DEFAULT 0,    -- 1=前瞻/计划类·未来值无历史分布→不算分位/z/异动(展示项)
     sort_order  INTEGER NOT NULL DEFAULT 100,
     note        TEXT    NOT NULL DEFAULT '',
     updated_at  TEXT    DEFAULT (datetime('now','localtime'))
@@ -184,6 +185,7 @@ _NEW_COLS: tuple[tuple[str, str, str], ...] = (
     ("metric_meta", "score_from", "TEXT NOT NULL DEFAULT ''"),
     ("metric_meta", "max_carry_days", "INTEGER NOT NULL DEFAULT 0"),
     ("metric_meta", "source_fallback", "TEXT NOT NULL DEFAULT ''"),
+    ("metric_meta", "no_dist", "INTEGER NOT NULL DEFAULT 0"),
     ("metric_meta", "sort_order", "INTEGER NOT NULL DEFAULT 100"),
 )
 
@@ -206,7 +208,7 @@ def init_db() -> None:
 
 _META_COLS = ("code", "name_cn", "layer", "freq", "unit", "direction", "weight",
               "source", "source_fallback", "api", "lag_days", "enabled", "hist_break",
-              "break_mode", "score_from", "max_carry_days", "sort_order", "note")
+              "break_mode", "score_from", "max_carry_days", "no_dist", "sort_order", "note")
 
 # 可调项集合（upsert 时保留库内值；reset 时统一重置）。**单一定义**——
 # 之前 reset 的 UPDATE 手写列清单、加 max_carry_days 时漏了它，导致 reset 后仍是旧值(踩坑)。
@@ -373,7 +375,12 @@ def upsert_scores(rows: Iterable[dict]) -> int:
            "VALUES (?,?,?,?,?,?) ON CONFLICT(trade_date, layer) DO UPDATE SET "
            "score=excluded.score, n_part=excluded.n_part, n_total=excluded.n_total, "
            "run_id=excluded.run_id, updated_at=datetime('now','localtime')")
-    payload = [(r["trade_date"], r["layer"], r.get("score"),
+    def _score(v):
+        # DataFrame.to_dict 会把 None 变 NaN——NaN 写进 SQLite 是浮点 NaN 不是 NULL，
+        # 读回来非空·前端会显示"nan"。统一归一为 NULL。
+        import math
+        return None if v is None or (isinstance(v, float) and math.isnan(v)) else float(v)
+    payload = [(r["trade_date"], r["layer"], _score(r.get("score")),
                 int(r.get("n_part", 0)), int(r.get("n_total", 0)), r.get("run_id", ""))
                for r in rows]
     with _conn() as con:

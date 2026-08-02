@@ -60,6 +60,16 @@ def test_registry_valid() -> None:
     # OMO 系统性排查后确无源，必须保持停用而不是塞个替代品
     omo = registry.get("omo_net")
     _assert(omo is not None and not omo.enabled, "omo_net 无可靠日频源，必须 enabled=False")
+    # commit 4 定档回归：
+    fr = registry.get("float_release")
+    _assert(fr.no_dist == 1 and fr.direction == 0,
+            "⭐(c) 解禁=前瞻计划·无历史分布 → no_dist=1 且 direction=0(纯展示)")
+    bb = registry.get("buyback_amt")
+    _assert(bb is not None and not bb.enabled and "累计" in bb.note,
+            "回购 amount 为程序内累计值且无程序ID·必须停用并写明证据")
+    mf = registry.get("mainflow_total")
+    _assert("mkt_dc" in mf.api and "吻合" in mf.note,
+            "mainflow 换 mkt_dc 必须带与项目口径的逐日验证记录")
     # 层归属：国内情绪不许塞进"外部输入"
     qvix = registry.get("qvix_300")
     _assert(qvix is not None and qvix.layer == "L2_sentiment",
@@ -120,6 +130,9 @@ def test_meta_tuning_preserved() -> None:
         store.reset_meta_tuning(["sox"])               # 显式重置才恢复默认
         rows = {r["code"]: r for r in store.get_meta(enabled_only=False)}
         _assert(abs(rows["sox"]["weight"] - 2.0) < 1e-9, "reset 后应回到注册表默认 weight=2.0")
+    # carry 默认值经 as_row 解析(-1→按频率)：daily=2会话·monthly=45自然日
+    _assert(rows["fdr007"]["max_carry_days"] == 2, "daily 默认结转=2个交易日会话")
+    _assert(rows["cpi_yoy"]["max_carry_days"] == 45, "monthly 默认结转=45自然日")
     print("  ✓ 元数据：可调项保留 · 定义字段跟随 · 显式 reset 生效")
 
 

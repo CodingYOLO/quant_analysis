@@ -487,8 +487,11 @@ def activity_rank_cmd(days: int) -> None:
 @click.option("--sync-meta", is_flag=True, default=False, help="只同步指标元数据到 metric_meta，不取数")
 @click.option("--reset-tuning", is_flag=True, default=False,
               help="把 weight/hist_break/break_mode/score_from/max_carry_days 强制重置回注册表默认值")
+@click.option("--resync", default=10, show_default=True,
+              help="每晚顺带重写最近N自然日(修正迟到数据：BSE两融晚发/基金成立公告滞后/解禁计划变更)")
 @click.option("--dry-run", is_flag=True, default=False, help="只列出将要取哪些指标，不落库")
-def macro_sync_cmd(trade_date: str, sync_meta: bool, reset_tuning: bool, dry_run: bool) -> None:
+def macro_sync_cmd(trade_date: str, sync_meta: bool, reset_tuning: bool,
+                   resync: int, dry_run: bool) -> None:
     """宏观传导面板·每日取数+计算落库（19:50 cron·必须排在 19:25 warmup 之后）。"""
     from app.macro import registry, store
 
@@ -529,7 +532,10 @@ def macro_sync_cmd(trade_date: str, sync_meta: bool, reset_tuning: bool, dry_run
             console.print(f"  [dim]尚无适配器 {len(uncovered)} 个：{'、'.join(sorted(uncovered))}"
                           f"（后续 commit 接入）[/dim]")
         return
-    _run_macro_sync(td, td, covered)
+    import datetime as _dt
+    start = (_dt.datetime.strptime(td, "%Y%m%d") - _dt.timedelta(days=max(0, resync))
+             ).strftime("%Y%m%d")
+    _run_macro_sync(start, td, covered)
 
 
 @cli.command("macro-backfill")
@@ -573,11 +579,12 @@ def _run_macro_sync(start: str, end: str, codes: set[str]) -> None:
     from app.macro import compute
     cres = compute.run(end, run_id=res.run_id)
     console.print(f"[bold]派生量 {cres.rows_updated} 行 · 评分 {cres.score_days} 天[/bold]")
+    import math as _math
     for r in cres.layer_today:
         if r["layer"] == "TOTAL":
             continue
         label = store.LAYER_LABELS.get(r["layer"], r["layer"])
-        if r["score"] is None:
+        if r["score"] is None or (isinstance(r["score"], float) and _math.isnan(r["score"])):
             console.print(f"  {label:<14} [dim]—（{r['n_part']}/{r['n_total']} 参与·无数据）[/dim]")
         else:
             console.print(f"  {label:<14} [bold]{r['score']:.1f}[/bold] "

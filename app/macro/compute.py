@@ -53,6 +53,9 @@ ANOMALY: dict[str, object] = {
     "chg_min": 100,
     "confirm_daily": True,     # 日频需连续2新值日同向（0.96→0.40·砍掉六成单日噪音）
 }
+# TODO(2026-09 复检·用户定档)：V3 是在 2024-01~2026-07 的波动率环境下调的档。
+# 上线跑满一个月后回看实际触发频率：若掉到每周不到 1 条·说明当前环境下偏紧·z_th 2.0→1.8。
+# 复看方法：SELECT trade_date,COUNT(*) FROM macro_daily WHERE anomaly!=0 GROUP BY 1 近30日。
 
 
 @dataclass
@@ -140,6 +143,26 @@ def anomaly_flags(chg1: pd.Series, z: pd.Series, freq: str,
     return (confirmed.astype(int) * direction).fillna(0).astype(int)
 
 
+def publication_status(freq: str, as_of: str, lag_days: int,
+                       today: str) -> tuple[int, int | None]:
+    """卡片标注用：(数据已滞后天数, 距下次发布约N天·daily 返回 None)。
+
+    用户定档(2026-08-02)：月频/周频沿用日照常计分后，必须让"数据时点 X·距下次发布 N 天"
+    可见——否则 L0 分数横盘时分不清是环境没变还是月频指标本来就不会动。
+    下次发布估算：月频=下月同期(报告期月末+1月+lag)，周频=+7天+lag；粗估即可(±2天)，
+    事件日历里的精确发布日由 macro_calendar 负责。
+    """
+    t, a = pd.Timestamp(today), pd.Timestamp(as_of)
+    stale_days = max(0, (t - a).days - lag_days)
+    if freq == "monthly":
+        nxt = a + pd.DateOffset(months=1) + pd.Timedelta(days=lag_days)
+    elif freq == "weekly":
+        nxt = a + pd.Timedelta(days=7 + lag_days)
+    else:
+        return stale_days, None
+    return stale_days, max(0, (nxt - t).days)
+
+
 # ──────────────────────────────────────────────
 # 分层评分（纯函数·可单测）
 # ──────────────────────────────────────────────
@@ -219,9 +242,17 @@ def run(end_date: str | None = None, run_id: str = "") -> ComputeResult:
         fresh = df[(df["is_stale"] == 0) & df["value"].notna()]["value"]
         breaks = [b for b in (m["hist_break"] or "").split(",") if b]
 
-        stats = rolling_stats(fresh, m["freq"], breaks, m["break_mode"])
-        c1, c5 = changes(fresh, m["unit"] or "", m["freq"])
-        anom = anomaly_flags(c1, stats.get("zscore", pd.Series(dtype=float)), m["freq"])
+        if int(m.get("no_dist") or 0):
+            # 前瞻/计划类(如未来4周解禁)：未来值没有历史分布可比——分位/z/chg/异动全部留空，
+            # 只保留 value 供展示(2026-08-02 定档 (c))
+            empty = pd.Series(dtype=float)
+            stats = pd.DataFrame(index=fresh.index,
+                                 columns=["pctile", "zscore", "sample_n"], dtype=float)
+            c1, c5, anom = empty, empty, pd.Series(dtype=int)
+        else:
+            stats = rolling_stats(fresh, m["freq"], breaks, m["break_mode"])
+            c1, c5 = changes(fresh, m["unit"] or "", m["freq"])
+            anom = anomaly_flags(c1, stats.get("zscore", pd.Series(dtype=float)), m["freq"])
 
         # 沿用日继承最近新值的统计；chg/anomaly 只属于新值日本身，不继承
         full = stats.reindex(df.index).ffill()

@@ -46,6 +46,7 @@ class MetricDef:
     score_from: str = ""
     # -1 = 按 freq 自动取默认（见 _resolve_carry）；显式 0 = 严格模式(不允许任何结转)
     max_carry_days: int = -1
+    no_dist: int = 0
     sort_order: int = 100
     note: str = ""
 
@@ -209,9 +210,12 @@ _MARGIN_NOTE = (
 
 _L1: list[MetricDef] = [
     MetricDef(
-        code="turnover_total", name_cn="两市成交额", layer=L1, freq="daily",
-        unit="亿元", direction=1, source="internal", api="get_daily聚合", sort_order=10,
-        note="复用项目现有行情缓存聚合(amount 千元→亿元)，不新增取数。",
+        code="turnover_total", name_cn="两市成交额(沪深·综指口径)", layer=L1, freq="daily",
+        unit="亿元", direction=1, source="tushare", api="index_daily(000001.SH+399106.SZ)",
+        sort_order=10,
+        note="口径：上证综指+深证综指成交额合计=**沪深两市·不含北交所**(新闻口径)。"
+             "实测 20260731 综指合计 25419亿 vs 全A(含BJ) 25599亿·差0.7%——"
+             "免去逐日全市场聚合(回补900+次调用)·2次range调用取全。",
     ),
     MetricDef(
         code="margin_ratio", name_cn="融资余额/A股流通市值", layer=L1, freq="daily",
@@ -234,10 +238,13 @@ _L1: list[MetricDef] = [
         sort_order=13, note="杠杆资金参与度。比融资余额更贴近'当下情绪'，余额是存量、买入额是流量。",
     ),
     MetricDef(
-        code="mainflow_total", name_cn="全市场主力净流入", layer=L1, freq="daily",
-        unit="亿元", direction=1, source="internal", api="moneyflow.main_net_wan", sort_order=14,
-        note="**复用项目现有口径**(超大单+大单净·东财口径)，不重新实现。"
-             "禁用 net_mf_amount(与东财口径约50%符号相反)。",
+        code="mainflow_total", name_cn="全市场主力净流入(沪深)", layer=L1, freq="daily",
+        unit="亿元", direction=1, source="tushare", api="moneyflow_mkt_dc", sort_order=14,
+        note="口径=东财大盘主力(超大单+大单)·沪深两市。**与项目 market_fund 模块**"
+             "(Σmoneyflow_dc·剔.BJ·曾与东财直连验证226vs224.6亿吻合)**逐日对比完全一致**："
+             "07-29两者均-119.5亿/07-30均-789.9亿/07-31均+625.4亿(2026-08-02实测)。"
+             "⚠️单位为**元**(/1e8→亿)·非万元。1次range调用免去900+次逐日聚合。"
+             "个股口径的 net_mf_amount 陷阱(约50%符号相反)与此无关·大盘级无该字段。",
     ),
     MetricDef(
         code="northbound_turnover", name_cn="北向成交额(非净额)", layer=L1, freq="daily",
@@ -252,24 +259,37 @@ _L1: list[MetricDef] = [
              "两段不可拼接，分位窗口必须自 2024-08-19 起算)。**禁止在面板上做'北向净流入'卡片。**",
     ),
     MetricDef(
-        code="etf_share_chg", name_cn="宽基ETF份额变化", layer=L1, freq="daily",
+        code="etf_share_chg", name_cn="宽基ETF份额日变化", layer=L1, freq="daily",
         unit="亿份", direction=1, source="tushare", api="fund_share", lag_days=1, sort_order=16,
-        note="宽基ETF份额增加≈场外资金借道入场(常见于国家队/机构申购)。",
+        note="篮子=场内基金名称含 沪深300/中证500/1000/2000/上证50/创业板/科创50/A500 的ETF。"
+             "**只累计前后两日都存在的基金的Δ**——新上市ETF首日份额直接进总量差分会制造假跳变。"
+             "宽基份额增加≈场外资金借道入场(国家队/机构申购的主通道)。",
     ),
     MetricDef(
         code="buyback_amt", name_cn="回购金额(近20交易日)", layer=L1, freq="daily",
-        unit="亿元", direction=1, source="tushare", api="repurchase", lag_days=1, sort_order=17,
-        note="产业资本自身的买入。用滚动20日累计而非单日(单日噪音大且公告分布不均)。",
+        unit="亿元", direction=1, source="tushare", api="repurchase", lag_days=1,
+        enabled=False, sort_order=17,
+        note="❌暂不接入(2026-08-02探针证据)：repurchase 的 vol/amount 是**回购程序内的累计值**"
+             "——实测中石化31行·proc=实施 的连续公告 5596万→7998万→1.11亿→1.41亿严格递增，"
+             "且表内**无程序ID**·同一公司多程序并行时Δ推导有二义。直接按行求和会数倍重复计入。"
+             "需专项核实字段语义(累计口径/程序边界)后再接·宁可缺这个指标也不放一个虚高数倍的。",
     ),
     MetricDef(
-        code="float_release", name_cn="解禁规模(未来20交易日)", layer=L1, freq="daily",
-        unit="亿元", direction=-1, source="tushare", api="share_float", lag_days=0, sort_order=18,
-        note="前瞻指标：统计未来20交易日待解禁市值。规模大=潜在抛压→偏空。",
+        code="float_release", name_cn="解禁规模(未来4周)", layer=L1, freq="daily",
+        unit="亿元", direction=0, no_dist=1, source="tushare", api="share_float(分页·6000行/页上限)",
+        lag_days=0, sort_order=18,
+        note="⚠️**前瞻计划·非已发生事实**(2026-08-02定档)：未来值没有历史分布可比·"
+             "不算分位/z/异动(no_dist=1)·direction=0 不评分——纯展示项。"
+             "值=Σ 当日收盘价×未来28自然日待解禁股数(万股→亿元)。"
+             "share_float 单次6000行=静默上限·offset分页取满。只算最近≤60个交易日(展示无需长历史)。",
     ),
     MetricDef(
-        code="new_fund_share", name_cn="新成立基金份额(近20交易日)", layer=L1, freq="weekly",
-        unit="亿份", direction=1, source="tushare", api="fund_basic", lag_days=5, sort_order=19,
-        note="增量资金的先行指标。按成立日聚合，滚动20交易日。",
+        code="new_fund_share", name_cn="新成立基金份额(近4周)", layer=L1, freq="daily",
+        unit="亿份", direction=1, source="tushare", api="fund_basic(E+O·分页)", lag_days=0,
+        sort_order=19,
+        note="股票型+混合型 issue_amount 按 found_date 聚合·28自然日(≈4周)滚动求和·逐日出点。"
+             "⚠️fund_basic 场外表单次15000行=上限·分页取满。"
+             "末端2-3日可能因公告入库滞后而低估·每晚 --resync 重写近旬自动修正。",
     ),
 ]
 
@@ -398,4 +418,7 @@ def validate() -> list[str]:
             problems.append(f"{m.code}: enabled=False 但 note 未说明原因")
         if m.weight < 0:
             problems.append(f"{m.code}: weight 不能为负")
+        if m.no_dist and m.direction != 0:
+            problems.append(f"{m.code}: no_dist=1(无历史分布·不算分位) 必须 direction=0"
+                            "(分位都没有·评分翻转无从谈起)")
     return problems

@@ -7,8 +7,8 @@
   · 某交易日 D 只能看到 `可见日 <= D` 的观测值，取其中最新的一条；
   · **可见日 = as_of + lag_days**（自然日）——月频尤其关键：1 月的 CPI 要 2 月中旬才发布，
     绝不能出现在 1 月的面板上，否则回看模式会给出当时根本不可能知道的结论；
-  · 取到的观测值若 `as_of < D`，说明是沿用旧值 → `is_stale=1`；
-    沿用天数超过 `max_carry_days` → 写 NULL（不无限期挂着一个陈旧值冒充当前值）。
+  · 取到的观测值若 `as_of < D`，说明是沿用旧值 → `is_stale=已沿用会话数`；
+    超过 `max_carry_days`（daily 按交易日会话·weekly/monthly 按自然日）→ 写 NULL。
 """
 
 from __future__ import annotations
@@ -128,9 +128,13 @@ def run(start: str, end: str, codes: set[str] | None = None,
         mine = set(ad.codes) & want
         if not mine:
             continue
+        # 取数窗口向前多取 lookback：单日增量时 T+1 发布的源(margin/美债)在当晚
+        # 只有 T-1/T-非本日 的数据·不回看就取不到任何点→假"empty"告警。
+        # 重型逐日适配器(margin_ratio 分母按日读行情)自设小 lookback 控制成本。
+        fetch_start = _shift_days(start, -int(getattr(ad, "lookback_days", 75)))
         try:
             from app.macro.adapters.base import timed
-            pts, ms = timed(lambda: ad.fetch(start, end))
+            pts, ms = timed(lambda: ad.fetch(fetch_start, end))
         except Exception as e:                      # 取数失败 → 该适配器全部指标写 NULL
             logger.warning("[macro] 适配器 %s 取数失败: %s", ad.name, e, exc_info=True)
             for c in sorted(mine):
