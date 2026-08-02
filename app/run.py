@@ -482,6 +482,46 @@ def activity_rank_cmd(days: int) -> None:
     console.print(f"[green]✅ {r['days_ok']}/{r['days_requested']} 日 · {r['rows']} 行 · 区间 {r['range']}[/green]\n")
 
 
+@cli.command("macro-sync")
+@click.option("--date", "trade_date", default="last", help="交易日，默认最近交易日")
+@click.option("--sync-meta", is_flag=True, default=False, help="只同步指标元数据到 metric_meta，不取数")
+@click.option("--dry-run", is_flag=True, default=False, help="只列出将要取哪些指标，不落库")
+def macro_sync_cmd(trade_date: str, sync_meta: bool, dry_run: bool) -> None:
+    """宏观传导面板·每日取数+计算落库（19:50 cron·必须排在 19:25 warmup 之后）。"""
+    from app.macro import registry, store
+
+    problems = registry.validate()
+    if problems:                                   # 注册表有问题就别往下跑，否则库里是错配置
+        console.print("[red]❌ 指标注册表自检失败：[/red]")
+        for p in problems:
+            console.print(f"   · {p}")
+        raise SystemExit(1)
+
+    n = registry.sync_to_db()
+    console.print(f"\n[bold cyan]🌐 宏观面板[/bold cyan]  元数据同步 {n} 个指标 → {store.db_path()}")
+
+    rows = store.get_meta(enabled_only=False)
+    for layer in store.LAYERS:
+        gr = [r for r in rows if r["layer"] == layer]
+        on = [r for r in gr if r["enabled"]]
+        console.print(f"  {store.LAYER_LABELS[layer]:<16} 启用 {len(on):>2}/{len(gr):<2} "
+                      f"· {'、'.join(r['code'] for r in on) or '（本期无）'}")
+    off = [r for r in rows if not r["enabled"]]
+    if off:
+        console.print(f"  [dim]未接入 {len(off)} 个：{'、'.join(r['code'] for r in off)}[/dim]")
+
+    if sync_meta:
+        console.print("[green]✅ 仅同步元数据，已完成[/green]\n")
+        return
+    td = _resolve_date(trade_date)
+    if dry_run:
+        console.print(f"[yellow]— dry-run — 目标交易日 {td}，"
+                      f"将取 {len(store.get_meta())} 个启用指标（取数适配器见 commit 2）[/yellow]\n")
+        return
+    console.print(f"[yellow]⚠️ 取数适配器尚未接入（commit 2）。目标交易日 {td}。"
+                  f"当前可用：--sync-meta / --dry-run[/yellow]\n")
+
+
 @cli.command("flow-monitor")
 @click.option("--date", "trade_date", default="last", help="交易日，默认最近交易日")
 def flow_monitor_cmd(trade_date: str) -> None:
