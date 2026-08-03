@@ -215,7 +215,8 @@ _BROAD_BUCKETS = {
     "持股状态": ("大基金持股", "社保", "QFII", "汇金", "证金", "养老金", "机构重仓", "基金重仓", "险资"),
     "风格因子": ("高股息", "高分红", "破净", "低市盈", "低估值", "绩优", "白马", "蓝筹",
                  "高价股", "低价股", "大盘股", "中盘", "小盘", "微盘"),
-    "宽基指数": ("新质", "沪深300", "上证50", "上证180", "深成指", "中证", "MSCI", "富时", "标普"),
+    "宽基指数": ("新质", "沪深300", "上证50", "上证180", "深成指", "中证", "MSCI", "富时", "标普",
+                 "同花顺"),   # 同花顺中特估100/漂亮100/出海50等自编指数=宽基非赛道
     "央国企": ("国企改革", "央企", "国资改革"),
     "宽泛地域": ("自贸", "一带一路", "京津冀", "长江经济", "西部大开发", "振兴东北", "粤港澳", "海南自贸"),
     "参股类": ("参股",),
@@ -275,6 +276,221 @@ def _concept_member_codes_wide(provider) -> dict:
     if df is None or df.empty:
         return {}
     return {nm: g["member_code"].tolist() for nm, g in df.groupby("concept_name")}
+
+
+# ── 💱 今日资金切换雷达（增量视角：只报"今天异动"·2026-08-03 用户定档）─────────────────
+# 病根同板块诊断页：存量排名表看不出切换。解法：每个概念拿**自己近10日**做基线，
+# 只报今天显著偏离基线的（转入侧）+ 主线池里今天掉头的（转出侧）。
+# 口径纪律：净额会穿越0·禁用百分比变化——用 中位+k×MAD 的绝对亿元差（稳健·不受离群日污染）。
+
+def _mad_scale(vals: list[float], floor: float = 0.8) -> float:
+    """稳健波动尺度：MAD×1.4826，下限 floor 亿（小概念资金流常年≈0·MAD会退化成0→全员误报）。"""
+    import numpy as np
+    a = np.array(vals, dtype=float)
+    mad = float(np.median(np.abs(a - np.median(a)))) * 1.4826
+    return max(mad, floor)
+
+
+def classify_switch_in(adj: list[float | None], raw: list[float | None],
+                       k: float = 3.0, min_abs: float = 3.0) -> list[str]:
+    """转入判定。adj=横截面去中位后的序列(检验用·切换=相对全市场的异动)，raw=原始净额(标签用)。
+
+    判据(adj)：今日>0 且 ≥ 自身基线中位 + k×MAD 且 ≥ min_abs 亿。
+    标签(raw)：首次转正(前3日均≤0) / 创N日新高 / 连2日加速。
+    k=3.0/min_abs=3.0 由 20260722-0731 八日回放校准（日均10.6条·横截面去中位前为27.9条——
+    普涨日全员"异动"的假阳性被去中位消掉）。
+    """
+    import numpy as np
+    hist = [x for x in adj[:-1] if x is not None]
+    today = adj[-1]
+    if today is None or len(hist) < 5:
+        return []
+    if not (today > 0 and today >= float(np.median(hist)) + k * _mad_scale(hist)
+            and today >= min_abs):
+        return []
+    tags = ["异动流入"]
+    last3 = [x for x in raw[-4:-1] if x is not None]
+    if len(last3) >= 3 and all(x <= 0 for x in last3):
+        tags.append("首次转正")
+    rhist = [x for x in raw[:-1] if x is not None]
+    if raw[-1] is not None and rhist and raw[-1] >= max(rhist):
+        tags.append(f"创{len(rhist) + 1}日新高")
+    if (raw[-1] is not None and raw[-2] is not None and raw[-3] is not None
+            and raw[-1] > raw[-2] > raw[-3] and raw[-2] > 0):
+        tags.append("连2日加速")
+    return tags
+
+
+def classify_switch_out(adj: list[float | None], raw: list[float | None],
+                        cum10: float = 0.0, k: float = 2.0) -> list[str]:
+    """转出判定（只对主线池调用——没进过钱的概念"流出"没有信息量）。
+
+    两条触发路径（满足其一）：
+      A 相对异动(adj)：今日 ≤ 自身基线中位 − k×MAD 且 今日<0；
+      B 大额流出兜底(raw)：今日流出 ≥ 近10日日均净额的1.5倍（高波动主线的MAD会被撑大·
+        路径A漏报——存储芯片单日-179亿曾被标成"歇脚"，由此补路径B）。
+    标签(raw)：首日转出 / 连N日流出(N≥2=退潮确认) / 大额流出。
+    """
+    import numpy as np
+    today_a, today_r = adj[-1], raw[-1]
+    hist = [x for x in adj[:-1] if x is not None]
+    if today_a is None or today_r is None or len(hist) < 5:
+        return []
+    hit_a = today_a < 0 and today_a <= float(np.median(hist)) - k * _mad_scale(hist)
+    daily_avg = cum10 / 10
+    hit_b = cum10 > 20 and today_r <= -1.5 * daily_avg
+    if not (hit_a or hit_b):
+        return []
+    n = 0
+    for x in reversed(raw):
+        if x is None or x >= 0:
+            break
+        n += 1
+    tags = ["首日转出"] if n <= 1 else [f"连{n}日流出"]
+    if hit_b:
+        tags.append("大额流出")
+    return tags
+
+
+def _group_by_overlap(rows: list[dict], mmap: dict, th: float = 0.4) -> list[dict]:
+    """成分重叠聚族：机器人/减速器/人形机器人同日齐触发会刷屏——一族只留一行。
+
+    重叠系数=|A∩B|/min(|A|,|B|)≥th 视为同族；代表=族内今日净额最大者，其余进 kin 列表。
+    mmap 缺失(周缓存未建)→不分组原样返回（宁可多显示·不静默吞）。
+    """
+    if not mmap or len(rows) < 2:
+        return rows
+    sets = {r["concept"]: set(mmap.get(r["concept"]) or []) for r in rows}
+    used, out = set(), []
+    for r in rows:                                     # rows 已按今日净额降序→先到先当代表
+        nm = r["concept"]
+        if nm in used:
+            continue
+        kin = []
+        for r2 in rows:
+            n2 = r2["concept"]
+            if n2 == nm or n2 in used:
+                continue
+            a, b = sets[nm], sets[n2]
+            if a and b and len(a & b) / min(len(a), len(b)) >= th:
+                kin.append(n2)
+                used.add(n2)
+        used.add(nm)
+        r = dict(r)
+        r["kin"], r["kin_n"] = kin[:8], len(kin)
+        out.append(r)
+    return out
+
+
+def _concept_structure_map(date: str) -> dict:
+    """读板块诊断页已建好的概念结构缓存（sector_mtf/concept_{date}_v2.json）→ {概念名: 结构摘要}。
+
+    只读文件不触发重建（重建要几分钟·雷达必须秒出）；缓存不存在→回退空(标签留空·不编)。
+    """
+    import json
+
+    from app.config import get_settings
+    f = get_settings().cache_dir / "sector_mtf" / f"concept_{date}_v2.json"
+    if not f.exists():
+        return {}
+    try:
+        rows = json.loads(f.read_text(encoding="utf-8")).get("rows", [])
+        return {r["sector"]: {"monthly_dir": r.get("monthly_dir"),
+                              "m_pattern": r.get("m_pattern"), "w_event": r.get("w_event")}
+                for r in rows}
+    except Exception:
+        return {}
+
+
+def build_concept_switch_radar(date: str, window: int = 11, provider=None) -> dict:
+    """💱 今日资金切换雷达：转入(相对异动) + 转出(主线池掉头) + 🚦主线健康灯。
+
+    数据全部来自已按日缓存的 ths_concept_flow（零新增接口）；结构标签读概念月线缓存；
+    同族概念(成分重叠)聚合为一行。描述档·同花顺DDE估算口径·非买卖建议。
+    """
+    import numpy as np
+    provider = provider or CompositeProvider()
+    pro = provider._ts._api
+    from app.data.cache import cached_daily
+    from app.factors.theme_wide import _is_junk_concept
+    dates = _recent_trade_dates(provider, date, window)
+    if len(dates) < 6:
+        raise ValueError(f"{date} 可用交易日不足({len(dates)})")
+
+    net_by, lead, comp = [], {}, {}
+    for d in dates:
+        df = cached_daily("ths_concept_flow", d, lambda d=d: _fetch_concept_flow(pro, d))
+        m = {}
+        if df is not None and not df.empty:
+            for _, r in df.iterrows():
+                nm = str(r.get("name", "") or "")
+                # 雷达池：剔垃圾/非题材/宽概念——切换要看"可操作赛道"，宽概念天天霸榜全是噪声
+                if not nm or _is_junk_concept(nm) or _is_non_theme(nm) or _broad_reason(nm):
+                    continue
+                na = r.get("net_amount")
+                m[nm] = float(na) if pd.notna(na) else None
+                if d == dates[-1]:
+                    if r.get("lead_stock"):
+                        lead[nm] = str(r["lead_stock"])
+                    if pd.notna(r.get("company_num")):
+                        comp[nm] = int(r["company_num"])
+        net_by.append(m)
+    if not net_by[-1]:
+        raise ValueError(f"{date} 当日概念资金流为空（未入库或非交易日）")
+
+    # 横截面去中位：adj = net − 当日全概念中位（普涨日全市场齐进钱≠切换·切换是相对异动）
+    meds = [float(np.median([v for v in m.values() if v is not None])) if m else 0.0
+            for m in net_by]
+    struct = _concept_structure_map(dates[-1])
+    names = [nm for nm in net_by[-1] if comp.get(nm, 0) >= 5]
+    raw = {nm: [m.get(nm) for m in net_by] for nm in names}
+    adj = {nm: [(m.get(nm) - md) if m.get(nm) is not None else None
+                for m, md in zip(net_by, meds)] for nm in names}
+    cum10 = {nm: sum(x for x in s[:-1][-10:] if x is not None) for nm, s in raw.items()}
+    mainline = sorted(cum10, key=lambda n: -cum10[n])[:40]        # 主线池=近10日(不含今日)累计前40
+
+    def _row(nm: str, tags: list[str]) -> dict:
+        s = raw[nm]
+        hist = [x for x in s[:-1] if x is not None]
+        st = struct.get(nm) or {}
+        return {
+            "concept": nm, "tags": tags,
+            "today": round(s[-1], 1), "base_med": round(float(np.median(hist)), 1),
+            "cum10": round(cum10.get(nm, 0.0), 1),
+            "seq5": [round(x, 1) if x is not None else None for x in s[-5:]],
+            "lead": lead.get(nm, ""), "n": comp.get(nm, 0),
+            "monthly_dir": st.get("monthly_dir"), "m_pattern": st.get("m_pattern"),
+            "w_event": st.get("w_event"),
+        }
+
+    flow_in = [_row(nm, t) for nm in names if (t := classify_switch_in(adj[nm], raw[nm]))]
+    flow_in.sort(key=lambda r: -r["today"])
+    flow_out = [_row(nm, t) for nm in mainline
+                if (t := classify_switch_out(adj[nm], raw[nm], cum10.get(nm, 0.0)))]
+    flow_out.sort(key=lambda r: r["today"])
+    mmap = _concept_member_codes_wide(provider)                    # 周缓存·仅读
+    flow_in = _group_by_overlap(flow_in, mmap)
+    flow_out = _group_by_overlap(flow_out, mmap)
+
+    lamps = []
+    for nm in mainline[:15]:                                       # 🚦主线健康灯=池前15
+        s = raw[nm]
+        out_tags = classify_switch_out(adj[nm], s, cum10.get(nm, 0.0))
+        t0 = s[-1] or 0
+        state = (out_tags[0] if out_tags
+                 else "吸金中" if t0 > 0
+                 else "歇脚" if t0 > -max(1.0, cum10[nm] / 20) else "流出中")
+        lamps.append({"concept": nm, "cum10": round(cum10[nm], 1),
+                      "today": round(s[-1], 1) if s[-1] is not None else None,
+                      "state": state, "monthly_dir": (struct.get(nm) or {}).get("monthly_dir")})
+
+    return {
+        "date": dates[-1], "in": flow_in[:12], "out": flow_out[:12], "mainline": lamps,
+        "n_pool": len(names),
+        "note": ("转入=今日净额相对全市场(横截面去中位)显著高于自身近10日基线(中位+3×MAD)；"
+                 "转出只盯主线池(近10日累计前40·中位−2×MAD且为负)。已剔宽概念/业绩预告池·"
+                 "成分重叠概念聚为一族。同花顺DDE估算·非龙虎榜真钱·描述档未回测·非买卖建议。"),
+    }
 
 
 def build_concept_persistent_flow(date: str, window: int = 10, provider=None) -> dict:
@@ -357,8 +573,10 @@ def build_concept_persistent_flow(date: str, window: int = 10, provider=None) ->
     df_out = df_out.sort_values("cum5", ascending=False).reset_index(drop=True)
     df_out["rank"] = df_out.index + 1
     records = df_out.to_dict("records")
+    struct = _concept_structure_map(dates[-1])   # 月线方向标签(读缓存·资金×结构交叉印证)
     for rec in records:   # 宽概念标注在 to_dict 之后赋值·绕开 pandas 把 None 变 NaN(保证前端拿到 null 而非 NaN·不影响任何资金列)
         rec["broad"] = _broad_reason(str(rec.get("concept", "")))
+        rec["monthly_dir"] = (struct.get(str(rec.get("concept", ""))) or {}).get("monthly_dir")
     return {
         "date": date, "window": len(dates),
         "dates": [f"{d[4:6]}-{d[6:]}" for d in dates],

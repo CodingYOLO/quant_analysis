@@ -895,6 +895,20 @@ async def api_industry_persistent_detail(date: str = "", industry: str = "", _us
         return {"ok": False, "error": str(e)}
 
 
+@app.get("/api/concept/switch-radar")
+async def api_concept_switch_radar(date: str = "", _user: str = Depends(require_auth)):
+    """💱 概念资金切换雷达：今日相对异动转入 + 主线池掉头转出 + 主线健康灯（增量视角）。"""
+    try:
+        from fastapi.concurrency import run_in_threadpool
+
+        from app.strategy.concept_flow import build_concept_switch_radar
+        d = date or _last_trade_date()
+        return {"ok": True, "data": await run_in_threadpool(build_concept_switch_radar, d)}
+    except Exception as e:
+        logger.exception("概念切换雷达失败")
+        return {"ok": False, "error": str(e)}
+
+
 @app.get("/api/concept/persistent")
 async def api_concept_persistent(date: str = "", window: int = 10, _user: str = Depends(require_auth)):
     """概念「资金持续流入榜」：近 window 日同花顺概念净流入 + 渗透率(相对强度) + 多窗口变化。"""

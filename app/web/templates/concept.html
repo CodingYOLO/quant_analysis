@@ -63,6 +63,15 @@ tr.detailrow td { padding:0; background:#141729; }
   本页更贴近市场题材轮动视角。红=流入 绿=流出，点表头排序。数据收盘后约 17:40 后入库。
 </div>
 
+<!-- 💱 今日资金切换雷达（增量视角·两种模式下都常驻置顶）：转入=相对全市场异动·转出=主线池掉头 -->
+<div class="chart-card" style="border-left:3px solid #f0a020">
+  <h3 style="font-size:15px">💱 今日资金切换雷达 <span class="neu" style="font-weight:400;font-size:12px">只报<b style="color:#f0a020">今天异动</b>的：转入=相对全市场+相对自己10日基线双重显著 · 转出=主线池掉头 · 描述非荐股</span></h3>
+  <div id="sw-loading" class="neu" style="font-size:13px;padding:8px 0">⏳ 计算切换雷达…</div>
+  <div id="sw-lamps" style="display:none;font-size:12px;line-height:2;margin:6px 0"></div>
+  <div id="sw-cols" style="display:none;gap:12px;flex-wrap:wrap"></div>
+  <div id="sw-note" class="neu" style="font-size:10.5px;margin-top:6px"></div>
+</div>
+
 <div id="loading" class="neu" style="font-size:14px;padding:20px">⏳ 加载概念资金数据中...</div>
 <div id="dash" style="display:none">
   <div class="kpi-row">
@@ -104,6 +113,57 @@ let rows=[], sortState={key:'net_amount',asc:false};
 
 // 日期默认留空 → 后端取最近交易日（避免默认今天、盘中数据未入库时报错/空）。
 
+// ── 💱 今日资金切换雷达（增量视角）────────────────────────────────────────
+function swStructTag(r){                        // 资金×结构交叉印证：月线方向一眼识别反抽
+  const d=r.monthly_dir||'';
+  if(!d) return '';
+  const c=/向上|主升浪|健康/.test(d)?'#f6465d':(/走坏|见顶|破位/.test(d)?'#2ebd85':'#f0a020');
+  const extra=[r.m_pattern,r.w_event].filter(Boolean).join('·');
+  return ' <span style="color:'+c+';font-size:11px">['+d.split('·')[0]+(extra?'·'+extra:'')+']</span>';
+}
+function swSpark(seq){                          // 近5日净额迷你条：一眼看节奏
+  if(!seq||!seq.length) return '';
+  const mx=Math.max(...seq.map(v=>Math.abs(v==null?0:v)))||1;
+  return '<span style="display:inline-flex;align-items:flex-end;gap:1px;height:14px;margin-left:6px;vertical-align:-2px">'
+    +seq.map(v=>{ if(v==null) return '<span style="width:5px;height:2px;background:#3a3f5c"></span>';
+      const h=Math.max(2,Math.round(Math.abs(v)/mx*14));
+      return '<span style="width:5px;height:'+h+'px;background:'+(v>=0?'#f6465d':'#2ebd85')+'"></span>';
+    }).join('')+'</span>';
+}
+function swRow(r){
+  const tags=r.tags.map(t=>'<span style="background:#2a2410;color:#f6c343;border:1px solid #4a3d15;border-radius:4px;padding:0 6px;font-size:10.5px;margin-right:4px">'+t+'</span>').join('');
+  const kin=(r.kin&&r.kin.length)?'<div style="font-size:10.5px;color:#94a3b8;margin-top:1px">同族: '+r.kin.join(' / ')+(r.kin_n>r.kin.length?' 等'+r.kin_n+'个':'')+'</div>':'';
+  const cum=(r.cum10>0?'+':'')+r.cum10;
+  return '<div style="border-bottom:1px dashed #1a1d2e;padding:5px 0;line-height:1.6">'
+    +'<b style="color:#e8ecff">'+r.concept+'</b>'+swStructTag(r)+swSpark(r.seq5)+'<br>'
+    +tags+'<span style="font-size:11.5px;color:#c2c8de">今日<b class="'+(r.today>=0?'up':'down')+'">'+(r.today>0?'+':'')+r.today+'亿</b>'
+    +'（基线中位'+(r.base_med>0?'+':'')+r.base_med+'·近10日累计'+cum+'）'
+    +(r.lead?' 领涨:'+r.lead:'')+'</span>'+kin+'</div>';
+}
+async function loadSwitchRadar(){
+  const L=document.getElementById('sw-loading');
+  try{
+    const date=(document.getElementById('date').value||'').replace(/-/g,'');
+    const j=await (await fetch('/api/concept/switch-radar?date='+date)).json();
+    if(!j.ok){ L.textContent='❌ '+j.error; return; }
+    const d=j.data; L.style.display='none';
+    // 🚦 主线健康灯：近10日累计前15一行扫完·主线死没死30秒确认
+    const lampC=s=>/吸金/.test(s)?'#f6465d':(/流出|转出/.test(s)?'#2ebd85':'#9ca3af');
+    const lamps=document.getElementById('sw-lamps'); lamps.style.display='block';
+    lamps.innerHTML='<b style="color:#c9d2f8;font-size:12.5px">🚦 主线健康灯（近10日吸金前15）：</b> '
+      +(d.mainline||[]).map(m=>'<span style="display:inline-block;background:#0f1117;border:1px solid #2d3052;border-radius:6px;padding:1px 8px;margin:2px 4px 2px 0" title="近10日累计'+m.cum10+'亿·今日'+(m.today==null?'—':m.today)+'亿·'+(m.monthly_dir||'月线方向未知')+'">'
+        +m.concept+' <b style="color:'+lampC(m.state)+'">'+m.state+'</b></span>').join('');
+    const cols=document.getElementById('sw-cols'); cols.style.display='flex';
+    const col=(title,color,list,empty)=>'<div style="flex:1;min-width:300px;background:#12141f;border:1px solid #2a2f4d;border-radius:8px;padding:9px 12px">'
+      +'<div style="font-weight:600;color:'+color+';font-size:12.5px;margin-bottom:3px">'+title+'</div>'
+      +(list&&list.length?list.map(swRow).join(''):'<span class="neu" style="font-size:11.5px">'+empty+'</span>')+'</div>';
+    cols.innerHTML=col('💱 转入 · 今日异动流入（相对全市场+相对自己双重显著）','#f6465d',d['in'],'今日无显著转入异动')
+      +col('🌊 转出 · 主线掉头（前期吸金主线今日显著流出）','#2ebd85',d['out'],'今日主线无掉头');
+    document.getElementById('sw-note').textContent='⚠️ '+(d.note||'')+' · 数据日 '+d.date+' · 池 '+d.n_pool+' 概念';
+  }catch(e){ L.textContent='❌ '+e; }
+}
+loadSwitchRadar();
+
 async function load(){
   const L=document.getElementById('loading'); L.style.display='block'; L.textContent='⏳ 加载概念资金数据中...';
   document.getElementById('dash').style.display='none';
@@ -115,7 +175,7 @@ async function load(){
     renderAll(j.data);
   }catch(e){ L.textContent='❌ '+e; }
 }
-document.getElementById('reload').addEventListener('click', load);
+document.getElementById('reload').addEventListener('click', ()=>{ load(); loadSwitchRadar(); });
 
 function renderAll(d){
   // 回填日期框为后端实际使用的数据日（默认进来为空时显示最近交易日）
@@ -263,9 +323,9 @@ const PCOLS=[['rank','#'],['concept','概念'],
   ['today_net','今日(亿)'],['delta1d','1日变化'],['cum3','近3日(亿)'],['delta3d','3日变化'],
   ['cum5','近5日(亿)'],['cum10','近10日(亿)'],
   ['consec_days','连续流入天'],['days_in','流入天数'],
-  ['ret5','概念5日涨%'],['n','成分数'],['ambush','形态']];
+  ['ret5','概念5日涨%'],['monthly_dir','月线方向'],['n','成分数'],['ambush','形态']];
 const PSIGNED=new Set(['today_net','delta1d','cum3','delta3d','cum5','cum10','ret5']);
-const PTEXT=new Set(['concept','ambush']);
+const PTEXT=new Set(['concept','ambush','monthly_dir']);
 function renderPersist(){
   let data=pRows.slice();
   if(pHideBroad) data=data.filter(r=>!r.broad);   // 只看题材：隐藏宽概念(不改排名·rank仍是全体真实名次)
@@ -277,6 +337,9 @@ function renderPersist(){
       let v=r[k];
       if(k==='concept'){ const b=r.broad?' <span class="broadtag" title="宽概念·'+r.broad+'·跨行业/风格/宽基·非可操作赛道（勾选『只看题材』可隐藏）">宽</span>':''; return '<td><span class="exp">▸</span>'+v+b+'</td>'; }
       if(k==='pen5'){ if(v==null) return '<td class="pen neu">·</td>'; const c=v>0?'up':(v<0?'down':''); return '<td class="pen '+c+'">'+(v>0?'+':'')+v+'%</td>'; }
+      if(k==='monthly_dir'){ if(!v) return '<td class="neu" style="text-align:left">·</td>';
+        const c=/向上|主升浪|健康/.test(v)?'#f6465d':(/走坏|见顶|破位/.test(v)?'#2ebd85':'#f0a020');
+        return '<td style="text-align:left;font-size:11.5px;color:'+c+'">'+v.split('·')[0]+'</td>'; }
       if(k==='ambush') return '<td>'+(v?'<span style="color:#f0a020" title="资金连续进但概念价没涨=埋伏">🔥暗流</span>':(r.consec_days>=3?'<span style="color:#f6465d">持续进</span>':'·'))+'</td>';
       if(k==='days_in') return '<td>'+v+'/'+r.n_days+'</td>';
       if(PSIGNED.has(k) && typeof v==='number'){const c=v>0?'up':(v<0?'down':'');const sg=v>0?'+':'';return '<td class="'+c+'">'+sg+v+'</td>';}
