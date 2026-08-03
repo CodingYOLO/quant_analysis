@@ -59,6 +59,15 @@
 <div id="datewarn" style="font-size:12.5px;color:#fbbf24;background:#2a2410;border:1px solid #4a3d15;border-radius:8px;padding:9px 13px;margin-bottom:14px;line-height:1.6"></div>
 <div id="dloading" class="neu" style="font-size:13px;padding:14px 4px">⏳ 计算全市场(含概念题材)资金流动…（首次约20-40秒）</div>
 
+<!-- 🏛 大盘结构雷达（七大指数×日/周/月三周期灯板+指数级新事件·用户点名要科创/上证死叉这类结构变化） -->
+<div class="card" style="border-left:3px solid #5d7cff">
+  <h3 style="margin:0 0 4px">🏛 大盘结构雷达 <span class="neu" style="font-size:12px">七大指数 × 日/周/月 · 只报<b style="color:#5d7cff">今天新发生</b>的结构变化 · 描述非荐股</span></h3>
+  <div id="sr-events" style="font-size:12.5px;line-height:1.9;margin:6px 0"></div>
+  <div id="sr-loading" class="neu" style="font-size:12px;padding:6px 0">⏳ 加载指数结构…</div>
+  <div style="overflow-x:auto"><table id="sr-tbl" style="width:100%;font-size:12.5px;border-collapse:collapse"></table></div>
+  <div class="neu" style="font-size:10.5px;margin-top:4px">死叉分三种口径分开标：MA5×10=短线 · MA10×20=中线 · MACD=趋势动能；月线形态未收官前可变。盘后日更·未回测·非买卖建议。</div>
+</div>
+
 <!-- 📅 大周期方向榜（月线定方向·周线定节奏·先定方向再看下方资金） -->
 <div class="card" style="border-left:3px solid #f0a020">
   <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
@@ -70,6 +79,9 @@
     </span>
   </div>
   <div id="mtf-ai" class="loading" style="font-size:12.5px;color:#dfe6ff;background:#12141f;border:1px solid #2a2f4d;border-radius:8px;padding:10px 12px;margin:8px 0;line-height:1.75">🧭 AI 大周期研判生成中…（首日约15秒·之后当日秒开）</div>
+  <!-- ⚡今日板块结构事件 + 🔄切换雷达：增量视角（今天什么变了/谁在接棒谁在退潮），治"信息滞后"的病根 -->
+  <div id="mtf-events" style="display:none;font-size:12px;line-height:1.9;background:#12141f;border:1px solid #2a2f4d;border-radius:8px;padding:9px 12px;margin:8px 0"></div>
+  <div id="mtf-rot" style="display:none;gap:12px;margin:8px 0;flex-wrap:wrap"></div>
   <div id="mtfnote" class="neu" style="font-size:11.5px;margin:6px 0"></div>
   <div id="mtfloading" class="neu" style="font-size:12px;padding:8px 0">⏳ 加载板块月线/周线…（首次约30-60秒）</div>
   <div style="overflow-x:auto"><table id="mtftbl" style="width:100%;font-size:13px;border-collapse:collapse"></table></div>
@@ -358,8 +370,70 @@ async function load() {
 }
 load();
 
+// ── 🏛 大盘结构雷达（七大指数三周期灯板+新事件·增量视角）────────────────────────────
+function evBadge(e) {                                        // 事件徽章：红=多方事件·绿=空方(A股色系)
+  const c = e.dir === 'gold' ? '#f6465d' : (e.dir === 'dead' ? '#2ebd85' : '#f0a020');
+  const lv = { '月线': '#a78bfa', '周线': '#5d7cff', '日线': '#6b7280' }[e.level] || '#6b7280';
+  return '<span style="display:inline-block;margin:2px 6px 2px 0;padding:2px 9px;border-radius:6px;background:#0f1117;border:1px solid #2d3052">'
+    + '<b style="color:' + lv + ';font-size:10.5px">' + e.level + '</b> <b style="color:#e8ecff">' + e.name + '</b> '
+    + '<span style="color:' + c + ';font-weight:600">' + e.event + '</span></span>';
+}
+function srCell(txt, good) {                                 // 灯板格：红=结构健康·绿=走坏·黄=中性
+  const c = good === true ? '#f6465d' : (good === false ? '#2ebd85' : '#f0a020');
+  return '<td style="padding:6px 8px;color:' + c + ';font-weight:600;white-space:nowrap">' + txt + '</td>';
+}
+async function loadStructRadar() {
+  const L = document.getElementById('sr-loading');
+  try {
+    const j = await (await fetch('/api/diagnosis/structure-radar')).json();
+    if (!j.ok || !j.data || !j.data.rows) { L.textContent = '❌ ' + (j.error || '无数据'); return; }
+    L.style.display = 'none';
+    const evs = j.data.events || [];
+    document.getElementById('sr-events').innerHTML = evs.length
+      ? '<b style="color:#f6c343">⚡ 今日指数级新事件：</b>' + evs.map(evBadge).join('')
+      : '<span class="neu">今日指数级结构无新变化（无新交叉/新形态）</span>';
+    let h = '<thead><tr style="color:#9ca3af;font-size:11px"><th style="text-align:left;padding:5px 8px">指数</th>'
+      + '<th style="text-align:left;padding:5px 8px">日线·排列</th><th style="text-align:left;padding:5px 8px">日线·位置</th>'
+      + '<th style="text-align:left;padding:5px 8px">周线</th><th style="text-align:left;padding:5px 8px">月线</th>'
+      + '<th style="text-align:left;padding:5px 8px">月线形态</th></tr></thead><tbody>';
+    (j.data.rows || []).forEach(r => {
+      const d = r.daily || {}, w = r.weekly || {}, m = r.monthly || {};
+      const pos = (d.above_ma20 ? 'MA20上' : 'MA20下') + '·' + (d.above_ma60 ? 'MA60上' : 'MA60下');
+      const wtxt = (w.above_ma10w ? '10周线上' : '10周线下') + (w.x_ma10w ? '·' + w.x_ma10w : '') + (w.x_macd ? '·MACD' + w.x_macd : '');
+      const mtxt = (m.above_ma10m ? '10月线上' : '10月线下') + (m.ma10m_up ? '·线抬头' : '·线走平/下');
+      h += '<tr style="border-bottom:1px solid #1a1d2e"><td style="padding:6px 8px;font-weight:600;color:#e8ecff">' + r.name + '</td>'
+        + srCell(d.align || '—', d.align === '多头排列' ? true : (d.align === '空头排列' ? false : null))
+        + srCell(pos, d.above_ma20 && d.above_ma60 ? true : (!d.above_ma20 && !d.above_ma60 ? false : null))
+        + srCell(wtxt, w.above_ma10w === true ? true : (w.above_ma10w === false ? false : null))
+        + srCell(mtxt, m.above_ma10m === true ? true : (m.above_ma10m === false ? false : null))
+        + '<td style="padding:6px 8px;font-size:11.5px;color:#c2c8de">' + [(m.pattern || ''), (m.pattern_closed || ''), (m.streak || '')].filter(Boolean).join(' · ') + '</td></tr>';
+    });
+    document.getElementById('sr-tbl').innerHTML = h + '</tbody>';
+  } catch (e) { L.textContent = '❌ ' + e; }
+}
+loadStructRadar();
+
 // ── 📅 大周期方向榜（月线定方向·周线定节奏·点开看月/周K线）─────────────────────────
 let MTF_KIND = 'industry', MTF_ROWS = [], MTF_NOTE = '';
+function renderMTFExtras(data) {                             // 板块事件流 + 切换雷达（增量视角）
+  const ev = document.getElementById('mtf-events'), rot = document.getElementById('mtf-rot');
+  const evs = data.sector_events || [];
+  ev.style.display = 'block';
+  ev.innerHTML = evs.length
+    ? '<b style="color:#f6c343">⚡ 今日板块结构事件（' + (MTF_KIND === 'concept' ? '概念' : '行业') + '·只报新发生）：</b>' + evs.slice(0, 24).map(evBadge).join('')
+    : '<span class="neu">⚡ 今日该口径板块结构无新变化</span>';
+  const r = data.rotation || {}, rin = r['in'] || [], rout = r['out'] || [];
+  const col = (title, color, list) => '<div style="flex:1;min-width:280px;background:#12141f;border:1px solid #2a2f4d;border-radius:8px;padding:9px 12px">'
+    + '<div style="font-weight:600;color:' + color + ';font-size:12.5px;margin-bottom:4px">' + title + '</div>'
+    + (list.length ? list.map(x => '<div style="font-size:12px;line-height:1.7;border-bottom:1px dashed #1a1d2e;padding:3px 0">'
+        + '<b style="color:#e8ecff">' + x.sector + '</b> <span class="neu" style="font-size:11px">' + (x.monthly_dir || '月线方向未知') + '</span><br>'
+        + '<span style="color:#c2c8de;font-size:11.5px">' + x.evidence + '</span></div>').join('')
+      : '<span class="neu" style="font-size:11.5px">（今日无明显跃迁）</span>')
+    + '</div>';
+  rot.style.display = 'flex';
+  rot.innerHTML = col('🔄 接棒中 · 近5日排名跃升（短期变强·配月线方向看真假）', '#f6465d', rin)
+    + col('🌊 退潮中 · 近5日排名跳水（短期变弱·月线仍向上=可能只是回踩）', '#2ebd85', rout);
+}
 async function loadMTF(kind) {
   MTF_KIND = kind;
   const bi = document.getElementById('mtf-ind'), bc = document.getElementById('mtf-con');
@@ -370,7 +444,7 @@ async function loadMTF(kind) {
     const j = await (await fetch('/api/diagnosis/sector-mtf?kind=' + kind)).json();
     if (!j.ok) { L.textContent = '❌ ' + j.error; return; }
     MTF_ROWS = j.data.rows || []; MTF_NOTE = j.data.note || '';
-    L.style.display = 'none'; renderMTFBoard();
+    L.style.display = 'none'; renderMTFExtras(j.data); renderMTFBoard();
   } catch (e) { L.textContent = '❌ ' + e; }
 }
 function mtfDir(d) {
@@ -395,15 +469,22 @@ function renderMTFBoard() {
     t.innerHTML = '<tbody><tr><td style="padding:14px;color:#9ca3af;font-size:12px">今日无符合的板块——多数主升浪板块目前周线在加速/高位(不是回踩低吸点)，宁缺毋滥。可切「概念」或关闭低吸猎场看全部。</td></tr></tbody>';
     return;
   }
-  let h = '<thead><tr style="color:#9ca3af;font-size:11.5px"><th style="text-align:left;padding:6px 8px">板块</th><th style="text-align:left;padding:6px 8px">月线方向</th><th style="padding:6px 8px">见顶</th><th style="text-align:left;padding:6px 8px">周线节奏</th><th style="padding:6px 8px">偏离10月线</th></tr></thead><tbody>';
+  let h = '<thead><tr style="color:#9ca3af;font-size:11.5px"><th style="text-align:left;padding:6px 8px">板块</th><th style="text-align:left;padding:6px 8px">月线方向</th><th style="text-align:left;padding:6px 8px">月线形态</th><th style="padding:6px 8px">见顶</th><th style="text-align:left;padding:6px 8px">周线节奏</th><th style="text-align:left;padding:6px 8px">周线事件</th><th style="padding:6px 8px">偏离10月线</th></tr></thead><tbody>';
   rows.slice(0, 120).forEach(r => {
     const top = r.top_count >= 2 ? '<b style="color:#f0a020">' + r.top_count + '/3</b>' : ((r.top_count || 0) + '/3');
     const flag = MTF_DIP ? '🎯 ' : '';
+    // 月线形态列：阳包阴红/阴包阳绿(A股色系)·未收官标注由后端带出原样显示
+    const pat = [(r.m_pattern || ''), (r.m_streak || '')].filter(Boolean).join('·');
+    const patC = /阳包阴|连\d+阳/.test(pat) ? '#f6465d' : (/阴包阳|连\d+阴/.test(pat) ? '#2ebd85' : '#6b7280');
+    const wev = r.w_event || '';
+    const wevC = /站上|金叉/.test(wev) ? '#f6465d' : (/跌破|死叉/.test(wev) ? '#2ebd85' : '#6b7280');
     h += '<tr class="mtfrow" data-name="' + encodeURIComponent(r.sector) + '" style="cursor:pointer;border-bottom:1px solid #1a1d2e">'
       + '<td style="padding:7px 8px;font-weight:600;color:#e8ecff"><span style="color:#5d7cff">▸</span> ' + flag + r.sector + '</td>'
       + '<td style="padding:7px 8px">' + mtfDir(r.monthly_dir || '—') + '</td>'
+      + '<td style="padding:7px 8px;font-size:11px;color:' + patC + '">' + (pat || '—') + '</td>'
       + '<td style="text-align:center">' + top + '</td>'
       + '<td style="padding:7px 8px;font-size:12px;color:#c2c8de">' + (r.weekly_rhythm || '—') + '</td>'
+      + '<td style="padding:7px 8px;font-size:11px;color:' + wevC + '">' + (wev || '—') + '</td>'
       + '<td style="text-align:center">' + fmtSigned(r.dev_ma10, '%') + '</td></tr>';
   });
   t.innerHTML = h + '</tbody>';
@@ -414,7 +495,7 @@ async function toggleMTF(tr) {
   if (nxt && nxt.classList.contains('mtfexp')) { nxt.remove(); return; }
   document.querySelectorAll('tr.mtfexp').forEach(e => e.remove());
   const er = document.createElement('tr'); er.className = 'mtfexp';
-  const td = document.createElement('td'); td.colSpan = 5;
+  const td = document.createElement('td'); td.colSpan = 7;
   td.innerHTML = '<div style="padding:8px;background:#0f1117"><div style="margin-bottom:6px">'
     + '<button class="mtftf" data-tf="m" style="background:#3358e0;color:#fff;border:none;border-radius:5px;padding:3px 11px;font-size:11px;cursor:pointer;margin-right:4px">月线·方向</button>'
     + '<button class="mtftf" data-tf="w" style="background:#23264a;color:#9ca3af;border:none;border-radius:5px;padding:3px 11px;font-size:11px;cursor:pointer">周线·节奏</button></div>'

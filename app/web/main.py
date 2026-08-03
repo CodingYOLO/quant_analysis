@@ -621,6 +621,20 @@ async def api_sector_mtf(date: str = "", kind: str = "industry", _user: str = De
         return {"ok": False, "error": str(e)}
 
 
+@app.get("/api/diagnosis/structure-radar")
+async def api_structure_radar(date: str = "", _user: str = Depends(require_auth)):
+    """大盘结构雷达：七大指数 × 日/周/月三周期灯板 + 指数级新事件（盘后·日缓存）。"""
+    try:
+        from fastapi.concurrency import run_in_threadpool
+
+        from app.strategy.market_structure import index_radar
+        d = date or _last_trade_date()
+        return {"ok": True, "data": await run_in_threadpool(index_radar, d)}
+    except Exception as e:
+        logger.exception("大盘结构雷达失败")
+        return {"ok": False, "error": str(e)}
+
+
 @app.get("/api/diagnosis/sector-mtf-kline")
 async def api_sector_mtf_kline(date: str = "", kind: str = "industry", name: str = "",
                                _user: str = Depends(require_auth)):

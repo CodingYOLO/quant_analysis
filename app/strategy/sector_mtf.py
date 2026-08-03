@@ -76,8 +76,8 @@ def _index_daily(provider: CompositeProvider, kind: str, code: str, end: str) ->
     return cached_daily(f"sector_idx_{kind}", f"{code}_{end}", _fetch)
 
 
-def _row(name: str, kind: str, k: pd.DataFrame) -> dict | None:
-    """单板块大周期行：月线方向 + 见顶N/3 + 周线节奏 + 偏离10月线%。"""
+def _row(name: str, kind: str, k: pd.DataFrame, unfinished_month: bool = True) -> dict | None:
+    """单板块大周期行：月线方向+见顶N/3+周线节奏+偏离10月线% + **结构事件**(形态/交叉/切换素材)。"""
     if k is None or len(k) < _MIN_BARS or "vol" not in k.columns:
         return None
     mtf = _mtf_analysis(k)
@@ -86,12 +86,61 @@ def _row(name: str, kind: str, k: pd.DataFrame) -> dict | None:
         return None
     dev = (round((mo["close"] / mo["ma10"] - 1) * 100, 1)
            if mo.get("close") and mo.get("ma10") else None)
-    return {
+    row = {
         "sector": name, "kind": kind,
         "monthly_dir": mo.get("dir"), "top_count": mo.get("top_count", 0),
         "ma10_up": mo.get("ma10_up"), "above_ma10": mo.get("above_ma10"),
         "weekly_rhythm": wk.get("rhythm"), "dev_ma10": dev,
     }
+    # 结构事件(阳包阴/阴包阳·周线新破位站上·周MACD新交叉)+近5/20日收益(切换雷达素材)
+    try:
+        from app.strategy.market_structure import structure_row
+        st = structure_row(k, name, unfinished_month)
+        row["events"] = st.get("events", [])
+        row["m_pattern"] = ((st.get("monthly") or {}).get("pattern", "") or
+                            (st.get("monthly") or {}).get("pattern_closed", ""))
+        row["m_streak"] = (st.get("monthly") or {}).get("streak", "")
+        wku = st.get("weekly") or {}
+        row["w_event"] = (f"{wku['x_ma10w']}10周线" if wku.get("x_ma10w") else
+                          f"周MACD{wku['x_macd']}" if wku.get("x_macd") else "")
+        c = pd.to_numeric(k["close"], errors="coerce")
+        row["ret5"] = round(float(c.iloc[-1] / c.iloc[-6] - 1) * 100, 2) if len(c) > 6 else None
+        row["ret20"] = round(float(c.iloc[-1] / c.iloc[-21] - 1) * 100, 2) if len(c) > 21 else None
+    except Exception as e:
+        logger.debug("[板块大周期] %s 结构事件计算失败: %s", name, e)
+        row["events"] = []
+    return row
+
+
+def _rotation(rows: list[dict], jump_th: int = 15) -> dict:
+    """切换雷达：ret5排名 vs ret20排名的跃迁。短期排名远超长期=在接棒·反之=在退潮。
+
+    纯排名跃迁(相对强度斜率变化)·同一批数据零新增调用；配合结构事件做证据链。
+    """
+    val = [r for r in rows if r.get("ret5") is not None and r.get("ret20") is not None]
+    if len(val) < 20:
+        return {"in": [], "out": []}
+    r5 = {id(r): i for i, r in enumerate(sorted(val, key=lambda x: -x["ret5"]))}
+    r20 = {id(r): i for i, r in enumerate(sorted(val, key=lambda x: -x["ret20"]))}
+    for r in val:
+        r["rank_jump"] = r20[id(r)] - r5[id(r)]        # >0=短期排名更靠前=接棒中
+    rising = sorted([r for r in val if r["rank_jump"] >= jump_th],
+                    key=lambda x: -x["rank_jump"])[:8]
+    fading = sorted([r for r in val if r["rank_jump"] <= -jump_th],
+                    key=lambda x: x["rank_jump"])[:8]
+
+    def _ev(r):
+        bits = [f"5日排名跃升{r['rank_jump']}位" if r["rank_jump"] > 0 else f"5日排名下滑{-r['rank_jump']}位",
+                f"近5日{r['ret5']:+.1f}%·近20日{r['ret20']:+.1f}%"]
+        if r.get("m_pattern"):
+            bits.append(r["m_pattern"])
+        if r.get("w_event"):
+            bits.append(r["w_event"])
+        if (r.get("top_count") or 0) >= 2:
+            bits.append(f"⚠️月线见顶{r['top_count']}/3")
+        return {"sector": r["sector"], "kind": r["kind"], "jump": r["rank_jump"],
+                "evidence": "·".join(bits), "monthly_dir": r.get("monthly_dir")}
+    return {"in": [_ev(r) for r in rising], "out": [_ev(r) for r in fading]}
 
 
 # ── 板块大周期榜（日缓存）────────────────────────────────────────────────────
@@ -113,7 +162,7 @@ def build_sector_mtf(end: str, kind: str = "industry", provider: CompositeProvid
     from app.config import get_settings
     cdir = get_settings().cache_dir / "sector_mtf"
     cdir.mkdir(parents=True, exist_ok=True)
-    cache = cdir / f"{kind}_{end}.json"
+    cache = cdir / f"{kind}_{end}_v2.json"   # v2: +结构事件/形态/切换雷达
     if cache.exists() and not force:
         try:
             return json.loads(cache.read_text(encoding="utf-8"))
@@ -121,15 +170,25 @@ def build_sector_mtf(end: str, kind: str = "industry", provider: CompositeProvid
             pass
 
     prov = provider or CompositeProvider()
+    from app.strategy.market_structure import month_open
+    unfinished = month_open(end, prov)
     code_map = _sw_code_map(prov) if kind == "industry" else _concept_code_map(prov, end)
     rows = []
     for name, code in code_map.items():
-        r = _row(name, kind, _index_daily(prov, kind, code, end))
+        r = _row(name, kind, _index_daily(prov, kind, code, end), unfinished)
         if r:
             rows.append(r)
     rows.sort(key=lambda r: (_dir_rank(r["monthly_dir"]), -(r["dev_ma10"] or -999)))
+    rotation = _rotation(rows)
+    sev = {"月线": 0, "周线": 1, "日线": 2}
+    sector_events = sorted([e for r in rows for e in (r.get("events") or [])],
+                           key=lambda e: sev.get(e["level"], 9))
+    for r in rows:
+        r.pop("events", None)                     # 事件已汇总·行内不重复携带
     out = {
         "ok": True, "end": end, "kind": kind, "n": len(rows), "rows": rows,
+        "rotation": rotation, "sector_events": sector_events,
+        "unfinished_month": unfinished,
         "note": ("板块指数月线/周线（行业=申万二级指数·概念=同花顺概念指数）。月线定方向(10月线+见顶三条件)、"
                  "周线定节奏。顺大势逆小势：月线向上+周线回踩=低吸猎场；月线见顶三条件≥2共振才是真离场。"
                  "盘后更新·纯结构描述·非买卖建议。红涨绿跌。"),
@@ -316,7 +375,7 @@ def build_sector_mtf_ai(end: str, provider: CompositeProvider | None = None, for
     from app.config import get_settings
     cdir = get_settings().cache_dir / "sector_mtf"
     cdir.mkdir(parents=True, exist_ok=True)
-    cache = cdir / f"ai_{end}.json"
+    cache = cdir / f"ai_{end}_v2.json"   # v2: 事件流输入+六段结构输出
     if cache.exists() and not force:
         try:
             return json.loads(cache.read_text(encoding="utf-8"))
@@ -324,29 +383,70 @@ def build_sector_mtf_ai(end: str, provider: CompositeProvider | None = None, for
             pass
 
     prov = provider or CompositeProvider()
-    ind = build_sector_mtf(end, "industry", prov).get("rows", [])
-    con = build_sector_mtf(end, "concept", prov).get("rows", [])
+    ind_full = build_sector_mtf(end, "industry", prov)
+    con_full = build_sector_mtf(end, "concept", prov)
+    ind, con = ind_full.get("rows", []), con_full.get("rows", [])
     ind_up = [r for r in ind if _is_up(r)]
     con_up = [r for r in con if _is_up(r)]
     top = sorted([r for r in ind + con if (r.get("top_count") or 0) >= 2], key=lambda r: -(r.get("top_count") or 0))
     dip = [r for r in ind + con if _is_dip(r)]
-    data = (f"【行业·月线主升浪/向上（{len(ind_up)}个·偏离大=高位）】\n{_mtf_lines(ind_up)}\n\n"
-            f"【概念·月线主升浪/向上（{len(con_up)}个）】\n{_mtf_lines(con_up)}\n\n"
-            f"【月线见顶预警（三条件≥2共振）】\n{_mtf_lines(top, 10)}\n\n"
-            f"【低吸猎场（月线向上+周线回踩+无见顶+未过度偏离）】\n{_mtf_lines(dip, 12)}")
 
-    prompt = ("你是A股策略研究员，做**板块大周期结构研判**(客观·非荐股·非投资建议)。下方是全市场板块的月线/周线结构"
-              "(行业=申万二级指数·概念=同花顺概念指数·偏离10月线大=强势但高位)。请用 160-260 字总结当前**大周期格局**：\n"
-              "① 主线方向——哪些板块/产业链在月线主升浪(大周期向上)，是集中在某条链(如半导体)还是分散；\n"
-              "② 低吸猎场——月线向上但周线回踩的板块(顺大势逆小势的低吸窗口)，无则如实说明；\n"
-              "③ 见顶预警——月线见顶三条件共振的板块，需警惕；\n"
-              "④ 一句操作节奏——顺大势逆小势(主升浪偏离大的控仓·回踩的低吸·见顶的回避)。\n"
-              "**只依据下方数据·不编造板块名/数字**；这是结构描述与节奏研判、不是买卖建议、不预测涨跌。\n\n" + data)
+    # ⭐研判质量的关键在输入(2026-08-03 用户反馈"低质量"后重做)：静态排名只能产出
+    # "半导体领跑"式车轱辘话——必须喂**增量**(今日新事件/切换跃迁/指数结构)才能答"今天什么变了"
+    from app.strategy.market_structure import index_radar
+    idx = index_radar(end, prov)
+    idx_lines = []
+    for r in idx.get("rows", []):
+        d, w, m = r.get("daily", {}), r.get("weekly", {}), r.get("monthly", {})
+        seg = (f"- {r['name']}: 日线{d.get('align','—')}"
+               f"{'·站上MA20' if d.get('above_ma20') else '·MA20下方'}"
+               f"; 周线{'10周线上' if w.get('above_ma10w') else '10周线下'}"
+               f"{('·' + w['x_macd'] + '(周MACD新)') if w.get('x_macd') else ''}"
+               f"{('·' + w['x_ma10w'] + '10周线') if w.get('x_ma10w') else ''}"
+               f"; 月线{'10月线上' if m.get('above_ma10m') else '10月线下'}"
+               f"{('·' + m['pattern']) if m.get('pattern') else ''}"
+               f"{('·' + m['pattern_closed']) if m.get('pattern_closed') else ''}"
+               f"{('·' + m['streak']) if m.get('streak') else ''}")
+        for k2, v in d.items():
+            if k2.startswith("x_"):
+                seg += f"·日线{k2[2:]}新{v}"
+        idx_lines.append(seg)
+    ev_all = (idx.get("events") or []) + (ind_full.get("sector_events") or [])[:14] + \
+             (con_full.get("sector_events") or [])[:10]
+    ev_lines = [f"- [{e['level']}] {e['name']}: {e['event']}" for e in ev_all[:30]] or ["（今日无新结构事件）"]
+    rot_i, rot_c = ind_full.get("rotation", {}), con_full.get("rotation", {})
+    rin = (rot_i.get("in", []) + rot_c.get("in", []))[:10]
+    rout = (rot_i.get("out", []) + rot_c.get("out", []))[:10]
+    rin_l = [f"- {r['sector']}: {r['evidence']}（{r.get('monthly_dir') or '月线方向未知'}）" for r in rin] or ["（无）"]
+    rout_l = [f"- {r['sector']}: {r['evidence']}（{r.get('monthly_dir') or '月线方向未知'}）" for r in rout] or ["（无）"]
+
+    data = ("【一、大盘指数三周期结构】\n" + "\n".join(idx_lines) +
+            "\n\n【二、今日新发生的结构事件（增量·按月线>周线>日线排序）】\n" + "\n".join(ev_lines) +
+            "\n\n【三、切换雷达·接棒中（近5日排名 vs 近20日排名跃升）】\n" + "\n".join(rin_l) +
+            "\n\n【四、切换雷达·退潮中】\n" + "\n".join(rout_l) +
+            f"\n\n【五、存量格局摘要】月线向上：行业{len(ind_up)}个/概念{len(con_up)}个；"
+            f"见顶预警(≥2/3)：{'、'.join(r['sector'] for r in top[:8]) or '无'}；"
+            f"低吸猎场(月上+周回踩)：{'、'.join(r['sector'] for r in dip[:8]) or '无'}")
+
+    prompt = ("你是A股市场结构研究员。下面是**盘后结构数据**（大盘指数三周期/今日新事件/切换雷达/存量格局）。"
+              "写一份研判，固定用以下六段（保留【】标题·每段2-4句·总计350-500字）：\n"
+              "【大盘结构】用指数三周期数据说清大盘现在的结构状态——哪些指数结构健康、哪些走坏，日/周/月是否打架；"
+              "有指数级新交叉/新形态必须点名。\n"
+              "【今天什么变了】只讲第二节里的**新事件**及其含义——没有新事件就明说'结构无新变化'，不许拿存量凑数。\n"
+              "【切换在发生吗】用第三/四节的跃迁数据回答：谁在接棒、谁在退潮、证据是什么；接棒方向与月线方向矛盾时要指出"
+              "(短期跃升但月线走坏=反抽而非切换的可能)。\n"
+              "【风险区】见顶共振+退潮+结构破位的交集，点名并给出依据。\n"
+              "【机遇区】月线向上+周线回踩、或接棒中+月线健康的交集（结构口径·非荐股）。\n"
+              "【节奏一句话】用结构语言给市场当前状态定性一句话（如'三周期共振向下的防守结构'"
+              "/'切换未确认的反抽结构'），只描述结构处于什么阶段，不写该做什么。\n"
+              "铁律：只用输入数据·板块名和数字不许编造；月线形态标了'未收官'的必须原样带上该标注；"
+              "这是结构描述与研判，不是买卖建议——全文禁止出现：建议/应该/加仓/减仓/仓位/观望/"
+              "布局/持有/买入/卖出/回避/不宜/适合（描述结构、把判断留给读者）。\n\n" + data)
     try:
         from app.llm.client import LLMClient
         from app.llm.stance import ANALYST_STANCE
         raw = LLMClient().chat([{"role": "user", "content": ANALYST_STANCE + "\n\n" + prompt}],
-                               task_type="pro", temperature=0.3, max_tokens=1500)
+                               task_type="pro", temperature=0.3, max_tokens=3000)
     except Exception as e:
         logger.warning("[大周期研判] LLM 失败: %s", e)
         raw = ""
