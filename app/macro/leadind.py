@@ -121,13 +121,16 @@ def _roll_fix(end: str) -> dict:
                                  "chg_true": round(float(close / prec - 1) * 100, 4)})
             except Exception as e:
                 logger.debug("[领先指标] %s 换月检测失败: %s", code, e)
-        return pd.DataFrame(rows if rows else [], columns=["code", "chg_true"])
+        # 哨兵行：无换月日返回空表会被 cached_daily 拒缓存(空表守卫)→每次页面打开
+        # 重跑21次限频调用(30秒)——20260804 生产实测踩到。哨兵保证"无换月"也可缓存。
+        rows.append({"code": "_none", "chg_true": 0.0})
+        return pd.DataFrame(rows)
 
     df = cached_daily("fut_roll_fix", end, _build)
     if df is None or df.empty:
         return {}
     return {r["code"]: {"roll": True, "chg_true": float(r["chg_true"])}
-            for _, r in df.iterrows()}
+            for _, r in df.iterrows() if r["code"] != "_none"}
 
 
 # ── 面板构建 ────────────────────────────────────────────────────────────────
