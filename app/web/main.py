@@ -2338,22 +2338,41 @@ async def api_ambush_stocks(date: str = "", _user: str = Depends(require_auth)):
 
 @app.get("/api/ambush/live")
 async def api_ambush_live(codes: str = "", _user: str = Depends(require_auth)):
-    """暗流池盘中实时报价（新浪批量·毫秒级·盘后=收盘快照）。codes=逗号分隔ts_code·上限40。"""
+    """暗流池盘中实时报价：**幕数据全推优先**(已购·进程内快照·零外呼)·新浪兜底缺口。
+
+    codes=逗号分隔ts_code·上限40。返回附 src 标注数据来源（全推/新浪/混合）——口径可见。
+    """
     lst = [c.strip() for c in codes.split(",") if c.strip()][:40]
     if not lst:
         return {"ok": False, "error": "缺少 codes"}
     try:
-        from fastapi.concurrency import run_in_threadpool
+        from app.strategy.realtime_hub import data_fresh, snapshot
+        quotes, missing = {}, []
+        if data_fresh():                              # 全推(或其新浪兜底填充)快照够新才用
+            snap = snapshot()
+            for c in lst:
+                q = snap.get(c)
+                if q and q.get("pct_chg") is not None:
+                    quotes[c] = {"pct_chg": round(float(q["pct_chg"]), 2),
+                                 "price": q.get("price")}
+                else:
+                    missing.append(c)
+        else:
+            missing = lst
+        if missing:                                    # 缺口(休市/未覆盖)→新浪批量补
+            from fastapi.concurrency import run_in_threadpool
 
-        from app.data.composite_provider import CompositeProvider
-        df = await run_in_threadpool(CompositeProvider().get_realtime_quote, lst)
-        if df is None or df.empty:
-            return {"ok": True, "quotes": {}, "ts": _now_hms()}
-        quotes = {str(r["ts_code"]): {"pct_chg": (round(float(r["pct_chg"]), 2)
-                                                 if r.get("pct_chg") is not None else None),
-                                      "price": r.get("price")}
-                  for _, r in df.iterrows()}
-        return {"ok": True, "quotes": quotes, "ts": _now_hms()}
+            from app.data.composite_provider import CompositeProvider
+            df = await run_in_threadpool(CompositeProvider().get_realtime_quote, missing)
+            if df is not None and not df.empty:
+                for _, r in df.iterrows():
+                    if r.get("pct_chg") is not None:
+                        quotes[str(r["ts_code"])] = {"pct_chg": round(float(r["pct_chg"]), 2),
+                                                     "price": r.get("price")}
+        n_push = len(lst) - len(missing)
+        src = ("幕数据全推" if n_push == len(lst) else
+               "新浪" if n_push == 0 else f"全推{n_push}+新浪{len(missing)}")
+        return {"ok": True, "quotes": quotes, "ts": _now_hms(), "src": src}
     except Exception as e:
         logger.exception("暗流池实时报价失败")
         return {"ok": False, "error": str(e)}

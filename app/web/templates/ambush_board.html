@@ -158,7 +158,7 @@
         });
         const note=$('sp-note');
         note.dataset.base=note.dataset.base||note.textContent;
-        note.textContent=note.dataset.base+' · 盘中报价 '+j.ts+'(新浪实时·45秒自刷·盘后=收盘价)';
+        note.textContent=note.dataset.base+' · 盘中报价 '+j.ts+'('+(j.src||'实时')+'·45秒自刷·盘后=收盘价)';
       }catch(e){}
     };
     tick();
