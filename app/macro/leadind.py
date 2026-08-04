@@ -166,9 +166,12 @@ def build_leadind_panel(date: str | None = None) -> dict:
     return {
         "ok": True, "date": d, "is_lookback": bool(date) and d != store.latest_date(),
         "anomalies": anomalies, "chains": chains, "pending": disabled,
-        "note": ("价格=期货主力连续收盘价(Tushare·收盘后当日更新)；换月日涨跌幅已按新主力自身昨收修正并标注。"
-                 "分位=近三年该价格自身分位(point-in-time)。传导方向为产业逻辑推演·未回测·"
-                 "代表股为链条示例·全部非买卖建议。"),
+        "note": ("价格=期货主力连续收盘价(Tushare·上游为交易所官方结算数据·收盘后当日更新)；"
+                 "换月日涨跌幅已按新主力自身昨收修正并标注。分位=近三年该价格自身分位(point-in-time)。"
+                 "⚠️主力判定规则各家不同(Tushare偏成交量·部分行情软件按持仓量)——移仓期两者可能各认"
+                 "相邻月份合约·远月升水大的品种(如生猪)价差可达数%；本页分位/异动全程同一口径自洽，"
+                 "跨软件对照价格请认具体月份合约。传导方向为产业逻辑推演·未回测·代表股为链条示例·"
+                 "全部非买卖建议。"),
     }
 
 
