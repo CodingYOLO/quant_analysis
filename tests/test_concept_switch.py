@@ -184,3 +184,12 @@ def test_stock_gate_reject_near_high():
 
 def test_stock_gate_none_fields():
     assert not stock_gate({"main_flow_3d": None, "change_7d": None, "dist_high": None})
+
+
+def test_board_of():
+    from app.strategy.ambush_board import board_of
+    assert board_of("600667.SH") == "主板"
+    assert board_of("000001.SZ") == "主板"
+    assert board_of("301396.SZ") == "创业"
+    assert board_of("688981.SH") == "科创"
+    assert board_of("920180.BJ") == "北交"

@@ -67,6 +67,20 @@ _POOL_GATES = {
 }
 
 
+def board_of(ts_code: str) -> str:
+    """交易所板块判定（纯函数·按代码段）：主板/创业板/科创板/北交所。"""
+    c = str(ts_code)
+    if c.startswith(("688", "689")):
+        return "科创"
+    if c.startswith("30"):
+        return "创业"
+    if c.endswith(".BJ"):
+        return "北交"
+    if c.startswith(("60", "00")):
+        return "主板"
+    return "其他"
+
+
 def stock_gate(rec: dict, g: dict | None = None) -> bool:
     """个股暗流硬门槛（纯函数·可单测）：资金在进 + 价没动 + 不在高位。"""
     g = g or _POOL_GATES
@@ -105,6 +119,7 @@ def build_stock_ambush_pool(date: str, provider: CompositeProvider | None = None
         rps = rec.get("rps50")
         rows.append({
             "ts_code": ts, "name": rec.get("name"), "industry": ind,
+            "board": board_of(ts),
             "ind_monthly": (ind_dir.get(ind) or {}).get("monthly_dir"),
             "score": round(fs + ps + vs, 1),
             # 资金强度=3日流入/流通市值%(相对强度·并列破序)——门槛筛出的池普遍顶格45分·
