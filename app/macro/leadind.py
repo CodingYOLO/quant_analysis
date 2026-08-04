@@ -175,6 +175,77 @@ def build_leadind_panel(date: str | None = None) -> dict:
     }
 
 
+def build_leadind_ai(date: str | None = None, force: bool = False) -> dict:
+    """领先指标 AI 全景研判（页首·日缓存）。
+
+    输入纪律（沿用板块诊断 2026-08-03 教训：喂增量与结构·不喂裸排名）：
+    ①各链分位全景(存量·但按"历史极值/中位"压缩) ②今日异动(增量·V3口径) ③跨链背离素材。
+    输出锁死为结构描述——LLM 只做"把21个数拼成一段人话"，不做方向判断。
+    """
+    import json
+
+    from app.config import get_settings
+    d_panel = build_leadind_panel(date)
+    if not d_panel.get("ok"):
+        return {"ok": False, "error": d_panel.get("error", "面板为空")}
+    d = d_panel["date"]
+    cdir = get_settings().cache_dir / "leadind"
+    cdir.mkdir(parents=True, exist_ok=True)
+    cache = cdir / f"ai_{d}_v1.json"
+    if cache.exists() and not force:
+        try:
+            return json.loads(cache.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+
+    lines = []
+    for ch in d_panel["chains"]:
+        seg = []
+        for c in ch["cards"]:
+            if c.get("state") != "ok":
+                continue
+            p, chg = c.get("pctile"), c.get("chg_1d")
+            seg.append(f"{c['name'].replace('期货(主力)', '').replace('(主力)', '')}"
+                       f"{'—' if chg is None else f'{chg:+.1f}%'}·分位{'—' if p is None else round(p)}"
+                       f"{'·⚡异动' + ('↑' if c.get('anomaly', 0) > 0 else '↓') if c.get('anomaly') else ''}"
+                       f"{'·换月日' if c.get('roll_day') else ''}")
+        if seg:
+            lines.append(f"{ch['label']}: " + "，".join(seg))
+    anoms = [f"{a['name']}{'↑' if a['dir'] > 0 else '↓'}{a.get('chg_1d') or 0:+.2f}%"
+             f"(分位{'' if a.get('pctile') is None else round(a['pctile'])})"
+             for a in d_panel["anomalies"]]
+    data = ("【各链现状（涨跌为当日·分位为该价格近三年自身分位0-100）】\n" + "\n".join(lines)
+            + "\n\n【今日异动（超自身近一年95分位变动·连续2日同向确认）】\n"
+            + ("；".join(anoms) if anoms else "（今日无异动）"))
+
+    prompt = ("你是产业链价格研究员。下面是A股各行业领先指标(期货主力价)的当日全景。"
+              "写一段全景研判，固定四段（保留【】标题·总计220-350字）：\n"
+              "【一句话全景】哪几条链在历史极值区(分位≤10或≥90必须点名)、哪几条在中位·一句话说完。\n"
+              "【今天什么变了】只讲异动清单里的品种及其链条含义；无异动就明说'今日各链价格无异动'。\n"
+              "【背离与联动】跨链信息：同链内部或链与链之间的显著背离(如工业金属高位而黑色低位="
+              "外需定价与内需定价的分裂)·只报数据支持的。\n"
+              "【板块映射】把上述现状翻译成'哪些板块的成本端/收入端正处于什么状态'(结构口径·非荐股)。\n"
+              "铁律：只用输入数据·品种名和数字不许编造；分位是历史位置不是预测；"
+              "这是价格结构描述，不是买卖建议——全文禁止出现：建议/应该/加仓/减仓/仓位/观望/"
+              "布局/持有/买入/卖出/回避/不宜/适合。\n\n" + data)
+    try:
+        from app.llm.client import LLMClient
+        from app.llm.stance import ANALYST_STANCE
+        raw = LLMClient().chat([{"role": "user", "content": ANALYST_STANCE + "\n\n" + prompt}],
+                               task_type="pro", temperature=0.3, max_tokens=2000)
+    except Exception as e:
+        logger.warning("[领先指标AI] LLM 失败: %s", e)
+        raw = ""
+    out = {"ok": bool(raw), "date": d, "summary": (raw or "").strip(),
+           "disclaimer": "AI 基于领先指标价格/分位/异动数据综合·价格结构描述·非买卖建议·不预测涨跌。"}
+    if out["ok"]:
+        try:
+            cache.write_text(json.dumps(out, ensure_ascii=False), encoding="utf-8")
+        except Exception:
+            pass
+    return out
+
+
 def validate_leadind() -> list[str]:
     """一致性自检（单测调用）：链条引用的代码必须存在、IND 指标必须有传导映射且只进一条链。"""
     from app.macro import registry

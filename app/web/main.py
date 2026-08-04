@@ -386,6 +386,19 @@ async def api_leadind_panel(date: str = "", _user: str = Depends(require_auth)):
         return {"ok": False, "error": str(e)}
 
 
+@app.get("/api/leadind/ai")
+async def api_leadind_ai(date: str = "", force: bool = False, _user: str = Depends(require_auth)):
+    """领先指标 AI 全景研判（日缓存·force=重新生成）。"""
+    try:
+        from fastapi.concurrency import run_in_threadpool
+
+        from app.macro.leadind import build_leadind_ai
+        return await run_in_threadpool(build_leadind_ai, date or None, bool(force))
+    except Exception as e:
+        logger.exception("领先指标AI研判失败")
+        return {"ok": False, "error": str(e)}
+
+
 @app.get("/api/macro/panel")
 async def api_macro_panel(date: str = "", _user: str = Depends(require_auth)):
     """面板数据。?date=YYYYMMDD 回看（严格 point-in-time·由数据层保证）。"""

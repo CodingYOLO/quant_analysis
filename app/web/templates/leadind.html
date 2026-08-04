@@ -27,6 +27,15 @@
 {% block content %}
 <h2 style="margin:0 0 6px">🧭 领先指标 <span class="neu" style="font-size:12.5px">行业领先数据按产业链分组 · 看价格链条·找板块因果 · 描述非荐股</span></h2>
 <div style="font-size:12px;color:#fbbf24;background:#2a2410;border:1px solid #4a3d15;border-radius:8px;padding:8px 12px;margin:10px 0;line-height:1.6" id="li-note">⏳</div>
+<!-- 🧠 AI 全景研判（输入=分位全景+今日异动·输出锁死结构描述·若感到被带节奏可挪至页底） -->
+<div id="li-ai" class="chaincard" style="display:none;border-left:3px solid #5d7cff">
+  <div style="display:flex;align-items:center;gap:10px">
+    <h3 style="margin:0;font-size:14px;color:#7c9ef8">🧠 全景研判 · AI <span class="neu" style="font-size:11px;font-weight:400">一段看懂各链现状 · 价格结构描述·非荐股</span></h3>
+    <button id="li-ai-refresh" style="margin-left:auto;background:#12141c;color:#9ca3af;border:1px solid #2d3052;border-radius:6px;padding:3px 10px;font-size:11px;cursor:pointer">↻ 重新生成</button>
+  </div>
+  <div id="li-ai-body" style="font-size:12.5px;color:#dfe6ff;line-height:1.75;margin-top:8px">⏳ 生成中…（首日约20秒·之后当日秒开）</div>
+  <div id="li-ai-disc" class="neu" style="font-size:10.5px;margin-top:6px"></div>
+</div>
 <div id="li-anom" class="chaincard" style="display:none;border-left:3px solid #f0a020"></div>
 <div id="li-loading" class="neu" style="font-size:13px;padding:14px 4px">⏳ 加载领先指标面板…</div>
 <div id="li-chains"></div>
@@ -66,6 +75,26 @@ function card(c){
     +'<div class="expbox" id="'+eid+'">'+(c.explain||'—')+'</div>'
     +'<div class="meta">数据时点 '+(c.as_of||'—')+(c.stale_sessions?' · 已沿用'+c.stale_sessions+'个会话':'')+'</div></div>';
 }
+function aiMd(t){
+  return (t||'').replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/【(.+?)】/g,'<b style="color:#f6c343">【$1】</b>')
+    .replace(/\*\*(.+?)\*\*/g,'<b style="color:#f0a020">$1</b>')
+    .replace(/\n{2,}/g,'<br>').replace(/\n/g,'<br>');
+}
+async function loadAi(force){
+  const box=document.getElementById('li-ai'), body=document.getElementById('li-ai-body');
+  box.style.display='block';
+  if(force) body.textContent='⏳ 重新生成中…（约20秒）';
+  try{
+    const j=await (await fetch('/api/leadind/ai'+(force?'?force=1':''))).json();
+    if(!j.ok||!j.summary){ body.innerHTML='<span class="neu">（AI 研判暂不可用'+(j.error?'：'+j.error:'')+'）</span>'; return; }
+    body.innerHTML=aiMd(j.summary);
+    document.getElementById('li-ai-disc').textContent='⚠️ '+(j.disclaimer||'')+' · 数据日 '+j.date;
+  }catch(e){ body.innerHTML='<span class="neu">（AI 研判加载失败）</span>'; }
+}
+document.getElementById('li-ai-refresh').addEventListener('click',()=>loadAi(true));
+loadAi(false);
+
 async function load(){
   const L=document.getElementById('li-loading');
   try{
