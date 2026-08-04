@@ -107,7 +107,11 @@ def _build_anomalies(metas: list[dict], day_rows: dict) -> list[dict]:
     for code, r in day_rows.items():
         if not r.get("anomaly"):
             continue
-        m = by.get(code, {})
+        m = by.get(code)
+        if m is None:
+            # day_rows 含全库指标(如 IND 期货层)——不在本次 metas 范围的异动不属于本面板
+            # (宏观页曾把 fut_sa 裸代码漏进异动流·20260804 用户截图抓到)
+            continue
         out.append({"code": code, "name": m.get("name_cn", code), "unit": m.get("unit", ""),
                     "value": r.get("value"), "chg_1d": r.get("chg_1d"),
                     "pctile": r.get("pctile_750"), "dir": int(r["anomaly"])})
