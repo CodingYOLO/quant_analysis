@@ -71,6 +71,8 @@ def build_mainline_analysis(date: str, force: bool = False, provider: CompositeP
         con_text="\n".join(con_evidence) or "（今日概念资金榜为空）",
         rel_news=rel_news,
         web=web,
+        theme_text=_safe_theme_brief(date),
+        yesterday=_yesterday_excerpt(date, provider),
     )
 
     data = {
@@ -190,7 +192,32 @@ def _web_for_candidates(top_ind: list[dict], top_con: list[dict]) -> list[dict]:
 # 接地式 LLM 主线合成
 # ──────────────────────────────────────────────
 
-def _compose_mainline(*, ind_text: str, con_text: str, rel_news: list[str], web: list[dict]) -> str:
+def _safe_theme_brief(date: str) -> str:
+    """主题族资金路径摘要（双桶轮动+3日形态·2026-08-04加入）。失败→空串·不阻塞主线。"""
+    try:
+        from app.strategy.concept_flow import build_theme_map, theme_map_brief
+        return theme_map_brief(build_theme_map(date))
+    except Exception as e:
+        logger.debug("[主线] 主题地图摘要失败: %s", e)
+        return ""
+
+
+def _yesterday_excerpt(date: str, provider) -> str:
+    """昨日研判正文摘录（供今日「昨日回验」·博主图的✅❌自我打分机制）。无缓存→空串。"""
+    try:
+        from app.nodes.quick_report import _recent_trade_dates
+        dates = _recent_trade_dates(provider, date, 2)
+        if len(dates) < 2:
+            return ""
+        prev = DC.load_cache(DC.cache_path("mainline", dates[-2], "market"))
+        txt = (prev or {}).get("analysis") or ""
+        return txt[:900]
+    except Exception:
+        return ""
+
+
+def _compose_mainline(*, ind_text: str, con_text: str, rel_news: list[str], web: list[dict],
+                      theme_text: str = "", yesterday: str = "") -> str:
     """LLM(pro) 综合资金面 + 新闻 + 政策 → 主线候选研判（严禁编造·非投资建议·每候选带证伪点）。"""
     news_text = "\n".join(f"- {h}" for h in rel_news) or "（财联社电报中无头部候选直接相关条目）"
     web_text = "\n".join(
@@ -205,11 +232,16 @@ def _compose_mainline(*, ind_text: str, con_text: str, rel_news: list[str], web:
         "任务：基于【资金面】（行业资金持续流入 + 概念渗透率·相对强度 + 暗流=资金进价没涨的埋伏信号）"
         "结合【相关新闻】【联网检索】，研判后市可能走强、值得跟踪埋伏的 **主线板块候选（精选 2-3 个·宁缺毋滥）**。\n\n"
         "每个候选写清三点（可连贯成段，不必生硬分点）：\n"
-        "①**资金证据**——引用上方【资金面】的具体数据（净额/渗透率/连流天/暗流）；\n"
+        "①**资金证据**——引用上方【资金面】的具体数据（净额/渗透率/连流天/暗流），"
+        "并结合【主题族3日路径】的形态词（加速流入/冲高回落/连N日负等）说清资金的**节奏**；\n"
         "②**催化剂/政策**——**必须**来自【相关新闻】或【联网检索】并注明来源；若该候选只有资金没有消息面，"
         "如实写「纯资金驱动·暂无公开催化·需等题材验证」，不得自行编造利好；\n"
         "③**风险/证伪点**——什么情况说明这条主线走弱或证伪（如资金转出、冲高回落、政策不及预期）。\n\n"
-        "最后用一句话点出：当前资金更像「主线确立」还是「多线博弈/轮动」。\n\n"
+        "开头先用两行写【风格切换】：依据【主题族3日路径】里的双桶差值路径，说清资金现在偏科技桶"
+        "还是防御桶、差值在转向还是延续（成分有重叠·只谈方向与变化不谈绝对水平）。\n"
+        + ("有【昨日研判摘录】时，在正文最后加一段【昨日回验】：逐条对照昨日候选在今日资金数据里的表现，"
+           "明确标 ✅仍成立 / ⚠️动摇 / ❌被证伪 并给一句依据——诚实认错比嘴硬值钱。\n" if yesterday else "")
+        + "最后用一句话点出：当前资金更像「主线确立」还是「多线博弈/轮动」。\n\n"
         f"{ANALYST_STANCE}\n"
         "**额外硬约束**：这是研究观点、不是投资建议；可给方向性研判，但**不要用「买入/抄底/追高/满仓/"
         "梭哈」等下单指令措辞**，不打包票「必涨/稳赚」；埋伏候选一律以「值得跟踪/需验证」的口吻，把决策权留给用户。\n"
@@ -217,7 +249,10 @@ def _compose_mainline(*, ind_text: str, con_text: str, rel_news: list[str], web:
         "━━ 真实信息源 ━━\n"
         f"【资金面·行业持续流入榜（申万·Tushare主力估算·近10日）】\n{ind_text}\n\n"
         f"【资金面·概念资金榜（同花顺DDE·渗透率=净流入/概念流通市值·相对强度·近10日）】\n{con_text}\n\n"
-        f"【相关新闻（财联社电报·已按候选精筛）】\n{news_text}\n\n"
+        + (f"【主题族3日路径（精选赛道·逐日净额亿·形态词·双桶=科技vs防御）】\n{theme_text}\n\n"
+           if theme_text else "")
+        + (f"【昨日研判摘录（供回验·当时的候选与逻辑）】\n{yesterday}\n\n" if yesterday else "")
+        + f"【相关新闻（财联社电报·已按候选精筛）】\n{news_text}\n\n"
         f"【联网检索（博查·真实网页·含来源与日期）】\n{web_text}\n"
     )
     try:

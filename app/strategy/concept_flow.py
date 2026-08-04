@@ -402,6 +402,142 @@ def _concept_structure_map(date: str) -> dict:
         return {}
 
 
+# ── 🗺 主题族资金路径（2026-08-04·参考用户提供的博主排版·四个可抄的结构技巧：
+#    3日原始路径并排 / 形态词典 / 科技vs防御双桶轮动差值 / 催化×资金验证(进主线研判LLM)）──
+# 族成员用**真实THS概念名**逐一核对(20260803缓存·不许猜名)；bucket: tech/defense/neutral
+THEME_FAMILIES: list[dict] = [
+    {"family": "存储半导体", "bucket": "tech",
+     "members": ["存储芯片", "芯片概念", "国家大基金持股", "第三代半导体", "汽车芯片", "光刻机"]},
+    {"family": "AI应用", "bucket": "tech",
+     "members": ["人工智能", "AIGC概念", "AI应用", "AI智能体", "AI语料", "AI视频"]},
+    {"family": "算力硬件", "bucket": "tech",
+     "members": ["共封装光学(CPO)", "PCB概念", "光纤概念", "算力租赁", "液冷服务器", "英伟达概念"]},
+    {"family": "机器人", "bucket": "tech",
+     "members": ["机器人概念", "人形机器人", "减速器", "机器视觉", "工业母机"]},
+    {"family": "新能源", "bucket": "neutral",
+     "members": ["新能源汽车", "锂电池概念", "固态电池", "光伏概念", "风电", "储能"]},
+    {"family": "电力核电", "bucket": "defense",
+     "members": ["核电", "特高压", "智能电网", "虚拟电厂", "绿色电力"]},
+    {"family": "红利防御", "bucket": "defense",
+     "members": ["黄金概念", "煤炭概念", "中字头股票", "高股息精选"]},
+]
+
+
+def classify_flow_shape(nets: list[float | None]) -> str:
+    """3日资金路径 → 形态词（博主图的词典·阈值用自身10日MAD锚定而非拍绝对数）。
+
+    nets=旧→新(≥4个有效·最后为今日)。优先级：加速 > 冲高回落 > 转向 > 连N日 > 停滞。
+    """
+    val = [x for x in nets if x is not None]
+    if len(val) < 4:
+        return "·"
+    s = _mad_scale(val[:-1][-10:])
+    a, b, c = val[-3], val[-2], val[-1]
+    if a < b < c and b > 0 and c >= s:
+        return "🔥加速流入"
+    if a > b > c and b < 0 and -c >= s:
+        return "💨加速失血"
+    if b >= 2 * s and 0 <= c <= b * 0.4:
+        return "↘冲高回落"                        # 如 +19→+2：昨日大进今日骤缩(仍为正)
+    if max(abs(a), abs(b), abs(c)) < 0.5 * s:
+        return "→停滞"                            # 幅度门槛在转向判定之前：微小翻正翻负不算转向
+    if c < 0 and b >= 0 and -c >= 0.5 * s:
+        return "🔴转负"                           # 含冲高转负(+15→-1)：比冲高回落更弱一级
+    if c > 0 and b <= 0:
+        return "🔄资金回流" if sum(val[:-1][-5:]) < 0 else "🟢转正"
+    streak_n, sign = 0, (1 if c > 0 else -1 if c < 0 else 0)
+    for x in reversed(val):
+        if sign and (x > 0) == (sign > 0) and x != 0:
+            streak_n += 1
+        else:
+            break
+    if sign > 0 and streak_n >= 2:
+        return f"🟢连{min(streak_n, 9)}日正"
+    if sign < 0 and streak_n >= 2:
+        return f"🟠连{min(streak_n, 9)}日负"
+    return "🟢流入" if c > 0 else ("🟠流出" if c < 0 else "→停滞")
+
+
+# 伞形概念（成分数百上千·覆盖整个生态）：只当"族温度计"读方向·锚定个股请看同族细分行
+_UMBRELLA = {"人工智能", "芯片概念", "机器人概念"}
+
+
+def build_theme_map(date: str, window: int = 11, provider=None) -> dict:
+    """🗺 主题族资金路径：族谱表(3日路径+形态+结构) + 科技vs防御双桶轮动差值。
+
+    ⚠️口径：概念成分互有重叠→桶合计存在重复计数——**看方向与日间变化·别读绝对水平**(已在note声明)。
+    """
+    provider = provider or CompositeProvider()
+    pro = provider._ts._api
+    from app.data.cache import cached_daily
+    dates = _recent_trade_dates(provider, date, window)
+    if len(dates) < 6:
+        raise ValueError(f"{date} 可用交易日不足")
+    net_by, lead = [], {}
+    for d in dates:
+        df = cached_daily("ths_concept_flow", d, lambda d=d: _fetch_concept_flow(pro, d))
+        m = {}
+        if df is not None and not df.empty:
+            for _, r in df.iterrows():
+                nm = str(r.get("name", "") or "")
+                na = r.get("net_amount")
+                if nm:
+                    m[nm] = float(na) if pd.notna(na) else None
+                if nm and d == dates[-1] and r.get("lead_stock"):
+                    lead[nm] = str(r["lead_stock"])       # 当日领涨股·锚定到具体股票
+        net_by.append(m)
+    struct = _concept_structure_map(dates[-1])
+
+    fams, bucket_path = [], {"tech": [0.0, 0.0, 0.0], "defense": [0.0, 0.0, 0.0]}
+    for fam in THEME_FAMILIES:
+        rows = []
+        for nm in fam["members"]:
+            nets = [m.get(nm) for m in net_by]
+            if sum(1 for x in nets if x is not None) < 4:
+                continue                                   # 名单校验过·缺数即老实跳过不编
+            st = struct.get(nm) or {}
+            seq3 = [round(x, 1) if x is not None else None for x in nets[-3:]]
+            rows.append({
+                "concept": nm, "seq3": seq3,
+                "shape": classify_flow_shape(nets),
+                "cum5": round(sum(x for x in nets[-5:] if x is not None), 1),
+                "monthly_dir": st.get("monthly_dir"), "w_event": st.get("w_event"),
+                "lead": lead.get(nm, ""), "umbrella": nm in _UMBRELLA,
+            })
+            if fam["bucket"] in bucket_path:
+                for i, x in enumerate(nets[-3:]):
+                    if x is not None:
+                        bucket_path[fam["bucket"]][i] += x
+        if rows:
+            fams.append({"family": fam["family"], "bucket": fam["bucket"], "rows": rows})
+
+    tech, dfs = bucket_path["tech"], bucket_path["defense"]
+    rotation = {
+        "dates": [f"{d[4:6]}-{d[6:]}" for d in dates[-3:]],
+        "tech": [round(x, 1) for x in tech], "defense": [round(x, 1) for x in dfs],
+        "spread": [round(t - f, 1) for t, f in zip(tech, dfs)],   # 差值路径·方向即风格
+    }
+    return {
+        "ok": True, "date": dates[-1], "families": fams, "rotation": rotation,
+        "note": ("3日为原始逐日净额(亿·非累计)·形态词阈值按各概念自身10日MAD锚定。"
+                 "双桶差值=科技族合计−防御族合计：概念成分重叠有重复计数·只看方向与变化不读绝对水平。"
+                 "同花顺DDE估算·描述档未回测·非买卖建议。"),
+    }
+
+
+def theme_map_brief(tm: dict) -> str:
+    """主题地图 → 喂给主线研判 LLM 的紧凑文本（双桶差值+族形态·增量优先）。"""
+    if not tm.get("ok"):
+        return ""
+    r = tm["rotation"]
+    lines = [f"科技桶3日: {r['tech']} · 防御桶3日: {r['defense']} · 差值路径: {r['spread']}"
+             f"（差值转向=风格切换信号·成分重叠只看方向）"]
+    for f in tm["families"]:
+        seg = "，".join(f"{x['concept']}{x['seq3']}{x['shape']}" for x in f["rows"])
+        lines.append(f"[{f['family']}·{f['bucket']}] {seg}")
+    return "\n".join(lines)
+
+
 def build_concept_switch_radar(date: str, window: int = 11, provider=None) -> dict:
     """💱 今日资金切换雷达：转入(相对异动) + 转出(主线池掉头) + 🚦主线健康灯。
 

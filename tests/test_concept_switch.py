@@ -103,3 +103,58 @@ def test_broad_reason_ths_house_index():
 
 def test_mad_scale_floor():
     assert _mad_scale([0.0, 0.0, 0.0, 0.0, 0.0]) == 0.8      # 退化序列吃下限·防全员误报
+
+
+# ── classify_flow_shape：3日路径形态词典（2026-08-04 主题战场）──────────────────
+
+from app.strategy.concept_flow import classify_flow_shape, THEME_FAMILIES
+
+
+def _hist(*tail):
+    # 安静基线(±1亿·MAD吃下限0.8) + 指定尾部
+    return [1.0, -1.0, 0.5, -0.5, 1.0, -1.0, 0.5] + list(tail)
+
+
+def test_shape_accel_in():
+    assert classify_flow_shape(_hist(2.0, 5.0, 12.0)) == "🔥加速流入"
+
+
+def test_shape_accel_bleed():
+    assert classify_flow_shape(_hist(-2.0, -5.0, -12.0)) == "💨加速失血"
+
+
+def test_shape_spike_fade():
+    # 博主图的 +19→+2：昨日≥2×MAD·今日缩到四成以下
+    assert classify_flow_shape(_hist(2.0, 19.0, 2.0)) == "↘冲高回落"
+
+
+def test_shape_turn_negative():
+    assert classify_flow_shape(_hist(1.0, 2.0, -3.0)) == "🔴转负"
+
+
+def test_shape_reflow_after_bleed():
+    # 前5日净流出为主·今日转正 = 资金回流(区别于普通转正)
+    nets = [1.0, -1.0, -3.0, -4.0, -2.0, -3.0, -2.0, -1.5, -0.5, 2.0]
+    assert classify_flow_shape(nets) == "🔄资金回流"
+
+
+def test_shape_streak_positive():
+    # 基线尾部0.5也是正·连正计数=4(词典如实数·不截断到3)
+    assert classify_flow_shape(_hist(2.0, 3.0, 2.5)) == "🟢连4日正"
+
+
+def test_shape_stall():
+    assert classify_flow_shape(_hist(0.1, -0.1, 0.1)) == "→停滞"
+
+
+def test_shape_insufficient():
+    assert classify_flow_shape([1.0, None, 2.0]) == "·"
+
+
+def test_theme_families_no_dup_members():
+    seen = {}
+    for f in THEME_FAMILIES:
+        assert f["bucket"] in ("tech", "defense", "neutral")
+        for m in f["members"]:
+            assert m not in seen, f"{m} 同时在 {seen.get(m)} 与 {f['family']}"
+            seen[m] = f["family"]

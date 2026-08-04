@@ -72,6 +72,15 @@ tr.detailrow td { padding:0; background:#141729; }
   <div id="sw-note" class="neu" style="font-size:10.5px;margin-top:6px"></div>
 </div>
 
+<!-- 🗺 主题族资金路径（精选可交易赛道·治386概念大杂烩的晕：3日原始路径+形态词典+双桶轮动+领涨股锚定） -->
+<div class="chart-card" style="border-left:3px solid #5d7cff">
+  <h3 style="font-size:15px">🗺 主题战场 · 3日资金路径 <span class="neu" style="font-weight:400;font-size:12px">精选赛道(非全量概念·全量在下方表格) · 逐日原始净额看节奏 · 领涨股锚定个股 · 描述非荐股</span></h3>
+  <div id="tmap-rot" style="display:none;font-size:12.5px;background:#12141f;border:1px solid #2a2f4d;border-radius:8px;padding:8px 12px;margin:8px 0;line-height:1.8"></div>
+  <div id="tmap-loading" class="neu" style="font-size:13px;padding:8px 0">⏳ 计算主题族路径…</div>
+  <div id="tmap-body" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(430px,1fr));gap:10px"></div>
+  <div id="tmap-note" class="neu" style="font-size:10.5px;margin-top:6px"></div>
+</div>
+
 <div id="loading" class="neu" style="font-size:14px;padding:20px">⏳ 加载概念资金数据中...</div>
 <div id="dash" style="display:none">
   <div class="kpi-row">
@@ -164,6 +173,59 @@ async function loadSwitchRadar(){
 }
 loadSwitchRadar();
 
+// ── 🗺 主题战场·3日资金路径（精选赛道·形态词典·双桶轮动）──────────────────────
+const TMAP_BUCKET={tech:['科技','#7c9ef8'],defense:['防御','#f6c343'],neutral:['中性','#9ca3af']};
+function tmapCell(v){
+  if(v===null||v===undefined) return '<td style="text-align:right;padding:3px 8px" class="neu">·</td>';
+  const c=v>0?'up':(v<0?'down':'');
+  return '<td style="text-align:right;padding:3px 8px" class="'+c+'">'+(v>0?'+':'')+v+'</td>';
+}
+function tmapDir(d){
+  if(!d) return '<span class="neu">·</span>';
+  const c=/向上|主升浪|健康/.test(d)?'#f6465d':(/走坏|见顶|破位/.test(d)?'#2ebd85':'#f0a020');
+  return '<span style="color:'+c+'">'+d.split('·')[0].replace('月线','')+'</span>';
+}
+async function loadThemeMap(){
+  const L=document.getElementById('tmap-loading');
+  try{
+    const date=(document.getElementById('date').value||'').replace(/-/g,'');
+    const j=await (await fetch('/api/concept/theme-map?date='+date)).json();
+    if(!j.ok){ L.textContent='❌ '+j.error; return; }
+    const d=j.data; L.style.display='none';
+    // 双桶轮动条：差值路径=风格在哪边·转向即切换信号
+    const r=d.rotation, rot=document.getElementById('tmap-rot');
+    const path=(arr)=>arr.map((v,i)=>'<b class="'+(v>0?'up':(v<0?'down':''))+'">'+(v>0?'+':'')+v+'</b>'+(i<arr.length-1?' → ':'')).join('');
+    const sp=r.spread, turn=(sp.length>=2&&sp[sp.length-1]*sp[sp.length-2]<0)?' <span style="background:#2a2410;color:#f6c343;border-radius:4px;padding:0 6px;font-size:11px">差值转向=风格切换信号</span>':'';
+    rot.style.display='block';
+    rot.innerHTML='<b style="color:#c9d2f8">⚖️ 双桶轮动（'+r.dates.join('/')+'·亿）</b>　'
+      +'<span style="color:#7c9ef8">科技桶</span> '+path(r.tech)+'　'
+      +'<span style="color:#f6c343">防御桶</span> '+path(r.defense)+'　'
+      +'<span style="color:#e8ecff">差值(科技−防御)</span> '+path(sp)+turn
+      +'<div class="neu" style="font-size:10.5px">成分重叠有重复计数·只看方向与日间变化·别读绝对水平</div>';
+    document.getElementById('tmap-body').innerHTML=(d.families||[]).map(f=>{
+      const bk=TMAP_BUCKET[f.bucket]||TMAP_BUCKET.neutral;
+      let h='<div style="background:#12141f;border:1px solid #2a2f4d;border-radius:8px;padding:8px 10px">'
+        +'<div style="font-weight:600;color:#e8ecff;font-size:13px;margin-bottom:4px">'+f.family
+        +' <span style="font-size:10px;color:'+bk[1]+';border:1px solid '+bk[1]+'33;border-radius:4px;padding:0 5px">'+bk[0]+'桶</span></div>'
+        +'<table style="width:100%;font-size:12px;border-collapse:collapse"><thead><tr style="color:#6b7280;font-size:10px">'
+        +'<th style="text-align:left;padding:2px 8px">赛道</th><th style="text-align:right">D-2</th><th style="text-align:right">D-1</th><th style="text-align:right">今日</th>'
+        +'<th style="text-align:left;padding:2px 8px">形态</th><th style="text-align:right">近5日</th><th style="text-align:left;padding:2px 8px">月线</th><th style="text-align:left;padding:2px 8px">领涨</th></tr></thead><tbody>';
+      f.rows.forEach(x=>{
+        const umb=x.umbrella?' <span style="font-size:9px;color:#94a3b8;border:1px solid #3a3f5c;border-radius:3px;padding:0 3px" title="伞形概念·成分数百上千覆盖全生态：只当族温度计读方向·锚定个股看同族细分行">伞</span>':'';
+        h+='<tr style="border-top:1px dashed #1a1d2e"><td style="padding:3px 8px;color:#dfe6ff;white-space:nowrap">'+x.concept.replace('概念','').replace('股票','')+umb+'</td>'
+          +tmapCell(x.seq3[0])+tmapCell(x.seq3[1])+tmapCell(x.seq3[2])
+          +'<td style="padding:3px 8px;white-space:nowrap;font-size:11px">'+x.shape+'</td>'
+          +tmapCell(x.cum5)
+          +'<td style="padding:3px 8px;font-size:10.5px;white-space:nowrap">'+tmapDir(x.monthly_dir)+(x.w_event?'<span class="neu">·'+x.w_event+'</span>':'')+'</td>'
+          +'<td style="padding:3px 8px;font-size:10.5px;color:#b8c2e8;white-space:nowrap">'+(x.lead||'·')+'</td></tr>';
+      });
+      return h+'</tbody></table></div>';
+    }).join('');
+    document.getElementById('tmap-note').textContent='⚠️ '+(d.note||'')+' · 数据日 '+d.date;
+  }catch(e){ L.textContent='❌ '+e; }
+}
+loadThemeMap();
+
 async function load(){
   const L=document.getElementById('loading'); L.style.display='block'; L.textContent='⏳ 加载概念资金数据中...';
   document.getElementById('dash').style.display='none';
@@ -175,7 +237,7 @@ async function load(){
     renderAll(j.data);
   }catch(e){ L.textContent='❌ '+e; }
 }
-document.getElementById('reload').addEventListener('click', ()=>{ load(); loadSwitchRadar(); });
+document.getElementById('reload').addEventListener('click', ()=>{ load(); loadSwitchRadar(); loadThemeMap(); });
 
 function renderAll(d){
   // 回填日期框为后端实际使用的数据日（默认进来为空时显示最近交易日）

@@ -944,6 +944,20 @@ async def api_concept_switch_radar(date: str = "", _user: str = Depends(require_
         return {"ok": False, "error": str(e)}
 
 
+@app.get("/api/concept/theme-map")
+async def api_concept_theme_map(date: str = "", _user: str = Depends(require_auth)):
+    """🗺 主题族资金路径：精选赛道3日路径+形态词典+科技vs防御双桶轮动。"""
+    try:
+        from fastapi.concurrency import run_in_threadpool
+
+        from app.strategy.concept_flow import build_theme_map
+        d = date or _last_trade_date()
+        return {"ok": True, "data": await run_in_threadpool(build_theme_map, d)}
+    except Exception as e:
+        logger.exception("主题族资金路径失败")
+        return {"ok": False, "error": str(e)}
+
+
 @app.get("/api/concept/persistent")
 async def api_concept_persistent(date: str = "", window: int = 10, _user: str = Depends(require_auth)):
     """概念「资金持续流入榜」：近 window 日同花顺概念净流入 + 渗透率(相对强度) + 多窗口变化。"""
