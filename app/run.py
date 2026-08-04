@@ -594,6 +594,15 @@ def _run_macro_sync(start: str, end: str, codes: set[str]) -> None:
     from app.macro import compute
     cres = compute.run(end, run_id=res.run_id)
     console.print(f"[bold]派生量 {cres.rows_updated} 行 · 评分 {cres.score_days} 天[/bold]")
+
+    # 领先指标AI全景研判（必须在此处而非19:25 warmup——依赖本次刚写入的当日期货数据，
+    # 放warmup会白烧一次LLM给昨日重复生成·2026-08-04教训）
+    try:
+        from app.macro.leadind import build_leadind_ai
+        lr = build_leadind_ai(end, force=True)
+        console.print(f"[green]✅ 领先指标AI研判 {end}·{len(lr.get('summary', ''))}字[/green]")
+    except Exception as e:
+        console.print(f"[yellow]⚠️ 领先指标AI研判失败(不阻塞): {e}[/yellow]")
     import math as _math
     for r in cres.layer_today:
         if r["layer"] == "TOTAL":
@@ -929,6 +938,26 @@ def run_warmup(base_date: str) -> None:
         console.print(f"[green]✅ 大盘主力净流入预热·今日 {mf.get('today')}[/green]")
     except Exception as e:
         console.print(f"[yellow]⚠️ 大盘主力净流入预热失败: {e}[/yellow]")
+    # 1.75) 暗流低吸(个股池信号表最重·概念分档轻·2026-08-04加入——用户以此作次日买入参考·
+    #        不预热则晚上第一个访客要等信号表现算1-3分钟)
+    try:
+        from app.strategy.ambush_board import build_ambush_board, build_stock_ambush_pool
+        sp = build_stock_ambush_pool(latest, provider=prov)
+        build_ambush_board(latest, provider=prov)
+        console.print(f"[green]✅ 暗流低吸预热 {latest}·个股池{len(sp.get('rows', []))}只"
+                      f"(过门槛{sp.get('n_pass', 0)})[/green]")
+    except Exception as e:
+        console.print(f"[yellow]⚠️ 暗流低吸预热失败: {e}[/yellow]")
+    # 1.76) 概念切换雷达+主题战场+大盘结构雷达(轻·全用已缓存日频资金/指数·顺手暖)
+    try:
+        from app.strategy.concept_flow import build_concept_switch_radar, build_theme_map
+        from app.strategy.market_structure import index_radar
+        build_concept_switch_radar(latest, provider=prov)
+        build_theme_map(latest, provider=prov)
+        index_radar(latest, prov)
+        console.print(f"[green]✅ 切换雷达/主题战场/结构雷达预热 {latest}[/green]")
+    except Exception as e:
+        console.print(f"[yellow]⚠️ 切换雷达系预热失败: {e}[/yellow]")
     # 2) 大盘情绪默认区间(end=今/明/后·各往前30天·覆盖今晚与周末打开的缓存键)
     for off in (0, 1, 2):
         end = (datetime.datetime.strptime(base, "%Y%m%d") + datetime.timedelta(days=off)).strftime("%Y%m%d")
