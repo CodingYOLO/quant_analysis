@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{% block title %}领先指标 — A股Agent{% endblock %}
+
+{% block extra_style %}
+.chaincard { background:#161929; border:1px solid #242842; border-radius:10px; padding:14px 16px; margin-bottom:16px; }
+.chaincard h3 { font-size:15px; color:#e8ecff; margin:0 0 4px; }
+.chainlogic { font-size:11.5px; color:#9ca3af; line-height:1.6; margin-bottom:10px; }
+.indgrid { display:grid; grid-template-columns:repeat(auto-fill,minmax(300px,1fr)); gap:10px; }
+.indcard { background:#12141f; border:1px solid #2a2f4d; border-radius:8px; padding:10px 12px; }
+.indcard .nm { font-weight:600; color:#e8ecff; font-size:13.5px; }
+.indcard .val { font-size:18px; font-weight:700; margin:2px 0; }
+.up { color:#f6465d; } .down { color:#2ebd85; } .neu2 { color:#9ca3af; }
+.spark { width:100%; height:26px; margin:4px 0 2px; }
+.pctbar { height:5px; background:#1e2138; border-radius:3px; position:relative; margin:4px 0; }
+.pctbar>i { position:absolute; top:-2px; width:9px; height:9px; border-radius:50%; background:#f0a020; }
+.trans { font-size:11px; color:#c2c8de; line-height:1.55; margin-top:5px; border-top:1px dashed #1e2138; padding-top:5px; }
+.meta { font-size:10px; color:#6b7280; margin-top:3px; }
+.badge { display:inline-block; font-size:10px; border-radius:4px; padding:0 5px; margin-left:5px; vertical-align:1px; }
+.b-anom-up { background:#3b1a1a; color:#f6465d; border:1px solid #5a2828; }
+.b-anom-dn { background:#12271b; color:#4ade80; border:1px solid #1e4a30; }
+.b-roll { background:#2a2410; color:#f6c343; border:1px solid #4a3d15; }
+.b-reuse { background:#1a2b3b; color:#7c9ef8; border:1px solid #2a4058; }
+.expbtn { cursor:pointer; color:#5d7cff; font-size:11px; user-select:none; }
+.expbox { display:none; font-size:11px; color:#b8c2e8; line-height:1.6; background:#0f1117; border-radius:6px; padding:7px 9px; margin-top:5px; }
+{% endblock %}
+
+{% block content %}
+<h2 style="margin:0 0 6px">🧭 领先指标 <span class="neu" style="font-size:12.5px">行业领先数据按产业链分组 · 看价格链条·找板块因果 · 描述非荐股</span></h2>
+<div style="font-size:12px;color:#fbbf24;background:#2a2410;border:1px solid #4a3d15;border-radius:8px;padding:8px 12px;margin:10px 0;line-height:1.6" id="li-note">⏳</div>
+<div id="li-anom" class="chaincard" style="display:none;border-left:3px solid #f0a020"></div>
+<div id="li-loading" class="neu" style="font-size:13px;padding:14px 4px">⏳ 加载领先指标面板…</div>
+<div id="li-chains"></div>
+<div id="li-pending" class="neu" style="font-size:11px;line-height:1.7;margin-top:6px"></div>
+
+<script>
+function sparkSvg(spark){
+  const pts=(spark||[]).filter(p=>p.v!==null&&p.v!==undefined);
+  if(pts.length<2) return '<div class="spark"></div>';
+  const W=280,H=26, vs=pts.map(p=>p.v);
+  const mn=Math.min(...vs), mx=Math.max(...vs), rg=(mx-mn)||1;
+  const xy=pts.map((p,i)=>[(i/(pts.length-1))*W, H-2-((p.v-mn)/rg)*(H-4)]);
+  const up=vs[vs.length-1]>=vs[0];
+  return '<svg class="spark" viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="none"><polyline fill="none" stroke="'+(up?'#f6465d':'#2ebd85')+'" stroke-width="1.5" points="'+xy.map(p=>p[0].toFixed(1)+','+p[1].toFixed(1)).join(' ')+'"/></svg>';
+}
+function fmtV(v,unit){
+  if(v==null) return '—';
+  const s=Math.abs(v)>=10000?Math.round(v).toLocaleString():(Math.abs(v)>=100?v.toFixed(1).replace(/\.0$/,''):v.toFixed(2));
+  return s+(unit?' <span class="neu" style="font-size:11px">'+unit+'</span>':'');
+}
+function card(c){
+  if(c.state==='pending_source') return '<div class="indcard"><span class="nm">'+c.name+'</span><div class="neu" style="font-size:11px;margin-top:4px">数据源待接入</div></div>';
+  const chg=c.chg_1d, chgHtml=chg==null?'<span class="neu2">—</span>':'<span class="'+(chg>0?'up':(chg<0?'down':'neu2'))+'">'+(chg>0?'+':'')+chg.toFixed(2)+'%</span>';
+  const anom=c.anomaly?(c.anomaly>0?'<span class="badge b-anom-up">⚡异动↑</span>':'<span class="badge b-anom-dn">⚡异动↓</span>'):'';
+  const roll=c.roll_day?'<span class="badge b-roll" title="今日主力换月·涨跌幅已按新主力自身昨收计算">换月日</span>':'';
+  const reuse=c.reused_macro?'<span class="badge b-reuse" title="与宏观传导页同库同数">宏观复用</span>':'';
+  const pct=c.pctile;
+  const pctHtml=pct==null?'<div class="meta">分位样本不足('+(c.sample_n||0)+'/'+(c.sample_min||250)+')·不显示分位</div>'
+    :'<div class="pctbar"><i style="left:calc('+pct.toFixed(1)+'% - 4px)"></i></div><div class="meta">近三年分位 <b style="color:#f0a020">'+pct.toFixed(0)+'%</b> · 样本'+(c.sample_n||'—')+'/'+(c.sample_win||750)+'</div>';
+  if(c.state==='missing') return '<div class="indcard"><span class="nm">'+c.name+'</span>'+reuse+'<div class="neu" style="font-size:11px;margin-top:4px">数据未更新（不显示0·不显示上一日值）· 最近数据日 '+(c.as_of||'—')+'</div></div>';
+  const trans=(c.up_good||c.up_bad)?('<div class="trans">↗涨 → <span style="color:#f6465d">利好 '+(c.up_good||'—')+'</span>'+(c.up_bad&&c.up_bad!=='—'?'<br>　　→ <span style="color:#2ebd85">利空 '+c.up_bad+'</span>':'')+'</div>'):'';
+  const eid='exp_'+c.code;
+  return '<div class="indcard"><span class="nm">'+c.name+'</span>'+anom+roll+reuse
+    +'<span class="expbtn" style="float:right" data-exp="'+eid+'">ℹ️怎么读</span>'
+    +'<div class="val">'+fmtV(c.value,c.unit)+' <span style="font-size:13px">'+chgHtml+'</span></div>'
+    +sparkSvg(c.spark)+pctHtml+trans
+    +'<div class="expbox" id="'+eid+'">'+(c.explain||'—')+'</div>'
+    +'<div class="meta">数据时点 '+(c.as_of||'—')+(c.stale_sessions?' · 已沿用'+c.stale_sessions+'个会话':'')+'</div></div>';
+}
+async function load(){
+  const L=document.getElementById('li-loading');
+  try{
+    const j=await (await fetch('/api/leadind/panel')).json();
+    if(!j.ok){ L.textContent='❌ '+j.error; return; }
+    L.style.display='none';
+    document.getElementById('li-note').innerHTML='💡 <b>口径</b>：'+j.note+' · 数据日 '+j.date;
+    const an=document.getElementById('li-anom');
+    if(j.anomalies&&j.anomalies.length){
+      an.style.display='block';
+      an.innerHTML='<h3 style="margin:0 0 6px;font-size:14px;color:#f6c343">⚡ 今日异动（超自身近一年95分位变动·连续2日同向确认）</h3>'
+        +j.anomalies.map(a=>'<span style="display:inline-block;background:#0f1117;border:1px solid #2d3052;border-radius:6px;padding:2px 10px;margin:2px 6px 2px 0;font-size:12px"><b style="color:#e8ecff">'+a.name+'</b> <span class="'+(a.dir>0?'up':'down')+'">'+(a.dir>0?'↑':'↓')+' '+(a.chg_1d==null?'':(a.chg_1d>0?'+':'')+a.chg_1d.toFixed(2)+'%')+'</span> <span class="neu" style="font-size:10.5px">分位'+(a.pctile==null?'—':a.pctile.toFixed(0)+'%')+'</span></span>').join('');
+    } else {
+      an.style.display='block';
+      an.innerHTML='<span class="neu" style="font-size:12.5px">⚡ 今日无领先指标异动（异动=变动超自身近一年95分位·连续2日同向确认·宁缺毋滥）</span>';
+    }
+    document.getElementById('li-chains').innerHTML=(j.chains||[]).map(ch=>
+      '<div class="chaincard"><h3>'+ch.label+'</h3><div class="chainlogic">🔗 '+ch.logic+'</div><div class="indgrid">'
+      +ch.cards.map(card).join('')+'</div></div>').join('');
+    if(j.pending&&j.pending.length){
+      document.getElementById('li-pending').innerHTML='<b>待接入指标</b>（诚实空缺·不上"大概有"的数据）：'
+        +j.pending.map(p=>'· <b>'+p.name+'</b> — '+p.note).join('<br>');
+    }
+    document.querySelectorAll('.expbtn[data-exp]').forEach(b=>b.addEventListener('click',()=>{
+      const e=document.getElementById(b.dataset.exp);
+      e.style.display=e.style.display==='block'?'none':'block';
+    }));
+  }catch(e){ L.textContent='❌ '+e; }
+}
+load();
+</script>
+{% endblock %}

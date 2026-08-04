@@ -15,10 +15,12 @@ from app.macro.adapters.ts_flow import (EtfShareAdapter, FloatReleaseAdapter,
                                         MainflowAdapter, MarginAdapter,
                                         NewFundAdapter, NorthboundAdapter,
                                         TurnoverAdapter)
+from app.macro.adapters.ts_fut import FuturesMainAdapter
 from app.macro.adapters.ts_rates import FxAdapter, ShiborAdapter
 
-# 已接入：L0(commit 2) + L1(commit 4)。L2/L3 在后续 commit 追加。
+# 已接入：L0(commit 2) + L1(commit 4) + IND(领先指标页·2026-08-03)。L2/L3 后续追加。
 ADAPTERS: tuple[Adapter, ...] = (
+    FuturesMainAdapter(),
     BondYieldAdapter(),
     RepoRateAdapter(),
     FxAdapter(),

@@ -364,6 +364,28 @@ async def macro_page(request: Request, _user: str = Depends(require_auth)):
     return resp
 
 
+@app.get("/leadind", response_class=HTMLResponse)
+async def leadind_page(request: Request, _user: str = Depends(require_auth)):
+    """领先指标页：行业领先指标按产业链分组（复用宏观底盘·只读 macro.db）。"""
+    resp = templates.TemplateResponse(request=request, name="leadind.html",
+                                      context={"page": "leadind"})
+    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+    return resp
+
+
+@app.get("/api/leadind/panel")
+async def api_leadind_panel(date: str = "", _user: str = Depends(require_auth)):
+    """领先指标面板数据。?date=YYYYMMDD 回看（point-in-time 同宏观）。"""
+    try:
+        from fastapi.concurrency import run_in_threadpool
+
+        from app.macro.leadind import build_leadind_panel
+        return await run_in_threadpool(build_leadind_panel, date or None)
+    except Exception as e:
+        logger.exception("领先指标面板组装失败")
+        return {"ok": False, "error": str(e)}
+
+
 @app.get("/api/macro/panel")
 async def api_macro_panel(date: str = "", _user: str = Depends(require_auth)):
     """面板数据。?date=YYYYMMDD 回看（严格 point-in-time·由数据层保证）。"""

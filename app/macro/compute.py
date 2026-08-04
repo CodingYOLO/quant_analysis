@@ -112,8 +112,8 @@ def changes(fresh: pd.Series, unit: str, freq: str) -> tuple[pd.Series, pd.Serie
     """
     # 绝对差 vs 涨跌幅：利率(%/bp)按百分点差；**量级类(亿元/亿份/家)也必须绝对差**——
     # 资金净流入可正可负·pct_change 分母过零会算出 -517% 这类无意义数(924回看实测抓到)。
-    # 只有无单位比值(汇率等)与点位类才用涨跌幅。
-    absolute = unit not in ("", "点")
+    # 无单位比值(汇率)/点位/**商品价格(单位形如 元/吨·恒正不过零)**用涨跌幅。
+    absolute = unit not in ("", "点") and not unit.startswith(("元/", "美元/"))
     c1 = fresh.diff() if absolute else fresh.pct_change() * 100
     c5 = fresh.diff(5) if absolute else fresh.pct_change(5) * 100
     c1 = c1.replace([np.inf, -np.inf], np.nan)

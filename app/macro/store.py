@@ -26,13 +26,21 @@ logger = logging.getLogger(__name__)
 _DB_FILENAME = "macro.db"
 
 # 分层顺序（决定前端从上到下的展示次序，也是传导链条的上游→下游次序）
+# ⚠️LAYERS 只含宏观面板四层——layer_scores 的 TOTAL 与宏观页都按它迭代。
 LAYERS: tuple[str, ...] = ("L0_liquidity", "L1_flow", "L2_sentiment", "L3_external")
+
+# 行业领先指标层（2026-08-03·领先指标页）：与宏观共库共管道(adapter→macro_daily→compute)，
+# 但**不进宏观面板、不进 TOTAL 评分**——商品价格对"全A"没有统一方向(铜涨利好矿山利空下游)，
+# 全部 direction=0 只算分位/异动。页面在 /leadind，产业链映射见 app/macro/leadind.py。
+IND_LAYER = "IND_leading"
+ALL_LAYERS: tuple[str, ...] = LAYERS + (IND_LAYER,)
 
 LAYER_LABELS: dict[str, str] = {
     "L0_liquidity": "L0 流动性",
     "L1_flow": "L1 市场内部资金",
     "L2_sentiment": "L2 情绪温度",
     "L3_external": "L3 外部输入",
+    IND_LAYER: "行业领先指标",
 }
 
 

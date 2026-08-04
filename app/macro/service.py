@@ -48,7 +48,8 @@ def build_panel(date: str | None = None) -> dict:
     d = resolve_date(date)
     if not d:
         return {"ok": False, "error": "宏观库为空：请先运行 macro-backfill"}
-    metas = store.get_meta(enabled_only=False)
+    # IND 行业领先指标层不进宏观面板（有专页 /leadind）——异动流/链路图/分层卡片全部过滤
+    metas = [m for m in store.get_meta(enabled_only=False) if m["layer"] in store.LAYERS]
     day_rows = store.read_panel(d)
     layers = [_build_layer(layer, metas, day_rows, d) for layer in store.LAYERS]
     return {
