@@ -113,6 +113,22 @@ def test_float_release_value() -> None:
     print("  ✓ 解禁：4周窗·配不上价格给None·真无解禁给0")
 
 
+# ── ONI 文本解析（境外源·20260804 服务器实测格式：SEAS YR TOTAL ANOM 恰4列） ──
+def test_oni_parse() -> None:
+    from app.macro.adapters.noaa_oni import OniAdapter
+    a = OniAdapter()
+    p = a._parse_line("  DJF 1950  25.01  -1.32")
+    _assert(p is not None and p.as_of == "19500131" and p.value == -1.32,
+            "DJF=12-1-2月·中心月1月 → as_of=中心月月末0131·value取ANOM列")
+    p = a._parse_line("  NDJ 2025  27.10   0.80")
+    _assert(p is not None and p.as_of == "20251231",
+            "NDJ 的 YR=中心月(12月)所在年 → 20251231·跨年窗不特殊处理")
+    _assert(a._parse_line(" SEAS  YR   TOTAL   ANOM") is None, "表头行跳过")
+    _assert(a._parse_line("  XXX 1950  25.01  -1.32") is None, "未知季节标签跳过")
+    _assert(a._parse_line("  DJF abcd  25.01  -1.32") is None, "坏数值跳过不抛")
+    print("  ✓ ONI：季节窗→中心月月末·表头/坏行防御")
+
+
 # ── 发布状态标注（用户点1：卡片"数据时点X·距下次发布N天"） ───────────────────
 def test_publication_status() -> None:
     stale, nxt = publication_status("monthly", "20260630", 10, "20260802")
@@ -127,6 +143,6 @@ if __name__ == "__main__":
     print("宏观面板 · L1 适配器测试")
     for fn in (test_margin_complete_dates, test_margin_ratio_same_day_alignment,
                test_etf_delta_no_listing_jump, test_newfund_rolling,
-               test_float_release_value, test_publication_status):
+               test_float_release_value, test_oni_parse, test_publication_status):
         fn()
     print("✅ 全部通过")
