@@ -120,6 +120,7 @@
       if(!j.ok||!j.data.ok){ L.textContent='❌ '+(j.error||j.data.msg||'无数据'); return; }
       const d=j.data; L.style.display='none';
       let h='<thead><tr><th style="text-align:left">代码</th><th style="text-align:left">名称</th><th style="text-align:left">行业·月线</th>'
+        +'<th title="新浪实时·约45秒自动刷新·盘后=收盘价" style="color:#f0a020">盘中%⚡</th>'
         +'<th title="3日流入/流通市值·相对强度·抓小盘子被猛灌">强度%</th><th>3日主力(亿)</th><th>近7日%</th><th>乖离20%</th><th>距60日高%</th><th>RPS50</th></tr></thead><tbody>';
       d.rows.forEach(r=>{
         const c6=String(r.ts_code||'').slice(0,6);
@@ -127,15 +128,45 @@
         h+='<tr title="'+String(r.evidence||'').replace(/"/g,'&quot;')+'"><td style="text-align:left"><a href="/stock?code='+c6+'" style="color:#7c9ef8">'+c6+'</a></td>'
           +'<td style="text-align:left" class="name">'+(r.name||'')+(r.popular?' <span title="千股千评人气榜(真alpha因子)" style="font-size:10px;color:#f0a020">评</span>':'')+weak+'</td>'
           +'<td style="text-align:left;font-size:11.5px">'+(r.industry||'·')+' '+indDir(r.ind_monthly)+'</td>'
+          +'<td id="rt-'+r.ts_code+'" class="neu">…</td>'
           +'<td><b style="color:#f0a020">'+(r.flow_intensity==null?'·':r.flow_intensity)+'</b></td>'
           +numCell(r.main_flow_3d)+numCell(r.change_7d,'%')+numCell(r.bias20,'%')+numCell(r.dist_high,'%')
           +'<td>'+(r.rps50==null?'·':Math.round(r.rps50))+'</td></tr>';
       });
       $('sp-tbl').innerHTML=h+'</tbody>';
       $('sp-note').textContent='⚠️ '+(d.note||'')+' · 门槛通过 '+d.n_pass+' 只/池 '+d.n_universe+' 只·显示Top'+d.rows.length+' · 数据日 '+d.date;
+      startLive(d.rows.map(r=>r.ts_code));
     }catch(e){ L.textContent='❌ '+e; }
   }
   loadStockPool();
+
+  // ── 盘中实时列：新浪批量报价·45秒自刷·页面隐藏时暂停（盘后返回收盘快照·照常显示）──
+  let _liveTimer=null;
+  function startLive(codes){
+    if(_liveTimer) clearInterval(_liveTimer);
+    if(!codes||!codes.length) return;
+    const tick=async()=>{
+      if(document.hidden) return;                       // 后台标签页不打新浪
+      try{
+        const j=await (await fetch('/api/ambush/live?codes='+encodeURIComponent(codes.join(',')))).json();
+        if(!j.ok) return;
+        Object.entries(j.quotes||{}).forEach(([ts,q])=>{
+          const el=document.getElementById('rt-'+ts);
+          if(!el||q.pct_chg==null) return;
+          el.className=cls(q.pct_chg);
+          el.innerHTML='<b>'+sgn(q.pct_chg)+'%</b>';
+        });
+        const note=$('sp-note');
+        note.dataset.base=note.dataset.base||note.textContent;
+        note.textContent=note.dataset.base+' · 盘中报价 '+j.ts+'(新浪实时·45秒自刷·盘后=收盘价)';
+      }catch(e){}
+    };
+    tick();
+    _liveTimer=setInterval(tick, 45000);
+    // 切回前台立即刷一次（后台期间暂停·避免回来最多等45秒看旧价）
+    document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) tick(); });
+    window._abTick=tick;                                 // 调试钩子
+  }
 
   // 真暗流概念行点开 → 该概念内个股埋伏候选（复用 /api/bull/ambush·真业绩+资金初入评分）
   $('ab-body').addEventListener('click', async e=>{

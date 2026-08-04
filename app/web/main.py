@@ -2336,6 +2336,34 @@ async def api_ambush_stocks(date: str = "", _user: str = Depends(require_auth)):
         return {"ok": False, "error": str(e)}
 
 
+@app.get("/api/ambush/live")
+async def api_ambush_live(codes: str = "", _user: str = Depends(require_auth)):
+    """暗流池盘中实时报价（新浪批量·毫秒级·盘后=收盘快照）。codes=逗号分隔ts_code·上限40。"""
+    lst = [c.strip() for c in codes.split(",") if c.strip()][:40]
+    if not lst:
+        return {"ok": False, "error": "缺少 codes"}
+    try:
+        from fastapi.concurrency import run_in_threadpool
+
+        from app.data.composite_provider import CompositeProvider
+        df = await run_in_threadpool(CompositeProvider().get_realtime_quote, lst)
+        if df is None or df.empty:
+            return {"ok": True, "quotes": {}, "ts": _now_hms()}
+        quotes = {str(r["ts_code"]): {"pct_chg": (round(float(r["pct_chg"]), 2)
+                                                 if r.get("pct_chg") is not None else None),
+                                      "price": r.get("price")}
+                  for _, r in df.iterrows()}
+        return {"ok": True, "quotes": quotes, "ts": _now_hms()}
+    except Exception as e:
+        logger.exception("暗流池实时报价失败")
+        return {"ok": False, "error": str(e)}
+
+
+def _now_hms() -> str:
+    import datetime
+    return datetime.datetime.now().strftime("%H:%M:%S")
+
+
 @app.get("/api/ambush")
 async def api_ambush(date: str = "", _user: str = Depends(require_auth)):
     """暗流低吸榜：复用概念持续流入榜(同花顺官方)·加 真暗流/量价启动/假暗流 分档。"""
