@@ -158,3 +158,29 @@ def test_theme_families_no_dup_members():
         for m in f["members"]:
             assert m not in seen, f"{m} 同时在 {seen.get(m)} 与 {f['family']}"
             seen[m] = f["family"]
+
+
+# ── stock_gate：个股暗流池硬门槛（2026-08-04 暗流页重设计）────────────────────
+
+from app.strategy.ambush_board import stock_gate
+
+
+def test_stock_gate_pass():
+    assert stock_gate({"main_flow_3d": 1.2, "change_7d": 1.0, "dist_high": -12.0})
+
+
+def test_stock_gate_reject_no_flow():
+    assert not stock_gate({"main_flow_3d": 0.2, "change_7d": 1.0, "dist_high": -12.0})
+
+
+def test_stock_gate_reject_already_moved():
+    assert not stock_gate({"main_flow_3d": 2.0, "change_7d": 5.0, "dist_high": -12.0})
+
+
+def test_stock_gate_reject_near_high():
+    # 距60日高点仅3%=冲高位·不是低吸
+    assert not stock_gate({"main_flow_3d": 2.0, "change_7d": 1.0, "dist_high": -3.0})
+
+
+def test_stock_gate_none_fields():
+    assert not stock_gate({"main_flow_3d": None, "change_7d": None, "dist_high": None})

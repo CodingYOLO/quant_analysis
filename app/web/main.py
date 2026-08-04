@@ -2322,6 +2322,20 @@ async def ambush_page(request: Request, _user: str = Depends(require_auth)):
     return templates.TemplateResponse(request=request, name="ambush_board.html", context={"page": "ambush"})
 
 
+@app.get("/api/ambush/stocks")
+async def api_ambush_stocks(date: str = "", _user: str = Depends(require_auth)):
+    """🎯 全市场个股暗流池（资金在进+价没动+不在高位·信号表口径·Top30）。"""
+    try:
+        from fastapi.concurrency import run_in_threadpool
+
+        from app.strategy.ambush_board import build_stock_ambush_pool
+        d = date or _last_trade_date()
+        return {"ok": True, "data": await run_in_threadpool(build_stock_ambush_pool, d)}
+    except Exception as e:
+        logger.exception("个股暗流池失败")
+        return {"ok": False, "error": str(e)}
+
+
 @app.get("/api/ambush")
 async def api_ambush(date: str = "", _user: str = Depends(require_auth)):
     """暗流低吸榜：复用概念持续流入榜(同花顺官方)·加 真暗流/量价启动/假暗流 分档。"""

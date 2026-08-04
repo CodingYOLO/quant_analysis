@@ -40,10 +40,19 @@
   <div class="ab-top">
     <h2 style="margin:0;font-size:20px">🌊 暗流低吸榜</h2>
     <input type="date" id="ab-date">
-    <button onclick="loadAmbush()">刷新</button>
+    <button onclick="loadAmbush();loadStockPool()">刷新</button>
     <span id="ab-cnt" class="neu" style="font-size:12px"></span>
   </div>
-  <div class="ab-src" id="ab-src">💎 数据源＝同花顺官方概念资金流（moneyflow_cnt_ths·DDE）· 每个数都可在同花顺 APP 逐一核对。</div>
+  <div class="ab-src" id="ab-src">💎 数据源＝同花顺官方概念资金流（moneyflow_cnt_ths·DDE）+ 全市场信号表（Tushare）· 估算口径·可逐一核对。</div>
+
+  <!-- 🎯 个股暗流池：页面重设计的主视图(2026-08-04)——埋伏的可执行单位是股票不是概念 -->
+  <div class="ab-sec" style="background:#12141f;border:1px solid #2a2f4d;border-radius:10px;padding:12px 14px">
+    <h3 style="color:#f0a020">🎯 个股暗流池 · 全市场 <span class="neu" style="font-size:11.5px;font-weight:400">资金在进(3日主力≥0.5亿) + 价没动(7日≤3%) + 不在高位(距60日高≥6%) · 位置/资金/量价评分排序 · 描述非荐股</span></h3>
+    <div id="sp-loading" class="ab-loading">⏳ 计算全市场个股暗流池…（首次约1-2分钟·当日之后秒开）</div>
+    <div style="overflow-x:auto"><table class="ab" id="sp-tbl"></table></div>
+    <div id="sp-note" class="neu" style="font-size:10.5px;margin-top:5px"></div>
+  </div>
+
   <div class="ab-note" id="ab-note"></div>
   <div class="ab-sum" id="ab-sum"></div>
   <div id="ab-body"></div>
@@ -68,8 +77,10 @@
       + '<th>龙头</th>';
     let rows = arr.slice();
     if (s.key) rows.sort((a, b) => { let x = a[s.key], y = b[s.key]; x = (typeof x === 'number') ? x : -1e18; y = (typeof y === 'number') ? y : -1e18; return s.asc ? x - y : y - x; });
+    // real/starting 档行可点开 → 概念内个股埋伏候选(生业绩+资金初入评分·/api/bull/ambush)
+    const expandable = (secKey === 'real' || secKey === 'starting');
     const tb = rows.map(r =>
-      `<tr><td class="name">${r.concept}</td>`
+      `<tr${expandable ? ` data-concept="${encodeURIComponent(r.concept)}" style="cursor:pointer" title="点开看该概念内个股埋伏候选"` : ''}><td class="name">${expandable ? '<span class="ar">▸</span> ' : ''}${r.concept}</td>`
       + numCell(r.cum3) + numCell(r.cum5) + numCell(r.today_net) + numCell(r.ret5, '%')
       + (r.pen5 == null ? '<td class="neu">·</td>' : `<td class="${cls(r.pen5)}">${sgn(r.pen5)}%</td>`)
       + `<td class="lead">${r.lead || '·'}</td></tr>`).join('');
@@ -93,6 +104,65 @@
     const sec = th.dataset.sec, key = th.dataset.key, s = _sort[sec] || {};
     _sort[sec] = { key, asc: s.key === key ? !s.asc : false };   // 首次点=降序·再点切升序
     document.getElementById('ab-tbl-' + sec).innerHTML = sectionInner(sec, _data[sec], emptyMsgOf(sec));
+  });
+
+  // ── 🎯 个股暗流池（主视图·全市场）────────────────────────────────────────
+  function indDir(d){
+    if(!d) return '<span class="neu">·</span>';
+    const c=/向上|主升浪|健康/.test(d)?'#f6465d':(/走坏|见顶|破位/.test(d)?'#2ebd85':'#f0a020');
+    return '<span style="color:'+c+'" title="所属申万二级行业的月线方向(板块诊断口径)">'+d.split('·')[0].replace('月线','')+'</span>';
+  }
+  async function loadStockPool(){
+    const L=$('sp-loading');
+    try{
+      const date=($('ab-date').value||'').replace(/-/g,'');
+      const j=await (await fetch('/api/ambush/stocks?date='+date)).json();
+      if(!j.ok||!j.data.ok){ L.textContent='❌ '+(j.error||j.data.msg||'无数据'); return; }
+      const d=j.data; L.style.display='none';
+      let h='<thead><tr><th style="text-align:left">代码</th><th style="text-align:left">名称</th><th style="text-align:left">行业·月线</th>'
+        +'<th title="3日流入/流通市值·相对强度·抓小盘子被猛灌">强度%</th><th>3日主力(亿)</th><th>近7日%</th><th>乖离20%</th><th>距60日高%</th><th>RPS50</th></tr></thead><tbody>';
+      d.rows.forEach(r=>{
+        const c6=String(r.ts_code||'').slice(0,6);
+        const weak=r.weak?' <span style="font-size:10px;color:#f6465d" title="RPS50<20 极弱·可能是下跌途中接飞刀·自行判断">⚠️极弱</span>':'';
+        h+='<tr title="'+String(r.evidence||'').replace(/"/g,'&quot;')+'"><td style="text-align:left"><a href="/stock?code='+c6+'" style="color:#7c9ef8">'+c6+'</a></td>'
+          +'<td style="text-align:left" class="name">'+(r.name||'')+(r.popular?' <span title="千股千评人气榜(真alpha因子)" style="font-size:10px;color:#f0a020">评</span>':'')+weak+'</td>'
+          +'<td style="text-align:left;font-size:11.5px">'+(r.industry||'·')+' '+indDir(r.ind_monthly)+'</td>'
+          +'<td><b style="color:#f0a020">'+(r.flow_intensity==null?'·':r.flow_intensity)+'</b></td>'
+          +numCell(r.main_flow_3d)+numCell(r.change_7d,'%')+numCell(r.bias20,'%')+numCell(r.dist_high,'%')
+          +'<td>'+(r.rps50==null?'·':Math.round(r.rps50))+'</td></tr>';
+      });
+      $('sp-tbl').innerHTML=h+'</tbody>';
+      $('sp-note').textContent='⚠️ '+(d.note||'')+' · 门槛通过 '+d.n_pass+' 只/池 '+d.n_universe+' 只·显示Top'+d.rows.length+' · 数据日 '+d.date;
+    }catch(e){ L.textContent='❌ '+e; }
+  }
+  loadStockPool();
+
+  // 真暗流概念行点开 → 该概念内个股埋伏候选（复用 /api/bull/ambush·真业绩+资金初入评分）
+  $('ab-body').addEventListener('click', async e=>{
+    const tr=e.target.closest('tr[data-concept]');
+    if(!tr) return;
+    const nm=decodeURIComponent(tr.dataset.concept), nxt=tr.nextElementSibling;
+    if(nxt&&nxt.classList.contains('ab-exp')){ nxt.remove(); return; }
+    const er=document.createElement('tr'); er.className='ab-exp';
+    const td=document.createElement('td'); td.colSpan=tr.children.length;
+    td.innerHTML='<div style="padding:8px 12px;color:#9ca3af;font-size:12px">⏳ 找「'+nm+'」概念内埋伏候选…（含逐只财务·约10-20秒）</div>';
+    er.appendChild(td); tr.after(er);
+    const date=($('ab-date').value||'').replace(/-/g,'');
+    try{
+      const j=await (await fetch('/api/bull/ambush?concept='+encodeURIComponent(nm)+'&date='+date)).json();
+      const cs=(j.data&&j.data.candidates)||j.candidates||[];
+      if(!cs.length){ td.innerHTML='<div style="padding:8px 12px;color:#9ca3af;font-size:12px">该概念内无过门槛的埋伏候选（'+(j.msg||(j.data&&j.data.msg)||'门槛=真业绩+资金初入+没涨太快')+'）</div>'; return; }
+      td.innerHTML='<div style="padding:8px 12px;background:#0f1117">'+cs.slice(0,8).map(c=>{
+        const c6=String(c.ts_code||'').slice(0,6);
+        const ev=c.evidence||{};
+        const evTxt=[ev.perf,ev.flow,ev.pos].filter(Boolean).join('；');
+        const flags=(c.risk_flags&&c.risk_flags.length)?' <span style="color:#f6465d;font-size:10.5px">'+c.risk_flags.join(' ')+'</span>':'';
+        return '<div style="font-size:12px;line-height:1.7;border-bottom:1px dashed #1a1d2e;padding:3px 0">'
+          +'<a href="/stock?code='+c6+'" style="color:#7c9ef8">'+c6+'</a> <b style="color:#e5e7eb">'+(c.name||'')+'</b> '
+          +'<span style="color:#f0a020">总分'+(c.score!=null?c.score:'·')+'</span> <span class="neu" style="font-size:10.5px">实'+(c.substance!=null?c.substance:'·')+'/想'+(c.imagination!=null?c.imagination:'·')+'</span> '
+          +'<span style="color:#8b93a7;font-size:11px">'+evTxt+'</span>'+flags+'</div>';
+      }).join('')+'<div class="neu" style="font-size:10px;margin-top:4px">概念内候选=真业绩+资金初入+没涨太快(牛股发掘口径·含财务与避雷·实=真材实料分/想=想象力分)·非荐股</div></div>';
+    }catch(err){ td.innerHTML='<div style="padding:8px 12px;color:#f6465d;font-size:12px">❌ '+err+'</div>'; }
   });
 
   async function loadAmbush() {

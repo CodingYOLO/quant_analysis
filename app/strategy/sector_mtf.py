@@ -185,6 +185,14 @@ def build_sector_mtf(end: str, kind: str = "industry", provider: CompositeProvid
                            key=lambda e: sev.get(e["level"], 9))
     for r in rows:
         r.pop("events", None)                     # 事件已汇总·行内不重复携带
+    if len(rows) < 20:
+        # 盘中以今日为end调用时指数日线尚无数据→rows≈空；落盘会毒化缓存直到次日
+        # (20260803 14:52 实测踩到：空industry缓存导致暗流池行业月线标全灭)
+        logger.warning("[板块大周期] %s %s 仅%d行·疑数据未就绪·不写缓存", kind, end, len(rows))
+        return {"ok": False, "end": end, "kind": kind, "n": len(rows), "rows": rows,
+                "rotation": {"in": [], "out": []}, "sector_events": [],
+                "unfinished_month": unfinished,
+                "note": "数据未就绪(盘中或数据未入库)·未缓存·收盘后重试"}
     out = {
         "ok": True, "end": end, "kind": kind, "n": len(rows), "rows": rows,
         "rotation": rotation, "sector_events": sector_events,
