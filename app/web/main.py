@@ -625,6 +625,20 @@ async def api_usmap(date: str = "", force: bool = False, _user: str = Depends(re
         return {"ok": False, "error": str(e)}
 
 
+@app.get("/api/usmap/ai")
+async def api_usmap_ai(date: str = "", force: bool = False, _user: str = Depends(require_auth)):
+    """🌅 昨夜美股→今日A股 早盘研判（日缓存·随08:00刷新自动重生成）。"""
+    try:
+        from fastapi.concurrency import run_in_threadpool
+
+        from app.strategy.us_map import build_us_map_ai
+        d = date or _last_trade_date()
+        return {"ok": True, "data": await run_in_threadpool(build_us_map_ai, d, None, bool(force))}
+    except Exception as e:
+        logger.exception("美股映射AI研判失败")
+        return {"ok": False, "error": str(e)}
+
+
 @app.get("/api/market/ice-radar")
 async def api_market_ice_radar(date: str = "", _user: str = Depends(require_auth)):
     """❄️ 冰点雷达：情绪+成交额双冰点读数与历史事件表（回测口径·参考档）。"""

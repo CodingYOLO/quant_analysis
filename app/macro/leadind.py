@@ -238,7 +238,8 @@ def build_leadind_ai(date: str | None = None, force: bool = False) -> dict:
         from app.llm.client import LLMClient
         from app.llm.stance import ANALYST_STANCE
         raw = LLMClient().chat([{"role": "user", "content": ANALYST_STANCE + "\n\n" + prompt}],
-                               task_type="pro", temperature=0.3, max_tokens=2000)
+                               task_type="pro", temperature=0.3, max_tokens=2000,
+                               extra_body={"thinking": {"type": "disabled"}})   # 同 us_map：防思考吃光
     except Exception as e:
         logger.warning("[领先指标AI] LLM 失败: %s", e)
         raw = ""

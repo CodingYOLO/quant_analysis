@@ -490,12 +490,18 @@ def us_map_cmd(trade_date: str) -> None:
     时间轴：美股北京时间 21:30 开盘 / 次日 04:00 收盘(夏令时·冬令时 05:00)，
     故 08:00 跑必然拿到**完整的隔夜收盘**。19:25 预热那次拿的是前一晚数据，两次都有意义。
     """
-    from app.strategy.us_map import build_us_map
+    from app.strategy.us_map import build_us_map, build_us_map_ai
     td = _resolve_date(trade_date)
     d = build_us_map(td, force=True)
     ok = sum(1 for ch in d.get("chains", []) for it in ch["items"] if it.get("state") == "ok")
     console.print(f"[green]✅ 美股映射刷新[/green] A股日 {td} · 美股数据日 "
                   f"[bold]{d.get('us_date')}[/bold] · 标的 {ok} 只")
+    # 早盘研判必须跟着数据一起刷新——否则用户早上看到的是昨天的总结
+    try:
+        ai = build_us_map_ai(td, force=True)
+        console.print(f"[green]✅ 早盘研判生成[/green] {len(ai.get('summary', ''))} 字")
+    except Exception as e:
+        console.print(f"[yellow]⚠️ 早盘研判失败(不阻塞): {e}[/yellow]")
 
 
 @cli.command("macro-sync")

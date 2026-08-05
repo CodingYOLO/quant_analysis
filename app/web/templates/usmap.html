@@ -35,6 +35,15 @@
 <div class="um-wrap">
   <h2 style="margin:0 0 4px">🌉 美股 → A股映射 <span class="neu2" style="font-size:12.5px;font-weight:400">昨夜美股怎么走 · 今天A股哪些板块可能有反应 · 联动强度是算出来的 · 描述非荐股</span></h2>
   <div class="um-axis" id="um-axis">⏳ 加载中…</div>
+  <div id="um-ai" style="display:none;background:#12141f;border:1px solid #2a2f4d;border-left:3px solid #5d7cff;border-radius:10px;padding:12px 15px;margin-bottom:13px">
+    <div style="display:flex;align-items:center;gap:10px">
+      <b style="color:#7c9ef8;font-size:14px">🌅 早盘研判 · AI</b>
+      <span class="neu2" style="font-size:11px">昨夜美股 → 今天盯什么 · 按联动超额排序 · 盘前梳理非荐股</span>
+      <button id="um-ai-refresh" style="margin-left:auto;background:#161929;color:#9ca3af;border:1px solid #2d3052;border-radius:6px;padding:3px 10px;font-size:11px;cursor:pointer">↻ 重新生成</button>
+    </div>
+    <div id="um-ai-body" style="font-size:12.5px;color:#dfe6ff;line-height:1.78;margin-top:8px">⏳ 生成中…</div>
+    <div id="um-ai-disc" class="neu2" style="font-size:10.5px;margin-top:6px"></div>
+  </div>
   <div id="um-load" class="um-load">⏳ 拉取美股行情 + 计算联动强度…（首次约1分钟·当日之后秒开）</div>
   <div id="um-body"></div>
   <div id="um-note" class="um-note"></div>
@@ -59,6 +68,26 @@ function corrTxt(c, n){
   const col=s>=0.35?'#f0a020':(s>=0.2?'#9ca3af':'#6b7280');
   return '<span style="color:'+col+'" title="美股T日涨跌 vs A股概念T+1日涨跌·近250日相关系数">联动 '+c.toFixed(2)+'·'+lbl+'</span>';
 }
+function aiMd(t){
+  return (t||'').replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/【(.+?)】/g,'<b style="color:#f6c343">【$1】</b>')
+    .replace(/\*\*(.+?)\*\*/g,'<b style="color:#f0a020">$1</b>')
+    .replace(/\n{2,}/g,'<br>').replace(/\n/g,'<br>');
+}
+async function loadAi(force){
+  const box=$('um-ai'), body=$('um-ai-body');
+  box.style.display='block';
+  if(force) body.textContent='⏳ 重新生成中…（约20-30秒）';
+  try{
+    const j=await (await fetch('/api/usmap/ai'+(force?'?force=1':''))).json();
+    if(!j.ok||!j.data.ok){ body.innerHTML='<span class="neu2">（早盘研判暂不可用'+(j.error?'：'+j.error:'')+'）</span>'; return; }
+    body.innerHTML=aiMd(j.data.summary);
+    $('um-ai-disc').textContent='⚠️ '+(j.data.disclaimer||'')+' · 美股数据日 '+j.data.us_date;
+  }catch(e){ body.innerHTML='<span class="neu2">（早盘研判加载失败）</span>'; }
+}
+document.getElementById('um-ai-refresh').addEventListener('click',()=>loadAi(true));
+loadAi(false);
+
 async function load(){
   try{
     const j=await (await fetch('/api/usmap')).json();

@@ -326,3 +326,86 @@ def build_us_map(end: str, provider: CompositeProvider | None = None,
     except Exception:
         pass
     return out
+
+
+# ── 🌅 AI 早盘研判（08:00 刷新后自动生成·日缓存）────────────────────────────
+
+def build_us_map_ai(end: str, provider: CompositeProvider | None = None,
+                    force: bool = False) -> dict:
+    """昨夜美股 → 今日A股的早盘研判（读 build_us_map 结果·喂结构化事实给LLM）。
+
+    输入纪律：只喂**当日事实 + 已算好的联动超额**——超额是判断"该不该当回事"的唯一依据，
+    LLM 不许自行发明传导强度（弱映射就得说弱）。缓存键含运行日，与主面板同步刷新。
+    """
+    import json
+
+    from app.config import get_settings
+    d = build_us_map(end, provider)
+    if not d.get("ok"):
+        return {"ok": False, "error": "映射面板为空"}
+    cdir = get_settings().cache_dir / "us_map"
+    cdir.mkdir(parents=True, exist_ok=True)
+    run_day = pd.Timestamp.now().strftime("%Y%m%d")
+    cache = cdir / f"ai_{d['us_date']}_r{run_day}_v1.json"
+    if cache.exists() and not force:
+        try:
+            return json.loads(cache.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+
+    lines, movers = [], []
+    for ch in d["chains"]:
+        seg = []
+        for it in ch["items"]:
+            if it.get("state") != "ok" or it.get("chg") is None:
+                continue
+            cps = "；".join(
+                f"{c['name']}(联动{c['corr'] if c['corr'] is not None else '—'}·"
+                f"超额{c['edge'] if c.get('edge') is not None else '样本不足'}"
+                f"{'pct' if c.get('edge') is not None else ''}·"
+                f"A股昨日{c['cn_chg']}%{'·' + c['div']['label'] if c['div']['label'] else ''})"
+                for c in it["concepts"])
+            seg.append(f"{it['cn']}({it['sym']}) {it['chg']:+.2f}%[5日{it['chg5']:+.1f}%] "
+                       f"→ {cps} 代表股:{it.get('stocks', '')}")
+            if abs(it["chg"]) >= _BIG_MOVE:
+                movers.append((abs(it["chg"]), f"{it['cn']}{it['chg']:+.1f}%"))
+        if seg:
+            lines.append(f"【{ch['chain']}】{ch['logic']}\n" + "\n".join("  " + x for x in seg))
+    movers.sort(reverse=True)
+
+    prompt = (
+        "你是A股早盘策略研究员。下面是**昨夜美股收盘**与其对应A股概念的映射数据。"
+        "写一份开盘前简报，固定四段（保留【】标题·总计300-420字）：\n"
+        "【昨夜美股一句话】哪几条链涨、哪几条跌，幅度多大，是普涨/普跌还是分化。\n"
+        "【今天该盯的A股方向】按**超额**排序点名2-4个方向：只提超额≥5pct的通道"
+        "(超额=美股大涨时A股次日跟涨率−该概念平常上涨率·这是唯一能说明'外盘真带得动'的指标)；"
+        "每个写清：对应美股谁涨了多少 → A股哪个概念 → 超额多少 → 代表股有哪些。\n"
+        "【别当回事的】美股虽大涨但对应通道超额很低(<3pct)或样本不足的，明确点出来叫我别追。\n"
+        "【背离与提醒】有'美股大涨·A股昨日未跟'(补涨候选)或'A股抗跌'的，点出来；"
+        "若A股概念昨日已大涨(如+4%以上)，提醒**外盘利好可能已被price in**。\n"
+        "铁律：只用下方数据·代表股与数字不许编造；超额低就说低不许吹；这是盘前信息梳理，"
+        "不是买卖建议——不写'建议/应该/买入/加仓/满仓/必涨'。\n\n"
+        f"━━ 昨夜美股({d['us_date']}收盘) → 对应A股 ━━\n" + "\n".join(lines)
+        + f"\n\n【幅度最大的标的】{('、'.join(m[1] for m in movers[:8])) or '昨夜无≥2%波动标的'}"
+    )
+    try:
+        from app.llm.client import LLMClient
+        from app.llm.stance import ANALYST_STANCE
+        # ⚠️ v4 系列会自动进思考模式并吃光 max_tokens(finish_reason=length+content空)——
+        # 20260802 已验证 thinking:disabled 有效；关思考后措辞纪律靠上面的禁词清单兜底
+        raw = LLMClient().chat([{"role": "user", "content": ANALYST_STANCE + "\n\n" + prompt}],
+                               task_type="pro", temperature=0.3, max_tokens=2200,
+                               extra_body={"thinking": {"type": "disabled"}})
+    except Exception as e:
+        logger.warning("[美股映射AI] LLM 失败: %s", e)
+        raw = ""
+    out = {"ok": bool(raw), "us_date": d["us_date"], "end": d["end"],
+           "summary": (raw or "").strip(),
+           "disclaimer": "AI 基于昨夜美股收盘与历史联动统计梳理·盘前信息参考·非买卖建议；"
+                         "联动超额为历史统计不代表今日必然重演。"}
+    if out["ok"]:
+        try:
+            cache.write_text(json.dumps(out, ensure_ascii=False), encoding="utf-8")
+        except Exception:
+            pass
+    return out
