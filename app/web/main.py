@@ -613,7 +613,7 @@ async def usmap_page(request: Request, _user: str = Depends(require_auth)):
 
 @app.get("/api/usmap")
 async def api_usmap(date: str = "", force: bool = False, _user: str = Depends(require_auth)):
-    """美股→A股映射面板（日缓存·force=重算）。首建约1分钟（19个美股标的按限频取数）。"""
+    """美股→A股映射面板（日缓存·force=重算）。首建约1.5分钟（25个美股标的按限频取数）。"""
     try:
         from fastapi.concurrency import run_in_threadpool
 

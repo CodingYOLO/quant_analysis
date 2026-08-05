@@ -960,7 +960,7 @@ def run_warmup(base_date: str) -> None:
         console.print(f"[green]✅ 切换雷达/主题战场/结构雷达/冰点雷达预热 {latest}[/green]")
     except Exception as e:
         console.print(f"[yellow]⚠️ 切换雷达系预热失败: {e}[/yellow]")
-    # 1.78) 美股→A股映射(19个美股标的按限频取数约1分钟·盘前要看·必须预热)
+    # 1.78) 美股→A股映射(25个美股标的按限频取数约1.5分钟·盘前要看·必须预热)
     try:
         from app.strategy.us_map import build_us_map
         um = build_us_map(latest, provider=prov, force=True)

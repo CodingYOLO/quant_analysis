@@ -98,6 +98,10 @@ CHAINS: list[dict] = [
          {"sym": "PLTR", "cn": "Palantir", "concepts": ["AI应用", "AIGC概念"],
           "note": "AI软件商业化标杆·A股AI应用情绪的海外镜子",
           "stocks": "科大讯飞·金山办公·万兴科技·彩讯股份"},
+         {"sym": "META", "cn": "Meta", "concepts": ["AI眼镜", "虚拟现实", "AI应用"],
+          "note": "双重身份：①AI capex四大云厂之一(Llama+算力开支) ②XR硬件链主——"
+                  "Quest与Ray-Ban智能眼镜由歌尔股份代工·是A股AI眼镜题材最硬的海外锚",
+          "stocks": "歌尔股份(Quest/雷朋代工)·立讯精密·亿道信息(AI眼镜ODM)·创维数字·佳禾智能"},
          {"sym": "GOOGL", "cn": "谷歌", "concepts": ["AI应用", "人工智能"],
           "note": "大模型+云·AI叙事主线之一",
           "stocks": "科大讯飞·昆仑万维·三六零"},
