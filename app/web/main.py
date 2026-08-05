@@ -2336,6 +2336,29 @@ async def api_ambush_stocks(date: str = "", _user: str = Depends(require_auth)):
         return {"ok": False, "error": str(e)}
 
 
+@app.get("/tstock", response_class=HTMLResponse)
+async def tstock_page(request: Request, _user: str = Depends(require_auth)):
+    """熟票筛选：量化"适合反复做/做T"的候选票（周更缓存）。"""
+    resp = templates.TemplateResponse(request=request, name="tstock.html",
+                                      context={"page": "tstock"})
+    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+    return resp
+
+
+@app.get("/api/tstock")
+async def api_tstock(date: str = "", force: bool = False, _user: str = Depends(require_auth)):
+    """熟票候选榜（周缓存·force=重算）。首建约2-5分钟(载250日面板+Top25逐股避雷)。"""
+    try:
+        from fastapi.concurrency import run_in_threadpool
+
+        from app.strategy.t_screener import build_t_candidates
+        d = date or _last_trade_date()
+        return {"ok": True, "data": await run_in_threadpool(build_t_candidates, d, None, bool(force))}
+    except Exception as e:
+        logger.exception("熟票筛选失败")
+        return {"ok": False, "error": str(e)}
+
+
 @app.get("/api/ambush/live")
 async def api_ambush_live(codes: str = "", _user: str = Depends(require_auth)):
     """暗流池盘中实时报价：**幕数据全推优先**(已购·进程内快照·零外呼)·新浪兜底缺口。

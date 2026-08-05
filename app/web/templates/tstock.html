@@ -1,0 +1,153 @@
+{% extends "base.html" %}
+{% block title %}熟票筛选 — A股Agent{% endblock %}
+
+{% block extra_style %}
+<style>
+  .ts-wrap { max-width: 1120px; margin: 0 auto; }
+  .ts-note { font-size: 12px; color: #fbbf24; background: #2a2410; border: 1px solid #4a3d15; border-radius: 8px; padding: 8px 12px; margin: 10px 0; line-height: 1.7; }
+  table.ts { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+  table.ts th, table.ts td { padding: 6px 8px; border-bottom: 1px solid #1a1d2e; text-align: right; white-space: nowrap; }
+  table.ts th { color: #9ca3af; font-weight: 600; background: #12141f; cursor: pointer; user-select: none; }
+  .up { color: #f6465d; } .down { color: #2ebd85; } .neu { color: #6b7280; }
+  .ts-loading { color: #9ca3af; font-size: 14px; padding: 18px 0; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="ts-wrap">
+  <h2 style="margin:0 0 6px">🎯 熟票筛选 <span class="neu" style="font-size:12.5px">量化"适合反复做/做T"的候选 · 选票决定80%成败 · 周更 · 描述非荐股</span></h2>
+  <div class="ts-note" id="ts-note">💡 选票四问全部算出来，不靠感觉：<b>①波动够不够</b>(日均振幅)　<b>②是不是震荡反复而非单边</b>(价格效率系数ER·越低越反复)　<b>③它认哪条均线</b>(近一年触线后5日反弹率·触碰≥6次才认)　<b>④股性稳不稳/节奏清不清晰</b>(月度振幅CV·低开高走/高开低走习惯频率)。点<b>名称</b>看K线/财务/避雷·点<b>行业</b>看板块结构·点列头排序。</div>
+  <div id="ts-loading" class="ts-loading">⏳ 加载熟票候选…（本周首次约2-5分钟·之后秒开）</div>
+  <div style="overflow-x:auto"><table class="ts" id="ts-tbl"></table></div>
+  <div id="ts-foot" class="neu" style="font-size:10.5px;margin-top:6px;line-height:1.6"></div>
+</div>
+
+<script src="/static/echarts.min.js"></script>
+<script src="/static/kline.js"></script>
+<script>
+const $=(id)=>document.getElementById(id);
+const sgn=(v)=>(v>0?'+':'')+v;
+const cls=(v)=>v>0?'up':(v<0?'down':'neu');
+const BOARD_TAG={'主板':['#1a2b3b','#7c9ef8'],'创业':['#2a2410','#f6c343'],'科创':['#2a1a2e','#c084fc'],'北交':['#1a2e22','#4ade80'],'其他':['#1a1d2e','#9ca3af']};
+function indDir(d){
+  if(!d) return '<span class="neu">·</span>';
+  const c=/向上|主升浪|健康/.test(d)?'#f6465d':(/走坏|见顶|破位/.test(d)?'#2ebd85':'#f0a020');
+  return '<span style="color:'+c+'">'+d.split('·')[0].replace('月线','')+'</span>';
+}
+let _rows=[], _sort={key:'score', asc:false};
+const COLS=[['board','板块','主板/创业/科创(±20%制度不同)'],
+  ['score','T适配分','区间性25+振幅20+均线尊重25+习惯清晰15+波动稳定15'],
+  ['amp','日均振幅%','做T空间·120日均值'],
+  ['er','区间性ER','价格效率系数·越低越震荡反复(适合反复做)·高=单边'],
+  ['best_rate','认线·反弹率%','触碰该均线后5日反弹率(触碰≥6次才认线)'],
+  ['dn_recover','低开高走%','低开日收阳的频率·>60%=惯性低吸日内有肉'],
+  ['up_fade','高开低走%','高开日收阴的频率·>60%=惯性冲高回落·适合倒T'],
+  ['yang_follow','放量阳次日红%','放量阳线后第二天上涨率·惯性强弱'],
+  ['amp_cv','稳定CV','月度振幅变异系数·低=股性稳定·档案可复用'],
+  ['amt_med','成交额中位(亿)',''],['roe','ROE','基本面底线参考(因子表)']];
+function renderTbl(){
+  let rows=_rows.slice();
+  const k=_sort.key;
+  if(k==='board') rows.sort((a,b)=>{const x=String(a.board||''),y=String(b.board||'');return _sort.asc?x.localeCompare(y):y.localeCompare(x);});
+  else if(k) rows.sort((a,b)=>{let x=a[k],y=b[k];x=(typeof x==='number')?x:-1e18;y=(typeof y==='number')?y:-1e18;return _sort.asc?x-y:y-x;});
+  const ar=key=>_sort.key===key?(_sort.asc?' ▲':' ▼'):'';
+  let h='<thead><tr><th style="text-align:left">代码</th><th style="text-align:left">名称</th><th style="text-align:left">行业·月线</th>'
+    +COLS.map(([key,label,tip])=>'<th class="ts-sort" data-k="'+key+'"'+(tip?' title="'+tip+'"':'')+'>'+label+'<span style="color:#7c9ef8">'+ar(key)+'</span></th>').join('')
+    +'<th style="text-align:left">雷点</th></tr></thead><tbody>';
+  rows.forEach(r=>{
+    const c6=String(r.ts_code||'').slice(0,6);
+    const bt=BOARD_TAG[r.board]||BOARD_TAG['其他'];
+    const flags=(r.risk_flags&&r.risk_flags.length)?'<span style="color:#f6465d">'+r.risk_flags.join(' / ')+'</span>':'<span class="neu">—</span>';
+    h+='<tr'+(r.fin_brief?' title="'+String(r.fin_brief).replace(/"/g,'&quot;')+'"':'')+'>'
+      +'<td style="text-align:left"><a href="/stock?code='+c6+'" style="color:#7c9ef8">'+c6+'</a></td>'
+      +'<td style="text-align:left;font-weight:600;color:#e5e7eb;cursor:pointer" class="ts-name" data-code="'+r.ts_code+'" data-name="'+(r.name||'')+'" title="点开看K线/财务/避雷">▸ '+(r.name||'')+'</td>'
+      +'<td style="text-align:left;font-size:11px;cursor:pointer" class="ts-ind" data-ind="'+(r.industry||'')+'" title="点开看行业板块K线/结构">▸ '+(r.industry||'·')+' '+indDir(r.ind_monthly)+'</td>'
+      +'<td style="text-align:center"><span style="font-size:10px;background:'+bt[0]+';color:'+bt[1]+';border-radius:4px;padding:1px 5px">'+(r.board||'·')+'</span></td>'
+      +'<td><b style="color:#f0a020">'+r.score+'</b></td>'
+      +'<td>'+(r.amp==null?'·':r.amp)+'</td>'
+      +'<td>'+(r.er==null?'·':r.er)+'</td>'
+      +'<td>'+(r.best_ma?('<b style="color:#7c9ef8">MA'+r.best_ma+'</b> '+(r.best_rate==null?'':r.best_rate+'%')+'<span class="neu" style="font-size:10px">('+r.touches+'次)</span>'):'<span class="neu">样本不足</span>')+'</td>'
+      +'<td>'+(r.dn_recover==null?'·':r.dn_recover)+'</td>'
+      +'<td>'+(r.up_fade==null?'·':r.up_fade)+'</td>'
+      +'<td>'+(r.yang_follow==null?'·':r.yang_follow)+'</td>'
+      +'<td>'+(r.amp_cv==null?'·':r.amp_cv)+'</td>'
+      +'<td>'+(r.amt_med==null?'·':r.amt_med)+'</td>'
+      +'<td>'+(r.roe==null?'·':r.roe)+'</td>'
+      +'<td style="text-align:left;font-size:11px">'+flags+'</td></tr>';
+  });
+  $('ts-tbl').innerHTML=h+'</tbody>';
+  $('ts-tbl').querySelectorAll('th.ts-sort').forEach(th=>th.addEventListener('click',()=>{
+    const key=th.dataset.k;
+    if(_sort.key===key) _sort.asc=!_sort.asc; else _sort={key,asc:false};
+    renderTbl();
+  }));
+}
+
+// ── 行内展开(与暗流池同套路)：点名称=个股K线/财务/避雷·点行业=行业板块K线/结构 ──
+function tsExpand(tr, html, kind){
+  const nx=tr.nextElementSibling;
+  if(nx&&nx.classList.contains('ts-exp')&&nx.dataset.kind===kind){ nx.remove(); return null; }
+  $('ts-tbl').querySelectorAll('tr.ts-exp').forEach(e=>e.remove());
+  const dr=document.createElement('tr'); dr.className='ts-exp'; dr.dataset.kind=kind;
+  const td=document.createElement('td'); td.colSpan=tr.children.length;
+  td.innerHTML=html; dr.appendChild(td); tr.after(dr);
+  return td;
+}
+async function tsStock(tr, code, name){
+  const cid='tsk_'+code.slice(0,6);
+  const td=tsExpand(tr,'<div style="padding:8px 10px;background:#0f1117;text-align:left">'
+    +'<b style="color:#e5e7eb">'+name+'</b> <a href="/stock?code='+code.slice(0,6)+'" style="color:#7c9ef8;font-size:12px">进个股360深挖 →</a>'
+    +'<div id="fin_'+cid+'" class="neu" style="font-size:12px;margin:6px 0;white-space:normal">⏳ 加载财务/避雷…</div>'
+    +'<div id="'+cid+'" style="height:280px;max-width:960px"></div></div>','stock');
+  if(!td) return;
+  try{
+    const d=await (await fetch('/api/stock/profile?code='+code.slice(0,6))).json();
+    if(d.ok&&d.kline) AKline.render(cid,d.kline);
+  }catch(e){}
+  try{
+    const f=await (await fetch('/api/stock/financials?code='+code.slice(0,6))).json();
+    let h='';
+    if(f.ok&&f.summary) h+='<b style="color:#7c9ef8">💼 财务</b>：'+f.summary;
+    const ev=f.events||{}, bits=[];
+    if(ev.float&&ev.float.next_days!=null) bits.push('解禁'+ev.float.next_date+'(距'+ev.float.next_days+'天)');
+    if(ev.holder_trade) bits.push('减持'+ev.holder_trade.de_count+'/增持'+ev.holder_trade.in_count+'次');
+    if(ev.block) bits.push('大宗'+ev.block.count+'笔 折溢价'+(ev.block.premium_avg??'—')+'%');
+    if(ev.margin) bits.push('融资'+ev.margin.rzye_yi+'亿(5日'+sgn(ev.margin.chg_pct)+'%)');
+    if(bits.length) h+='<br><b style="color:#e5c07b">🛡️ 事件/避雷</b>：'+bits.join('　|　');
+    document.getElementById('fin_'+cid).innerHTML=h||'<span class="neu">无财务/事件数据</span>';
+  }catch(e){ document.getElementById('fin_'+cid).textContent='财务/事件加载失败'; }
+}
+async function tsInd(tr, ind){
+  const cid='tsik_'+encodeURIComponent(ind).replace(/%/g,'');
+  const td=tsExpand(tr,'<div style="padding:8px 10px;background:#0f1117;text-align:left">'
+    +'<b style="color:#e5e7eb">'+ind+'</b> <span class="neu" style="font-size:11px">申万二级行业指数 · 月线定方向周线定节奏</span>'
+    +'<div id="sum_'+cid+'" class="neu" style="font-size:12px;margin:6px 0;white-space:normal">⏳ 加载行业结构…</div>'
+    +'<div id="'+cid+'" style="height:260px;max-width:960px"></div></div>','ind');
+  if(!td) return;
+  try{
+    const j=await (await fetch('/api/diagnosis/sector-mtf-kline?kind=industry&name='+encodeURIComponent(ind))).json();
+    if(!j.ok){ document.getElementById('sum_'+cid).textContent='❌ '+(j.msg||'无数据'); return; }
+    if(j.kline_m) AKline.render(cid,j.kline_m);
+    if(j.mtf&&j.mtf.summary) document.getElementById('sum_'+cid).textContent='🧭 '+j.mtf.summary;
+  }catch(e){ document.getElementById('sum_'+cid).textContent='❌ 行业结构加载失败'; }
+}
+$('ts-tbl').addEventListener('click',e=>{
+  const nm=e.target.closest('td.ts-name');
+  if(nm){ tsStock(nm.closest('tr'), nm.dataset.code, nm.dataset.name); return; }
+  const ind=e.target.closest('td.ts-ind');
+  if(ind&&ind.dataset.ind) tsInd(ind.closest('tr'), ind.dataset.ind);
+});
+
+async function load(){
+  try{
+    const j=await (await fetch('/api/tstock')).json();
+    if(!j.ok||!j.data.ok){ $('ts-loading').textContent='❌ '+(j.error||'无数据'); return; }
+    const d=j.data; $('ts-loading').style.display='none';
+    _rows=d.rows||[];
+    renderTbl();
+    $('ts-foot').textContent='⚠️ '+(d.note||'')+' · 门槛通过 '+d.n_pass+' 只/全市场 '+d.n_universe+' 只·显示Top'+_rows.length+' · 数据截至 '+d.end;
+  }catch(e){ $('ts-loading').textContent='❌ '+e; }
+}
+load();
+</script>
+{% endblock %}
