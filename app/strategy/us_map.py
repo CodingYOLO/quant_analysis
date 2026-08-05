@@ -238,7 +238,12 @@ def build_us_map(end: str, provider: CompositeProvider | None = None,
     prov = provider or CompositeProvider()
     cdir = get_settings().cache_dir / "us_map"
     cdir.mkdir(parents=True, exist_ok=True)
-    cache = cdir / f"{end}_v1.json"
+    # ⭐缓存键 = A股交易日 + **运行日**：美股在北京时间21:30开盘、次日04:00收盘，
+    # 19:25 预热拿到的是"前一晚"美股；次日早08:00 再跑时 A股交易日仍是昨天(未到18点不切),
+    # 只用 end 做键会命中昨晚缓存→用户早上看不到隔夜美股(2026-08-05 用户点破的时效缺口)。
+    # 加运行日后：早8点自然是新键→自动重算·当天内再打开命中缓存·无需 force。
+    run_day = pd.Timestamp.now().strftime("%Y%m%d")
+    cache = cdir / f"{end}_r{run_day}_v1.json"
     if cache.exists() and not force:
         try:
             return json.loads(cache.read_text(encoding="utf-8"))
