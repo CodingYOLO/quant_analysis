@@ -3,7 +3,7 @@
 
 {% block extra_style %}
 /* 全页 AI 投研：左会话列表 + 右大对话区。消息气泡复用全局 .aic-* 样式·本页仅做视觉升级(.cpg 作用域) */
-.cpg { display: flex; gap: 16px; height: calc(100vh - 150px); min-height: 420px; }
+.cpg { display: flex; gap: 16px; height: calc(100vh - 110px); min-height: 480px; }
 
 /* ── 侧栏 ── */
 .cpg-side {
@@ -87,7 +87,11 @@
   padding: 0 26px; font-size: 15px; height: 58px; border-radius: 12px;
   background: linear-gradient(135deg, #3358e0, #5d7cff); font-weight: 600;
 }
-.cpg-modelrow { display: flex; align-items: center; gap: 8px; padding: 10px 16px 0; }
+.cpg-modelrow { display: flex; align-items: center; gap: 8px; padding: 6px 16px 0; flex-wrap: wrap; }
+.qtoggle { margin-left: auto; font-size: 12px; color: #7c9ef8; cursor: pointer; user-select: none;
+  background: #161929; border: 1px solid #2d3052; border-radius: 9px; padding: 6px 12px; }
+.qtoggle:hover { border-color: #3d63f0; }
+.cpg-quick.collapsed { display: none; }
 .cpg-model {
   background: #161929; color: #cdd6f4; border: 1px solid #2d3052; border-radius: 9px;
   padding: 7px 10px; font-size: 12.5px; cursor: pointer;
@@ -113,6 +117,7 @@
         <option value="flash">DeepSeek Flash（快省 · 简单查询）</option>
       </select>
       <span class="model-note">选定后覆盖所有消息（含快捷提问）· 记住选择</span>
+      <span id="cpg-qtoggle" class="qtoggle">⚡ 快捷提问 ▾</span>
     </div>
     <div class="cpg-quick" id="cpg-quick"></div>
     <div class="cpg-in">
@@ -232,6 +237,19 @@ window.addEventListener('DOMContentLoaded', function () {
       chat.send();
     };
     row.appendChild(b);
+  });
+  // 快捷提问折叠（用户反馈消息区太矮·四排预设按钮是元凶）：默认收起·记住选择·点预设后自动收起
+  const qt = document.getElementById('cpg-qtoggle');
+  function setQuick(open) {
+    qbar.classList.toggle('collapsed', !open);
+    qt.textContent = open ? '⚡ 快捷提问 ▾' : '⚡ 快捷提问 ▸（' + QUICK.length + '个预设）';
+    localStorage.setItem('cpg_quick_open', open ? '1' : '0');
+  }
+  setQuick(localStorage.getItem('cpg_quick_open') === '1');   // 默认收起·点开过则记住
+  qt.onclick = () => setQuick(qbar.classList.contains('collapsed'));
+  qbar.addEventListener('click', e => {                        // 点了非✏️预设(直接发送)后自动收起腾地方
+    const b = e.target.closest('.qchip');
+    if (b && !b.innerHTML.includes('✏️')) setQuick(false);
   });
   chat.resume();           // 载入会话列表 + 续上次对话（与悬浮窗共享同一份历史）
 });
