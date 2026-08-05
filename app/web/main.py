@@ -602,6 +602,29 @@ async def api_tplus_settle(request: Request, _user: str = Depends(require_auth))
         return {"ok": False, "msg": str(e)}
 
 
+@app.get("/usmap", response_class=HTMLResponse)
+async def usmap_page(request: Request, _user: str = Depends(require_auth)):
+    """🌉 美股→A股映射：昨夜美股 → 今日A股可能的热门板块（联动强度实证）。"""
+    resp = templates.TemplateResponse(request=request, name="usmap.html",
+                                      context={"page": "usmap"})
+    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+    return resp
+
+
+@app.get("/api/usmap")
+async def api_usmap(date: str = "", force: bool = False, _user: str = Depends(require_auth)):
+    """美股→A股映射面板（日缓存·force=重算）。首建约1分钟（19个美股标的按限频取数）。"""
+    try:
+        from fastapi.concurrency import run_in_threadpool
+
+        from app.strategy.us_map import build_us_map
+        d = date or _last_trade_date()
+        return {"ok": True, "data": await run_in_threadpool(build_us_map, d, None, bool(force))}
+    except Exception as e:
+        logger.exception("美股映射失败")
+        return {"ok": False, "error": str(e)}
+
+
 @app.get("/api/market/ice-radar")
 async def api_market_ice_radar(date: str = "", _user: str = Depends(require_auth)):
     """❄️ 冰点雷达：情绪+成交额双冰点读数与历史事件表（回测口径·参考档）。"""

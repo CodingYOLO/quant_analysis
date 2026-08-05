@@ -95,6 +95,32 @@ class AkshareProvider(DataProvider):
     def _fetch_econ_calendar(self, date: str) -> pd.DataFrame:
         return rate_limited_call("ak_econ_cal", ak.news_economic_baidu, date=date)
 
+    # ---- 美股日线（新浪·美股→A股映射用·按日缓存）----
+
+    def get_us_daily(self, symbol: str, tail: int = 600) -> pd.DataFrame:
+        """单只美股日线（date/open/high/low/close/volume·date 归一为 YYYYMMDD）。
+
+        选新浪源：Tushare `us_daily` 本账号无权限（20260805 实测）；新浪源在
+        **生产服务器实测可达**（境外源纪律：本地通不算数）。空/失败返回空表。
+        """
+        import datetime
+
+        def _fetch() -> pd.DataFrame:
+            df = rate_limited_call("ak_us_daily", ak.stock_us_daily, symbol=symbol)
+            if df is None or df.empty:
+                return pd.DataFrame()
+            df = df.copy()
+            df["date"] = pd.to_datetime(df["date"]).dt.strftime("%Y%m%d")
+            cols = [c for c in ("date", "open", "high", "low", "close", "volume")
+                    if c in df.columns]
+            return df[cols].tail(tail)
+
+        return cached_daily(
+            name=f"ak_us_daily_{symbol}",
+            date_key=datetime.date.today().strftime("%Y%m%d"),
+            fetch_fn=_fetch,
+        )
+
     # ---- 实时报价（新浪，指数+个股，轻量按需）----
 
     def get_realtime_quote(self, ts_codes: list[str]) -> pd.DataFrame:

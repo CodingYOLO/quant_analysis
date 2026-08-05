@@ -960,6 +960,13 @@ def run_warmup(base_date: str) -> None:
         console.print(f"[green]✅ 切换雷达/主题战场/结构雷达/冰点雷达预热 {latest}[/green]")
     except Exception as e:
         console.print(f"[yellow]⚠️ 切换雷达系预热失败: {e}[/yellow]")
+    # 1.78) 美股→A股映射(19个美股标的按限频取数约1分钟·盘前要看·必须预热)
+    try:
+        from app.strategy.us_map import build_us_map
+        um = build_us_map(latest, provider=prov, force=True)
+        console.print(f"[green]✅ 美股映射预热 {latest}·美股数据日 {um.get('us_date')}[/green]")
+    except Exception as e:
+        console.print(f"[yellow]⚠️ 美股映射预热失败: {e}[/yellow]")
     # 2) 大盘情绪默认区间(end=今/明/后·各往前30天·覆盖今晚与周末打开的缓存键)
     for off in (0, 1, 2):
         end = (datetime.datetime.strptime(base, "%Y%m%d") + datetime.timedelta(days=off)).strftime("%Y%m%d")

@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% block title %}美股→A股映射 — A股Agent{% endblock %}
+
+{% block extra_style %}
+<style>
+  .um-wrap { max-width: 1180px; margin: 0 auto; }
+  .um-note { font-size: 12px; color: #fbbf24; background: #2a2410; border: 1px solid #4a3d15; border-radius: 8px; padding: 9px 13px; margin: 10px 0; line-height: 1.7; }
+  .um-axis { font-size: 13px; color: #7dd3a8; background: #10241a; border: 1px solid #1f4634; border-radius: 8px; padding: 9px 13px; margin-bottom: 12px; }
+  .um-chain { background: #161929; border: 1px solid #242842; border-radius: 11px; padding: 13px 16px; margin-bottom: 14px; }
+  .um-chain h3 { font-size: 15px; color: #e8ecff; margin: 0 0 3px; }
+  .um-logic { font-size: 11.5px; color: #9ca3af; line-height: 1.6; margin-bottom: 9px; }
+  .um-item { border-top: 1px solid #1e2138; padding: 9px 0; }
+  .um-item:first-of-type { border-top: none; }
+  .um-us { display: flex; align-items: baseline; gap: 9px; flex-wrap: wrap; }
+  .um-sym { font-weight: 700; color: #7c9ef8; font-size: 14px; }
+  .um-cn { color: #e5e7eb; font-weight: 600; font-size: 13.5px; }
+  .um-chg { font-size: 16px; font-weight: 700; }
+  .um-desc { font-size: 11px; color: #6b7280; }
+  .um-cps { margin: 5px 0 0 18px; }
+  .um-cp { display: flex; align-items: center; gap: 8px; font-size: 12px; padding: 2px 0; flex-wrap: wrap; }
+  .um-cpname { color: #cdd6f4; min-width: 128px; cursor: pointer; }
+  .um-cpname:hover { color: #7c9ef8; }
+  .um-badge { font-size: 10.5px; border-radius: 4px; padding: 1px 7px; }
+  .b-catchup { background: #3b1a1a; color: #ff8a95; border: 1px solid #5a2828; }
+  .b-sync { background: #12271b; color: #4ade80; border: 1px solid #1e4a30; }
+  .b-resist { background: #1a2b3b; color: #7c9ef8; border: 1px solid #2a4058; }
+  .b-drag { background: #2a2410; color: #f6c343; border: 1px solid #4a3d15; }
+  .up { color: #f6465d; } .down { color: #2ebd85; } .neu2 { color: #6b7280; }
+  .um-link { font-size: 11px; color: #9ca3af; }
+  .um-load { color: #9ca3af; font-size: 14px; padding: 20px 0; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="um-wrap">
+  <h2 style="margin:0 0 4px">🌉 美股 → A股映射 <span class="neu2" style="font-size:12.5px;font-weight:400">昨夜美股怎么走 · 今天A股哪些板块可能有反应 · 联动强度是算出来的 · 描述非荐股</span></h2>
+  <div class="um-axis" id="um-axis">⏳ 加载中…</div>
+  <div id="um-load" class="um-load">⏳ 拉取美股行情 + 计算联动强度…（首次约1分钟·当日之后秒开）</div>
+  <div id="um-body"></div>
+  <div id="um-note" class="um-note"></div>
+</div>
+
+<script src="/static/echarts.min.js"></script>
+<script src="/static/kline.js"></script>
+<script>
+const $=id=>document.getElementById(id);
+const sgn=v=>(v>0?'+':'')+v;
+const cls=v=>v>0?'up':(v<0?'down':'neu2');
+function spark(vals){
+  if(!vals||vals.length<2) return '';
+  const W=76,H=18,mn=Math.min(...vals),mx=Math.max(...vals),rg=(mx-mn)||1;
+  const pts=vals.map((v,i)=>[(i/(vals.length-1))*W, H-2-((v-mn)/rg)*(H-4)]);
+  const up=vals[vals.length-1]>=vals[0];
+  return '<svg width="'+W+'" height="'+H+'" style="vertical-align:-3px"><polyline fill="none" stroke="'+(up?'#f6465d':'#2ebd85')+'" stroke-width="1.4" points="'+pts.map(p=>p[0].toFixed(1)+','+p[1].toFixed(1)).join(' ')+'"/></svg>';
+}
+function corrTxt(c){
+  if(c==null) return '<span class="neu2">联动 —</span>';
+  const s=Math.abs(c), lbl=s>=0.35?'强':(s>=0.2?'中':'弱');
+  const col=s>=0.35?'#f0a020':(s>=0.2?'#9ca3af':'#6b7280');
+  return '<span style="color:'+col+'" title="美股T日涨跌 vs A股概念T+1日涨跌·近250日相关系数">联动 '+c.toFixed(2)+'·'+lbl+'</span>';
+}
+async function load(){
+  try{
+    const j=await (await fetch('/api/usmap')).json();
+    if(!j.ok||!j.data.ok){ $('um-load').textContent='❌ '+(j.error||'无数据'); return; }
+    const d=j.data; $('um-load').style.display='none';
+    $('um-axis').innerHTML='🕐 <b>时间轴</b>：美股 <b>'+d.us_date+'</b> 收盘（北京时间次日凌晨）→ 对应 A股 <b>'+d.end+'</b> 之后的交易日。'
+      +'下方"A股昨日"为该概念最近一个交易日表现，用于判断<b>是否已经跟上外盘</b>。';
+    $('um-body').innerHTML=(d.chains||[]).map(ch=>{
+      const items=ch.items.map(it=>{
+        if(it.state!=='ok') return '<div class="um-item"><span class="um-sym">'+it.sym+'</span> <span class="um-cn">'+it.cn+'</span> <span class="neu2">数据暂缺</span></div>';
+        const cps=(it.concepts||[]).map(c=>{
+          const dv=c.div&&c.div.code?'<span class="um-badge b-'+c.div.code+'">'+c.div.label+'</span>':'';
+          // ⭐超额=跟涨率−该概念全样本上涨率：牛市里概念本身就常涨·只有超额为正才说明外盘真带得动
+          let hit;
+          if(c.hit_up==null){ hit='<span class="neu2">跟涨率样本不足(n='+c.n_up+')</span>'; }
+          else{
+            const e=c.edge, ec=e>=8?'#f6465d':(e>=3?'#f0a020':(e<=-3?'#2ebd85':'#9ca3af'));
+            hit='<span title="美股单日≥+2%时该概念次日上涨比例；基准=该概念全样本上涨比例；超额=两者之差(真信息)">'
+              +'跟涨率 <b>'+c.hit_up+'%</b> <span class="neu2">vs 基准'+c.base_up+'%</span> '
+              +'超额 <b style="color:'+ec+'">'+(e>0?'+':'')+e+'pct</b><span class="neu2">(n='+c.n_up+')</span></span>';
+          }
+          const cn=c.cn_chg==null?'<span class="neu2">—</span>':'<span class="'+cls(c.cn_chg)+'">'+sgn(c.cn_chg)+'%</span>';
+          return '<div class="um-cp"><span class="um-cpname" data-cp="'+c.name+'">▸ '+c.name+'</span>'
+            +'<span class="um-link">A股昨日 '+cn+'</span>'+'<span class="um-link">'+corrTxt(c.corr)+'</span>'
+            +'<span class="um-link">'+hit+'</span>'+dv+'</div>';
+        }).join('');
+        return '<div class="um-item"><div class="um-us"><span class="um-sym">'+it.sym+'</span>'
+          +'<span class="um-cn">'+it.cn+'</span>'
+          +'<span class="um-chg '+cls(it.chg)+'">'+sgn(it.chg)+'%</span>'
+          +'<span class="um-link">收 '+it.close+' · 5日 <span class="'+cls(it.chg5)+'">'+sgn(it.chg5)+'%</span></span>'
+          +spark(it.spark)+'<span class="um-desc">'+it.note+'</span></div>'
+          +'<div class="um-cps">'+cps+'</div></div>';
+      }).join('');
+      return '<div class="um-chain"><h3>'+ch.chain+'</h3><div class="um-logic">🔗 '+ch.logic+'</div>'+items+'</div>';
+    }).join('');
+    $('um-note').innerHTML='⚠️ '+d.note;
+    // 点概念名 → 跳概念资金页（复用现成页面·不重复造）
+    document.querySelectorAll('.um-cpname').forEach(el=>el.addEventListener('click',()=>{
+      window.open('/concept', '_blank');
+    }));
+  }catch(e){ $('um-load').textContent='❌ '+e; }
+}
+load();
+</script>
+{% endblock %}

@@ -149,6 +149,10 @@ class CompositeProvider(DataProvider):
     def get_spot_em(self) -> pd.DataFrame:
         return self._ak.get_spot_em()
 
+    def get_us_daily(self, symbol: str, tail: int = 600) -> pd.DataFrame:
+        """美股日线（新浪·美股→A股映射页用）。"""
+        return self._ak.get_us_daily(symbol, tail)
+
     def get_realtime_quote(self, ts_codes: list[str]) -> pd.DataFrame:
         return self._ak.get_realtime_quote(ts_codes)
 
