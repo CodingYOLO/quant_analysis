@@ -44,6 +44,18 @@ h1 { font-size:22px; text-align:center; margin-bottom:4px; }
 
 <div id="verdict" class="vcard"><span class="neu2">⏳ 正在体检全市场（首次约 1~2 分钟，之后秒开）…</span></div>
 
+<!-- ❄️ 冰点雷达（2026-08-06·回测定稿口径）：双冰点=历史布局区·含亏损案例·参考档 -->
+<div class="sec" style="border-left:3px solid #5dc9f0;border-radius:10px;background:#12141f;padding:12px 16px;margin-bottom:14px">
+  <div class="sech" style="margin-bottom:8px">❄️ 冰点雷达 <span class="hint">情绪冰点+成交额冰点=历史上的分批布局区 · 回测口径 · 含亏损案例 · 参考档非荐股</span></div>
+  <div id="ice-loading" class="neu2" style="font-size:12.5px">⏳ 计算冰点读数…</div>
+  <div id="ice-state" style="display:none;font-size:14px;font-weight:600;margin-bottom:6px"></div>
+  <div id="ice-gauges" style="display:none;gap:14px;flex-wrap:wrap;font-size:12.5px"></div>
+  <details style="margin-top:8px"><summary style="cursor:pointer;font-size:12px;color:#7c9ef8">📜 历史冰点事件全表（每一次·含亏的）+ 口径说明</summary>
+    <div style="overflow-x:auto"><table id="ice-tbl" style="width:100%;font-size:12px;border-collapse:collapse;margin-top:6px"></table></div>
+    <div id="ice-note" class="neu2" style="font-size:10.5px;margin-top:6px;line-height:1.6"></div>
+  </details>
+</div>
+
 <div class="ranges">
   <span class="rlab">区间</span>
   <button class="rbtn" data-d="20">近20日</button>
@@ -212,5 +224,45 @@ async function load(){
   }catch(e){ $('verdict').innerHTML='加载失败：'+esc(String(e)); }
 }
 load();
+
+// ── ❄️ 冰点雷达 ────────────────────────────────────────────────────────────
+function iceGauge(label, val, th, low_good, extra){
+  const near = val==null ? false : (low_good ? val<=th*1.6 : false);
+  const hit = val==null ? false : val<=th;
+  const c = hit?'#5dc9f0':(near?'#f0a020':'#9ca3af');
+  return '<div style="background:#161929;border:1px solid #2d3052;border-radius:8px;padding:8px 14px;min-width:150px">'
+    +'<div class="neu2" style="font-size:11px">'+label+'</div>'
+    +'<div style="font-size:19px;font-weight:700;color:'+c+'">'+(val==null?'—':val)+(extra||'')+'</div>'
+    +'<div class="neu2" style="font-size:10px">冰点线 ≤'+th+(hit?' · ❄️已触及':'')+'</div></div>';
+}
+async function loadIce(){
+  const L=$('ice-loading');
+  try{
+    const j=await (await fetch('/api/market/ice-radar')).json();
+    if(!j.ok||!j.data.ok){ L.textContent='❌ '+(j.error||j.data.msg||'无数据'); return; }
+    const d=j.data; L.style.display='none';
+    const st=d.state, cur=d.cur;
+    const stC={double:'#5dc9f0',vol:'#f0a020',senti:'#f0a020',none:'#9ca3af',na:'#6b7280'}[st.code]||'#9ca3af';
+    const el=$('ice-state'); el.style.display='block';
+    el.innerHTML='<span style="color:'+stC+'">'+st.label+'</span> <span class="neu2" style="font-size:11.5px;font-weight:400">'+st.detail+'</span>'
+      +(d.live?' <span style="background:#0f2a38;color:#5dc9f0;border:1px solid #1e4a5e;border-radius:5px;padding:1px 8px;font-size:11px">❄️ '+d.live.date+' 新事件'+d.live.note+'</span>':'');
+    const g=$('ice-gauges'); g.style.display='flex';
+    g.innerHTML=iceGauge('成交额5日均 · 120日分位', cur.p_amt, 15, true)
+      +iceGauge('缩量比（5日均/60日均）', cur.ratio, 0.78, true)
+      +iceGauge('涨停数5日均 · 120日分位', cur.p_lim, 15, true)
+      +'<div style="background:#161929;border:1px solid #2d3052;border-radius:8px;padding:8px 14px"><div class="neu2" style="font-size:11px">今日读数</div>'
+      +'<div style="font-size:13px;color:#cbd5e1;line-height:1.7">成交 '+cur.amt.toLocaleString()+' 亿<br>涨停触及 '+cur.limit_touch+' 家</div></div>';
+    let h='<thead><tr style="color:#9ca3af;font-size:11px"><th style="text-align:left;padding:4px 8px">事件首日</th><th>触发</th><th>等权T+5</th><th>T+20</th><th>T+60</th><th style="text-align:left">备注</th></tr></thead><tbody>';
+    const cell=v=>{ if(v==null) return '<td style="text-align:center" class="neu2">·</td>'; const c=v>0?'#f6465d':(v<0?'#2ebd85':'#9ca3af'); return '<td style="text-align:center;color:'+c+'">'+(v>0?'+':'')+v+'%</td>'; };
+    d.episodes.forEach(e=>{
+      h+='<tr style="border-top:1px solid #1a1d2e"><td style="padding:4px 8px">'+e.date+'</td><td style="text-align:center;font-size:11px" class="neu2">'+e.trig+'</td>'
+        +cell(e.t5)+cell(e.t20)+cell(e.t60)+'<td style="text-align:left;font-size:11px;color:#e5c07b">'+(e.note||'')+'</td></tr>';
+    });
+    if(d.live) h+='<tr style="border-top:1px solid #1a1d2e"><td style="padding:4px 8px;color:#5dc9f0">'+d.live.date+'</td><td style="text-align:center;font-size:11px;color:#5dc9f0">进行中</td><td colspan="3" style="text-align:center" class="neu2">收益待兑现</td><td class="neu2" style="font-size:11px">'+d.live.note+'</td></tr>';
+    $('ice-tbl').innerHTML=h+'</tbody>';
+    $('ice-note').textContent='⚠️ '+(d.note||'')+' · 数据截至 '+d.end;
+  }catch(e){ L.textContent='❌ '+e; }
+}
+loadIce();
 </script>
 {% endblock %}

@@ -955,7 +955,9 @@ def run_warmup(base_date: str) -> None:
         build_concept_switch_radar(latest, provider=prov)
         build_theme_map(latest, provider=prov)
         index_radar(latest, prov)
-        console.print(f"[green]✅ 切换雷达/主题战场/结构雷达预热 {latest}[/green]")
+        from app.strategy.ice_radar import build_ice_radar
+        build_ice_radar(latest, provider=prov)         # 冰点雷达(增量补当日聚合·轻)
+        console.print(f"[green]✅ 切换雷达/主题战场/结构雷达/冰点雷达预热 {latest}[/green]")
     except Exception as e:
         console.print(f"[yellow]⚠️ 切换雷达系预热失败: {e}[/yellow]")
     # 2) 大盘情绪默认区间(end=今/明/后·各往前30天·覆盖今晚与周末打开的缓存键)

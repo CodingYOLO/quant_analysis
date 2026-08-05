@@ -602,6 +602,20 @@ async def api_tplus_settle(request: Request, _user: str = Depends(require_auth))
         return {"ok": False, "msg": str(e)}
 
 
+@app.get("/api/market/ice-radar")
+async def api_market_ice_radar(date: str = "", _user: str = Depends(require_auth)):
+    """❄️ 冰点雷达：情绪+成交额双冰点读数与历史事件表（回测口径·参考档）。"""
+    try:
+        from fastapi.concurrency import run_in_threadpool
+
+        from app.strategy.ice_radar import build_ice_radar
+        d = date or _last_trade_date()
+        return {"ok": True, "data": await run_in_threadpool(build_ice_radar, d)}
+    except Exception as e:
+        logger.exception("冰点雷达失败")
+        return {"ok": False, "error": str(e)}
+
+
 @app.get("/api/market/overview")
 async def api_market_overview(days: int = 120, _user: str = Depends(require_auth)):
     """大盘体检数据：多维同轴序列 + 板块轮动矩阵 + 地量冰点信号事件研究。"""
