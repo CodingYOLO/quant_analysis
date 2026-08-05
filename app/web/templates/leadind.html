@@ -101,7 +101,8 @@ async function load(){
     const j=await (await fetch('/api/leadind/panel')).json();
     if(!j.ok){ L.textContent='❌ '+j.error; return; }
     L.style.display='none';
-    document.getElementById('li-note').innerHTML='💡 <b>口径</b>：'+j.note+' · 数据日 '+j.date;
+    document.getElementById('li-note').innerHTML='💡 <b>口径</b>：'+j.note+' · 数据日 <b style="color:#f0a020">'+j.date+'</b>'
+      +' <span style="color:#7dd3a8">（全页为日线收盘口径：交易日约20:00自动更新为当日数据并重新生成AI研判——盘中/上午看到上一交易日属正常）</span>';
     const an=document.getElementById('li-anom');
     if(j.anomalies&&j.anomalies.length){
       an.style.display='block';
