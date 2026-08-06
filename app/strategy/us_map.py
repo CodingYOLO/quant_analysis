@@ -284,12 +284,13 @@ def build_us_map(end: str, provider: CompositeProvider | None = None,
     prov = provider or CompositeProvider()
     cdir = get_settings().cache_dir / "us_map"
     cdir.mkdir(parents=True, exist_ok=True)
-    # ⭐缓存键 = A股交易日 + **运行日**：美股在北京时间21:30开盘、次日04:00收盘，
-    # 19:25 预热拿到的是"前一晚"美股；次日早08:00 再跑时 A股交易日仍是昨天(未到18点不切),
-    # 只用 end 做键会命中昨晚缓存→用户早上看不到隔夜美股(2026-08-05 用户点破的时效缺口)。
-    # 加运行日后：早8点自然是新键→自动重算·当天内再打开命中缓存·无需 force。
+    # ⭐缓存键**只用运行日**（不含 A股交易日）——20260806 生产实测踩到：
+    # CLI(_get_last_trade_date·含今日)与 web(_last_trade_date·18点前退昨日)日期口径不同，
+    # 键里含 end 会让 08:00 cron 预热的文件(20260806_r…)与页面访问要找的(20260805_r…)
+    # 对不上 → 预热白做、用户早上第一次打开仍等1.5分钟。
+    # 只用运行日即可：美股数据日与A股上下文都由"今天几点跑"唯一决定，end 仅用于取概念数据。
     run_day = pd.Timestamp.now().strftime("%Y%m%d")
-    cache = cdir / f"{end}_r{run_day}_v1.json"
+    cache = cdir / f"r{run_day}_v1.json"
     if cache.exists() and not force:
         try:
             return json.loads(cache.read_text(encoding="utf-8"))
